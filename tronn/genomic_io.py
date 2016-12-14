@@ -13,6 +13,73 @@ from sklearn import metrics as skmetrics
 from random import shuffle
 
 
+def get_hdf5_reader_pyfunc(hdf5_file, batch_size):
+    '''
+    Takes in an hdf5 file and generates a function that returns a group
+    of examples and labels
+    '''
+
+    # Load in hdf5 file
+    hf = h5py.File(hdf5_file, 'r')
+
+    def hdf5_reader_fn():
+        '''
+        Given batch start and stop, pulls those examples from hdf5 file
+        '''
+        global batch_start
+        global batch_end
+
+        print 'loading batch: ', str(batch_start)
+        features = hf['train_in'][batch_start:batch_end,:,:,:]
+        labels = hf['train_out'][batch_start:batch_end,:]
+
+        batch_start += batch_size
+        batch_end += batch_size
+
+
+        return [features, labels]
+
+    return tf.py_func(hdf5_reader_fn, [], [tf.float32, tf.float32], stateful=True )
+
+
+def setup_queue(batch_size, features, labels, seq_length, tasks):
+    '''
+    Function that wraps everything
+    '''
+
+    with tf.variable_scope('train_queue'):
+        queue = tf.FIFOQueue(10000, [tf.float32, tf.float32], shapes=[[1, seq_length, 4], [tasks]])
+        enqueue_op = queue.enqueue_many([features, labels])
+        queue_runner = tf.train.QueueRunner(queue=queue, enqueue_ops=[enqueue_op], close_op=queue.close(),
+            cancel_op=queue.close(cancel_pending_enqueues=True))
+        tf.train.add_queue_runner(queue_runner, tf.GraphKeys.QUEUE_RUNNERS)
+
+    return queue
+
+
+def load_data(hdf5_file, batch_size, seq_length, tasks):
+    '''
+    Put it all together
+    '''
+
+    global batch_start 
+    batch_start = 0
+    global batch_end 
+    batch_end = batch_size
+
+    [hdf5_features, hdf5_labels] = get_hdf5_reader_pyfunc(hdf5_file, batch_size)
+
+    queue = setup_queue(batch_size, hdf5_features, hdf5_labels, seq_length, tasks)
+
+    [features, labels] = queue.dequeue_many(batch_size)
+
+    return features, labels
+
+
+
+
+# =================================================
+
 def get_data_params(hdf5_file):
     '''
     Get basic parameters
