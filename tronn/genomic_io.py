@@ -29,13 +29,11 @@ def get_hdf5_reader_pyfunc(hdf5_file, batch_size):
         global batch_start
         global batch_end
 
-        print 'loading batch: ', str(batch_start)
         features = hf['train_in'][batch_start:batch_end,:,:,:]
         labels = hf['train_out'][batch_start:batch_end,:]
 
         batch_start += batch_size
         batch_end += batch_size
-
 
         return [features, labels]
 

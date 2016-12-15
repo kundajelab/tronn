@@ -13,6 +13,16 @@ from sklearn import metrics as skmetrics
 from random import shuffle
 
 
+def streaming_metrics_tronn(total_loss):
+
+    tf.scalar_summary('loss', total_loss)
+
+    summary_op = tf.merge_all_summaries()
+
+    return summary_op
+
+
+
 def get_metrics(tasks, predictions, labels):
     '''
     Set up streaming metrics

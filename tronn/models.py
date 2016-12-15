@@ -52,11 +52,11 @@ def basset_tronn(features, labels, model_state):
         net = slim.max_pool2d(net, [1, 3], stride=3, scope='conv1')
 
         # Layer 2: conv layer to batch norm to relu to max pool. 
-        net = slim.conv2d(features, 200, [1, 11], scope='conv2')
+        net = slim.conv2d(net, 200, [1, 11], scope='conv2')
         net = slim.max_pool2d(net, [1, 4], stride=4, scope='conv2')
 
         # Layer 3: conv layer to batch norm to relu to max pool. 
-        net = slim.conv2d(features, 200, [1, 7], scope='conv3')
+        net = slim.conv2d(net, 200, [1, 7], scope='conv3')
         net = slim.max_pool2d(net, [1, 4], stride=4, scope='conv3')
 
     net = slim.flatten(net, scope='flatten')
