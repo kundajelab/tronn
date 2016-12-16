@@ -1,4 +1,6 @@
-# run Basset
+""" Contains functions for evaluation and summarization of metrics
+
+"""
 
 import os
 import math
