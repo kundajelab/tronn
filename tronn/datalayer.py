@@ -6,18 +6,54 @@ Supported formats:
 
 """
 
-import os
-import math
-import layers
-import models
 import tensorflow as tf
 import numpy as np
-import threading
 import h5py
+import collections
 
-from sklearn import metrics as skmetrics
-from random import shuffle
 
+def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
+    '''
+    Takes in a list of hdf5 files and generates a function that returns a group
+    of examples and labels
+    '''
+
+    h5py_handlers = [ h5py.File(filename) for filename in hdf5_files ]
+
+
+    def hdf5_reader_fn():
+        '''
+        Given batch start and stop, pulls those examples from hdf5 file
+        '''
+        global batch_start
+        global batch_end
+        global filename_index
+
+        # check if at end of file, and move on to the next file
+        if batch_end > h5py_handlers[filename_index]['features'].shape[0]:
+            filename_index += 1
+
+        if filename_index > len(h5py_handlers):
+            filename_index = 0
+
+        # TODO(dk) need to add some asserts to prevent running over the end
+
+        features = h5py_handlers[filename_index]['features'][batch_start:batch_end,:,:,:]
+        labels = h5py_handlers[filename_index]['labels'][batch_start:batch_end,:]
+
+        batch_start += batch_size
+        batch_end += batch_size
+
+        return [features, labels]
+
+    return tf.py_func(hdf5_reader_fn, [], [tf.float32, tf.float32],
+                      stateful=True)
+
+
+
+
+
+# =================================================
 
 def get_hdf5_reader_pyfunc(hdf5_file, batch_size):
     '''
@@ -68,7 +104,7 @@ def setup_queue(batch_size, features, labels, seq_length, tasks):
     return queue
 
 
-def load_data(hdf5_file, batch_size, seq_length, tasks):
+def load_data(hdf5_file, batch_size, seq_length, tasks, split='train'):
     '''
     Put it all together
     '''
