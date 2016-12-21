@@ -15,9 +15,21 @@ from sklearn import metrics as skmetrics
 from random import shuffle
 
 
-def streaming_metrics_tronn(total_loss):
+def streaming_metrics_tronn(total_loss, predictions, labels):
 
     tf.scalar_summary('loss', total_loss)
+
+
+    # See weights
+    weights = [v for v in tf.all_variables()
+               if ('weights' in v.name)]
+
+    weight_sum = tf.add_n([ tf.reduce_sum(w) for w in weights ])
+
+    tf.scalar_summary('weight_sum', weight_sum)
+
+    tf.scalar_summary('predictions', tf.reduce_sum(predictions))
+        
 
     summary_op = tf.merge_all_summaries()
 

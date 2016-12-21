@@ -87,6 +87,7 @@ def train(data_loader,
           restore,
           stopping_criterion,
           args,
+          data_file_list,
           seq_length,
           num_tasks,
           OUT_DIR,
@@ -98,7 +99,7 @@ def train(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        features, labels = data_loader(args.data_file,
+        features, labels = data_loader(data_file_list,
                                        args.batch_size,
                                        seq_length,
                                        num_tasks)
@@ -107,7 +108,11 @@ def train(data_loader,
         predictions = model_builder(features, labels, True) # Training = True
 
         # loss
-        total_loss = loss_fn(predictions, labels)
+        # TODO check that this loss is right
+        classification_loss = loss_fn(predictions, labels)
+        total_loss = slim.losses.get_total_loss()
+
+
 
         # optimizer
         optimizer = optimizer_fn(**optimizer_params)
@@ -116,7 +121,7 @@ def train(data_loader,
         train_op = slim.learning.create_train_op(total_loss, optimizer)
 
         # build metrics
-        summary_op = metrics_fn(total_loss)
+        summary_op = metrics_fn(total_loss, predictions, labels)
 
         #tf.Print(slim.get_global_step(), [slim.get_global_step()])
 
@@ -154,6 +159,7 @@ def evaluate(data_loader,
              metrics_fn,
              checkpoint_path,
              args,
+             data_file_list,
              seq_length,
              num_tasks,
              out_dir):
@@ -165,7 +171,7 @@ def evaluate(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        features, labels = data_loader(args.data_file,
+        features, labels = data_loader(data_file_list,
                                        args.batch_size,
                                        seq_length,
                                        num_tasks)
@@ -187,7 +193,7 @@ def evaluate(data_loader,
             tf.scalar_summary(metric_name, metric_value)
 
         # num batches to evaluate
-        num_evals = 100
+        num_evals = 1000
 
         # Evaluate the checkpoint
         a = slim.evaluation.evaluate_once('',

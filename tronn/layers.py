@@ -15,6 +15,15 @@ The dimension ordering used throughout is [batch, height, width, channel] (NHWC 
 Valid padding mode is assumed in all conv layers, which does not exceed input dimensions.
 """
 
+
+def slim_conv_bias_initializer(stdv, dtype=dtypes.float32):
+    """hacky initializer"""
+    def _initializer(shape, dtype=dtype, partition_info=None, seed=1234):
+        return random_ops.random_uniform(shape, -stdv, stdv, dtype, seed=seed)
+    return _initializer
+
+# ========================
+
 def conv_weight_initializer(dtype=dtypes.float32):
     """hacky initializer for torch style, conv layers!!"""
     def _initializer(shape, dtype=dtype, partition_info=None, seed=1234):

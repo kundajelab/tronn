@@ -11,6 +11,43 @@ import numpy as np
 import h5py
 import collections
 
+def check_dataset_params(hdf5_file_list):
+    '''
+    Gathers basic information
+    '''
+
+    num_examples = 0
+    for filename in hdf5_file_list:
+        with h5py.File(filename,'r') as hf:
+            num_examples += hf['features'].shape[0]
+            seq_length = hf['features'].shape[2]
+            num_tasks = hf['labels'].shape[1]
+
+    return num_examples, seq_length, num_tasks
+
+
+def load_data_from_filename_list(hdf5_files, batch_size, seq_length, tasks, split='train'):
+    '''
+    Put it all together
+    '''
+
+    global batch_start 
+    batch_start = 0
+    global batch_end 
+    batch_end = batch_size
+    global filename_index
+    filename_index = 0
+
+    [hdf5_features, hdf5_labels] = get_hdf5_list_reader_pyfunc(hdf5_files,
+                                                          batch_size)
+
+    queue = setup_queue(batch_size, hdf5_features, hdf5_labels,
+                        seq_length, tasks)
+
+    [features, labels] = queue.dequeue_many(batch_size)
+
+    return features, labels
+
 
 def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
     '''
@@ -30,11 +67,17 @@ def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
         global filename_index
 
         # check if at end of file, and move on to the next file
+        # todo: allow adding nulls or something (the queue size is causing the problem)
         if batch_end > h5py_handlers[filename_index]['features'].shape[0]:
+            print hdf5_files[filename_index]
             filename_index += 1
+            batch_start = 0
+            batch_end = batch_size
 
-        if filename_index > len(h5py_handlers):
+        if filename_index >= len(h5py_handlers):
             filename_index = 0
+            batch_start = 0
+            batch_end = batch_size
 
         # TODO(dk) need to add some asserts to prevent running over the end
 
@@ -131,9 +174,9 @@ def get_data_params(hdf5_file):
     '''
 
     with h5py.File(hdf5_file, 'r') as hf:
-        num_train_examples = hf['train_in'].shape[0]
-        seq_length = hf['train_in'].shape[2]
-        num_tasks = hf['train_out'].shape[1]
+        num_train_examples = hf['features'].shape[0]
+        seq_length = hf['features'].shape[2]
+        num_tasks = hf['labels'].shape[1]
 
     return num_train_examples, seq_length, num_tasks
 

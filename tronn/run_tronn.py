@@ -3,6 +3,7 @@
 import tronn
 import argparse
 import threading
+import glob
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -14,7 +15,7 @@ def parse_args():
 
     parser = argparse.ArgumentParser(description='Run TRoNN')
 
-    parser.add_argument('data_file', help='(currently only) hdf5 file')
+    parser.add_argument('--data_file', help='(currently only) hdf5 file')
     parser.add_argument('--epochs', default=20, help='number of epochs')
     parser.add_argument('--batch_size', default=128, help='batch size')
 
@@ -31,8 +32,23 @@ def main():
 
     OUT_DIR = './log'
 
+    DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
+
+    data_files = glob.glob('{}/*.h5'.format(DATA_DIR))
+    print 'Found {} chrom files'.format(len(data_files))
+
+    train_files = data_files[0:15]
+    valid_files = data_files[15:20]
+
     args = parse_args()
-    num_train_examples, seq_length, num_tasks = tronn.get_data_params(args.data_file)    
+    num_train_examples, seq_length, num_tasks = tronn.check_dataset_params(train_files)
+    train_steps = num_train_examples / args.batch_size - 100
+    print train_steps
+    print 'Num train examples: {}'.format(num_train_examples)
+
+    num_valid_examples, seq_length, num_tasks = tronn.check_dataset_params(valid_files)
+    valid_steps = num_valid_examples / args.batch_size - 100
+    print 'Num valid examples: {}'.format(num_valid_examples)
 
     for epoch in xrange(args.epochs):
         print "EPOCH:", str(epoch)
@@ -43,8 +59,8 @@ def main():
             restore = True
 
         # Run training
-        tronn.train(tronn.load_data, 
-            tronn.basset,
+        tronn.train(tronn.load_data_from_filename_list, 
+            tronn.basset_like,
             slim.losses.sigmoid_cross_entropy,
             tf.train.RMSPropOptimizer,
             {'learning_rate': 0.002, 'decay':0.98, 'momentum':0.0, 'epsilon':1e-8},
@@ -52,21 +68,23 @@ def main():
             restore,
             'Not yet implemented',
             args,
+            train_files,
             seq_length,
             num_tasks,
             '{}/train'.format(OUT_DIR),
-            (epoch+1)*100)
+            (epoch+1)*750)
 
         # Get last checkpoint
         checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(OUT_DIR)) # fix this to save checkpoints elsewhere
         print checkpoint_path
 
         # Evaluate after training
-        tronn.evaluate(tronn.load_data,
-            tronn.basset,
+        tronn.evaluate(tronn.load_data_from_filename_list,
+            tronn.basset_like,
             tronn.streaming_metrics_tronn,
             checkpoint_path,
             args,
+            valid_files,
             seq_length,
             num_tasks,
             '{}/valid'.format(OUT_DIR))
