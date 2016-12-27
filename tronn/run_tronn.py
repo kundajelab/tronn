@@ -46,12 +46,12 @@ def main():
     args = parse_args()
 
     # This all needs to be cleaned up into some kind of init function...
-    num_train_examples, seq_length, num_tasks = tronn.check_dataset_params(train_files)
+    num_train_examples = tronn_utils.get_total_num_examples(train_files)
     train_steps = num_train_examples / args.batch_size - 100
     print train_steps
     print 'Num train examples: {}'.format(num_train_examples)
 
-    num_valid_examples, seq_length, num_tasks = tronn.check_dataset_params(valid_files)
+    num_valid_examples = tronn_utils.get_total_num_examples(valid_files)
     valid_steps = num_valid_examples / args.batch_size - 100
     print 'Num valid examples: {}'.format(num_valid_examples)
 

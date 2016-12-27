@@ -5,32 +5,17 @@ used frequently in genomics datasets.
 
 """
 
-import h5py
-import collections
 
+import h5py
 import tensorflow as tf
 import numpy as np
 
 
-def check_dataset_params(hdf5_file_list):
-    '''
-    Gathers basic information
-    '''
-
-    # TODO move this to utils and also only need total num examples now
-    num_examples = 0
-    for filename in hdf5_file_list:
-        with h5py.File(filename,'r') as hf:
-            num_examples += hf['features'].shape[0]
-            seq_length = hf['features'].shape[2]
-            num_tasks = hf['labels'].shape[1]
-
-    return num_examples, seq_length, num_tasks
-
-
 def setup_queue(features, labels, capacity=10000):
     '''
-    Set up data queue as well as queue runner.
+    Set up data queue as well as queue runner. The shapes of the
+    tensors are inferred from the inputs, so input shapes must be
+    set before this function is called.
     '''
 
     with tf.variable_scope('datalayer'):
@@ -51,16 +36,18 @@ def setup_queue(features, labels, capacity=10000):
 
 def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
     '''
-    Takes in a list of hdf5 files and generates a function that returns a group
-    of examples and labels
+    Takes in a list of hdf5 files and generates a tensorflow op that returns a 
+    group of examples and labels when called in the graph. Be aware that this
+    setup uses global variables that must be initialized first to make this
+    work.
     '''
 
-    h5py_handlers = [ h5py.File(filename) for filename in hdf5_files ]
+    # Get all file handles before starting learning.
+    h5py_handles = [ h5py.File(filename) for filename in hdf5_files ]
 
-    # TODO: at this point probably want to check shapes and then after 
-    # function call set shape
-    feature_shape = h5py_handlers[0]['features'].shape[1:]
-    label_shape = h5py_handlers[0]['labels'].shape[1:]
+    # Check shapes from the hdf5 file so that we can set the tensor shapes
+    feature_shape = h5py_handles[0]['features'].shape[1:]
+    label_shape = h5py_handles[0]['labels'].shape[1:]
 
     def hdf5_reader_fn():
         '''
@@ -71,33 +58,37 @@ def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
         global filename_index
 
         # check if at end of file, and move on to the next file
-        # todo: allow adding nulls or something (the queue size is causing the problem)
-        if batch_end > h5py_handlers[filename_index]['features'].shape[0]:
+        if batch_end > h5py_handles[filename_index]['features'].shape[0]:
             print hdf5_files[filename_index]
             filename_index += 1
             batch_start = 0
             batch_end = batch_size
 
-        if filename_index >= len(h5py_handlers):
+        if filename_index >= len(h5py_handles):
             filename_index = 0
             batch_start = 0
             batch_end = batch_size
 
-        # TODO(dk) need to add some asserts to prevent running over the end
+        current_handle = h5py_handles[filename_index]
 
-        features = h5py_handlers[filename_index]['features'][batch_start:batch_end,:,:,:]
-        labels = h5py_handlers[filename_index]['labels'][batch_start:batch_end,:]
+        features = current_handle['features'][batch_start:batch_end,:,:,:]
+        labels = current_handle['labels'][batch_start:batch_end,:]
 
         batch_start += batch_size
         batch_end += batch_size
 
         return [features, labels]
 
-    [py_func_features, py_func_labels] = tf.py_func(hdf5_reader_fn, [], [tf.float32, tf.float32],
-                      stateful=True)
+    [py_func_features, py_func_labels] = tf.py_func(hdf5_reader_fn,
+                                                    [],
+                                                    [tf.float32, tf.float32],
+                                                    stateful=True)
 
     # Set the shape so that we can infer sizes etc in later layers.
-    py_func_features.set_shape([batch_size, feature_shape[0], feature_shape[1], feature_shape[2]])
+    py_func_features.set_shape([batch_size,
+                                feature_shape[0],
+                                feature_shape[1],
+                                feature_shape[2]])
     py_func_labels.set_shape([batch_size, label_shape[0]])
 
     return py_func_features, py_func_labels
@@ -108,11 +99,12 @@ def load_data_from_filename_list(hdf5_files, batch_size):
     Put it all together
     '''
 
-    global batch_start 
-    batch_start = 0
-    global batch_end 
-    batch_end = batch_size
+    global batch_start
+    global batch_end
     global filename_index
+
+    batch_start = 0
+    batch_end = batch_size
     filename_index = 0
 
     [hdf5_features, hdf5_labels] = get_hdf5_list_reader_pyfunc(hdf5_files,

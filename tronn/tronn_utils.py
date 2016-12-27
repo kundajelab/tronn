@@ -2,6 +2,7 @@
 """
 
 import math
+import h5py
 
 
 def get_total_num_examples(hdf5_file_list):
