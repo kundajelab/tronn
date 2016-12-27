@@ -30,6 +30,8 @@ def parse_args():
 
 def main():
 
+
+    # TODO take all this and abstract away?
     OUT_DIR = './log'
 
     DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
@@ -41,6 +43,8 @@ def main():
     valid_files = data_files[15:20]
 
     args = parse_args()
+
+    # This all needs to be cleaned up into some kind of init function...
     num_train_examples, seq_length, num_tasks = tronn.check_dataset_params(train_files)
     train_steps = num_train_examples / args.batch_size - 100
     print train_steps
@@ -50,6 +54,7 @@ def main():
     valid_steps = num_valid_examples / args.batch_size - 100
     print 'Num valid examples: {}'.format(num_valid_examples)
 
+    # Should epoch level be where things are exposed here? or is this loop abstractable too?
     for epoch in xrange(args.epochs):
         print "EPOCH:", str(epoch)
 
