@@ -74,8 +74,6 @@ def main():
             'Not yet implemented',
             args,
             train_files,
-            seq_length,
-            num_tasks,
             '{}/train'.format(OUT_DIR),
             (epoch+1)*750)
 
@@ -90,8 +88,6 @@ def main():
             checkpoint_path,
             args,
             valid_files,
-            seq_length,
-            num_tasks,
             '{}/valid'.format(OUT_DIR))
 
     # extract importance

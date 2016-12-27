@@ -1,8 +1,7 @@
 """ Contains functions for I/O 
 
-Supported formats:
-
-- hdf5 
+Currently hdf5 is supported as an important standardized filetype
+used frequently in genomics datasets.
 
 """
 
@@ -27,29 +26,28 @@ def check_dataset_params(hdf5_file_list):
     return num_examples, seq_length, num_tasks
 
 
-def setup_queue(features, labels, seq_length, tasks, 
-    capacity=10000):
-    '''
-    Set up data queue as well as queue runner.
-    '''
+# def setup_queue(features, labels, seq_length, tasks, 
+#     capacity=10000):
+#     '''
+#     Set up data queue as well as queue runner.
+#     '''
 
-    with tf.variable_scope('datalayer'):
-        queue = tf.FIFOQueue(capacity,
-                             [tf.float32, tf.float32],
-                             shapes=[[1, seq_length, 4],
-                                     [tasks]])
-        enqueue_op = queue.enqueue_many([features, labels])
-        queue_runner = tf.train.QueueRunner(
-            queue=queue,
-            enqueue_ops=[enqueue_op],
-            close_op=queue.close(),
-            cancel_op=queue.close(cancel_pending_enqueues=True))
-        tf.train.add_queue_runner(queue_runner, tf.GraphKeys.QUEUE_RUNNERS)
+#     with tf.variable_scope('datalayer'):
+#         queue = tf.FIFOQueue(capacity,
+#                              [tf.float32, tf.float32],
+#                              shapes=[[1, seq_length, 4],
+#                                      [tasks]])
+#         enqueue_op = queue.enqueue_many([features, labels])
+#         queue_runner = tf.train.QueueRunner(
+#             queue=queue,
+#             enqueue_ops=[enqueue_op],
+#             close_op=queue.close(),
+#             cancel_op=queue.close(cancel_pending_enqueues=True))
+#         tf.train.add_queue_runner(queue_runner, tf.GraphKeys.QUEUE_RUNNERS)
 
-    return queue
+#     return queue
 
-def setup_queue_test(features, labels, 
-    capacity=10000):
+def setup_queue(features, labels, capacity=10000):
     '''
     Set up data queue as well as queue runner.
     '''
@@ -78,6 +76,10 @@ def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
 
     h5py_handlers = [ h5py.File(filename) for filename in hdf5_files ]
 
+    # TODO: at this point probably want to check shapes and then after 
+    # function call set shape
+    feature_shape = h5py_handlers[0]['features'].shape[1:]
+    label_shape = h5py_handlers[0]['labels'].shape[1:]
 
     def hdf5_reader_fn():
         '''
@@ -110,11 +112,17 @@ def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
 
         return [features, labels]
 
-    return tf.py_func(hdf5_reader_fn, [], [tf.float32, tf.float32],
+    [py_func_features, py_func_labels] = tf.py_func(hdf5_reader_fn, [], [tf.float32, tf.float32],
                       stateful=True)
 
+    # Set the shape so that we can infer sizes etc in later layers.
+    py_func_features.set_shape([batch_size, feature_shape[0], feature_shape[1], feature_shape[2]])
+    py_func_labels.set_shape([batch_size, label_shape[0]])
 
-def load_data_from_filename_list(hdf5_files, batch_size, seq_length, tasks):
+    return py_func_features, py_func_labels
+
+
+def load_data_from_filename_list(hdf5_files, batch_size):
     '''
     Put it all together
     '''
@@ -132,7 +140,7 @@ def load_data_from_filename_list(hdf5_files, batch_size, seq_length, tasks):
     # queue = setup_queue(hdf5_features, hdf5_labels,
     #                     seq_length, tasks)
 
-    queue = setup_queue(hdf5_features, hdf5_labels, seq_length, tasks)
+    queue = setup_queue(hdf5_features, hdf5_labels)
 
     [features, labels] = queue.dequeue_many(batch_size)
 

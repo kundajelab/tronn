@@ -21,8 +21,6 @@ def train(data_loader,
           stopping_criterion,
           args,
           data_file_list,
-          seq_length,
-          num_tasks,
           OUT_DIR,
           global_step_val):
     '''
@@ -33,9 +31,7 @@ def train(data_loader,
 
         # data loader
         features, labels = data_loader(data_file_list,
-                                       args.batch_size,
-                                       seq_length,
-                                       num_tasks)
+                                       args.batch_size)
 
         # model
         predictions = model_builder(features, labels, True) # Training = True
@@ -93,8 +89,6 @@ def evaluate(data_loader,
              checkpoint_path,
              args,
              data_file_list,
-             seq_length,
-             num_tasks,
              out_dir):
     '''
     Note that if you want to reload a model, you must load the same model
@@ -105,9 +99,7 @@ def evaluate(data_loader,
 
         # data loader
         features, labels = data_loader(data_file_list,
-                                       args.batch_size,
-                                       seq_length,
-                                       num_tasks)
+                                       args.batch_size)
         labels = tf.cast(labels, tf.bool)
 
         # model
