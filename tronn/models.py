@@ -7,8 +7,8 @@ Currently implemented:
 """
 
 import layers 
-import user_ops
-import utils
+import tronn_ops
+import tronn_utils
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -84,7 +84,7 @@ def basset_like(features, labels, model_state):
             ):
 
         # Layer 1: conv layer to batch norm to relu to max pool. 
-        conv1_stdev = utils.calc_stdev(19, 1, 4)
+        conv1_stdev = tronn_utils.calc_stdev(19, 1, 4)
         net = slim.conv2d(features, 300, [1, 19], 
             activation_fn=None,
             biases_initializer=layers.slim_conv_bias_initializer(stdv=conv1_stdev),
@@ -93,7 +93,7 @@ def basset_like(features, labels, model_state):
         net = slim.max_pool2d(net, [1, 3], stride=3, scope='conv1')
 
         # Layer 2: conv layer to batch norm to relu to max pool. 
-        conv2_stdev = utils.calc_stdev(11, 1, 300)
+        conv2_stdev = tronn_utils.calc_stdev(11, 1, 300)
         net = slim.conv2d(net, 200, [1, 11], 
             activation_fn=None,
             biases_initializer=layers.slim_conv_bias_initializer(stdv=conv2_stdev),
@@ -102,7 +102,7 @@ def basset_like(features, labels, model_state):
         net = slim.max_pool2d(net, [1, 4], stride=4, scope='conv2')
 
         # Layer 3: conv layer to batch norm to relu to max pool. 
-        conv3_stdev = utils.calc_stdev(7, 1, 200)
+        conv3_stdev = tronn_utils.calc_stdev(7, 1, 200)
         net = slim.conv2d(net, 200, [1, 7], 
             activation_fn=None,
             biases_initializer=layers.slim_conv_bias_initializer(stdv=conv3_stdev),
@@ -121,7 +121,7 @@ def basset_like(features, labels, model_state):
         ):
 
         # Layer 4: fully connected layer to relu to dropout
-        fc1_stdev = utils.calc_stdev(1, 1, 3600, style='fc')
+        fc1_stdev = tronn_utils.calc_stdev(1, 1, 3600, style='fc')
         net = slim.fully_connected(net, 1000, 
             activation_fn=None,
             biases_initializer=layers.slim_conv_bias_initializer(stdv=fc1_stdev),
@@ -130,7 +130,7 @@ def basset_like(features, labels, model_state):
         net = slim.dropout(net, keep_prob=0.7, is_training=model_state)
 
         # Layer 5: fully connected layer to relu to dropout
-        fc2_stdev = utils.calc_stdev(1, 1, 1000, style='fc')
+        fc2_stdev = tronn_utils.calc_stdev(1, 1, 1000, style='fc')
         net = slim.fully_connected(net, 1000, 
             activation_fn=None,
             biases_initializer=layers.slim_conv_bias_initializer(stdv=fc2_stdev),
@@ -139,7 +139,7 @@ def basset_like(features, labels, model_state):
         net = slim.dropout(net, keep_prob=0.7, is_training=model_state)
 
     # OUT
-    out_stdev = utils.calc_stdev(1, 1, 1000, style='fc')
+    out_stdev = tronn_utils.calc_stdev(1, 1, 1000, style='fc')
     net = slim.fully_connected(net, int(labels.get_shape()[-1]), 
         activation_fn=None, # TODO watch this
         weights_initializer=layers.fc_weight_initializer(),
@@ -148,7 +148,7 @@ def basset_like(features, labels, model_state):
 
     # Make a maxnorm op and add to update ops
     # TODO check
-    user_ops.maxnorm(model_state, 7)
+    tronn_ops.maxnorm(model_state, 7)
 
     return net
 

@@ -5,10 +5,11 @@ used frequently in genomics datasets.
 
 """
 
-import tensorflow as tf
-import numpy as np
 import h5py
 import collections
+
+import tensorflow as tf
+import numpy as np
 
 
 def check_dataset_params(hdf5_file_list):
@@ -16,6 +17,7 @@ def check_dataset_params(hdf5_file_list):
     Gathers basic information
     '''
 
+    # TODO move this to utils and also only need total num examples now
     num_examples = 0
     for filename in hdf5_file_list:
         with h5py.File(filename,'r') as hf:
@@ -25,27 +27,6 @@ def check_dataset_params(hdf5_file_list):
 
     return num_examples, seq_length, num_tasks
 
-
-# def setup_queue(features, labels, seq_length, tasks, 
-#     capacity=10000):
-#     '''
-#     Set up data queue as well as queue runner.
-#     '''
-
-#     with tf.variable_scope('datalayer'):
-#         queue = tf.FIFOQueue(capacity,
-#                              [tf.float32, tf.float32],
-#                              shapes=[[1, seq_length, 4],
-#                                      [tasks]])
-#         enqueue_op = queue.enqueue_many([features, labels])
-#         queue_runner = tf.train.QueueRunner(
-#             queue=queue,
-#             enqueue_ops=[enqueue_op],
-#             close_op=queue.close(),
-#             cancel_op=queue.close(cancel_pending_enqueues=True))
-#         tf.train.add_queue_runner(queue_runner, tf.GraphKeys.QUEUE_RUNNERS)
-
-#     return queue
 
 def setup_queue(features, labels, capacity=10000):
     '''
@@ -136,9 +117,6 @@ def load_data_from_filename_list(hdf5_files, batch_size):
 
     [hdf5_features, hdf5_labels] = get_hdf5_list_reader_pyfunc(hdf5_files,
                                                           batch_size)
-
-    # queue = setup_queue(hdf5_features, hdf5_labels,
-    #                     seq_length, tasks)
 
     queue = setup_queue(hdf5_features, hdf5_labels)
 

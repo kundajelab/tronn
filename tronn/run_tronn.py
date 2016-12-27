@@ -4,6 +4,7 @@ import tronn
 import argparse
 import threading
 import glob
+import tronn_utils
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
