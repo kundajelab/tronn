@@ -84,7 +84,7 @@ def evaluate(data_loader,
              args,
              data_file_list,
              out_dir,
-             num_evals=1000):
+             num_evals=10000):
     '''
     Wrapper function for doing evaluation (ie getting metrics on a model)
     Note that if you want to reload a model, you must load the same model
@@ -96,19 +96,19 @@ def evaluate(data_loader,
         # data loader
         features, labels = data_loader(data_file_list,
                                        args.batch_size)
-        labels = tf.cast(labels, tf.bool)
+        labels_bool = tf.cast(labels, tf.bool)
 
         # model - training=False
-        prediction_probs = model_builder(features, labels, is_training=False)
+        prediction_probs = tf.nn.sigmoid(model_builder(features, labels, is_training=False))
 
         # classification predictions - note that this assumes a model
         # with sigmoid NOT softmax.
         # TODO factor this out
-        prediction_bools = tf.greater(tf.sigmoid(prediction_probs), 0.5)
+        prediction_bools = tf.greater(prediction_probs, 0.5)
         
         # Choose the metrics to compute
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
-            "accuracy": slim.metrics.streaming_accuracy(prediction_bools, labels),
+            "accuracy": slim.metrics.streaming_accuracy(prediction_bools, labels_bool),
             "auROC": slim.metrics.streaming_auc(prediction_probs, labels, 
                                                 curve="ROC"),
             "auPRC": slim.metrics.streaming_auc(prediction_probs, labels, 

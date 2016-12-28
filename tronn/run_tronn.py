@@ -30,8 +30,7 @@ def parse_args():
 
 def main():
 
-
-    # TODO take all this and abstract away?
+    # TODO fix input of info to make easier to run
     OUT_DIR = './log'
 
     DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
@@ -48,6 +47,7 @@ def main():
     num_train_examples = tronn.nn_utils.get_total_num_examples(train_files)
     train_steps = num_train_examples / args.batch_size - 100
     print train_steps
+    train_steps = 10000 # for now. just to make it easier to test
     print 'Num train examples: {}'.format(num_train_examples)
 
     num_valid_examples = tronn.nn_utils.get_total_num_examples(valid_files)
@@ -65,7 +65,7 @@ def main():
 
         # Run training
         tronn.learning.train(tronn.load_data_from_filename_list, 
-            tronn.basset_like,
+            tronn.basset,
             slim.losses.sigmoid_cross_entropy,
             tf.train.RMSPropOptimizer,
             {'learning_rate': 0.002, 'decay':0.98, 'momentum':0.0, 'epsilon':1e-8},
@@ -75,7 +75,7 @@ def main():
             args,
             train_files,
             '{}/train'.format(OUT_DIR),
-            (epoch+1)*750)
+            (epoch+1)*train_steps)
 
         # Get last checkpoint
         checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(OUT_DIR)) # fix this to save checkpoints elsewhere
@@ -83,12 +83,13 @@ def main():
 
         # Evaluate after training
         tronn.learning.evaluate(tronn.load_data_from_filename_list,
-            tronn.basset_like,
+            tronn.basset,
             tronn.streaming_metrics_tronn,
             checkpoint_path,
             args,
             valid_files,
-            '{}/valid'.format(OUT_DIR))
+            '{}/valid'.format(OUT_DIR),
+            num_evals=1000)
 
     # extract importance
     with tf.Graph.as_default() as interpretation_graph:

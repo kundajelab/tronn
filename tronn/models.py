@@ -17,60 +17,7 @@ from tronn import nn_ops
 from tronn import nn_utils
 
 
-def basset(features, labels, model_state):
-    '''
-    Basset - Kelley et al Genome Research 2016
-    TODO delete
-    '''
-
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            normalizer_fn=slim.batch_norm,
-            normalizer_params={'is_training': model_state},
-            weights_initializer=layers.conv_weight_initializer(),
-            biases_initializer=layers.conv_bias_initializer()):
-
-        # Layer 1: conv layer to batch norm to relu to max pool. 
-        net = slim.conv2d(features, 300, [1, 19], scope='conv1')
-        net = slim.max_pool2d(net, [1, 3], stride=3, scope='conv1')
-
-        # Layer 2: conv layer to batch norm to relu to max pool. 
-        net = slim.conv2d(net, 200, [1, 11], scope='conv2')
-        net = slim.max_pool2d(net, [1, 4], stride=4, scope='conv2')
-
-        # Layer 3: conv layer to batch norm to relu to max pool. 
-        net = slim.conv2d(net, 200, [1, 7], scope='conv3')
-        net = slim.max_pool2d(net, [1, 4], stride=4, scope='conv3')
-
-    net = slim.flatten(net, scope='flatten')
-
-    with slim.arg_scope(
-        [slim.fully_connected],
-        normalizer_fn=slim.batch_norm,
-        normalizer_params={'is_training': model_state},
-        weights_initializer=layers.fc_weight_initializer(),
-        biases_initializer=layers.fc_bias_initializer()):
-
-        # Layer 4: fully connected layer to relu to dropout
-        net = slim.fully_connected(net, 1000, scope='fc1')
-        net = slim.dropout(net, keep_prob=0.7, is_training=model_state)
-
-        # Layer 5: fully connected layer to relu to dropout
-        net = slim.fully_connected(net, 1000, scope='fc2')
-        net = slim.dropout(net, keep_prob=0.7, is_training=model_state)
-
-    # OUT
-    net = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='out')
-
-    # Make a maxnorm op and add to update ops
-    # TODO check
-    maxnorm(model_state, 7)
-
-    return net
-
-
-def basset_like(features, labels, is_training=True):
+def basset(features, labels, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
     Editing
@@ -92,7 +39,7 @@ def basset_like(features, labels, is_training=True):
             biases_initializer=initializers.slim_conv_bias_initializer(stdv=conv1_stdev),
             scope='conv1')
         net = slim.batch_norm(net, center=True, scale=True, activation_fn=nn.relu)
-        net = slim.max_pool2d(net, [1, 3], stride=3, scope='conv1')
+        net = slim.max_pool2d(net, [1, 3], stride=[1, 3], scope='conv1')
 
         # Layer 2: conv layer to batch norm to relu to max pool. 
         conv2_stdev = nn_utils.calc_stdev(11, 1, 300)
@@ -101,7 +48,7 @@ def basset_like(features, labels, is_training=True):
             biases_initializer=initializers.slim_conv_bias_initializer(stdv=conv2_stdev),
             scope='conv2')
         net = slim.batch_norm(net, center=True, scale=True, activation_fn=nn.relu)
-        net = slim.max_pool2d(net, [1, 4], stride=4, scope='conv2')
+        net = slim.max_pool2d(net, [1, 4], stride=[1, 4], scope='conv2')
 
         # Layer 3: conv layer to batch norm to relu to max pool. 
         conv3_stdev = nn_utils.calc_stdev(7, 1, 200)
@@ -110,7 +57,7 @@ def basset_like(features, labels, is_training=True):
             biases_initializer=initializers.slim_conv_bias_initializer(stdv=conv3_stdev),
             scope='conv3')
         net = slim.batch_norm(net, center=True, scale=True, activation_fn=nn.relu)
-        net = slim.max_pool2d(net, [1, 4], stride=4, scope='conv3')
+        net = slim.max_pool2d(net, [1, 4], stride=[1, 4], scope='conv3')
 
     net = slim.flatten(net, scope='flatten')
 
