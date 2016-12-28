@@ -1,4 +1,7 @@
 """Contains custom layers.
+
+New layers as needed should be defined here.
+
 """
 
 import tensorflow as tf

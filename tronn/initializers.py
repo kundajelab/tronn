@@ -11,46 +11,31 @@ import tensorflow as tf
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import random_ops
 
+from tronn import nn_utils
 
-def slim_conv_bias_initializer(stdv, dtype=dtypes.float32):
-    """hacky initializer"""
-    def _initializer(shape, dtype=dtype, partition_info=None, seed=1234):
+
+def torch_initializer(stdv, dtype=dtypes.float32):
+    '''
+    Torch7 style initializer. Can be used for weights and biases.
+    '''
+    def _initializer(shape, dtype=dtype, partition_info=None, seed=1337):
         return random_ops.random_uniform(shape, -stdv, stdv, dtype, seed=seed)
     return _initializer
 
-# ========================
 
-def conv_weight_initializer(dtype=dtypes.float32):
-    """hacky initializer for torch style, conv layers!!"""
-    def _initializer(shape, dtype=dtype, partition_info=None, seed=1234):
-        stdv = 1. / math.sqrt(shape[1] * shape[0] * shape[2]) # width of filter, height of filter, input num channels
-        return random_ops.random_uniform(shape, -stdv, stdv, dtype, seed=seed)
-    return _initializer
+def torch_conv_initializer(filter_shape, fan_in, dtype=dtypes.float32):
+    '''
+    Wraps the calculation of the standard dev for convolutional layers:
+    stdv = 1 / sqrt( filter_width * filter_height * fan_in )
+    '''
+    stdv = 1. / math.sqrt(filter_shape[0] * filter_shape[1] * fan_in)
+    return torch_initializer(stdv)
 
-def conv_bias_initializer(dtype=dtypes.float32): # Give it the full param shape (so that it can calculate stdv) but then output the right shape
-    """Hacky initializer to implement torch style weights for the biases"""
-    def _initializer(shape, dtype=dtype, partition_info=None, seed=1234):
-        stdv = 1. / math.sqrt(shape[1] * shape[0] * shape[2]) # width of filter, height of filter, input num channels
-        return random_ops.random_uniform([shape[3]], -stdv, stdv, dtype, seed=seed)
-    return _initializer
 
-def fc_weight_initializer(dtype=dtypes.float32):
-    """hacky initializer for torch style, conv layers!!"""
-    def _initializer(shape, dtype=dtype, partition_info=None, seed=1234):
-        stdv = 1. / math.sqrt(shape[0]) # input size
-        return random_ops.random_uniform(shape, -stdv, stdv, dtype, seed=seed)
-    return _initializer
-
-def fc_bias_initializer(dtype=dtypes.float32):
-    """hacky initializer for torch style, conv layers!!"""
-    def _initializer(shape, dtype=dtype, partition_info=None, seed=1234):
-        stdv = 1. / math.sqrt(shape[0]) # input size
-        return random_ops.random_uniform([shape[1]], -stdv, stdv, dtype, seed=seed)
-    return _initializer
-
-def uniform_initializer(dtype=dtypes.float32):
-    """Quick initializer for uniform distribution"""
-    def _initializer(shape, dtype=dtype, partition_info=None, seed=1234):
-        return random_ops.random_uniform(shape, 0, 1, dtype)
-    
-    return _initializer
+def torch_fullyconnected_initializer(fan_in, dtype=dtypes.float32):
+    '''
+    Wraps the calculation of the standard dev for fully connected layers:
+    stdv = 1 / sqrt( fan_in )
+    '''
+    stdv = 1. / math.sqrt(fan_in)
+    return torch_initializer(stdv)

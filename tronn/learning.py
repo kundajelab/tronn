@@ -7,9 +7,6 @@ The wrappers follow the tf-slim structure for setting up and running a model
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-#from tensorflow.python.framework import ops
-#from tensorflow.python.ops import init_ops
-
 
 def train(data_loader,
           model_builder,

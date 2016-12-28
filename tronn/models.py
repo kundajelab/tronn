@@ -20,86 +20,106 @@ from tronn import nn_utils
 def basset(features, labels, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
-    Editing
     '''
 
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            #normalizer_fn=slim.batch_norm,
-            #normalizer_params={'is_training': model_state},
-            weights_initializer=initializers.conv_weight_initializer(),
-            #biases_initializer=layers.conv_bias_initializer()
-            ):
+    with slim.arg_scope([slim.conv2d], padding='VALID',
+                        activation_fn=None):
 
-        # Layer 1: conv layer to batch norm to relu to max pool. 
-        conv1_stdev = nn_utils.calc_stdev(19, 1, 4)
-        net = slim.conv2d(features, 300, [1, 19], 
-            activation_fn=None,
-            biases_initializer=initializers.slim_conv_bias_initializer(stdv=conv1_stdev),
-            scope='conv1')
-        net = slim.batch_norm(net, center=True, scale=True, activation_fn=nn.relu)
-        net = slim.max_pool2d(net, [1, 3], stride=[1, 3], scope='conv1')
+        # Layer 1: conv layer to batch norm to relu to max pool.
+        conv1_filter_size = [1, 19]
+        net = slim.conv2d(
+            features, 300, conv1_filter_size,
+            weights_initializer=initializers.torch_conv_initializer(
+                conv1_filter_size, nn_utils.get_fan_in(features)),
+            biases_initializer=initializers.torch_conv_initializer(
+                conv1_filter_size, nn_utils.get_fan_in(features)),
+            scope='conv1/conv')
+        net = slim.batch_norm(net, center=True, scale=True,
+                              activation_fn=nn.relu, 
+                              is_training=is_training,
+                              scope='conv1/batchnorm')
+        net = slim.max_pool2d(net, [1, 3], stride=[1, 3], 
+            scope='conv1/maxpool')
 
-        # Layer 2: conv layer to batch norm to relu to max pool. 
-        conv2_stdev = nn_utils.calc_stdev(11, 1, 300)
-        net = slim.conv2d(net, 200, [1, 11], 
-            activation_fn=None,
-            biases_initializer=initializers.slim_conv_bias_initializer(stdv=conv2_stdev),
-            scope='conv2')
-        net = slim.batch_norm(net, center=True, scale=True, activation_fn=nn.relu)
-        net = slim.max_pool2d(net, [1, 4], stride=[1, 4], scope='conv2')
+        # Layer 2: conv layer to batch norm to relu to max pool.
+        conv2_filter_size = [1, 11]
+        net = slim.conv2d(
+            net, 200, conv2_filter_size,
+            weights_initializer=initializers.torch_conv_initializer(
+                conv2_filter_size, nn_utils.get_fan_in(net)),
+            biases_initializer=initializers.torch_conv_initializer(
+                conv2_filter_size, nn_utils.get_fan_in(net)),
+            scope='conv2/conv')
+        net = slim.batch_norm(net, center=True, scale=True, 
+                              activation_fn=nn.relu, 
+                              is_training=is_training,
+                              scope='conv2/batchnorm')
+        net = slim.max_pool2d(net, [1, 4], stride=[1, 4], 
+            scope='conv2/maxpool')
 
-        # Layer 3: conv layer to batch norm to relu to max pool. 
-        conv3_stdev = nn_utils.calc_stdev(7, 1, 200)
-        net = slim.conv2d(net, 200, [1, 7], 
-            activation_fn=None,
-            biases_initializer=initializers.slim_conv_bias_initializer(stdv=conv3_stdev),
-            scope='conv3')
-        net = slim.batch_norm(net, center=True, scale=True, activation_fn=nn.relu)
-        net = slim.max_pool2d(net, [1, 4], stride=[1, 4], scope='conv3')
+        # Layer 3: conv layer to batch norm to relu to max pool.
+        conv3_filter_size = [1, 7]
+        net = slim.conv2d(
+            net, 200, conv3_filter_size,
+            weights_initializer=initializers.torch_conv_initializer(
+                conv3_filter_size, nn_utils.get_fan_in(net)),
+            biases_initializer=initializers.torch_conv_initializer(
+                conv3_filter_size, nn_utils.get_fan_in(net)),
+            scope='conv3/conv')
+        net = slim.batch_norm(net, center=True, scale=True,
+                              activation_fn=nn.relu, 
+                              is_training=is_training,
+                              scope='conv3/batchnorm')
+        net = slim.max_pool2d(net, [1, 4], stride=[1, 4], 
+            scope='conv3/maxpool')
 
     net = slim.flatten(net, scope='flatten')
 
-    with slim.arg_scope(
-        [slim.fully_connected],
-        #normalizer_fn=slim.batch_norm,
-        #normalizer_params={'is_training': model_state},
-        weights_initializer=initializers.fc_weight_initializer(),
-        #biases_initializer=layers.fc_bias_initializer()
-        ):
+    with slim.arg_scope([slim.fully_connected], activation_fn=None):
 
         # Layer 4: fully connected layer to relu to dropout
-        fc1_stdev = nn_utils.calc_stdev(1, 1, 3600, style='fc')
-        net = slim.fully_connected(net, 1000, 
-            activation_fn=None,
-            biases_initializer=initializers.slim_conv_bias_initializer(stdv=fc1_stdev),
-            scope='fc1')
-        net = slim.batch_norm(net, center=True, scale=True, activation_fn=nn.relu)
-        net = slim.dropout(net, keep_prob=0.7, is_training=is_training)
+        net = slim.fully_connected(
+            net, 1000, 
+            weights_initializer=initializers.torch_fullyconnected_initializer(
+                nn_utils.get_fan_in(net)),
+            biases_initializer=initializers.torch_fullyconnected_initializer(
+                nn_utils.get_fan_in(net)),
+            scope='fullyconnected1/fullyconnected')
+        net = slim.batch_norm(net, center=True, scale=True,
+                              activation_fn=nn.relu, 
+                              is_training=is_training,
+                              scope='fullyconnected1/batchnorm')
+        net = slim.dropout(net, keep_prob=0.7, is_training=is_training,
+            scope='fullyconnected1/dropout')
 
         # Layer 5: fully connected layer to relu to dropout
-        fc2_stdev = nn_utils.calc_stdev(1, 1, 1000, style='fc')
-        net = slim.fully_connected(net, 1000, 
-            activation_fn=None,
-            biases_initializer=initializers.slim_conv_bias_initializer(stdv=fc2_stdev),
-            scope='fc2')
-        net = slim.batch_norm(net, center=True, scale=True, activation_fn=nn.relu)
-        net = slim.dropout(net, keep_prob=0.7, is_training=is_training)
+        net = slim.fully_connected(
+            net, 1000, 
+            weights_initializer=initializers.torch_fullyconnected_initializer(
+                nn_utils.get_fan_in(net)),
+            biases_initializer=initializers.torch_fullyconnected_initializer(
+                nn_utils.get_fan_in(net)),
+            scope='fullyconnected2/fullyconnected')
+        net = slim.batch_norm(net, center=True, scale=True,
+                              activation_fn=nn.relu, 
+                              is_training=is_training,
+                              scope='fullyconnected2/batchnorm')
+        net = slim.dropout(net, keep_prob=0.7, is_training=is_training,
+            scope='fullyconnected2/dropout')
 
-    # OUT
-    out_stdev = nn_utils.calc_stdev(1, 1, 1000, style='fc')
-    net = slim.fully_connected(net, int(labels.get_shape()[-1]), 
-        activation_fn=None, # TODO watch this
-        weights_initializer=initializers.fc_weight_initializer(),
-        biases_initializer=initializers.slim_conv_bias_initializer(stdv=out_stdev),
-        scope='out')
+        # OUT
+        logits = slim.fully_connected(
+            net, int(labels.get_shape()[-1]), activation_fn=None,
+            weights_initializer=initializers.torch_fullyconnected_initializer(
+                nn_utils.get_fan_in(net)),
+            biases_initializer=initializers.torch_fullyconnected_initializer(
+                nn_utils.get_fan_in(net)),
+            scope='out')
 
-    # Make a maxnorm op and add to update ops
-    # TODO check
+    # Torch7 style maxnorm
     nn_ops.maxnorm(norm_val=7)
 
-    return net
+    return logits
 
 
 
