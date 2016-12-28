@@ -7,8 +7,8 @@ The wrappers follow the tf-slim structure for setting up and running a model
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import init_ops
+#from tensorflow.python.framework import ops
+#from tensorflow.python.ops import init_ops
 
 
 def train(data_loader,
@@ -34,14 +34,10 @@ def train(data_loader,
                                        args.batch_size)
 
         # model
-        predictions = model_builder(features, labels, True) # Training = True
+        predictions = model_builder(features, labels, is_training=True)
 
         # loss
-        # TODO check that this loss is right
-        classification_loss = loss_fn(predictions, labels)
-        total_loss = slim.losses.get_total_loss()
-
-
+        total_loss = loss_fn(predictions, labels)
 
         # optimizer
         optimizer = optimizer_fn(**optimizer_params)
@@ -51,8 +47,6 @@ def train(data_loader,
 
         # build metrics
         summary_op = metrics_fn(total_loss, predictions, labels)
-
-        #tf.Print(slim.get_global_step(), [slim.get_global_step()])
 
         if restore:
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
@@ -89,8 +83,10 @@ def evaluate(data_loader,
              checkpoint_path,
              args,
              data_file_list,
-             out_dir):
+             out_dir,
+             num_evals=1000):
     '''
+    Wrapper function for doing evaluation (ie getting metrics on a model)
     Note that if you want to reload a model, you must load the same model
     and data loader
     '''
@@ -102,33 +98,36 @@ def evaluate(data_loader,
                                        args.batch_size)
         labels = tf.cast(labels, tf.bool)
 
-        # model
-        predictions = tf.greater(tf.sigmoid(model_builder(features,
-                                                          labels,
-                                                          False)),
-                                 0.5) # Training = False
+        # model - training=False
+        prediction_probs = model_builder(features, labels, is_training=False)
+
+        # classification predictions - note that this assumes a model
+        # with sigmoid NOT softmax.
+        # TODO factor this out
+        prediction_bools = tf.greater(tf.sigmoid(prediction_probs), 0.5)
         
         # Choose the metrics to compute
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
-            "accuracy": slim.metrics.streaming_accuracy(predictions, labels),
+            "accuracy": slim.metrics.streaming_accuracy(prediction_bools, labels),
+            "auROC": slim.metrics.streaming_auc(prediction_probs, labels, 
+                                                curve="ROC"),
+            "auPRC": slim.metrics.streaming_auc(prediction_probs, labels, 
+                                                curve="PR"),
             })
 
-        # Define the summaries to write
+        # Define the scalar summaries to write
         for metric_name, metric_value in names_to_values.iteritems():
             tf.scalar_summary(metric_name, metric_value)
 
-        # num batches to evaluate
-        num_evals = 1000
-
         # Evaluate the checkpoint
-        a = slim.evaluation.evaluate_once('',
-                                          checkpoint_path,
-                                          out_dir,
-                                          num_evals=num_evals,
-                                          summary_op=tf.merge_all_summaries(),
-                                          eval_op= names_to_updates.values(),
-                                          final_op=names_to_values)
+        metrics_dict = slim.evaluation.evaluate_once('',
+                                                     checkpoint_path,
+                                                     out_dir,
+                                                     num_evals=num_evals,
+                                                     summary_op=tf.merge_all_summaries(),
+                                                     eval_op= names_to_updates.values(),
+                                                     final_op=names_to_values)
         
-        print a
+        print metrics_dict
     
     return None

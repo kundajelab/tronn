@@ -4,11 +4,9 @@
 
 import os
 import math
-import layers
 import models
 import tensorflow as tf
 import numpy as np
-import threading
 import h5py
 
 from sklearn import metrics as skmetrics

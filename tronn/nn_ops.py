@@ -10,7 +10,7 @@ style maxnorm)
 import tensorflow as tf
 
 
-def maxnorm(model_state, norm_val=7):
+def maxnorm(norm_val=7):
     '''
     Torch7 style maxnorm. After gradients are applied in a training step,
     the weights of each layer are clipped. This maxnorm applies to 

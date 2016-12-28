@@ -2,9 +2,8 @@
 
 import tronn
 import argparse
-import threading
 import glob
-import tronn_utils
+
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -46,12 +45,12 @@ def main():
     args = parse_args()
 
     # This all needs to be cleaned up into some kind of init function...
-    num_train_examples = tronn_utils.get_total_num_examples(train_files)
+    num_train_examples = tronn.nn_utils.get_total_num_examples(train_files)
     train_steps = num_train_examples / args.batch_size - 100
     print train_steps
     print 'Num train examples: {}'.format(num_train_examples)
 
-    num_valid_examples = tronn_utils.get_total_num_examples(valid_files)
+    num_valid_examples = tronn.nn_utils.get_total_num_examples(valid_files)
     valid_steps = num_valid_examples / args.batch_size - 100
     print 'Num valid examples: {}'.format(num_valid_examples)
 
@@ -65,7 +64,7 @@ def main():
             restore = True
 
         # Run training
-        tronn.train(tronn.load_data_from_filename_list, 
+        tronn.learning.train(tronn.load_data_from_filename_list, 
             tronn.basset_like,
             slim.losses.sigmoid_cross_entropy,
             tf.train.RMSPropOptimizer,
@@ -83,7 +82,7 @@ def main():
         print checkpoint_path
 
         # Evaluate after training
-        tronn.evaluate(tronn.load_data_from_filename_list,
+        tronn.learning.evaluate(tronn.load_data_from_filename_list,
             tronn.basset_like,
             tronn.streaming_metrics_tronn,
             checkpoint_path,
