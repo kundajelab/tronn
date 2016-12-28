@@ -84,6 +84,7 @@ def main():
         # Evaluate after training
         tronn.learning.evaluate(tronn.load_data_from_filename_list,
             tronn.basset,
+            tf.nn.sigmoid,
             tronn.streaming_metrics_tronn,
             checkpoint_path,
             args,

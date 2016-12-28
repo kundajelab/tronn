@@ -76,6 +76,7 @@ def train(data_loader,
 
 def evaluate(data_loader,
              model_builder,
+             final_activation_fn,
              metrics_fn,
              checkpoint_path,
              args,
@@ -93,23 +94,23 @@ def evaluate(data_loader,
         # data loader
         features, labels = data_loader(data_file_list,
                                        args.batch_size)
-        labels_bool = tf.cast(labels, tf.bool)
 
         # model - training=False
-        prediction_probs = tf.nn.sigmoid(model_builder(features, labels, is_training=False))
+        predictions_prob = final_activation_fn(
+            model_builder(features, labels, is_training=False))
 
-        # classification predictions - note that this assumes a model
-        # with sigmoid NOT softmax.
-        # TODO factor this out
-        prediction_bools = tf.greater(prediction_probs, 0.5)
+        # boolean classification predictions and labels
+        labels_bool = tf.cast(labels, tf.bool)
+        predictions_bool = tf.greater(predictions_prob, 0.5)
         
         # Choose the metrics to compute
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
-            "accuracy": slim.metrics.streaming_accuracy(prediction_bools, labels_bool),
-            "auROC": slim.metrics.streaming_auc(prediction_probs, labels, 
-                                                curve="ROC"),
-            "auPRC": slim.metrics.streaming_auc(prediction_probs, labels, 
-                                                curve="PR"),
+            "accuracy": slim.metrics.streaming_accuracy(
+                predictions_bool, labels_bool),
+            "auROC": slim.metrics.streaming_auc(
+                predictions_prob, labels, curve="ROC"),
+            "auPRC": slim.metrics.streaming_auc(
+                predictions_prob, labels, curve="PR"),
             })
 
         # Define the scalar summaries to write
@@ -117,13 +118,14 @@ def evaluate(data_loader,
             tf.scalar_summary(metric_name, metric_value)
 
         # Evaluate the checkpoint
-        metrics_dict = slim.evaluation.evaluate_once('',
-                                                     checkpoint_path,
-                                                     out_dir,
-                                                     num_evals=num_evals,
-                                                     summary_op=tf.merge_all_summaries(),
-                                                     eval_op= names_to_updates.values(),
-                                                     final_op=names_to_values)
+        metrics_dict = slim.evaluation.evaluate_once(
+            None,
+            checkpoint_path,
+            out_dir,
+            num_evals=num_evals,
+            summary_op=tf.merge_all_summaries(),
+            eval_op= names_to_updates.values(),
+            final_op=names_to_values)
         
         print metrics_dict
     
