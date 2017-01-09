@@ -11,7 +11,7 @@ import tensorflow as tf
 import numpy as np
 
 
-def setup_queue(features, labels, capacity=10000):
+def setup_queue(features, labels, metadata, capacity=10000):
     '''
     Set up data queue as well as queue runner. The shapes of the
     tensors are inferred from the inputs, so input shapes must be
@@ -20,10 +20,11 @@ def setup_queue(features, labels, capacity=10000):
 
     with tf.variable_scope('datalayer'):
         queue = tf.FIFOQueue(capacity,
-                             [tf.float32, tf.float32],
+                             [tf.float32, tf.float32, tf.string],
                              shapes=[features.get_shape()[1:],
-                                     labels.get_shape()[1:]])
-        enqueue_op = queue.enqueue_many([features, labels])
+                                     labels.get_shape()[1:],
+                                     metadata.get_shape()[1:]])
+        enqueue_op = queue.enqueue_many([features, labels, metadata])
         queue_runner = tf.train.QueueRunner(
             queue=queue,
             enqueue_ops=[enqueue_op],
@@ -73,16 +74,19 @@ def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
 
         features = current_handle['features'][batch_start:batch_end,:,:,:]
         labels = current_handle['labels'][batch_start:batch_end,:]
+        metadata = current_handle['regions'][batch_start:batch_end].reshape(
+            (batch_size, 1))
 
         batch_start += batch_size
         batch_end += batch_size
 
-        return [features, labels]
+        return [features, labels, metadata]
 
-    [py_func_features, py_func_labels] = tf.py_func(hdf5_reader_fn,
-                                                    [],
-                                                    [tf.float32, tf.float32],
-                                                    stateful=True)
+    [py_func_features, py_func_labels, py_func_metadata] = tf.py_func(
+        hdf5_reader_fn,
+        [],
+        [tf.float32, tf.float32, tf.string],
+        stateful=True)
 
     # Set the shape so that we can infer sizes etc in later layers.
     py_func_features.set_shape([batch_size,
@@ -90,8 +94,9 @@ def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
                                 feature_shape[1],
                                 feature_shape[2]])
     py_func_labels.set_shape([batch_size, label_shape[0]])
-
-    return py_func_features, py_func_labels
+    py_func_metadata.set_shape([batch_size, 1])
+    
+    return py_func_features, py_func_labels, py_func_metadata
 
 
 def load_data_from_filename_list(hdf5_files, batch_size):
@@ -107,11 +112,11 @@ def load_data_from_filename_list(hdf5_files, batch_size):
     batch_end = batch_size
     filename_index = 0
 
-    [hdf5_features, hdf5_labels] = get_hdf5_list_reader_pyfunc(hdf5_files,
-                                                          batch_size)
+    [hdf5_features, hdf5_labels, hdf5_metadata] = get_hdf5_list_reader_pyfunc(hdf5_files,
+                                                                              batch_size)
 
-    queue = setup_queue(hdf5_features, hdf5_labels)
+    queue = setup_queue(hdf5_features, hdf5_labels, hdf5_metadata)
 
-    [features, labels] = queue.dequeue_many(batch_size)
+    [features, labels, metadata] = queue.dequeue_many(batch_size)
 
-    return features, labels
+    return features, labels, metadata

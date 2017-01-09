@@ -23,7 +23,6 @@ def maxnorm(norm_val=7):
 
     for weight in weights:
         op_name = '{}/maxnorm'.format(weight.name.split('/weights')[0])
-        print op_name
         maxnorm_update = weight.assign(
             tf.clip_by_norm(weight, norm_val, axes=[0], name=op_name))
         tf.add_to_collection(tf.GraphKeys.UPDATE_OPS,

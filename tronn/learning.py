@@ -27,8 +27,8 @@ def train(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        features, labels = data_loader(data_file_list,
-                                       args.batch_size)
+        features, labels, metadata = data_loader(data_file_list,
+                                                 args.batch_size)
 
         # model
         predictions = model_builder(features, labels, is_training=True)
@@ -92,8 +92,8 @@ def evaluate(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        features, labels = data_loader(data_file_list,
-                                       args.batch_size)
+        features, labels, metadata = data_loader(data_file_list,
+                                                 args.batch_size)
 
         # model - training=False
         predictions_prob = final_activation_fn(
