@@ -45,31 +45,17 @@ def train(data_loader,
         # build metrics
         summary_op = metrics_fn(total_loss, predictions, labels)
 
-        if restore:
+        def restoreFn(sess):
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
-            variables_to_restore = slim.get_model_variables()
-            variables_to_restore.append(slim.get_global_step()) 
-            init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
-                checkpoint_path,
-                variables_to_restore)
-            
-            # create init assignment function
-            def InitAssignFn(sess):
-                sess.run(init_assign_op, init_feed_dict)
+            restorer = tf.train.Saver()
+            restorer.restore(sess, checkpoint_path)
                 
-            slim.learning.train(train_op,
-                                OUT_DIR,
-                                init_fn=InitAssignFn,
-                                number_of_steps=global_step_val,
-                                summary_op=summary_op,
-                                save_summaries_secs=20)
-
-        else:
-            slim.learning.train(train_op,
-                                OUT_DIR,
-                                number_of_steps=global_step_val,
-                                summary_op=summary_op,
-                                save_summaries_secs=20)
+        slim.learning.train(train_op,
+                            OUT_DIR,
+                            init_fn=restoreFn if restore else None,
+                            number_of_steps=global_step_val,
+                            summary_op=summary_op,
+                            save_summaries_secs=20)
 
     return None
 
