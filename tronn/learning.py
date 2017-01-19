@@ -101,7 +101,7 @@ def evaluate(data_loader,
 
         # Define the scalar summaries to write
         for metric_name, metric_value in names_to_values.iteritems():
-            tf.scalar_summary(metric_name, metric_value)
+            tf.summary.scalar(metric_name, metric_value)
 
         # Evaluate the checkpoint
         metrics_dict = slim.evaluation.evaluate_once(

@@ -15,7 +15,7 @@ from random import shuffle
 
 def streaming_metrics_tronn(total_loss, predictions, labels):
 
-    tf.scalar_summary('loss', total_loss)
+    tf.summary.scalar('loss', total_loss)
 
 
     # See weights
@@ -24,9 +24,9 @@ def streaming_metrics_tronn(total_loss, predictions, labels):
 
     weight_sum = tf.add_n([ tf.reduce_sum(w) for w in weights ])
 
-    tf.scalar_summary('weight_sum', weight_sum)
+    tf.summary.scalar('weight_sum', weight_sum)
 
-    tf.scalar_summary('predictions', tf.reduce_sum(predictions))
+    tf.summary.scalar('predictions', tf.reduce_sum(predictions))
         
 
     summary_op = tf.merge_all_summaries()
@@ -145,11 +145,11 @@ def make_tensorboard_metrics(sess, learning_metrics, LOG_DIR):
     Set up summaries and writers
     '''
     for metric in learning_metrics['scalar'].keys():
-        tf.scalar_summary(metric, learning_metrics['scalar'][metric])
+        tf.summary.scalar(metric, learning_metrics['scalar'][metric])
     for metric in learning_metrics['histogram'].keys():
-        tf.histogram_summary(metric, learning_metrics['histogram'][metric])
+        tf.summary.histogram(metric, learning_metrics['histogram'][metric])
     
-    merged = tf.merge_all_summaries()
+    merged = tf.summary.merge_all()
     train_writer = tf.train.SummaryWriter(LOG_DIR + '/train', sess.graph)
     valid_writer = tf.train.SummaryWriter(LOG_DIR + '/valid')
     

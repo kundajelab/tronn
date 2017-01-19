@@ -16,6 +16,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Run TRoNN')
 
     parser.add_argument('--data_file', help='(currently only) hdf5 file')
+    parser.add_argument('--out_dir', default='out', help='path to save model')
     parser.add_argument('--epochs', default=20, help='number of epochs')
     parser.add_argument('--batch_size', default=128, help='batch size')
 
@@ -34,10 +35,7 @@ def main():
 
 
     # TODO fix input of info to make easier to run
-    OUT_DIR = './log'
-
     DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
-
     data_files = glob.glob('{}/*.h5'.format(DATA_DIR))
     print 'Found {} chrom files'.format(len(data_files))
 
@@ -79,11 +77,11 @@ def main():
                 'Not yet implemented',
                 args,
                 train_files,
-                '{}/train'.format(OUT_DIR),
+                '{}/train'.format(args.out_dir),
                 (epoch+1)*train_steps)
 
             # Get last checkpoint
-            checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(OUT_DIR)) # fix this to save checkpoints elsewhere
+            checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir)) # fix this to save checkpoints elsewhere
             print checkpoint_path
 
             # Evaluate after training
@@ -94,7 +92,7 @@ def main():
                 checkpoint_path,
                 args,
                 valid_files,
-                '{}/valid'.format(OUT_DIR),
+                '{}/valid'.format(args.out_dir),
                 num_evals=1000)
 
     # extract importance
@@ -104,7 +102,7 @@ def main():
         data_files = ['{}/skin_atac_idr_chr12.h5'.format(DATA_DIR)]
 
         # checkpoint file
-        checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(OUT_DIR))
+        checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir))
         print checkpoint_path
 
         tronn.interpretation.interpret(tronn.load_data_from_filename_list,
