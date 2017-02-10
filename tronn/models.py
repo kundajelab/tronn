@@ -16,7 +16,6 @@ from tronn import layers
 from tronn import nn_ops
 from tronn import nn_utils
 
-
 def basset(features, labels, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
@@ -123,3 +122,41 @@ def basset(features, labels, is_training=True):
 
 
 
+def custom(features, labels, is_training=True):
+    '''
+    Basset - Kelley et al Genome Research 2016
+    '''
+    net = features
+    with slim.arg_scope([slim.conv2d, slim.fc, slim.batch_norm, slim.dropout], is_training=is_training):
+        with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu):
+            with slim.arg_scope([slim.conv2d, slim.max_pool], padding='SAME'):
+                with slim.arg_scope([slim.conv2d], activation_fn=None):
+                    for block in xrange(4):
+                        orig = net
+                        net = slim.batch_norm(net, scope='res%d/batchnorm1'%block)
+                        net = slim.conv2d(net, 128 * 2**block, [1, 5], scope='res%d/conv1'%block)
+                        net = slim.batch_norm(net, scope='res%d/batchnorm2'%block)
+                        net = slim.conv2d(net, 128 * 2**block, [1, 5], scope='res%d/conv2'%block)
+                        net = orig + net
+                        net = slim.max_pool2d(net, [1, 2], [1, 2], scope='res%d/maxpool'%block)
+            net = slim.flatten(net, scope='flatten')
+            with slim.arg_scope([slim.fully_connected], activation_fn=None):
+                with slim.arg_scope([slim.slim.dropout], keep_prob=0.7):
+                    net = slim.fully_connected(net, 1000, scope='fc1/affine')
+                    net = slim.batch_norm(net, scope='fc1/batchnorm')
+                    net = slim.dropout(net, scope='fc1/dropout')
+
+                    net = slim.fully_connected(net, 1000, scope='fc1/affine')
+                    net = slim.batch_norm(net, scope='fc1/batchnorm')
+                    net = slim.dropout(net, scope='fc1/dropout')
+
+                    logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
+
+    # Torch7 style maxnorm
+    nn_ops.maxnorm(norm_val=7)
+
+    return logits
+
+models = {}
+models['basset'] = basset
+models['custom'] = custom

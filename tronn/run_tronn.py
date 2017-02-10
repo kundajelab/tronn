@@ -24,6 +24,8 @@ def parse_args():
     parser.add_argument('--train', action='store_true', help='train the model')
     parser.add_argument('--evaluate', action='store_true', help='evaluate model')
     parser.add_argument('--interpret', action='store_true', help='run interpretation tools')
+
+    parser.add_argument('--model', help='choose model from models.models')
     
     args = parser.parse_args()
     
@@ -68,7 +70,7 @@ def main():
 
             # Run training
             tronn.learning.train(tronn.load_data_from_filename_list, 
-                tronn.basset,
+                tronn.models.models[args.model],
                 slim.losses.sigmoid_cross_entropy,
                 tf.train.RMSPropOptimizer,
                 {'learning_rate': 0.002, 'decay':0.98, 'momentum':0.0, 'epsilon':1e-8},
@@ -86,7 +88,7 @@ def main():
 
             # Evaluate after training
             tronn.learning.evaluate(tronn.load_data_from_filename_list,
-                tronn.basset,
+                tronn.models.models[args.model],
                 tf.nn.sigmoid,
                 tronn.streaming_metrics_tronn,
                 checkpoint_path,
@@ -107,7 +109,7 @@ def main():
 
         tronn.interpretation.interpret(tronn.load_data_from_filename_list,
             data_files,
-            tronn.basset,
+            tronn.models.models[args.model],
             slim.losses.sigmoid_cross_entropy,
             checkpoint_path,
             args,
@@ -118,4 +120,5 @@ def main():
 
     return None
 
-main()
+if __name__ == '__main__':
+    main()
