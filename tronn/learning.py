@@ -4,9 +4,11 @@ The wrappers follow the tf-slim structure for setting up and running a model
 
 """
 
+import tronn
+import logging
+
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-import logging
 
 def train(data_loader,
           model_builder,
@@ -51,7 +53,7 @@ def train(data_loader,
         # summarries
         tf.summary.scalar('loss_raw', loss)
         tf.summary.scalar('loss_ema', ema.average(loss))
-        for v in tf.model_variables()
+        for var in tf.model_variables():
             tronn.nn_utils.add_var_summaries(var)
 
         def restoreFn(sess):
@@ -62,15 +64,16 @@ def train(data_loader,
         
         trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
         total_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
-        logging.info('Num trainable params: %d%d' % (trainable_params, total_params))
+        logging.info('Num trainable params: %d/%d' % (trainable_params, total_params))
 
         slim.learning.train(train_op,
                             OUT_DIR,
-                            log_every_n_steps=100,
+                            log_every_n_steps=1,
                             init_fn=restoreFn if restore else None,
                             number_of_steps=target_global_step,
-                            summary_op=summary_op,
-                            save_summaries_secs=20)
+                            summary_op=tf.summary.merge_all(),
+                            save_summaries_secs=10,
+                            save_interval_secs=60)
 
     return None
 
@@ -107,10 +110,10 @@ def evaluate(data_loader,
         predictions_bool = tf.greater(predictions_prob, 0.5)
         
         # Construct etrics to compute
-        names_to_metrics, updates = get_metrics(13, predictions_prob, labels)#13 days/tasks
+        names_to_metrics, updates = tronn.evaluation.get_metrics(13, predictions_prob, labels)#13 days/tasks
 
         # Define the scalar summaries to write
-        tf.summary.scalar('loss', metric)
+        tf.summary.scalar('loss', loss)
         for name, metric in names_to_metrics.iteritems():
             if metric.get_shape().ndims==0:
                 tf.summary.scalar(name, metric)
@@ -125,8 +128,8 @@ def evaluate(data_loader,
             num_evals=num_evals,
             summary_op=tf.summary.merge_all(),
             eval_op=updates,
-            final_op=names_to_values)
+            final_op=names_to_metrics)
         
-        logging.log(metrics_dict)
+        logging.info(metrics_dict)
     
     return None

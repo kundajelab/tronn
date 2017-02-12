@@ -3,6 +3,7 @@
 
 import math
 import h5py
+import tensorflow as tf
 
 
 def get_total_num_examples(hdf5_file_list):

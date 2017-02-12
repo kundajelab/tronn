@@ -3,10 +3,12 @@
 import tronn
 import argparse
 import glob
+import logging
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+logging.getLogger().setLevel(logging.INFO)
 
 def parse_args():
     '''
@@ -80,7 +82,7 @@ def main():
                 args,
                 train_files,
                 '{}/train'.format(args.out_dir),
-                (epoch+1)*train_steps)
+                (epoch+1)*100)
 
             # Get last checkpoint
             checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir)) # fix this to save checkpoints elsewhere
@@ -96,7 +98,7 @@ def main():
                 args,
                 valid_files,
                 '{}/valid'.format(args.out_dir),
-                num_evals=1000)
+                num_evals=100)
 
     # extract importance
     if args.interpret:
