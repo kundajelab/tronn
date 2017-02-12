@@ -5,7 +5,6 @@ The wrappers follow the tf-slim structure for setting up and running a model
 """
 
 import tronn
-import logging
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -43,6 +42,7 @@ def train(data_loader,
         ema = tf.train.ExponentialMovingAverage(decay=0.99)
         ema_update = ema.apply([loss])
         tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, ema_update)
+        loss_ema = ema.average(loss)
 
         # optimizer
         optimizer = optimizer_fn(**optimizer_params)
@@ -52,28 +52,27 @@ def train(data_loader,
 
         # summarries
         tf.summary.scalar('loss_raw', loss)
-        tf.summary.scalar('loss_ema', ema.average(loss))
+        tf.summary.scalar('loss_ema', tf.Print(loss_ema, [loss_ema], 'loss_ema'))
         for var in tf.model_variables():
             tronn.nn_utils.add_var_summaries(var)
 
         def restoreFn(sess):
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
             restorer = tf.train.Saver()
-            logging.info('Restoring model from %s...'%checkpoint_path)
+            print 'Restoring model from %s...'%checkpoint_path
             restorer.restore(sess, checkpoint_path)
         
         trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
         total_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
-        logging.info('Num trainable params: %d/%d' % (trainable_params, total_params))
+        print 'Num trainable params: %d/%d' % (trainable_params, total_params)
 
         slim.learning.train(train_op,
                             OUT_DIR,
-                            log_every_n_steps=1,
                             init_fn=restoreFn if restore else None,
                             number_of_steps=target_global_step,
                             summary_op=tf.summary.merge_all(),
-                            save_summaries_secs=10,
-                            save_interval_secs=60)
+                            save_summaries_secs=60,
+                            save_interval_secs=600)
 
     return None
 
@@ -129,7 +128,6 @@ def evaluate(data_loader,
             summary_op=tf.summary.merge_all(),
             eval_op=updates,
             final_op=names_to_metrics)
-        
-        logging.info(metrics_dict)
+        print metrics_dict
     
     return None
