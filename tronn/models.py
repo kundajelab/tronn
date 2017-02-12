@@ -124,19 +124,25 @@ def basset(features, labels, is_training=True):
     return logits
 
 def custom(features, labels, is_training=True):
+    net = features
+    dim = 64
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], padding='SAME'):
             with slim.arg_scope([slim.conv2d], kernel_size=[1, 7], activation_fn=None):
-                net = slim.conv2d(net, 64, scope='embed')
+                net = slim.conv2d(net, dim, scope='embed')
                 for block in xrange(5):
-                    with tf.variable_scope('res%d'):
-                        orig = net
-                        net = slim.batch_norm(net, scope='batchnorm1'%block)
-                        net = slim.conv2d(net, 64 * (2**block), [1, 2] if block>0 else 1, scope='conv1'%block)
-                        net = slim.batch_norm(net, scope='batchnorm2'%block)
-                        net = slim.conv2d(net, 64 * (2**block), scope='conv2'%block)
-                        net = orig + net
-                    #net = slim.max_pool2d(net, [1, 2], [1, 2], scope='res%d/maxpool'%block)
+                    with tf.variable_scope('res%d'%block):
+                        if block>0:
+                            dim*=2
+                            shortcut = slim.conv2d(net, dim, kernel_size=[1, 1], scope='increase_dim')
+                        else:
+                            shortcut = net
+                        net = slim.batch_norm(net)
+                        net = slim.conv2d(net, dim, stride= [1, 2] if block>0 else 1)
+                        net = slim.batch_norm(net)
+                        net = slim.conv2d(net, dim)
+                        net = shortcut + net
+                    #net = slim.max_pool2d(net, [1, 2], [1, 2], scope='maxpool')
         with slim.arg_scope([slim.fully_connected], activation_fn=None):
             with slim.arg_scope([slim.slim.dropout], keep_prob=0.7, is_training=is_training):
                 with tf.variable_scope('fc1'):
