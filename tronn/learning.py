@@ -27,10 +27,12 @@ def train(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
+        print 'loading data...'
         features, labels, metadata = data_loader(data_file_list,
                                                  args.batch_size)
 
         # model
+        print 'building model...'
         predictions = model_builder(features, labels, is_training=True)
 
         # loss

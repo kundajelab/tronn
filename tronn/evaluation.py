@@ -19,7 +19,7 @@ def streaming_metrics_tronn(total_loss, predictions, labels):
 
 
     # See weights
-    weights = [v for v in tf.all_variables()
+    weights = [v for v in tf.global_variables()
                if ('weights' in v.name)]
 
     weight_sum = tf.add_n([ tf.reduce_sum(w) for w in weights ])
@@ -29,7 +29,7 @@ def streaming_metrics_tronn(total_loss, predictions, labels):
     tf.summary.scalar('predictions', tf.reduce_sum(predictions))
         
 
-    summary_op = tf.merge_all_summaries()
+    summary_op = tf.merge_all()
 
     return summary_op
 

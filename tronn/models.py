@@ -16,6 +16,9 @@ from tronn import layers
 from tronn import nn_ops
 from tronn import nn_utils
 
+#TODO
+#max pooling by selecting same arg over all channels
+
 def basset(features, labels, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
@@ -120,37 +123,31 @@ def basset(features, labels, is_training=True):
 
     return logits
 
-
-
 def custom(features, labels, is_training=True):
-    '''
-    Basset - Kelley et al Genome Research 2016
-    '''
-    net = features
-    with slim.arg_scope([slim.conv2d, slim.fc, slim.batch_norm, slim.dropout], is_training=is_training):
-        with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu):
-            with slim.arg_scope([slim.conv2d, slim.max_pool], padding='SAME'):
-                with slim.arg_scope([slim.conv2d], activation_fn=None):
-                    for block in xrange(4):
+    with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
+        with slim.arg_scope([slim.conv2d, slim.max_pool2d], padding='SAME'):
+            with slim.arg_scope([slim.conv2d], kernel_size=[1, 7], activation_fn=None):
+                net = slim.conv2d(net, 64, scope='embed')
+                for block in xrange(5):
+                    with tf.variable_scope('res%d'):
                         orig = net
-                        net = slim.batch_norm(net, scope='res%d/batchnorm1'%block)
-                        net = slim.conv2d(net, 128 * 2**block, [1, 5], scope='res%d/conv1'%block)
-                        net = slim.batch_norm(net, scope='res%d/batchnorm2'%block)
-                        net = slim.conv2d(net, 128 * 2**block, [1, 5], scope='res%d/conv2'%block)
+                        net = slim.batch_norm(net, scope='batchnorm1'%block)
+                        net = slim.conv2d(net, 64 * (2**block), [1, 2] if block>0 else 1, scope='conv1'%block)
+                        net = slim.batch_norm(net, scope='batchnorm2'%block)
+                        net = slim.conv2d(net, 64 * (2**block), scope='conv2'%block)
                         net = orig + net
-                        net = slim.max_pool2d(net, [1, 2], [1, 2], scope='res%d/maxpool'%block)
-            net = slim.flatten(net, scope='flatten')
-            with slim.arg_scope([slim.fully_connected], activation_fn=None):
-                with slim.arg_scope([slim.slim.dropout], keep_prob=0.7):
-                    net = slim.fully_connected(net, 1000, scope='fc1/affine')
-                    net = slim.batch_norm(net, scope='fc1/batchnorm')
-                    net = slim.dropout(net, scope='fc1/dropout')
-
-                    net = slim.fully_connected(net, 1000, scope='fc1/affine')
-                    net = slim.batch_norm(net, scope='fc1/batchnorm')
-                    net = slim.dropout(net, scope='fc1/dropout')
-
-                    logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
+                    #net = slim.max_pool2d(net, [1, 2], [1, 2], scope='res%d/maxpool'%block)
+        with slim.arg_scope([slim.fully_connected], activation_fn=None):
+            with slim.arg_scope([slim.slim.dropout], keep_prob=0.7, is_training=is_training):
+                with tf.variable_scope('fc1'):
+                    net = slim.batch_norm(net)
+                    net = slim.dropout(net)
+                    net = slim.fully_connected(net, 1000)
+                with tf.variable_scope('fc2'):
+                    net = slim.batch_norm(net)
+                    net = slim.dropout(net)
+                    net = slim.fully_connected(net, 1000)
+                logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
 
     # Torch7 style maxnorm
     nn_ops.maxnorm(norm_val=7)

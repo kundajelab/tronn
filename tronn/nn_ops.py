@@ -18,7 +18,7 @@ def maxnorm(norm_val=7):
     not apply to biases.
     '''
 
-    weights = [v for v in tf.gobal_variables()
+    weights = [v for v in tf.global_variables()
                if ('weights' in v.name)]
 
     for weight in weights:
