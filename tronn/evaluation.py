@@ -29,13 +29,13 @@ def streaming_metrics_tronn(total_loss, predictions, labels):
     tf.summary.scalar('predictions', tf.reduce_sum(predictions))
         
 
-    summary_op = tf.merge_all()
+    summary_op = tf.summary.merge_all()
 
     return summary_op
 
 
 
-def get_metrics(tasks, predictions, labels):
+def get_metrics(tasks, predictions_prob, labels):
     '''
     Set up streaming metrics
     '''
@@ -52,28 +52,24 @@ def get_metrics(tasks, predictions, labels):
                 auROC_tensors.append(auROC)
                 metric_updates.append(update_op_auROC)
         
+            with tf.name_scope('pr'):
+                auPRC, update_op_auPRC = tf.contrib.metrics.streaming_auc(predictions[:,task_num], labels[:,task_num], curve='PR', name='pr{}'.format(task_num))
+                auPRC_tensors.append(auPRC)
+                metric_updates.append(update_op_auPRC)
+
             with tf.name_scope('accuracy'):
                 accuracy, update_op_accuracy = tf.contrib.metrics.streaming_accuracy(tf.cast(tf.greater(predictions[:,task_num], 0.5), 'float32'), 
                                                                                      labels[:,task_num], name='acc{}'.format(task_num))
                 accuracy_tensors.append(accuracy)
                 metric_updates.append(update_op_accuracy)
 
-            with tf.name_scope('pr'):
-                auPRC, update_op_auPRC = tf.contrib.metrics.streaming_auc(predictions[:,task_num], labels[:,task_num], curve='PR', name='pr{}'.format(task_num))
-                auPRC_tensors.append(auPRC)
-                metric_updates.append(update_op_auPRC)
-
         learning_metrics = {
-            'scalar': {
                 'mean_accuracy' : tf.reduce_mean(tf.pack(accuracy_tensors), name='mean_accuracy'),
                 'mean_auROC' : tf.reduce_mean(tf.pack(auROC_tensors), name='mean_auROC'),
-                'mean_auPRC' : tf.reduce_mean(tf.pack(auPRC_tensors), name='mean_auPRC')
-            },
-            'histogram': {
+                'mean_auPRC' : tf.reduce_mean(tf.pack(auPRC_tensors), name='mean_auPRC'),
                 'accuracies' : tf.pack(accuracy_tensors),
                 'auROCs' : tf.pack(auROC_tensors),
                 'auPRCs' : tf.pack(auPRC_tensors)
-            },
         }
 
     return learning_metrics, metric_updates
@@ -144,10 +140,10 @@ def make_tensorboard_metrics(sess, learning_metrics, LOG_DIR):
     '''
     Set up summaries and writers
     '''
-    for metric in learning_metrics['scalar'].keys():
-        tf.summary.scalar(metric, learning_metrics['scalar'][metric])
-    for metric in learning_metrics['histogram'].keys():
-        tf.summary.histogram(metric, learning_metrics['histogram'][metric])
+    for name, metric in learning_metrics['scalar']:
+        tf.summary.scalar(name, metric)
+    for name, metric in learning_metrics['histogram']:
+        tf.summary.histogram(name, metric)
     
     merged = tf.summary.merge_all()
     train_writer = tf.train.SummaryWriter(LOG_DIR + '/train', sess.graph)

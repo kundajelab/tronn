@@ -6,20 +6,20 @@ The wrappers follow the tf-slim structure for setting up and running a model
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-
+import logging
 
 def train(data_loader,
           model_builder,
+          final_activation_fn,
           loss_fn,
           optimizer_fn,
           optimizer_params,
-          metrics_fn,
           restore,
           stopping_criterion,
           args,
           data_file_list,
           OUT_DIR,
-          global_step_val):
+          target_global_step):
     '''
     Wraps the routines needed for tf-slim
     '''
@@ -27,35 +27,48 @@ def train(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        print 'loading data...'
         features, labels, metadata = data_loader(data_file_list,
                                                  args.batch_size)
 
         # model
-        print 'building model...'
-        predictions = model_builder(features, labels, is_training=True)
+        logits = model_builder(features, labels, is_training=True)
+
+        # probs
+        predictions_prob = final_activation_fn(logits)
 
         # loss
-        total_loss = loss_fn(predictions, labels)
+        loss = loss_fn(logits, labels)
+        ema = tf.train.ExponentialMovingAverage(decay=0.99)
+        ema_update = ema.apply([loss])
+        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, ema_update)
 
         # optimizer
         optimizer = optimizer_fn(**optimizer_params)
 
         # train op
-        train_op = slim.learning.create_train_op(total_loss, optimizer)
+        train_op = slim.learning.create_train_op(loss, optimizer, summarize_gradients=True)
 
-        # build metrics
-        summary_op = metrics_fn(total_loss, predictions, labels)
+        # summarries
+        tf.summary.scalar('loss_raw', loss)
+        tf.summary.scalar('loss_ema', ema.average(loss))
+        for v in tf.model_variables()
+            tronn.nn_utils.add_var_summaries(var)
 
         def restoreFn(sess):
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
             restorer = tf.train.Saver()
+            logging.info('Restoring model from %s...'%checkpoint_path)
             restorer.restore(sess, checkpoint_path)
-                
+        
+        trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
+        total_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
+        logging.info('Num trainable params: %d%d' % (trainable_params, total_params))
+
         slim.learning.train(train_op,
                             OUT_DIR,
+                            log_every_n_steps=100,
                             init_fn=restoreFn if restore else None,
-                            number_of_steps=global_step_val,
+                            number_of_steps=target_global_step,
                             summary_op=summary_op,
                             save_summaries_secs=20)
 
@@ -65,6 +78,7 @@ def train(data_loader,
 def evaluate(data_loader,
              model_builder,
              final_activation_fn,
+             loss_fn,
              metrics_fn,
              checkpoint_path,
              args,
@@ -84,26 +98,24 @@ def evaluate(data_loader,
                                                  args.batch_size)
 
         # model - training=False
-        predictions_prob = final_activation_fn(
-            model_builder(features, labels, is_training=False))
+        logits = model_builder(features, labels, is_training=False)
+        loss = loss_fn(logits, labels)
 
         # boolean classification predictions and labels
         labels_bool = tf.cast(labels, tf.bool)
+        predictions_prob = final_activation_fn(logits)
         predictions_bool = tf.greater(predictions_prob, 0.5)
         
-        # Choose the metrics to compute
-        names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
-            "accuracy": slim.metrics.streaming_accuracy(
-                predictions_bool, labels_bool),
-            "auROC": slim.metrics.streaming_auc(
-                predictions_prob, labels, curve="ROC"),
-            "auPRC": slim.metrics.streaming_auc(
-                predictions_prob, labels, curve="PR"),
-            })
+        # Construct etrics to compute
+        names_to_metrics, updates = get_metrics(13, predictions_prob, labels)#13 days/tasks
 
         # Define the scalar summaries to write
-        for metric_name, metric_value in names_to_values.iteritems():
-            tf.summary.scalar(metric_name, metric_value)
+        tf.summary.scalar('loss', metric)
+        for name, metric in names_to_metrics.iteritems():
+            if metric.get_shape().ndims==0:
+                tf.summary.scalar(name, metric)
+            else:
+                tf.summary.histogram(name, metric)
 
         # Evaluate the checkpoint
         metrics_dict = slim.evaluation.evaluate_once(
@@ -111,10 +123,10 @@ def evaluate(data_loader,
             checkpoint_path,
             out_dir,
             num_evals=num_evals,
-            summary_op=tf.merge_all_summaries(),
-            eval_op= names_to_updates.values(),
+            summary_op=tf.summary.merge_all(),
+            eval_op=updates,
             final_op=names_to_values)
         
-        print metrics_dict
+        logging.log(metrics_dict)
     
     return None

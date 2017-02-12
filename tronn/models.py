@@ -131,20 +131,21 @@ def custom(features, labels, is_training=True):
             with slim.arg_scope([slim.conv2d], kernel_size=[1, 7], activation_fn=None):
                 net = slim.conv2d(net, dim, scope='embed')
                 for block in xrange(5):
-                    with tf.variable_scope('res%d'%block):
+                    with tf.variable_scope('residual_block%d'%block):
                         if block>0:
                             dim*=2
-                            shortcut = slim.conv2d(net, dim, kernel_size=[1, 1], scope='increase_dim')
+                            shortcut = slim.conv2d(net, dim, kernel_size=[1, 1], stride=[1, 2], scope='increase_dim')
                         else:
                             shortcut = net
                         net = slim.batch_norm(net)
-                        net = slim.conv2d(net, dim, stride= [1, 2] if block>0 else 1)
+                        net = slim.conv2d(net, dim, stride=[1, 2] if block>0 else 1)
                         net = slim.batch_norm(net)
                         net = slim.conv2d(net, dim)
                         net = shortcut + net
                     #net = slim.max_pool2d(net, [1, 2], [1, 2], scope='maxpool')
+        net = slim.flatten(net, scope='flatten')
         with slim.arg_scope([slim.fully_connected], activation_fn=None):
-            with slim.arg_scope([slim.slim.dropout], keep_prob=0.7, is_training=is_training):
+            with slim.arg_scope([slim.dropout], keep_prob=0.7, is_training=is_training):
                 with tf.variable_scope('fc1'):
                     net = slim.batch_norm(net)
                     net = slim.dropout(net)
