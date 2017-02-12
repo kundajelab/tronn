@@ -128,6 +128,6 @@ def evaluate(data_loader,
             summary_op=tf.summary.merge_all(),
             eval_op=updates,
             final_op=names_to_metrics)
-        print metrics_dict
+        print 'Validation metrics:\n%s'%metrics_dict
     
     return None
