@@ -62,10 +62,8 @@ def main():
         # Should epoch level be where things are exposed here? or is this loop abstractable too?
         for epoch in xrange(args.epochs):
             print "EPOCH:", str(epoch)
-
-            if epoch == 0:
-                restore = False
-            else:
+            restore = args.restore
+            if epoch > 0:
                 restore = True
 
             # Run training
@@ -73,8 +71,8 @@ def main():
                 tronn.models.models[args.model],
                 tf.nn.sigmoid,
                 slim.losses.sigmoid_cross_entropy,
-                tf.train.RMSPropOptimizer,
-                {'learning_rate': 0.002, 'decay':0.98, 'momentum':0.0, 'epsilon':1e-8},
+                tf.train.AdamOptimizer,#tf.train.RMSPropOptimizer,{'learning_rate': 0.002, 'decay':0.98, 'momentum':0.0, 'epsilon':1e-8},
+                {'learning_rate': 0.001},
                 restore,
                 'Not yet implemented',
                 args,
@@ -96,7 +94,7 @@ def main():
                 args,
                 valid_files,
                 '{}/valid'.format(args.out_dir),
-                num_evals=1000)
+                num_evals=10000)
 
     # extract importance
     if args.interpret:

@@ -35,18 +35,25 @@ def streaming_metrics_tronn(total_loss, predictions, labels):
 
 
 
-def get_metrics(tasks, predictions_prob, labels):
+def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
     '''
     Set up streaming metrics
     '''
 
     metric_updates = []
+    loss_tensors = []
     auROC_tensors = []
     auPRC_tensors = []
     accuracy_tensors = []
 
+    predictions_prob = final_activation_fn(logits)
     with tf.name_scope('metrics') as scope:
         for task_num in range(tasks):
+            with tf.name_scope('loss'):
+                loss, loss_update = tf.contrib.metrics.streaming_mean(loss_fn(logits[:,task_num], labels[:,task_num]), name='loss{}'.format(task_num))
+                loss_tensors.append(loss)
+                metric_updates.append(loss_update)
+
             with tf.name_scope('roc'):
                 auROC, update_op_auROC = tf.contrib.metrics.streaming_auc(predictions_prob[:,task_num], labels[:,task_num], curve='ROC', name='roc{}'.format(task_num))
                 auROC_tensors.append(auROC)
@@ -64,9 +71,11 @@ def get_metrics(tasks, predictions_prob, labels):
                 metric_updates.append(update_op_accuracy)
 
         learning_metrics = {
+                'mean_loss' : tf.reduce_mean(tf.pack(loss_tensors), name='mean_loss'),
                 'mean_accuracy' : tf.reduce_mean(tf.pack(accuracy_tensors), name='mean_accuracy'),
                 'mean_auROC' : tf.reduce_mean(tf.pack(auROC_tensors), name='mean_auROC'),
                 'mean_auPRC' : tf.reduce_mean(tf.pack(auPRC_tensors), name='mean_auPRC'),
+                'losses' : tf.pack(loss_tensors),
                 'accuracies' : tf.pack(accuracy_tensors),
                 'auROCs' : tf.pack(auROC_tensors),
                 'auPRCs' : tf.pack(auPRC_tensors)

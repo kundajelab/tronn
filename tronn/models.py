@@ -125,12 +125,12 @@ def basset(features, labels, is_training=True):
 
 def custom(features, labels, is_training=True):
     net = features
-    dim = 64
+    dim = 16
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], padding='SAME'):
-            with slim.arg_scope([slim.conv2d], kernel_size=[1, 7], activation_fn=None):
+            with slim.arg_scope([slim.conv2d], kernel_size=[1, 3], activation_fn=None):
                 net = slim.conv2d(net, dim, scope='embed')
-                for block in xrange(5):
+                for block in xrange(7):
                     with tf.variable_scope('residual_block%d'%block):
                         if block>0:
                             dim*=2
@@ -145,7 +145,7 @@ def custom(features, labels, is_training=True):
                     #net = slim.max_pool2d(net, [1, 2], [1, 2], scope='maxpool')
         net = slim.flatten(net, scope='flatten')
         with slim.arg_scope([slim.fully_connected], activation_fn=None):
-            with slim.arg_scope([slim.dropout], keep_prob=0.7, is_training=is_training):
+            with slim.arg_scope([slim.dropout], keep_prob=0.9, is_training=is_training):
                 with tf.variable_scope('fc1'):
                     net = slim.batch_norm(net)
                     net = slim.dropout(net)

@@ -39,7 +39,7 @@ def train(data_loader,
 
         # loss
         loss = loss_fn(logits, labels)
-        ema = tf.train.ExponentialMovingAverage(decay=0.99)
+        ema = tf.train.ExponentialMovingAverage(decay=0.999)
         ema_update = ema.apply([loss])
         tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, ema_update)
         loss_ema = ema.average(loss)
@@ -108,11 +108,13 @@ def evaluate(data_loader,
         predictions_prob = final_activation_fn(logits)
         predictions_bool = tf.greater(predictions_prob, 0.5)
         
-        # Construct etrics to compute
-        names_to_metrics, updates = tronn.evaluation.get_metrics(13, predictions_prob, labels)#13 days/tasks
+        # Construct metrics to compute
+        names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
+        avg_loss, loss_update = tf.contrib.metrics.streaming_mean(loss, name='avg_loss')
+        names_to_metrics['avg_loss'] = avg_loss
+        updates.append(loss_update)
 
         # Define the scalar summaries to write
-        tf.summary.scalar('loss', loss)
         for name, metric in names_to_metrics.iteritems():
             if metric.get_shape().ndims==0:
                 tf.summary.scalar(name, metric)
