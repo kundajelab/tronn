@@ -72,7 +72,7 @@ def train(data_loader,
                             number_of_steps=target_global_step,
                             summary_op=tf.summary.merge_all(),
                             save_summaries_secs=60,
-                            save_interval_secs=600)
+                            save_interval_secs=3600)
 
     return None
 
@@ -97,22 +97,13 @@ def evaluate(data_loader,
 
         # data loader
         features, labels, metadata = data_loader(data_file_list,
-                                                 args.batch_size)
+                                                 args.batch_size*2)#increase batch size since we don't need back-prop
 
         # model - training=False
         logits = model_builder(features, labels, is_training=False)
-        loss = loss_fn(logits, labels)
-
-        # boolean classification predictions and labels
-        labels_bool = tf.cast(labels, tf.bool)
-        predictions_prob = final_activation_fn(logits)
-        predictions_bool = tf.greater(predictions_prob, 0.5)
         
         # Construct metrics to compute
         names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
-        avg_loss, loss_update = tf.contrib.metrics.streaming_mean(loss, name='avg_loss')
-        names_to_metrics['avg_loss'] = avg_loss
-        updates.append(loss_update)
 
         # Define the scalar summaries to write
         for name, metric in names_to_metrics.iteritems():

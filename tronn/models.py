@@ -123,17 +123,21 @@ def basset(features, labels, is_training=True):
 
     return logits
 
+#TRIED:
+#kernel=7,dim=64,stride=2,blocks=5
+#kernel=7,dim=64,stride=3,blocks=5
+#kernel=3,dim=16,stride=2,blocks=6
 def custom(features, labels, is_training=True):
     net = features
-    dim = 16
+    dim = 32
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], padding='SAME'):
-            with slim.arg_scope([slim.conv2d], kernel_size=[1, 3], activation_fn=None):
+            with slim.arg_scope([slim.conv2d], kernel_size=[1, 5], activation_fn=None):
                 net = slim.conv2d(net, dim, scope='embed')
                 for block in xrange(7):
                     with tf.variable_scope('residual_block%d'%block):
                         if block>0:
-                            dim*=2
+                            dim = int(dim * (2**0.5))# with 2d conv(images) we increase dim by a factor of 2 after number of spatial features is decreased by a factor of stride**2, but with 1d #conv spatial features only decreases by stride
                             shortcut = slim.conv2d(net, dim, kernel_size=[1, 1], stride=[1, 2], scope='increase_dim')
                         else:
                             shortcut = net
@@ -145,7 +149,7 @@ def custom(features, labels, is_training=True):
                     #net = slim.max_pool2d(net, [1, 2], [1, 2], scope='maxpool')
         net = slim.flatten(net, scope='flatten')
         with slim.arg_scope([slim.fully_connected], activation_fn=None):
-            with slim.arg_scope([slim.dropout], keep_prob=0.9, is_training=is_training):
+            with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
                 with tf.variable_scope('fc1'):
                     net = slim.batch_norm(net)
                     net = slim.dropout(net)
@@ -157,7 +161,7 @@ def custom(features, labels, is_training=True):
                 logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
 
     # Torch7 style maxnorm
-    nn_ops.maxnorm(norm_val=7)
+    # nn_ops.maxnorm(norm_val=7)
 
     return logits
 

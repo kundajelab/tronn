@@ -71,8 +71,8 @@ def main():
                 tronn.models.models[args.model],
                 tf.nn.sigmoid,
                 slim.losses.sigmoid_cross_entropy,
-                tf.train.AdamOptimizer,#tf.train.RMSPropOptimizer,{'learning_rate': 0.002, 'decay':0.98, 'momentum':0.0, 'epsilon':1e-8},
-                {'learning_rate': 0.001},
+                #tf.train.AdamOptimizer,{'learning_rate': 0.001},
+                tf.train.RMSPropOptimizer,{'learning_rate': 0.001, 'decay':0.98, 'momentum':0.0, 'epsilon':1e-8},
                 restore,
                 'Not yet implemented',
                 args,
@@ -94,7 +94,7 @@ def main():
                 args,
                 valid_files,
                 '{}/valid'.format(args.out_dir),
-                num_evals=10000)
+                num_evals=valid_steps)
 
     # extract importance
     if args.interpret:
