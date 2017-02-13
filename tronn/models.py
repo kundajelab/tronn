@@ -148,18 +148,19 @@ def custom(features, labels, is_training=True):
                         net = slim.conv2d(net, dim)
                         net = shortcut + net
                     #net = slim.max_pool2d(net, [1, 2], [1, 2], scope='maxpool')
+        net = slim.batch_norm(net)
         net = slim.flatten(net, scope='flatten')
         with slim.arg_scope([slim.fully_connected], activation_fn=None):
             with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
                 with tf.variable_scope('fc1'):
+                    net = slim.fully_connected(net, 1000)
                     net = slim.batch_norm(net)
                     net = slim.dropout(net)
-                    net = slim.fully_connected(net, 1000)
                 with tf.variable_scope('fc2'):
+                    net = slim.fully_connected(net, 1000)
                     net = slim.batch_norm(net)
                     net = slim.dropout(net)
-                    net = slim.fully_connected(net, 1000)
-                logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
+            logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
 
     # Torch7 style maxnorm
     # nn_ops.maxnorm(norm_val=7)
