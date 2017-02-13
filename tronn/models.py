@@ -129,20 +129,21 @@ def basset(features, labels, is_training=True):
 #kernel=3,dim=16,stride=2,blocks=6
 def custom(features, labels, is_training=True):
     net = features
-    dim = 32
+    dim = 16
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], padding='SAME'):
-            with slim.arg_scope([slim.conv2d], kernel_size=[1, 5], activation_fn=None):
+            with slim.arg_scope([slim.conv2d], kernel_size=[1, 7], activation_fn=None):
                 net = slim.conv2d(net, dim, scope='embed')
-                for block in xrange(7):
+                for block in xrange(4):
                     with tf.variable_scope('residual_block%d'%block):
                         if block>0:
-                            dim = int(dim * (2**0.5))# with 2d conv(images) we increase dim by a factor of 2 after number of spatial features is decreased by a factor of stride**2, but with 1d #conv spatial features only decreases by stride
-                            shortcut = slim.conv2d(net, dim, kernel_size=[1, 1], stride=[1, 2], scope='increase_dim')
+                            #dim = int(dim * (2**0.5))# with 2d conv(images) we increase dim by a factor of 2 after number of spatial features is decreased by a factor of stride**2, but with 1d #conv spatial features only decreases by stride
+                            dim *= 2
+                            shortcut = slim.conv2d(net, dim, kernel_size=[1, 1], stride=[1, 3], scope='increase_dim')
                         else:
                             shortcut = net
                         net = slim.batch_norm(net)
-                        net = slim.conv2d(net, dim, stride=[1, 2] if block>0 else 1)
+                        net = slim.conv2d(net, dim, stride=[1, 3] if block>0 else 1)
                         net = slim.batch_norm(net)
                         net = slim.conv2d(net, dim)
                         net = shortcut + net
