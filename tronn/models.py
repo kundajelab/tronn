@@ -144,6 +144,7 @@ def _residual_block(net, dim=16, down_sampling='max_pooling', down_sampling_fact
     net = slim.batch_norm(net)
     net = slim.conv2d(net, dim)
     net = shortcut + net
+    return net
 
 def custom(features, labels, is_training=True):
     net = features
