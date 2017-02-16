@@ -154,12 +154,13 @@ def custom(features, labels, is_training=True):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], kernel_size=[1, 3], padding='SAME'):
             with slim.arg_scope([slim.conv2d], activation_fn=None):
                 net = slim.conv2d(net, dim, scope='embed')
-                for block in xrange(4):
+                for block in xrange(6):
                     with tf.variable_scope('residual_block%d'%block):
                         if block==0:
                             net = _residual_block(net, dim)
                         else:
-                            net = _residual_block(net, dim*2, down_sampling='max_pooling', down_sampling_factor=3)
+                            dim = int(dim*(2**0.5))
+                            net = _residual_block(net, dim, down_sampling='max_pooling', down_sampling_factor=2)
         #fc
         net = slim.batch_norm(net)
         net = slim.flatten(net, scope='flatten')
