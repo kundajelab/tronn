@@ -139,6 +139,8 @@ def _residual_block(net, dim, inrease_dim=False, down_sampling=None):
         elif down_sampling_method=='conv_stride':
             shortcut = slim.conv2d(net, dim, stride=[1, down_sampling_factor])
             first_stride = [1, down_sampling_factor]
+        else:
+            raise ValueError('unrecognized down_sampling: %s'%down_sampling)
     else:
         shortcut = net
         first_stride = [1, 1]
