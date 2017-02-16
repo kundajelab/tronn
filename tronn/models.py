@@ -136,13 +136,13 @@ def custom(features, labels, is_training=True):
                 net = slim.conv2d(net, dim, scope='embed')
                 for block in xrange(4):
                     with tf.variable_scope('residual_block%d'%block):
+                        net = slim.batch_norm(net)
                         if block>0:
                             #dim = int(dim * (2**0.5))# with 2d conv(images) we increase dim by a factor of 2 after number of spatial features is decreased by a factor of stride**2, but with 1d #conv spatial features only decreases by stride
                             dim *= 2
                             shortcut = slim.conv2d(net, dim, kernel_size=[1, 1], stride=[1, 3], scope='increase_dim')
                         else:
                             shortcut = net
-                        net = slim.batch_norm(net)
                         net = slim.conv2d(net, dim, stride=[1, 3] if block>0 else 1)
                         net = slim.batch_norm(net)
                         net = slim.conv2d(net, dim)
