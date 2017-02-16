@@ -128,18 +128,20 @@ def basset(features, labels, is_training=True):
 #kernel=7,dim=64,stride=3,blocks=5
 #kernel=3,dim=16,stride=2,blocks=6
 
-def _residual_block(net, dim=16, down_sampling='max_pooling', down_sampling_factor=2):
-    net = slim.batch_norm(net)
-    if down_sampling=='max_pooling':
+def _residual_block(net, dim, inrease_dim=False, down_sampling=None):
+    down_sampling_method, down_sampling_factor = down_sampling
+    if down_sampling_method=='max_pooling':
         net = slim.max_pool2d(net, stride=[1, down_sampling_factor])
-        shortcut = slim.conv2d(net, dim)
+        if inrease_dim:
+            shortcut = slim.conv2d(net, dim)
         first_stride = [1, 1]
-    elif down_sampling=='conv_stride':
+    elif down_sampling_method=='conv_stride':
         shortcut = slim.conv2d(net, dim, stride=[1, down_sampling_factor])
         first_stride = [1, down_sampling_factor]
     else:
         shortcut = net
         first_stride = [1, 1]
+    net = slim.batch_norm(net)
     net = slim.conv2d(net, dim, stride=first_stride)
     net = slim.batch_norm(net)
     net = slim.conv2d(net, dim)
@@ -160,7 +162,7 @@ def custom(features, labels, is_training=True):
                             net = _residual_block(net, dim)
                         else:
                             dim = int(dim*(2**0.5))
-                            net = _residual_block(net, dim, down_sampling='max_pooling', down_sampling_factor=2)
+                            net = _residual_block(net, dim, inrease_dim=True, down_sampling=('max_pooling', 2))
         #fc
         net = slim.batch_norm(net)
         net = slim.flatten(net, scope='flatten')
