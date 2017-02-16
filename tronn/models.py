@@ -129,15 +129,16 @@ def basset(features, labels, is_training=True):
 #kernel=3,dim=16,stride=2,blocks=6
 
 def _residual_block(net, dim, inrease_dim=False, down_sampling=None):
-    down_sampling_method, down_sampling_factor = down_sampling
-    if down_sampling_method=='max_pooling':
-        net = slim.max_pool2d(net, stride=[1, down_sampling_factor])
-        if inrease_dim:
-            shortcut = slim.conv2d(net, dim)
-        first_stride = [1, 1]
-    elif down_sampling_method=='conv_stride':
-        shortcut = slim.conv2d(net, dim, stride=[1, down_sampling_factor])
-        first_stride = [1, down_sampling_factor]
+    if down_sampling:
+        down_sampling_method, down_sampling_factor = down_sampling
+        if down_sampling_method=='max_pooling':
+            net = slim.max_pool2d(net, stride=[1, down_sampling_factor])
+            if inrease_dim:
+                shortcut = slim.conv2d(net, dim)
+            first_stride = [1, 1]
+        elif down_sampling_method=='conv_stride':
+            shortcut = slim.conv2d(net, dim, stride=[1, down_sampling_factor])
+            first_stride = [1, down_sampling_factor]
     else:
         shortcut = net
         first_stride = [1, 1]
