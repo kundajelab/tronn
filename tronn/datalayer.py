@@ -4,119 +4,46 @@ Currently hdf5 is supported as an important standardized filetype
 used frequently in genomics datasets.
 
 """
-
-
 import h5py
 import tensorflow as tf
+from tensorflow.python.framework import errors
 import numpy as np
 
-
-def setup_queue(features, labels, metadata, capacity=10000):
-    '''
-    Set up data queue as well as queue runner. The shapes of the
-    tensors are inferred from the inputs, so input shapes must be
-    set before this function is called.
-    '''
-
-    with tf.variable_scope('datalayer'):
-        queue = tf.FIFOQueue(capacity,
-                             [tf.float32, tf.float32, tf.string],
-                             shapes=[features.get_shape()[1:],
-                                     labels.get_shape()[1:],
-                                     metadata.get_shape()[1:]])
-        enqueue_op = queue.enqueue_many([features, labels, metadata])
-        queue_runner = tf.train.QueueRunner(
-            queue=queue,
-            enqueue_ops=[enqueue_op],
-            close_op=queue.close(),
-            cancel_op=queue.close(cancel_pending_enqueues=True))
-        tf.train.add_queue_runner(queue_runner, tf.GraphKeys.QUEUE_RUNNERS)
-
-    return queue
-
-
-def get_hdf5_list_reader_pyfunc(hdf5_files, batch_size):
-    '''
-    Takes in a list of hdf5 files and generates a tensorflow op that returns a 
-    group of examples and labels when called in the graph. Be aware that this
-    setup uses global variables that must be initialized first to make this
-    work.
-    '''
-
-    # Get all file handles before starting learning.
-    h5py_handles = [ h5py.File(filename) for filename in hdf5_files ]
+def hdf5_to_slices(hdf5_file, batch_size):
+    h5py_handle = h5py.File(hdf5_file)
+    num_examples = h5py_handle['features'].shape[0]
+    max_batches = num_examples/batch_size
+    batch_id_queue = tf.train.range_input_producer(max_batches, shuffle=True)
 
     # Check shapes from the hdf5 file so that we can set the tensor shapes
-    feature_shape = h5py_handles[0]['features'].shape[1:]
-    label_shape = h5py_handles[0]['labels'].shape[1:]
+    feature_shape = h5py_handle['features'].shape[1:]
+    label_shape = h5py_handle['labels'].shape[1:]
 
-    def hdf5_reader_fn():
-        '''
-        Given batch start and stop, pulls those examples from hdf5 file
-        '''
-        global batch_start
-        global batch_end
-        global filename_index
-
-        # check if at end of file, and move on to the next file
-        if batch_end > h5py_handles[filename_index]['features'].shape[0]:
-            print hdf5_files[filename_index]
-            filename_index += 1
-            batch_start = 0
-            batch_end = batch_size
-
-        if filename_index >= len(h5py_handles):
-            filename_index = 0
-            batch_start = 0
-            batch_end = batch_size
-
-        current_handle = h5py_handles[filename_index]
-
-        features = current_handle['features'][batch_start:batch_end,:,:,:]
-        labels = current_handle['labels'][batch_start:batch_end,:]
-        metadata = current_handle['regions'][batch_start:batch_end].reshape(
-            (batch_size, 1))
-
-        batch_start += batch_size
-        batch_end += batch_size
-
+    # Extract examples based on batch_id
+    def batchid_to_examples(batch_id):
+        batch_start = batch_id*batch_size
+        batch_end = batch_start + batch_size
+        features = h5py_handle['features'][batch_start:batch_end]
+        labels = h5py_handle['labels'][batch_start:batch_end]
+        metadata = h5py_handle['regions'][batch_start:batch_end].reshape(-1, 1).tolist()
         return [features, labels, metadata]
 
-    [py_func_features, py_func_labels, py_func_metadata] = tf.py_func(
-        hdf5_reader_fn,
-        [],
-        [tf.float32, tf.float32, tf.string],
-        stateful=True)
 
-    # Set the shape so that we can infer sizes etc in later layers.
-    py_func_features.set_shape([batch_size,
-                                feature_shape[0],
-                                feature_shape[1],
-                                feature_shape[2]])
-    py_func_labels.set_shape([batch_size, label_shape[0]])
-    py_func_metadata.set_shape([batch_size, 1])
-    
-    return py_func_features, py_func_labels, py_func_metadata
+    batch_id_tensor = batch_id_queue.dequeue()
+    [features_tensor, labels_tensor, metadata_tensor] = tf.py_func(func=batchid_to_examples,
+        inp=[batch_id_tensor],
+        Tout=[tf.float32, tf.float32, tf.string],
+        stateful=False, name='py_func_batchid_to_examples')
 
+    features_tensor.set_shape([batch_size, feature_shape[0], feature_shape[1], feature_shape[2]])
+    labels_tensor.set_shape([batch_size, label_shape[0]])
+    metadata_tensor.set_shape([batch_size, 1])
 
-def load_data_from_filename_list(hdf5_files, batch_size):
-    '''
-    Put it all together
-    '''
+    return features_tensor, labels_tensor, metadata_tensor
 
-    global batch_start
-    global batch_end
-    global filename_index
-
-    batch_start = 0
-    batch_end = batch_size
-    filename_index = 0
-
-    [hdf5_features, hdf5_labels, hdf5_metadata] = get_hdf5_list_reader_pyfunc(hdf5_files,
-                                                                              batch_size)
-
-    queue = setup_queue(hdf5_features, hdf5_labels, hdf5_metadata)
-
-    [features, labels, metadata] = queue.dequeue_many(batch_size)
-
+def load_data_from_filename_list(hdf5_files, batch_size, shuffle_seed=0):
+    example_slices_list = [hdf5_to_slices(hdf5_file, batch_size) for hdf5_file in hdf5_files]
+    min_after_dequeue = 10000
+    capacity = min_after_dequeue + (len(example_slices_list)+1) * batch_size #min_after_dequeue + (num_threads + a small safety margin) * batch_size
+    features, labels, metadata = tf.train.shuffle_batch_join(example_slices_list, batch_size, capacity=capacity, min_after_dequeue=min_after_dequeue, seed=shuffle_seed, enqueue_many=True)
     return features, labels, metadata

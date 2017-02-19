@@ -29,7 +29,7 @@ def run_lrp(checkpoint_path,
             features,
             labels,
             metadata,
-            predictions,
+            logits,
             importances,
             batch_size,
             out_file,
@@ -43,8 +43,8 @@ def run_lrp(checkpoint_path,
     # open a session from checkpoint
     sess = tf.Session()
 
-    sess.run(tf.initialize_all_variables())
-    sess.run(tf.initialize_local_variables())
+    sess.run(tf.global_variables_initializer())
+    sess.run(tf.local_variables_initializer())
 
     # start queue runners
     coord = tf.train.Coordinator()
@@ -62,9 +62,9 @@ def run_lrp(checkpoint_path,
         for dataset_name in importances.keys():
             names_to_hf[dataset_name] = hf.create_dataset(dataset_name, [sample_size] + list(features.get_shape()[1:]))
 
-        predictions_hf = hf.create_dataset(
-            'predictions',
-            [sample_size] + list(predictions.get_shape()[1:]))
+        logits_hf = hf.create_dataset(
+            'logits',
+            [sample_size] + list(logits.get_shape()[1:]))
         labels_hf = hf.create_dataset(
             'labels',
             [sample_size] + list(labels.get_shape()[1:]))
@@ -82,8 +82,8 @@ def run_lrp(checkpoint_path,
         for i in xrange(int(math.ceil(sample_size / float(batch_size)))):
             print "LRP on batch {}".format(str(i))
 
-            importances_dict, predictions_np, labels_np, regions_np = sess.run(
-                [importances, predictions, labels, metadata])
+            importances_dict, logits_np, labels_np, regions_np = sess.run(
+                [importances, logits, labels, metadata])
 
             if batch_end < sample_size:
                 hf_end = batch_end
@@ -94,7 +94,7 @@ def run_lrp(checkpoint_path,
 
             for dataset_name in importances.keys():
                 names_to_hf[dataset_name][batch_start:hf_end,:,:,:] = importances_dict[dataset_name][0:np_end,:,:,:]
-            predictions_hf[batch_start:hf_end,:] = predictions_np[0:np_end,:]
+            logits_hf[batch_start:hf_end,:] = logits_np[0:np_end,:]
             labels_hf[batch_start:hf_end,:] = labels_np[0:np_end,:]
             regions_hf[batch_start:hf_end,:] = regions_np[0:np_end,:].astype('S100')
 
@@ -126,17 +126,17 @@ def interpret(data_loader,
         features, labels, metadata = data_loader(data_file_list,
                                                  args.batch_size)
         num_tasks = labels.get_shape()[1]
-        task_labels = tf.unpack(labels, axis=1)
+        task_labels = tf.unstack(labels, axis=1)
 
         # model
-        predictions = model_builder(features, labels, is_training=False)
-        task_predictions = tf.unpack(predictions, axis=1)
+        logits = model_builder(features, labels, is_training=False)
+        task_logits = tf.unstack(logits, axis=1)
 
         # loss, global and task-specific
-        total_loss = loss_fn(predictions, labels)
+        total_loss = loss_fn(logits, labels)
         task_losses = []
         for task_num in range(num_tasks):
-            task_losses.append(loss_fn(task_predictions[task_num], task_labels[task_num]))
+            task_losses.append(loss_fn(task_logits[task_num], task_labels[task_num]))
 
         # get importance scores
         importances = {}
@@ -149,7 +149,7 @@ def interpret(data_loader,
                 features,
                 labels,
                 metadata,
-                predictions,
+                logits,
                 importances,
                 args.batch_size,
                 out_file,
@@ -270,7 +270,8 @@ def importance_to_bed(hdf5_file, out_bed, dataset_name='importance_global', smoo
         importances_poslabel = np.squeeze(importances_max[pos_indices,:])
 
         # now extract bed style regions
-        OUT = gzip.open(out_bed, 'w')
+        #OUT = gzip.open(out_bed, 'w')
+        OUT = open(out_bed, 'w')
         for i in xrange(importances_poslabel.shape[0]):
 
             if i % 1000 == 0:

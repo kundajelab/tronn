@@ -71,14 +71,14 @@ def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
                 metric_updates.append(update_op_accuracy)
 
         learning_metrics = {
-                'mean_loss' : tf.reduce_mean(tf.pack(loss_tensors), name='mean_loss'),
-                'mean_accuracy' : tf.reduce_mean(tf.pack(accuracy_tensors), name='mean_accuracy'),
-                'mean_auROC' : tf.reduce_mean(tf.pack(auROC_tensors), name='mean_auROC'),
-                'mean_auPRC' : tf.reduce_mean(tf.pack(auPRC_tensors), name='mean_auPRC'),
-                'losses' : tf.pack(loss_tensors),
-                'accuracies' : tf.pack(accuracy_tensors),
-                'auROCs' : tf.pack(auROC_tensors),
-                'auPRCs' : tf.pack(auPRC_tensors)
+                'mean_loss' : tf.reduce_mean(tf.stack(loss_tensors), name='mean_loss'),
+                'mean_accuracy' : tf.reduce_mean(tf.stack(accuracy_tensors), name='mean_accuracy'),
+                'mean_auROC' : tf.reduce_mean(tf.stack(auROC_tensors), name='mean_auROC'),
+                'mean_auPRC' : tf.reduce_mean(tf.stack(auPRC_tensors), name='mean_auPRC'),
+                'losses' : tf.stack(loss_tensors),
+                'accuracies' : tf.stack(accuracy_tensors),
+                'auROCs' : tf.stack(auROC_tensors),
+                'auPRCs' : tf.stack(auPRC_tensors)
         }
 
     return learning_metrics, metric_updates

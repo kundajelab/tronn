@@ -52,7 +52,7 @@ def train(data_loader,
 
         # summarries
         tf.summary.scalar('loss_raw', loss)
-        tf.summary.scalar('loss_ema', tf.Print(loss_ema, [loss_ema], 'loss_ema'))
+        tf.summary.scalar('loss_ema', loss_ema)
         for var in tf.model_variables():
             tronn.nn_utils.add_var_summaries(var)
 
@@ -66,11 +66,13 @@ def train(data_loader,
         total_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
         print 'Num trainable params: %d/%d' % (trainable_params, total_params)
 
+
+        summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step(), loss_ema])
         slim.learning.train(train_op,
                             OUT_DIR,
                             init_fn=restoreFn if restore else None,
                             number_of_steps=target_global_step,
-                            summary_op=tf.summary.merge_all(),
+                            summary_op=summary_op,
                             save_summaries_secs=60,
                             save_interval_secs=3600)
 

@@ -17,8 +17,8 @@ def parse_args():
 
     parser.add_argument('--data_file', help='(currently only) hdf5 file')
     parser.add_argument('--out_dir', default='out', help='path to save model')
-    parser.add_argument('--epochs', default=20, help='number of epochs')
-    parser.add_argument('--batch_size', default=128, help='batch size')
+    parser.add_argument('--epochs', default=20, type=int, help='number of epochs')
+    parser.add_argument('--batch_size', default=128, type=int, help='batch size')
 
     parser.add_argument('--restore', action='store_true', help='restore from last checkpoint')
     parser.add_argument('--train', action='store_true', help='train the model')
@@ -70,7 +70,7 @@ def main():
             tronn.learning.train(tronn.load_data_from_filename_list, 
                 tronn.models.models[args.model],
                 tf.nn.sigmoid,
-                slim.losses.sigmoid_cross_entropy,
+                tf.losses.sigmoid_cross_entropy,
                 #tf.train.AdamOptimizer,{'learning_rate': 0.001},
                 tf.train.RMSPropOptimizer,{'learning_rate': 0.001, 'decay':0.98, 'momentum':0.0, 'epsilon':1e-8},
                 restore,
@@ -88,7 +88,7 @@ def main():
             tronn.learning.evaluate(tronn.load_data_from_filename_list,
                 tronn.models.models[args.model],
                 tf.nn.sigmoid,
-                slim.losses.sigmoid_cross_entropy,
+                tf.losses.sigmoid_cross_entropy,
                 tronn.streaming_metrics_tronn,
                 checkpoint_path,
                 args,
@@ -109,7 +109,7 @@ def main():
         tronn.interpretation.interpret(tronn.load_data_from_filename_list,
             data_files,
             tronn.models.models[args.model],
-            slim.losses.sigmoid_cross_entropy,
+            tf.losses.sigmoid_cross_entropy,
             checkpoint_path,
             args,
             'importances.h5')
