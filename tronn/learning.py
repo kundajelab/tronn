@@ -38,7 +38,7 @@ def train(data_loader,
         predictions_prob = final_activation_fn(logits)
 
         # loss
-        loss = loss_fn(logits, labels)
+        loss = loss_fn(labels, logits)
         ema = tf.train.ExponentialMovingAverage(decay=0.999)
         ema_update = ema.apply([loss])
         tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, ema_update)

@@ -50,7 +50,7 @@ def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
     with tf.name_scope('metrics') as scope:
         for task_num in range(tasks):
             with tf.name_scope('loss'):
-                loss, loss_update = tf.contrib.metrics.streaming_mean(loss_fn(logits[:,task_num], labels[:,task_num]), name='loss{}'.format(task_num))
+                loss, loss_update = tf.contrib.metrics.streaming_mean(loss_fn(labels[:,task_num], logits[:,task_num]), name='loss{}'.format(task_num))
                 loss_tensors.append(loss)
                 metric_updates.append(loss_update)
 
