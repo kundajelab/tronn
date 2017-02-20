@@ -168,15 +168,11 @@ def custom(features, labels, is_training=True):
                             net = _residual_block(net, dim, inrease_dim=True, down_sampling=('conv_stride', 2))
         net = slim.batch_norm(net)
         #fc
-        #net = slim.flatten(net, scope='flatten')
-        net = tf.reduce_mean(net, axis=[1,2], name='global_average_pooling')
+        net = slim.flatten(net, scope='flatten')
+        #net = tf.reduce_mean(net, axis=[1,2], name='global_average_pooling')
         with slim.arg_scope([slim.fully_connected], activation_fn=None):
             with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
                 with tf.variable_scope('fc1'):
-                    net = slim.fully_connected(net, dim)
-                    net = slim.batch_norm(net)
-                    net = slim.dropout(net)
-                with tf.variable_scope('fc2'):
                     net = slim.fully_connected(net, dim)
                     net = slim.batch_norm(net)
                     net = slim.dropout(net)
