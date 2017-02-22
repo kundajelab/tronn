@@ -124,65 +124,86 @@ def basset(features, labels, is_training=True):
     return logits
 
 #TRIED:
-#kernel=7,dim=64,stride=2,blocks=5
-#kernel=7,dim=64,stride=3,blocks=5
-#kernel=3,dim=16,stride=2,blocks=6
+#kernel=7,depth=64,stride=2,blocks=5
+#kernel=7,depth=64,stride=3,blocks=5
+#kernel=3,depth=16,stride=2,blocks=6
 
-def _residual_block(net, dim, inrease_dim=False, down_sampling=None):
-    if down_sampling:
-        down_sampling_method, down_sampling_factor = down_sampling
-        if down_sampling_method=='max_pool':
-            net = slim.max_pool2d(net, stride=[1, down_sampling_factor])
-            if inrease_dim:
-                shortcut = slim.conv2d(net, dim)
-            first_stride = [1, 1]
-        elif down_sampling_method=='conv_stride':
-            shortcut = slim.conv2d(net, dim, stride=[1, down_sampling_factor])
-            first_stride = [1, down_sampling_factor]
-        else:
-            raise ValueError('unrecognized down_sampling: %s'%down_sampling)
+def _residual_block(net, depth, stride, down_sampling_method=None):
+    depth_in = net.get_shape()[-1]
+    if depth_in!=depth:
+        net = slim.batch_norm(net)
+        if down_sampling_method=='conv_stride':
+            pass
+        elif stride > 1 and down_sampling_method=='max_pool':
+            net = slim.max_pool2d(net, stride=[1, stride])#downsample for both shortcut and conv branch
+            stride = 1#no need to stride in conv branch since we have already downsampled
+        shortcut = slim.conv2d(net, depth, kernel_size=[1,1], stride=[1, stride])
+    elif stride > 1:
+        shortcut = slim.max_pool2d(net, stride=[1, stride])
     else:
         shortcut = net
-        first_stride = [1, 1]
     net = slim.batch_norm(net)
-    net = slim.conv2d(net, dim, stride=first_stride)
+    net = slim.conv2d(net, depth, stride=[1, stride])
     net = slim.batch_norm(net)
-    net = slim.conv2d(net, dim)
+    net = slim.conv2d(net, depth, stride=[1, 1])
     net = shortcut + net
     return net
 
-def custom(features, labels, is_training=True):
+def _resnet(features, num_blocks, initial_depth=64, final_depth=None, is_training=True):
+    if not final_depth:
+        final_depth = initial_depth*(2**num_blocks)
     net = features
-    dim = 16
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         #conv
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], kernel_size=[1, 3], padding='SAME'):
-            with slim.arg_scope([slim.conv2d], activation_fn=None):
-                net = slim.conv2d(net, dim, scope='embed')
-                for block in xrange(7):
+            with slim.arg_scope([slim.conv2d], activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001)):
+                # We do not include batch normalization or activation functions in embed because the first ResNet unit will perform these.
+                net = slim.conv2d(net, initial_depth, scope='embed')
+                for block in xrange(num_blocks):
                     with tf.variable_scope('residual_block%d'%block):
-                        if block==0:
-                            net = _residual_block(net, dim)
-                        else:
-                            dim = int(dim*(2**0.5))
-                            net = _residual_block(net, dim, inrease_dim=True, down_sampling=('conv_stride', 2))
+                        depth = int(initial_depth * ((final_depth/initial_depth)**(block/float(num_blocks))))
+                        net = _residual_block(net, depth, 2, down_sampling_method='conv_stride')
         net = slim.batch_norm(net)
-        #fc
-        net = slim.flatten(net, scope='flatten')
-        #net = tf.reduce_mean(net, axis=[1,2], name='global_average_pooling')
-        with slim.arg_scope([slim.fully_connected], activation_fn=None):
+    return net
+
+def conv_rnn(features, labels, use_only_final_state=False, is_training=True):
+    net = _resnet(features, num_blocks=6, initial_depth=16, is_training=is_training)
+    depth = net.get_shape().as_list()[-1]
+    net = tf.squeeze(net, axis=1)#remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
+    rnn_inputs = tf.unstack(net, axis=1, name='unpack_time_dim')
+    cell_fw = tf.contrib.rnn.LSTMBlockCell(depth)
+    cell_bw = tf.contrib.rnn.LSTMBlockCell(depth)
+    outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
+    if use_only_final_state:
+        state_avg = tf.div(tf.add(state_fw[1], state_bw[1]), 2, name='average_fwbw_states')#use final output(state) from fw and bw pass
+        net = state_avg
+    else:
+        outputs_fwbw_sum = tf.add_n(outputs_fwbw_list)
+        outputs_fw_sum, outputs_bw_sum = tf.split(outputs_fwbw_sum, 2, axis=1)
+        outputs_avg = tf.div(outputs_fw_sum + outputs_bw_sum, 2, name='average_fwbw_outputs')
+        net = outputs_avg
+    net = slim.dropout(net, keep_prob=1.0, is_training=is_training)
+    logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001), scope='logits')
+    return logits
+
+
+def conv_fc(features, labels, is_training=True):
+    net = _resnet(features, num_blocks=8, initial_depth=32, final_depth=128, is_training=is_training)
+    depth = net.get_shape().as_list()[-1]
+    net = slim.flatten(net, scope='flatten')
+    #net = tf.reduce_mean(net, axis=[1,2], name='global_average_pooling')
+    with slim.arg_scope([slim.fully_connected], activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001)):
+        with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
             with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
                 with tf.variable_scope('fc1'):
-                    net = slim.fully_connected(net, dim)
+                    net = slim.fully_connected(net, depth)
                     net = slim.batch_norm(net)
                     net = slim.dropout(net)
-            logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
-
-    # Torch7 style maxnorm
-    # nn_ops.maxnorm(norm_val=7)
-
+        logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
     return logits
+
 
 models = {}
 models['basset'] = basset
-models['custom'] = custom
+models['conv_rnn'] = conv_rnn
+models['conv_fc'] = conv_fc

@@ -23,9 +23,9 @@ def hdf5_to_slices(hdf5_file, batch_size):
     def batchid_to_examples(batch_id):
         batch_start = batch_id*batch_size
         batch_end = batch_start + batch_size
-        features = h5py_handle['features'][batch_start:batch_end]
-        labels = h5py_handle['labels'][batch_start:batch_end]
-        metadata = h5py_handle['regions'][batch_start:batch_end].reshape(-1, 1).tolist()
+        features = h5py_handle['features'][batch_start:batch_end,:,:,:]
+        labels = h5py_handle['labels'][batch_start:batch_end,:]
+        metadata = h5py_handle['regions'][batch_start:batch_end].reshape((batch_size, 1))
         return [features, labels, metadata]
 
 

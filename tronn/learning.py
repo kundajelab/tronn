@@ -48,7 +48,8 @@ def train(data_loader,
         optimizer = optimizer_fn(**optimizer_params)
 
         # train op
-        train_op = slim.learning.create_train_op(loss, optimizer, summarize_gradients=True)
+        total_loss = tf.losses.get_total_loss()
+        train_op = slim.learning.create_train_op(total_loss, optimizer, summarize_gradients=True)
 
         # summarries
         tf.summary.scalar('loss_raw', loss)
@@ -62,12 +63,13 @@ def train(data_loader,
             print 'Restoring model from %s...'%checkpoint_path
             restorer.restore(sess, checkpoint_path)
         
+        model_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
         trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
-        total_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
-        print 'Num trainable params: %d/%d' % (trainable_params, total_params)
+        total_params = sum(v.get_shape().num_elements() for v in tf.global_variables())
+        print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
 
 
-        summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step(), loss_ema])
+        summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step(), loss_ema, loss, total_loss])
         slim.learning.train(train_op,
                             OUT_DIR,
                             init_fn=restoreFn if restore else None,
