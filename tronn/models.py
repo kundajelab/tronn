@@ -215,7 +215,7 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling=None):
     else:
         raise Exception('Unrecognized pre_fc_pooling: %s'% pre_fc_pooling)
 
-    if tf.rank(net>2):
+    if len(net.get_shape().as_list)>2:
         net = slim.flatten(net, scope='flatten')
     dim = net.get_shape().as_list()[-1]
     num_fc_layers = 2
