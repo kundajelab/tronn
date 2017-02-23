@@ -27,16 +27,9 @@ def parse_args():
 
     parser.add_argument('--model', help='choose model from models.models')
     
-    args, unknown_args = parser.parse_known_args()
-    nargs = {}
-    for unknown_arg in unknown_args:
-        assert unknown_arg.startswith('--') and '=' in unknown_arg
-        arg_name, arg_value = unknown_arg.split('=')
-        arg_name = arg_name[2:]#remove --
-        arg_value = eval(arg_value)#convert string to python object
-        nargs[arg_name] = arg_value
+    args = parser.parse_args()
     
-    return args, nargs
+    return args
 
 
 def main():
@@ -51,7 +44,7 @@ def main():
     train_files = data_files[0:15]
     valid_files = data_files[15:20]
 
-    args, nargs = parse_args()
+    args = parse_args()
 
     if args.train:
 
@@ -76,7 +69,6 @@ def main():
             # Run training
             tronn.learning.train(tronn.load_data_from_filename_list, 
                 tronn.models.models[args.model],
-                nargs,
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
                 tf.train.AdamOptimizer,{'learning_rate': 0.001, 'beta1':0.9, 'beta2':0.999},
@@ -96,7 +88,6 @@ def main():
             # Evaluate after training
             tronn.learning.evaluate(tronn.load_data_from_filename_list,
                 tronn.models.models[args.model],
-                nargs,
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
                 tronn.streaming_metrics_tronn,
@@ -119,7 +110,6 @@ def main():
         tronn.interpretation.interpret(tronn.load_data_from_filename_list,
             data_files,
             tronn.models.models[args.model],
-            nargs,
             tf.losses.sigmoid_cross_entropy,
             checkpoint_path,
             args,

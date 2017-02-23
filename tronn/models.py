@@ -155,7 +155,7 @@ def _resnet(features, initial_depth, stages, down_sampling='conv_stride', is_tra
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         #conv
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], kernel_size=[1, 3], padding='SAME'):
-            with slim.arg_scope([slim.conv2d], activation_fn=None):
+            with slim.arg_scope([slim.conv2d], activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001)):
                 # We do not include batch normalization or activation functions in embed because the first ResNet unit will perform these.
                 net = slim.conv2d(net, initial_depth, scope='embed')
                 for i, stage in enumerate(stages):
@@ -184,17 +184,11 @@ def conv_rnn(features, labels, use_only_final_state=False, is_training=True):
         outputs_avg = tf.div(outputs_fw_sum + outputs_bw_sum, 2, name='average_fwbw_outputs')
         net = outputs_avg
     net = slim.dropout(net, keep_prob=1.0, is_training=is_training)
-    logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None, scope='logits')
+    logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001), scope='logits')
     return logits
 
 
-def conv_fc(features, labels, config, is_training=True):
-    initial_depth = config['initial_depth']
-    num_fc_layers = config['num_fc_layers']
-    stages = config['stages']
-    pre_fc_pooling = config['pre_fc_pooling']
-    down_sampling = config['down_sampling']
-
+def conv_fc(features, labels, is_training=True, pre_fc_pooling=None):
     #stages=[(1, 16),(1, 24),(1, 32),(1, 48)]
     #stages=[(1, 16),(1, 32),(1, 64),(1, 128)]
     #stages=[(1, 32),(1, 48),(1, 64),(1, 96)]
@@ -206,11 +200,10 @@ def conv_fc(features, labels, config, is_training=True):
     #stages=[(1, 64),(1, 96),(1, 128),(1, 192)]
     #stages=[(1, 64),(1, 128),(1, 256),(1, 512)]
     #stages=[(2, 64),(2, 96),(2, 128),(2, 192)]
-    
 
-    net = _resnet(features, initial_depth, stages, down_sampling, is_training=is_training)
+    net = _resnet(features, initial_depth=64, stages=[(1, 64),(1, 128),(1, 256),(1, 512)], is_training=is_training)
     
-    if pre_fc_pooling is None:
+    if pre_fc_pooling is 'mean':
         net = slim.avg_pool2d(net, kernel_size=[1,3], stride=[1,2], padding='SAME')
     if pre_fc_pooling == 'global_mean':
         net = tf.reduce_mean(net, axis=[1,2], name='global_average_pooling')
@@ -225,8 +218,8 @@ def conv_fc(features, labels, config, is_training=True):
     if tf.rank(net>2):
         net = slim.flatten(net, scope='flatten')
     dim = net.get_shape().as_list()[-1]
-    
-    with slim.arg_scope([slim.fully_connected], activation_fn=None):
+    num_fc_layers = 2
+    with slim.arg_scope([slim.fully_connected], activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001)):
         with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
             with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
                 for i in xrange(num_fc_layers)
