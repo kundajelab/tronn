@@ -29,3 +29,18 @@ def maxnorm(norm_val=7):
                              maxnorm_update)
         
     return None
+
+def order_preserving_k_max(input, k):
+    '''
+    Finds values k largest entries for the last dimension and returns them in the order they originally appeared.
+    If the input is a vector (rank-1), finds the k largest entries in the vector and outputs their values and indices as vectors. Thus values[j] is the j-th largest entry in input, and its index is indices[j].
+    For matrices (resp. higher rank input), computes the top k entries in each row (resp. vector along the last dimension).
+    return value shape: input.shape[:-1] + [k]
+    Example:
+    input: input=[1, 3, 2, 4], k=3
+    output: [3,2,4]
+    '''
+    indices = tf.nn.top_k(input, k, sorted=False).indices
+    indices_sorted = tf.nn.top_k(indices, k, sorted=True).values
+    result = tf.gather(input, indices_sorted)
+    return result

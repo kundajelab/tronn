@@ -11,6 +11,7 @@ import tensorflow.contrib.slim as slim
 
 def train(data_loader,
           model_builder,
+          model_config,
           final_activation_fn,
           loss_fn,
           optimizer_fn,
@@ -20,7 +21,8 @@ def train(data_loader,
           args,
           data_file_list,
           OUT_DIR,
-          target_global_step):
+          target_global_step,
+          model_config):
     '''
     Wraps the routines needed for tf-slim
     '''
@@ -32,7 +34,7 @@ def train(data_loader,
                                                  args.batch_size)
 
         # model
-        logits = model_builder(features, labels, is_training=True)
+        logits = model_builder(features, labels, model_config, is_training=True)
 
         # probs
         predictions_prob = final_activation_fn(logits)
@@ -83,6 +85,7 @@ def train(data_loader,
 
 def evaluate(data_loader,
              model_builder,
+             model_config,
              final_activation_fn,
              loss_fn,
              metrics_fn,
@@ -104,7 +107,7 @@ def evaluate(data_loader,
                                                  args.batch_size*2)#increase batch size since we don't need back-prop
 
         # model - training=False
-        logits = model_builder(features, labels, is_training=False)
+        logits = model_builder(features, labels, model_config, is_training=False)
         
         # Construct metrics to compute
         names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
