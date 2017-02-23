@@ -222,11 +222,11 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling=None):
     with slim.arg_scope([slim.fully_connected], activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001)):
         with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
             with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
-                for i in xrange(num_fc_layers)
-                with tf.variable_scope('fc%d'%i):
-                    net = slim.fully_connected(net, dim/2)
-                    net = slim.batch_norm(net)
-                    net = slim.dropout(net)
+                for i in xrange(num_fc_layers):
+                    with tf.variable_scope('fc%d'%i):
+                        net = slim.fully_connected(net, dim/2)
+                        net = slim.batch_norm(net)
+                        net = slim.dropout(net)
         logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
     return logits
 
