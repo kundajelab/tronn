@@ -155,7 +155,7 @@ def _resnet(features, initial_depth, stages, down_sampling='conv_stride', is_tra
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         #conv
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], kernel_size=[1, 3], padding='SAME'):
-            with slim.arg_scope([slim.conv2d], activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001)):
+            with slim.arg_scope([slim.conv2d], activation_fn=None):
                 # We do not include batch normalization or activation functions in embed because the first ResNet unit will perform these.
                 net = slim.conv2d(net, initial_depth, scope='embed')
                 for i, stage in enumerate(stages):
@@ -184,7 +184,7 @@ def conv_rnn(features, labels, use_only_final_state=False, is_training=True):
         outputs_avg = tf.div(outputs_fw_sum + outputs_bw_sum, 2, name='average_fwbw_outputs')
         net = outputs_avg
     net = slim.dropout(net, keep_prob=1.0, is_training=is_training)
-    logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001), scope='logits')
+    logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None, scope='logits')
     return logits
 
 
@@ -229,7 +229,7 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling='global_mean'):
     dim = net.get_shape().as_list()[-1]
     print 'pre_fc dim: %d'%dim
     num_fc_layers = 2
-    with slim.arg_scope([slim.fully_connected], activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001)):
+    with slim.arg_scope([slim.fully_connected], activation_fn=None):
         with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
             with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
                 for i in xrange(num_fc_layers):
