@@ -188,7 +188,7 @@ def conv_rnn(features, labels, use_only_final_state=False, is_training=True):
     return logits
 
 
-def conv_fc(features, labels, is_training=True, pre_fc_pooling=None):
+def conv_fc(features, labels, is_training=True, pre_fc_pooling='global_mean'):
     #stages=[(1, 16),(1, 24),(1, 32),(1, 48)]
     #stages=[(1, 16),(1, 32),(1, 64),(1, 128)]
     #stages=[(1, 32),(1, 48),(1, 64),(1, 96)]
@@ -201,7 +201,11 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling=None):
     #stages=[(1, 64),(1, 128),(1, 256),(1, 512)]
     #stages=[(2, 64),(2, 96),(2, 128),(2, 192)]
 
-    net = _resnet(features, initial_depth=64, stages=[(1, 64),(1, 128),(1, 256),(1, 512)], is_training=is_training)
+    net = _resnet(features, initial_depth=64, stages=[(1, 64),(1, 96),(1, 128),(1, 192)], is_training=is_training)
+    #net = _resnet(features, initial_depth=64, stages=[(2, 64),(2, 96),(2, 128),(2, 192)], is_training=is_training)
+    #net = _resnet(features, initial_depth=64, stages=[(1, 64),(1, 128),(1, 256),(1, 512)], is_training=is_training)
+
+    print 'post_resnet shape: %s'%net.get_shape().as_list()
     
     if pre_fc_pooling is None:
         net = slim.avg_pool2d(net, kernel_size=[1,3], stride=[1,2], padding='SAME')
@@ -211,20 +215,26 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling=None):
         net = tf.reduce_max(net, axis=[1,2], name='global_max_pooling')
     elif pre_fc_pooling == 'global_k_max':
         net = tf.squeeze(net, axis=1)#remove width that was used for conv2d; result is batch x time x dim
-        net = nn_ops.order_preserving_k_max(net, k=8)
+        net_time_last = tf.transpose(net, perm=[0,2,1])
+        print 'pre_pooling shape: %s'%net_time_last.get_shape().as_list()
+        net_time_last = nn_ops.order_preserving_k_max(net_time_last, k=8)
+        print 'post_pooling shape: %s'%net_time_last.get_shape().as_list()
+        net = tf.transpose(net_time_last, perm=[0,2,1])
     else:
         raise Exception('Unrecognized pre_fc_pooling: %s'% pre_fc_pooling)
 
-    if len(net.get_shape().as_list)>2:
+    print 'pre_flatten shape: %s'%net.get_shape().as_list()
+    if len(net.get_shape().as_list())>2:
         net = slim.flatten(net, scope='flatten')
     dim = net.get_shape().as_list()[-1]
+    print 'pre_fc dim: %d'%dim
     num_fc_layers = 2
     with slim.arg_scope([slim.fully_connected], activation_fn=None, weights_regularizer=slim.l2_regularizer(0.0001)):
         with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
             with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
                 for i in xrange(num_fc_layers):
                     with tf.variable_scope('fc%d'%i):
-                        net = slim.fully_connected(net, dim/2)
+                        net = slim.fully_connected(net, dim)
                         net = slim.batch_norm(net)
                         net = slim.dropout(net)
         logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')

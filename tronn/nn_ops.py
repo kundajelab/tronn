@@ -40,7 +40,29 @@ def order_preserving_k_max(input, k):
     input: input=[1, 3, 2, 4], k=3
     output: [3,2,4]
     '''
+
+    # input_shape = tf.shape(input)
+    # output_shape = tf.concat([input_shape[:-1],[k]], 0)
+    # dim = input_shape[-1]
+    # input = tf.reshape(input, (-1, dim))
+    # indices = tf.nn.top_k(input, k, sorted=False).indices
+    # indices = tf.nn.top_k(indices, k, sorted=True).values
+    # my_range = tf.expand_dims(tf.range(0, tf.shape(indices)[0]), 1)
+    # my_range_repeated = tf.tile(my_range, [1, k])
+    # full_indices = tf.concat([tf.expand_dims(my_range_repeated, 2), tf.expand_dims(indices, 2)], 2) # change shapes to [N, k, 1] and [N, k, 1], to concatenate into [N, k, 2]
+    # output = tf.gather_nd(input, full_indices)
+    # output = tf.reshape(output, output_shape)
+    # return output
+
+    input_shape = input.get_shape().as_list()
+    output_shape = tf.concat([input_shape[:-1],[k]], 0)
+    dim = input_shape[-1]
+    input = tf.reshape(input, (-1, dim))
     indices = tf.nn.top_k(input, k, sorted=False).indices
-    indices_sorted = tf.nn.top_k(indices, k, sorted=True).values
-    result = tf.gather(input, indices_sorted)
-    return result
+    indices = tf.nn.top_k(indices, k, sorted=True).values
+    my_range = tf.expand_dims(tf.range(0, tf.shape(indices)[0]), 1)
+    my_range_repeated = tf.tile(my_range, [1, k])
+    full_indices = tf.concat([tf.expand_dims(my_range_repeated, 2), tf.expand_dims(indices, 2)], 2) # change shapes to [N, k, 1] and [N, k, 1], to concatenate into [N, k, 2]
+    output = tf.gather_nd(input, full_indices)
+    output = tf.reshape(output, output_shape)
+    return output
