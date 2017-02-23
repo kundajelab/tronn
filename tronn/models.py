@@ -203,7 +203,7 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling=None):
 
     net = _resnet(features, initial_depth=64, stages=[(1, 64),(1, 128),(1, 256),(1, 512)], is_training=is_training)
     
-    if pre_fc_pooling is 'mean':
+    if pre_fc_pooling is None:
         net = slim.avg_pool2d(net, kernel_size=[1,3], stride=[1,2], padding='SAME')
     if pre_fc_pooling == 'global_mean':
         net = tf.reduce_mean(net, axis=[1,2], name='global_average_pooling')
