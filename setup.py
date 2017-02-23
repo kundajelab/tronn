@@ -9,5 +9,4 @@ if __name__== '__main__':
           author_email='danielskim@stanford.edu',
           url='https://github.com/kundajelab/tronn',
           license='MIT',
-          install_requires=['numpy', 'tensorflow', 'six'],
           packages=find_packages())
