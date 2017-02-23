@@ -205,7 +205,7 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling=None):
     
     if pre_fc_pooling is None:
         net = slim.avg_pool2d(net, kernel_size=[1,3], stride=[1,2], padding='SAME')
-    if pre_fc_pooling == 'global_mean':
+    elif pre_fc_pooling == 'global_mean':
         net = tf.reduce_mean(net, axis=[1,2], name='global_average_pooling')
     elif pre_fc_pooling == 'global_max':
         net = tf.reduce_max(net, axis=[1,2], name='global_max_pooling')
