@@ -123,10 +123,28 @@ def basset(features, labels, is_training=True):
 
     return logits
 
-#TRIED:
-#kernel=7,depth=64,stride=2,blocks=5
-#kernel=7,depth=64,stride=3,blocks=5
-#kernel=3,depth=16,stride=2,blocks=6
+def danq(features, labels, is_training=True):
+    #conv
+    net = slim.conv2d(features, 320, kernel_size=[1,26], stride=[1,1], activation_fn=tf.nn.relu, padding='VALID')
+    net = slim.max_pool2d(net, kernel_size=[1,13], stride=[1,13], padding='VALID')
+    net = slim.dropout(keep_prob=0.8, is_training=is_training)
+
+    #rnn
+    net = tf.squeeze(net, axis=1)#remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
+    rnn_inputs = tf.unstack(net, axis=1, name='unpack_time_dim')
+    cell_fw = tf.contrib.rnn.LSTMBlockCell(320)
+    cell_bw = tf.contrib.rnn.LSTMBlockCell(320)
+    outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
+    net = tf.flatten(outputs_fwbw_list)
+    net = slim.dropout(keep_prob=0.5, is_training=is_training)
+
+    #fc
+    net = slim.fully_connected(net, 925, activation_fn=tf.nn.relu)
+
+    #logits
+    logits = slim.fully_connected(net, int(labels.get_shape()[-1]))
+
+
 
 def _residual_block(net, depth, down_sampling=None):
     first_stride = 1
@@ -201,14 +219,14 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling='global_mean'):
     #stages=[(1, 64),(1, 128),(1, 256),(1, 512)]
     #stages=[(2, 64),(2, 96),(2, 128),(2, 192)]
 
-    net = _resnet(features, initial_depth=64, stages=[(1, 64),(1, 96),(1, 128),(1, 192)], is_training=is_training)
+    net = _resnet(features, initial_depth=32, stages=[(1, 32),(1, 64),(1, 128),(1, 256)], is_training=is_training)
     #net = _resnet(features, initial_depth=64, stages=[(2, 64),(2, 96),(2, 128),(2, 192)], is_training=is_training)
     #net = _resnet(features, initial_depth=64, stages=[(1, 64),(1, 128),(1, 256),(1, 512)], is_training=is_training)
 
     print 'post_resnet shape: %s'%net.get_shape().as_list()
     
     if pre_fc_pooling is None:
-        net = slim.avg_pool2d(net, kernel_size=[1,3], stride=[1,2], padding='SAME')
+        pass #net = slim.avg_pool2d(net, kernel_size=[1,3], stride=[1,2], padding='SAME')
     elif pre_fc_pooling == 'global_mean':
         net = tf.reduce_mean(net, axis=[1,2], name='global_average_pooling')
     elif pre_fc_pooling == 'global_max':
@@ -226,15 +244,17 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling='global_mean'):
     print 'pre_flatten shape: %s'%net.get_shape().as_list()
     if len(net.get_shape().as_list())>2:
         net = slim.flatten(net, scope='flatten')
+
     dim = net.get_shape().as_list()[-1]
-    print 'pre_fc dim: %d'%dim
+    fc_dim = dim if pre_fc_pooling else 1024
+    print 'fc: in_dim, out_dim: %d, %d'%(dim, fc_dim)
     num_fc_layers = 2
     with slim.arg_scope([slim.fully_connected], activation_fn=None):
         with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
             with slim.arg_scope([slim.dropout], keep_prob=1.0, is_training=is_training):
                 for i in xrange(num_fc_layers):
                     with tf.variable_scope('fc%d'%i):
-                        net = slim.fully_connected(net, dim)
+                        net = slim.fully_connected(net, fc_dim)
                         net = slim.batch_norm(net)
                         net = slim.dropout(net)
         logits = slim.fully_connected(net, int(labels.get_shape()[-1]), scope='logits')
@@ -243,5 +263,6 @@ def conv_fc(features, labels, is_training=True, pre_fc_pooling='global_mean'):
 
 models = {}
 models['basset'] = basset
+models['danq'] = danq
 models['conv_rnn'] = conv_rnn
 models['conv_fc'] = conv_fc

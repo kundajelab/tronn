@@ -68,7 +68,7 @@ def train(data_loader,
         total_params = sum(v.get_shape().num_elements() for v in tf.global_variables())
         var_params = [(v.name, v.get_shape().num_elements()) for v in tf.model_variables()]
         var_params.sort(key=lambda x: x[1])
-        for var_param in var_params: print var_param
+        for var_param in var_params: print var_param if var_param[1]>500
         print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
 
 
