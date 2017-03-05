@@ -20,7 +20,7 @@ def layerwise_relevance_propagation(loss, features):
     '''
 
     [feature_grad] = tf.gradients(loss, [features])
-    importances = tf.mul(features, feature_grad, 'input_mul_grad')
+    importances = tf.multiply(features, feature_grad, 'input_mul_grad')
 
     return importances
 

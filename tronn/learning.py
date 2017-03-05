@@ -33,16 +33,9 @@ def train(data_loader,
 
         # model
         logits = model_builder(features, labels, is_training=True)
-
-        # probs
-        predictions_prob = final_activation_fn(logits)
-
-        # loss
         loss = loss_fn(labels, logits)
-        ema = tf.train.ExponentialMovingAverage(decay=0.999)
-        ema_update = ema.apply([loss])
-        tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, ema_update)
-        loss_ema = ema.average(loss)
+        names_to_metrics, names_to_updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)
+        for update in names_to_updates.values(): tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
 
         # optimizer
         optimizer = optimizer_fn(**optimizer_params)
@@ -51,11 +44,14 @@ def train(data_loader,
         total_loss = tf.losses.get_total_loss()
         train_op = slim.learning.create_train_op(total_loss, optimizer, summarize_gradients=True)
 
-        # summarries
-        tf.summary.scalar('loss_raw', loss)
-        tf.summary.scalar('loss_ema', loss_ema)
-        for var in tf.model_variables():
-            tronn.nn_utils.add_var_summaries(var)
+        # summaries
+        tf.summary.scalar('train/loss', loss)
+        for name, metric in names_to_metrics.iteritems():
+            if metric.get_shape().ndims==0:
+                tf.summary.scalar('train/%s'%name, metric)
+            else:
+                tf.summary.histogram('train/%s'%name, metric)
+        for var in tf.model_variables(): tronn.nn_utils.add_var_summaries(var)
 
         def restoreFn(sess):
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
@@ -68,11 +64,13 @@ def train(data_loader,
         total_params = sum(v.get_shape().num_elements() for v in tf.global_variables())
         var_params = [(v.name, v.get_shape().num_elements()) for v in tf.model_variables()]
         var_params.sort(key=lambda x: x[1])
-        for var_param in var_params: print var_param if var_param[1]>500
+        for var_param in var_params: 
+            if var_param[1]>500:
+                print var_param, var_param.get_shape().as_list()
         print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
 
-
-        summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step(), loss_ema, loss, total_loss])
+        imp_metrics = [names_to_metrics[name] for name in ['mean_loss', 'mean_accuracy', 'mean_auROC', 'mean_auPRC']]
+        summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step()] + imp_metrics + [loss, total_loss])
         slim.learning.train(train_op,
                             OUT_DIR,
                             init_fn=restoreFn if restore else None,
@@ -110,7 +108,7 @@ def evaluate(data_loader,
         logits = model_builder(features, labels, is_training=False)
         
         # Construct metrics to compute
-        names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
+        names_to_metrics, names_to_updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
 
         # Define the scalar summaries to write
         for name, metric in names_to_metrics.iteritems():
@@ -126,7 +124,7 @@ def evaluate(data_loader,
             out_dir,
             num_evals=num_evals,
             summary_op=tf.summary.merge_all(),
-            eval_op=updates,
+            eval_op=names_to_updates,
             final_op=names_to_metrics)
         print 'Validation metrics:\n%s'%metrics_dict
     

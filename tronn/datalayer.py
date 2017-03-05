@@ -82,7 +82,7 @@ def hdf5_to_slices(hdf5_file, batch_size):
         Tout=[tf.float32, tf.float32, tf.string],
         stateful=False, name='py_func_batchid_to_examples')
 
-    features_tensor.set_shape([batch_size, feature_shape[0], feature_shape[1], feature_shape[2]])
+    seqs_tensor.set_shape([batch_size, feature_shape[0], feature_shape[1], feature_shape[2]])
     labels_tensor.set_shape([batch_size, label_shape[0]])
     metadata_tensor.set_shape([batch_size, 1])
 
@@ -91,6 +91,6 @@ def hdf5_to_slices(hdf5_file, batch_size):
 def load_data_from_filename_list(hdf5_files, batch_size, shuffle_seed=0):
     example_slices_list = [hdf5_to_slices(hdf5_file, batch_size) for hdf5_file in hdf5_files]
     min_after_dequeue = 10000
-    capacity = 5*min_after_dequeue + (len(example_slices_list)+1) * batch_size
+    capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
     features, labels, metadata = tf.train.shuffle_batch_join(example_slices_list, batch_size, capacity=capacity, min_after_dequeue=min_after_dequeue, seed=shuffle_seed, enqueue_many=True, name='batcher')
     return features, labels, metadata
