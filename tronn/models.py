@@ -123,7 +123,7 @@ def basset(features, labels, is_training=True):
 
     return logits
 
-def danq(features, labels, is_training=True):
+def danq(features, labels, config, is_training=True):
     #conv
     net = slim.conv2d(features, 320, kernel_size=[1,26], stride=[1,1], activation_fn=tf.nn.relu, padding='VALID')
     net = slim.max_pool2d(net, kernel_size=[1,13], stride=[1,13], padding='VALID')
@@ -133,25 +133,35 @@ def danq(features, labels, is_training=True):
     #rnn
     net = tf.squeeze(net, axis=1)#remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
     rnn_inputs = tf.unstack(net, axis=1, name='unpack_time_dim')
-    cell_fw = tf.contrib.rnn.LSTMBlockCell(320)
-    cell_bw = tf.contrib.rnn.LSTMBlockCell(320)
-    outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
-    
-    # outputs_fwbw = tf.stack(outputs_fwbw_list, axis=1, name='pack_time_dim')
-    # print 'fwbw', outputs_fwbw.get_shape().as_list()
-    # net = slim.flatten(outputs_fwbw)
-    net = tf.concat([state_fw[1], state_bw[1]], axis=1)
 
-    net = slim.dropout(net, keep_prob=0.5, is_training=is_training)
-
-    print 'pre fc', net.get_shape().as_list()
-    #fc
-    net = slim.fully_connected(net, 925, activation_fn=tf.nn.relu)
-
-    
-    #logits
-    logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None)
-    print 'logits', logits.get_shape().as_list()
+    if config['untied_rnn']:
+        logits = []
+        for task in xrange(len(labels.get_shape().as_list())):
+            cell_fw = tf.contrib.rnn.LSTMBlockFusedCell(config['rnn_units'])
+            cell_bw = tf.contrib.rnn.LSTMBlockFusedCell(config['rnn_units'])
+            outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
+            task_net = tf.concat([state_fw[1], state_bw[1]], axis=1)
+            task_net = slim.dropout(net, keep_prob=0.5, is_training=is_training)
+            task_net = slim.fully_connected(net, config['fc_units'], activation_fn=tf.nn.relu)
+            task_logit = slim.fully_connected(net, 1, activation_fn=None)
+            logits.append(task_logit)
+        logits = tf.stack(logits)
+    else:
+        cell_fw = tf.contrib.rnn.LSTMBlockFusedCell(config['rnn_units'])
+        cell_bw = tf.contrib.rnn.LSTMBlockFusedCell(config['rnn_units'])
+        outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
+        net = tf.concat([state_fw[1], state_bw[1]], axis=1)
+        net = slim.dropout(net, keep_prob=0.5, is_training=is_training)
+        if config['untied_fc']:
+            logits = []
+            for task in xrange(len(labels.get_shape().as_list())):
+                task_net = slim.fully_connected(net, config['fc_units'], activation_fn=tf.nn.relu)
+                task_logit = slim.fully_connected(net, 1, activation_fn=None)
+                logits.append(task_logit)
+            logits = tf.stack(logits)
+        else:
+            net = slim.fully_connected(net, 925, activation_fn=tf.nn.relu)
+            logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None)
     return logits
 
 def _residual_block(net, depth, down_sampling=None):
@@ -178,7 +188,7 @@ def _residual_block(net, depth, down_sampling=None):
     net = shortcut + net
     return net
 
-def _resnet(features, initial_depth, stages, down_sampling='conv_stride', is_training=True):
+def _resnet(features, initial_depth, stages, down_sampling='max_pool', is_training=True):
     net = features
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         #conv

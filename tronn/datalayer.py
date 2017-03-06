@@ -82,7 +82,7 @@ def hdf5_to_slices(hdf5_file, batch_size):
         Tout=[tf.float32, tf.float32, tf.string],
         stateful=False, name='py_func_batchid_to_examples')
 
-    seqs_tensor.set_shape([batch_size, feature_shape[0], feature_shape[1], feature_shape[2]])
+    features_tensor.set_shape([batch_size, feature_shape[0], feature_shape[1], feature_shape[2]])
     labels_tensor.set_shape([batch_size, label_shape[0]])
     metadata_tensor.set_shape([batch_size, 1])
 

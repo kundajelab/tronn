@@ -11,6 +11,7 @@ import tensorflow.contrib.slim as slim
 
 def train(data_loader,
           model_builder,
+          model_config,
           final_activation_fn,
           loss_fn,
           optimizer_fn,
@@ -32,10 +33,10 @@ def train(data_loader,
                                                  args.batch_size)
 
         # model
-        logits = model_builder(features, labels, is_training=True)
+        logits = model_builder(features, labels, model_config, is_training=True)
         loss = loss_fn(labels, logits)
-        names_to_metrics, names_to_updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)
-        for update in names_to_updates.values(): tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
+        names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)
+        for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
 
         # optimizer
         optimizer = optimizer_fn(**optimizer_params)
@@ -59,17 +60,19 @@ def train(data_loader,
             print 'Restoring model from %s...'%checkpoint_path
             restorer.restore(sess, checkpoint_path)
         
-        model_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
-        trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
-        total_params = sum(v.get_shape().num_elements() for v in tf.global_variables())
-        var_params = [(v.name, v.get_shape().num_elements()) for v in tf.model_variables()]
-        var_params.sort(key=lambda x: x[1])
-        for var_param in var_params: 
-            if var_param[1]>500:
-                print var_param, var_param.get_shape().as_list()
-        print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
+        # print parameter count
+        if not restore:
+            print 'Created new model:'
+            model_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
+            trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
+            total_params = sum(v.get_shape().num_elements() for v in tf.global_variables())
+            for var in sorted(tf.model_variables(), key=lambda var: (var.name, var.get_shape().num_elements())):
+                num_elems = var.get_shape().num_elements()
+                if num_elems>500:
+                    print var.name, var.get_shape().as_list(), num_elems
+            print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
 
-        imp_metrics = [names_to_metrics[name] for name in ['mean_loss', 'mean_accuracy', 'mean_auROC', 'mean_auPRC']]
+        imp_metrics = [names_to_metrics[name] for name in ['mean_auPRC', 'mean_auROC', 'mean_accuracy', 'mean_loss']]
         summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step()] + imp_metrics + [loss, total_loss])
         slim.learning.train(train_op,
                             OUT_DIR,
@@ -84,6 +87,7 @@ def train(data_loader,
 
 def evaluate(data_loader,
              model_builder,
+             model_config,
              final_activation_fn,
              loss_fn,
              metrics_fn,
@@ -105,10 +109,10 @@ def evaluate(data_loader,
                                                  args.batch_size*2)#increase batch size since we don't need back-prop
 
         # model - training=False
-        logits = model_builder(features, labels, is_training=False)
+        logits = model_builder(features, labels, args, model_config, is_training=False)
         
         # Construct metrics to compute
-        names_to_metrics, names_to_updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
+        names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
 
         # Define the scalar summaries to write
         for name, metric in names_to_metrics.iteritems():
@@ -124,7 +128,7 @@ def evaluate(data_loader,
             out_dir,
             num_evals=num_evals,
             summary_op=tf.summary.merge_all(),
-            eval_op=names_to_updates,
+            eval_op=updates,
             final_op=names_to_metrics)
         print 'Validation metrics:\n%s'%metrics_dict
     
