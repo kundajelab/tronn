@@ -6,8 +6,6 @@ import os
 import subprocess
 import argparse
 import glob
-import json
-
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -58,7 +56,7 @@ def main():
     args, model_config = parse_args()
 
     os.makedirs(args.out_dir)
-    with open(os.path.join(args.out_dir, 'command.txt')) as f:
+    with open(os.path.join(args.out_dir, 'command.txt'), 'w') as f:
         git_checkpoint_label = subprocess.check_output(["git", "describe", "--always"])
         f.write(git_checkpoint_label+'\n')
         f.write(' '.join(sys.argv)+'\n')
@@ -117,9 +115,9 @@ def main():
                 num_evals=valid_steps)
             if metric_best is None or ('loss' in args.metric != eval_metrics[args.metric]>metric_best):
                 metric_best = eval_metrics[args.metric]
-                with open(os.path.join(args.out_dir, 'best.txt')) as f:
+                with open(os.path.join(args.out_dir, 'best.txt'), 'w') as f:
                     f.write('epoch %d\n'%epoch)
-                    f.write(json.dumps(eval_metrics))
+                    f.write(eval_metrics)
             else:
                 consecutive_bad_epochs += 1
                 if consecutive_bad_epochs>args.patience:
