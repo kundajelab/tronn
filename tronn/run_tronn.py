@@ -1,8 +1,12 @@
 # test main script for running tronn package
 
 import tronn
+import sys
+import os
+import subprocess
 import argparse
 import glob
+import json
 
 
 import tensorflow as tf
@@ -24,22 +28,25 @@ def parse_args():
     parser.add_argument('--train', action='store_true', help='train the model')
     parser.add_argument('--evaluate', action='store_true', help='evaluate model')
     parser.add_argument('--interpret', action='store_true', help='run interpretation tools')
+    parser.add_argument('--metric', type=str, help='metric to use for early stopping')
+    parser.add_argument('--patience', default=2, type=int, help='metric to use for early stopping')
 
     parser.add_argument('--model', help='choose model from models.models')
     
     args, unknowns = parser.parse_known_args()
     model_config = {}
     for unk in unknowns:
-        name, value = unk.split('=', 1)
-        model_config[name] = eval(value)
+        if '=' in unk:
+            name, value = unk.split('=', 1)
+            model_config[name] = eval(value)
+        else:
+            model_config[unk] = True
+    print model_config
 
     return args, model_config
 
 
 def main():
-
-
-
     # TODO fix input of info to make easier to run
     DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
     data_files = glob.glob('{}/*.h5'.format(DATA_DIR))
@@ -49,6 +56,12 @@ def main():
     valid_files = data_files[15:20]
 
     args, model_config = parse_args()
+
+    os.makedirs(args.out_dir)
+    with open(os.path.join(args.out_dir, 'command.txt')) as f:
+        git_checkpoint_label = subprocess.check_output(["git", "describe", "--always"])
+        f.write(git_checkpoint_label+'\n')
+        f.write(' '.join(sys.argv)+'\n')
 
     if args.train:
 
@@ -64,6 +77,8 @@ def main():
         print 'Num valid examples: {}'.format(num_valid_examples)
 
         # Should epoch level be where things are exposed here? or is this loop abstractable too?
+        metric_best = None
+        consecutive_bad_epochs = 0
         for epoch in xrange(args.epochs):
             print "EPOCH:", str(epoch)
             restore = args.restore
@@ -87,10 +102,9 @@ def main():
 
             # Get last checkpoint
             checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir)) # fix this to save checkpoints elsewhere
-            print checkpoint_path
 
             # Evaluate after training
-            tronn.learning.evaluate(tronn.load_data_from_filename_list,
+            eval_metrics = tronn.learning.evaluate(tronn.load_data_from_filename_list,
                 tronn.models.models[args.model],
                 model_config,
                 tf.nn.sigmoid,
@@ -101,6 +115,16 @@ def main():
                 valid_files,
                 '{}/valid'.format(args.out_dir),
                 num_evals=valid_steps)
+            if metric_best is None or ('loss' in args.metric != eval_metrics[args.metric]>metric_best):
+                metric_best = eval_metrics[args.metric]
+                with open(os.path.join(args.out_dir, 'best.txt')) as f:
+                    f.write('epoch %d\n'%epoch)
+                    f.write(json.dumps(eval_metrics))
+            else:
+                consecutive_bad_epochs += 1
+                if consecutive_bad_epochs>args.patience:
+                    print 'early stopping triggered'
+                    break
 
     # extract importance
     if args.interpret:
@@ -122,9 +146,6 @@ def main():
             'importances.h5')
 
     # run test set when needed for final evaluation
-
-
-    return None
 
 if __name__ == '__main__':
     main()

@@ -130,7 +130,7 @@ def interpret(data_loader,
         task_labels = tf.unstack(labels, axis=1)
 
         # model
-        logits = model_builder(features, labels, is_training=False)
+        logits = model_builder(features, labels, model_config, is_training=False)
         task_logits = tf.unstack(logits, axis=1)
 
         # loss, global and task-specific

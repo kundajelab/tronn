@@ -66,7 +66,7 @@ def train(data_loader,
             model_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
             trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
             total_params = sum(v.get_shape().num_elements() for v in tf.global_variables())
-            for var in sorted(tf.model_variables(), key=lambda var: (var.name, var.get_shape().num_elements())):
+            for var in sorted(tf.trainable_variables(), key=lambda var: (var.name, var.get_shape().num_elements())):
                 num_elems = var.get_shape().num_elements()
                 if num_elems>500:
                     print var.name, var.get_shape().as_list(), num_elems
@@ -81,9 +81,6 @@ def train(data_loader,
                             summary_op=summary_op,
                             save_summaries_secs=60,
                             save_interval_secs=3600)
-
-    return None
-
 
 def evaluate(data_loader,
              model_builder,
@@ -101,7 +98,7 @@ def evaluate(data_loader,
     Note that if you want to reload a model, you must load the same model
     and data loader
     '''
-
+    print 'evaluating %s...'%checkpoint_path
     with tf.Graph().as_default() as g:
 
         # data loader
@@ -109,7 +106,7 @@ def evaluate(data_loader,
                                                  args.batch_size*2)#increase batch size since we don't need back-prop
 
         # model - training=False
-        logits = model_builder(features, labels, args, model_config, is_training=False)
+        logits = model_builder(features, labels, model_config, is_training=False)
         
         # Construct metrics to compute
         names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
@@ -132,4 +129,4 @@ def evaluate(data_loader,
             final_op=names_to_metrics)
         print 'Validation metrics:\n%s'%metrics_dict
     
-    return None
+    return metrics_dict
