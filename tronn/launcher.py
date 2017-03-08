@@ -37,10 +37,10 @@ def sample(arg2options):
     arg_values = {}
     for arg, options in arg2options.iteritems():
         arg_values[arg] = random.choice(options)
-    # if arg2options is danq_arg2options:
-    #     arg_values['rnn_units'] = arg_values['filters']
-    #     arg_values['conv_drop'] = 0.2 if (arg_values['conv_drop'] == 0.5) else 0.0
-    #     arg_values['fc_units'] = 925 if (arg_values['filters'] == 320) else 320
+    if arg2options is danq_arg2options:
+        arg_values['rnn_units'] = arg_values['filters']
+        arg_values['conv_drop'] = 0.2 if (arg_values['rnn_drop'] == 0.5) else 0.0
+        arg_values['fc_units'] = 925 if (arg_values['filters'] == 320) else 320
     return arg_values
 
 
@@ -96,8 +96,10 @@ def random_launcher(gpu):
 def launch_cmds_in_file(gpu, cmd_file):
     with open(cmd_file) as f:
         for cmd in f:
-            print cmd
             cmd = 'CUDA_VISIBLE_DEVICES=%d python run_tronn.py --train %s' % (gpu, cmd)
+            out_dir = cmd.split('out_dir=')[-1].split()[0]
+            if os.path.exists(out_dir): continue
+            print cmd.split('out_dir=')
             subprocess.call(cmd, shell=True)
 
 
