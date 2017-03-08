@@ -206,7 +206,7 @@ def danq(features, labels, config, is_training=True):
         else:
             for l in xrange(fc_layers):
                 net = slim.fully_connected(net, fc_units, activation_fn=tf.nn.relu)
-            logits = slim.fully_connected(net, 1, activation_fn=None)
+            logits = slim.fully_connected(net, num_labels, activation_fn=None)
     return logits
 
 def _residual_block(net, depth, pooling_info=(None, None)):

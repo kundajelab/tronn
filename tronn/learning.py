@@ -8,6 +8,7 @@ import tronn
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+import config
 
 def train(data_loader,
           model_builder,
@@ -78,7 +79,8 @@ def train(data_loader,
                             number_of_steps=target_global_step,
                             summary_op=summary_op,
                             save_summaries_secs=60,
-                            save_interval_secs=3600)
+                            save_interval_secs=3600,
+                            session_config=config.session_config)
 
 def evaluate(data_loader,
              model_builder,
@@ -122,7 +124,8 @@ def evaluate(data_loader,
             num_evals=num_evals,
             summary_op=tf.summary.merge_all(),
             eval_op=updates,
-            final_op=names_to_metrics)
+            final_op=names_to_metrics,
+            session_config=config.session_config)
         print 'Validation metrics:\n%s'%metrics_dict
     
     return metrics_dict
