@@ -123,6 +123,36 @@ def basset(features, labels, is_training=True):
 
     return logits
 
+def danq_untied_conv(features, labels, config, is_training=True):
+    filters = config.get('filters', 320)
+    kernel = config.get('kernel', 26)
+    rnn_units = config.get('rnn_units', 320)
+    fc_units = config.get('fc_units', 925)
+    conv_drop = config.get('conv_drop', 0.2)
+    rnn_drop = config.get('rnn_drop', 0.5)
+    untied_rnn = 'untied_rnn' in config
+    untied_fc = 'untied_fc' in config
+    num_labels = int(labels.get_shape()[-1])
+
+    logits = []
+    for task in xrange(num_labels):
+        net = slim.conv2d(features, filters, kernel_size=[1,kernel], stride=[1,1], activation_fn=tf.nn.relu, padding='VALID')
+        net = slim.max_pool2d(net, kernel_size=[1,kernel/2], stride=[1,kernel/2], padding='VALID')
+        net = slim.dropout(net, keep_prob=1.0-conv_drop, is_training=is_training)
+        net = tf.squeeze(net, axis=1)#remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
+        rnn_inputs = tf.unstack(net, axis=1, name='unpack_time_dim')
+        with tf.variable_scope('shared', reuse=task>0):
+            cell_fw = tf.contrib.rnn.LSTMBlockCell(rnn_units)
+            cell_bw = tf.contrib.rnn.LSTMBlockCell(rnn_units)
+            outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
+            net = tf.concat([state_fw[1], state_bw[1]], axis=1)
+            net = slim.dropout(net, keep_prob=1.0-rnn_drop, is_training=is_training)
+            net = slim.fully_connected(net, fc_units, activation_fn=tf.nn.relu)
+            logit = slim.fully_connected(net, 1, activation_fn=None)
+        logits.append(logit)
+    logits = tf.concat(logits, axis=1)
+    return logits
+
 def danq(features, labels, config, is_training=True):
     filters = config.get('filters', 320)
     kernel = config.get('kernel', 26)
@@ -137,7 +167,7 @@ def danq(features, labels, config, is_training=True):
     #conv
     net = slim.conv2d(features, filters, kernel_size=[1,kernel], stride=[1,1], activation_fn=tf.nn.relu, padding='VALID')
     net = slim.max_pool2d(net, kernel_size=[1,kernel/2], stride=[1,kernel/2], padding='VALID')
-    net = slim.dropout(net, keep_prob=1-conv_drop, is_training=is_training)
+    net = slim.dropout(net, keep_prob=1.0-conv_drop, is_training=is_training)
 
     #rnn
     net = tf.squeeze(net, axis=1)#remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
@@ -161,7 +191,7 @@ def danq(features, labels, config, is_training=True):
         cell_bw = tf.contrib.rnn.LSTMBlockCell(rnn_units)
         outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
         net = tf.concat([state_fw[1], state_bw[1]], axis=1)
-        net = slim.dropout(net, keep_prob=1-rnn_drop, is_training=is_training)
+        net = slim.dropout(net, keep_prob=1.0-rnn_drop, is_training=is_training)
         if untied_fc:
             logits = []
             for task in xrange(num_labels):
@@ -286,5 +316,6 @@ def conv_fc(features, labels, config, is_training=True):
 models = {}
 models['basset'] = basset
 models['danq'] = danq
+models['danq_untied_conv'] = danq_untied_conv
 #models['conv_rnn'] = conv_rnn
 models['conv_fc'] = conv_fc

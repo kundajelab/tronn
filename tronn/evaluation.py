@@ -48,7 +48,7 @@ def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
 
     predictions_prob = final_activation_fn(logits)
     with tf.name_scope('metrics') as scope:
-        for task_num in range(tasks):
+        for task_num in range(len(tasks)):
             with tf.name_scope('loss'):
                 loss, loss_update = tf.contrib.metrics.streaming_mean(loss_fn(labels[:,task_num], logits[:,task_num], loss_collection=None), name='loss{}'.format(task_num))
                 loss_tensors.append(loss)

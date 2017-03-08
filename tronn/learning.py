@@ -11,7 +11,6 @@ import tensorflow.contrib.slim as slim
 
 def train(data_loader,
           model_builder,
-          model_config,
           final_activation_fn,
           loss_fn,
           optimizer_fn,
@@ -29,13 +28,12 @@ def train(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        features, labels, metadata = data_loader(data_file_list,
-                                                 args.batch_size)
+        features, labels, metadata = data_loader(data_file_list, args.batch_size, args.days)
 
         # model
-        logits = model_builder(features, labels, model_config, is_training=True)
+        logits = model_builder(features, labels, args.model, is_training=True)
         loss = loss_fn(labels, logits)
-        names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)
+        names_to_metrics, updates = tronn.evaluation.get_metrics(args.days, logits, labels, final_activation_fn, loss_fn)
         for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
 
         # optimizer
@@ -84,7 +82,6 @@ def train(data_loader,
 
 def evaluate(data_loader,
              model_builder,
-             model_config,
              final_activation_fn,
              loss_fn,
              metrics_fn,
@@ -102,14 +99,13 @@ def evaluate(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        features, labels, metadata = data_loader(data_file_list,
-                                                 args.batch_size*2)#increase batch size since we don't need back-prop
+        features, labels, metadata = data_loader(data_file_list, args.batch_size*4, args.days)
 
         # model - training=False
-        logits = model_builder(features, labels, model_config, is_training=False)
+        logits = model_builder(features, labels, args.model, is_training=False)
         
         # Construct metrics to compute
-        names_to_metrics, updates = tronn.evaluation.get_metrics(13, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
+        names_to_metrics, updates = tronn.evaluation.get_metrics(args.days, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
 
         # Define the scalar summaries to write
         for name, metric in names_to_metrics.iteritems():

@@ -110,7 +110,6 @@ def run_lrp(checkpoint_path,
 def interpret(data_loader,
               data_file_list,
               model_builder,
-              model_config,
               loss_fn,
               checkpoint_path,
               args,
@@ -124,13 +123,12 @@ def interpret(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        features, labels, metadata = data_loader(data_file_list,
-                                                 args.batch_size)
+        features, labels, metadata = data_loader(data_file_list, args.batch_size, args.days)
         num_tasks = labels.get_shape()[1]
         task_labels = tf.unstack(labels, axis=1)
 
         # model
-        logits = model_builder(features, labels, model_config, is_training=False)
+        logits = model_builder(features, labels, args.model, is_training=False)
         task_logits = tf.unstack(logits, axis=1)
 
         # loss, global and task-specific

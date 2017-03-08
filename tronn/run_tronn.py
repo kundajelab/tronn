@@ -21,6 +21,7 @@ def parse_args():
     parser.add_argument('--out_dir', default='out', help='path to save model')
     parser.add_argument('--epochs', default=20, type=int, help='number of epochs')
     parser.add_argument('--batch_size', default=128, type=int, help='batch size')
+    parser.add_argument('--days', nargs='+', default=[0,1,2,3,4,5,6,7,8,9,10,11,12], type=int, help='days over which to train multitask model on')
 
     parser.add_argument('--restore', action='store_true', help='restore from last checkpoint')
     parser.add_argument('--train', action='store_true', help='train the model')
@@ -29,20 +30,19 @@ def parse_args():
     parser.add_argument('--metric', default='mean_auPRC', type=str, help='metric to use for early stopping')
     parser.add_argument('--patience', default=2, type=int, help='metric to use for early stopping')
 
-    parser.add_argument('--model', help='choose model from models.models')
-    
-    args, unknowns = parser.parse_known_args()
+    parser.add_argument('--model', nargs='+', help='choose model and provide configs', required=True)
+
+    args = parser.parse_args()
     model_config = {}
-    for unk in unknowns:
-        if '=' in unk:
-            name, value = unk.split('=', 1)
-            model_config[name] = eval(value)
+    model_config['name'] = args.model[0]
+    for model_arg in args.model[1:]:
+        if '=' in model_arg:
+            name, value = model_arg.split('=', 1)
         else:
-            model_config[unk] = True
-    print model_config
-
-    return args, model_config
-
+            name, value = model_arg, True
+        model_config[name] = value
+    args.model = model_config
+    return args
 
 def main():
     # TODO fix input of info to make easier to run
@@ -53,7 +53,7 @@ def main():
     train_files = data_files[0:15]
     valid_files = data_files[15:20]
 
-    args, model_config = parse_args()
+    args = parse_args()
 
     os.makedirs(args.out_dir)
     with open(os.path.join(args.out_dir, 'command.txt'), 'w') as f:
@@ -85,8 +85,7 @@ def main():
 
             # Run training
             tronn.learning.train(tronn.load_data_from_filename_list, 
-                tronn.models.models[args.model],
-                model_config,
+                tronn.models.models[args.model['name']],
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
                 #tf.train.AdamOptimizer,{'learning_rate': 0.001, 'beta1':0.9, 'beta2':0.999},
@@ -103,8 +102,7 @@ def main():
 
             # Evaluate after training
             eval_metrics = tronn.learning.evaluate(tronn.load_data_from_filename_list,
-                tronn.models.models[args.model],
-                model_config,
+                tronn.models.models[args.model['name']],
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
                 tronn.streaming_metrics_tronn,
@@ -117,7 +115,7 @@ def main():
                 metric_best = eval_metrics[args.metric]
                 with open(os.path.join(args.out_dir, 'best.txt'), 'w') as f:
                     f.write('epoch %d\n'%epoch)
-                    f.write(eval_metrics)
+                    f.write(str(eval_metrics))
             else:
                 consecutive_bad_epochs += 1
                 if consecutive_bad_epochs>args.patience:
@@ -136,8 +134,7 @@ def main():
 
         tronn.interpretation.interpret(tronn.load_data_from_filename_list,
             data_files,
-            tronn.models.models[args.model],
-            model_config,
+            tronn.models.models[args.model['name']],
             tf.losses.sigmoid_cross_entropy,
             checkpoint_path,
             args,
