@@ -42,7 +42,7 @@ def run_lrp(checkpoint_path,
     '''
 
     # open a session from checkpoint
-    sess = tf.Session(session_config=config.session_config))
+    sess = tf.Session(session_config=config.session_config)
 
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())

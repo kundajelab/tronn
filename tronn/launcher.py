@@ -88,10 +88,9 @@ def random_launcher(gpu):
     for attempt in xrange(100000):
         cmd = get_cmd()
         if cmd is None: continue
+        cmd = 'CUDA_VISIBLE_DEVICES=%d python run_tronn.py --train %s' % (gpu, cmd)
         print cmd
-        #cmd = 'CUDA_VISIBLE_DEVICES=%d python run_tronn.py --train %s' % (gpu, cmd)
-        #print cmd
-#        subprocess.call(cmd, shell=True)
+        subprocess.call(cmd, shell=True)
 
 
 def launch_cmds_in_file(gpu, cmd_file):
