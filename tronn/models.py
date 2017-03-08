@@ -157,6 +157,7 @@ def danq(features, labels, config, is_training=True):
     filters = config.get('filters', 320)
     kernel = config.get('kernel', 26)
     rnn_units = config.get('rnn_units', 320)
+    fc_layers = config.get('rnn_units', 1)
     fc_units = config.get('fc_units', 925)
     conv_drop = config.get('conv_drop', 0.2)
     rnn_drop = config.get('rnn_drop', 0.5)
@@ -180,11 +181,12 @@ def danq(features, labels, config, is_training=True):
                 cell_fw = tf.contrib.rnn.LSTMBlockCell(rnn_units)
                 cell_bw = tf.contrib.rnn.LSTMBlockCell(rnn_units)
                 outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
-                task_net = tf.concat([state_fw[1], state_bw[1]], axis=1)
-                task_net = slim.dropout(task_net, keep_prob=1-rnn_drop, is_training=is_training)
-                task_net = slim.fully_connected(task_net, fc_units, activation_fn=tf.nn.relu)
-                task_logit = slim.fully_connected(task_net, 1, activation_fn=None)
-            logits.append(task_logit)
+                net = tf.concat([state_fw[1], state_bw[1]], axis=1)
+                net = slim.dropout(net, keep_prob=1-rnn_drop, is_training=is_training)
+                for l in xrange(fc_layers):
+                    net = slim.fully_connected(net, fc_units, activation_fn=tf.nn.relu)
+                logit = slim.fully_connected(net, 1, activation_fn=None)
+            logits.append(logit)
         logits = tf.concat(logits, axis=1)
     else:
         cell_fw = tf.contrib.rnn.LSTMBlockCell(rnn_units)
@@ -196,13 +198,15 @@ def danq(features, labels, config, is_training=True):
             logits = []
             for task in xrange(num_labels):
                 with tf.variable_scope('task%d'%task):
-                    task_net = slim.fully_connected(net, fc_units, activation_fn=tf.nn.relu)
-                    task_logit = slim.fully_connected(net, 1, activation_fn=None)
-                logits.append(task_logit)
+                    for l in xrange(fc_layers):
+                        net = slim.fully_connected(net, fc_units, activation_fn=tf.nn.relu)
+                    logit = slim.fully_connected(net, 1, activation_fn=None)
+                logits.append(logit)
             logits = tf.concat(logits, axis=1)
         else:
-            net = slim.fully_connected(net, fc_units, activation_fn=tf.nn.relu)
-            logits = slim.fully_connected(net, num_labels, activation_fn=None)
+            for l in xrange(fc_layers):
+                net = slim.fully_connected(net, fc_units, activation_fn=tf.nn.relu)
+            logits = slim.fully_connected(net, 1, activation_fn=None)
     return logits
 
 def _residual_block(net, depth, pooling_info=(None, None)):
@@ -251,7 +255,7 @@ def conv_fc(features, labels, config, is_training=True):
     pooling_stride = config.get('pooling_stride', 2)
     final_pooling = config.get('final_pooling', 'global_mean')
     fc_units = config.get('fc_units', 1024)
-    fc_layers = config.get('fc_layers', 2)
+    fc_layers = config.get('fc_layers', 1)
     drop = config.get('drop', 0.0)
     num_labels = int(labels.get_shape()[-1])
 

@@ -37,7 +37,7 @@ def parse_args():
     model_config['name'] = args.model[0]
     for model_arg in args.model[1:]:
         if '=' in model_arg:
-            name, value = model_arg.split('=', 1)
+            name, value = model_arg[2:].split('=', 1)
         else:
             name, value = model_arg, True
         model_config[name] = value
