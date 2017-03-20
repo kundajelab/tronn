@@ -3,12 +3,13 @@
 The wrappers follow the tf-slim structure for setting up and running a model
 
 """
-
-import tronn
+import evaluation
+import tf_utils
+import config
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-import config
+
 
 def train(data_loader,
           model_builder,
@@ -26,7 +27,7 @@ def train(data_loader,
     Wraps the routines needed for tf-slim
     '''
 
-    with tf.Graph().as_default() as g:
+    with tf.Graph().as_default():
 
         # data loader
         features, labels, metadata = data_loader(data_file_list, args.batch_size, args.days)
@@ -34,7 +35,7 @@ def train(data_loader,
         # model
         logits = model_builder(features, labels, args.model, is_training=True)
         loss = loss_fn(labels, logits)
-        names_to_metrics, updates = tronn.evaluation.get_metrics(args.days, logits, labels, final_activation_fn, loss_fn)
+        names_to_metrics, updates = evaluation.get_metrics(args.days, logits, labels, final_activation_fn, loss_fn)
         for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
 
         # optimizer
@@ -51,7 +52,7 @@ def train(data_loader,
                 tf.summary.scalar('train/%s'%name, metric)
             else:
                 tf.summary.histogram('train/%s'%name, metric)
-        for var in tf.model_variables(): tronn.nn_utils.add_var_summaries(var)
+        for var in tf.model_variables(): tf_utils.add_var_summaries(var)
 
         def restoreFn(sess):
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
@@ -97,7 +98,7 @@ def evaluate(data_loader,
     and data loader
     '''
     print 'evaluating %s...'%checkpoint_path
-    with tf.Graph().as_default() as g:
+    with tf.Graph().as_default():
 
         # data loader
         features, labels, metadata = data_loader(data_file_list, args.batch_size*4, args.days)
@@ -106,7 +107,7 @@ def evaluate(data_loader,
         logits = model_builder(features, labels, args.model, is_training=False)
         
         # Construct metrics to compute
-        names_to_metrics, updates = tronn.evaluation.get_metrics(args.days, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
+        names_to_metrics, updates = evaluation.get_metrics(args.days, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
 
         # Define the scalar summaries to write
         for name, metric in names_to_metrics.iteritems():

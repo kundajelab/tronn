@@ -1,6 +1,10 @@
 # test main script for running tronn package
 
-import tronn
+import learning
+import models
+import datalayer
+import interpretation
+
 import sys
 import os
 import subprocess
@@ -34,7 +38,7 @@ def parse_args():
     args = parser.parse_args()
 
     #set out_dir
-    out_dir = 'days%s,model%s' % (''.join(args.days), ','.join(args.model))
+    out_dir = 'days%s,model%s' % (''.join(map(str, args.days)), ','.join(args.model))
     if args.out_dir:
         out_dir = '%s,%s' % (out_dir, args.out_dir)
     
@@ -75,13 +79,13 @@ def main():
     if args.train:
 
         # This all needs to be cleaned up into some kind of init function...
-        num_train_examples = tronn.nn_utils.get_total_num_examples(train_files)
+        num_train_examples = datalayer.get_total_num_examples(train_files)
         train_steps = num_train_examples / args.batch_size - 100
         print train_steps
         #train_steps = 10000 # for now. just to make it easier to test
         print 'Num train examples: {}'.format(num_train_examples)
 
-        num_valid_examples = tronn.nn_utils.get_total_num_examples(valid_files)
+        num_valid_examples = datalayer.get_total_num_examples(valid_files)
         valid_steps = num_valid_examples / args.batch_size - 100
         print 'Num valid examples: {}'.format(num_valid_examples)
 
@@ -95,8 +99,8 @@ def main():
                 restore = True
 
             # Run training
-            tronn.learning.train(tronn.load_data_from_filename_list, 
-                tronn.models.models[args.model['name']],
+            learning.train(datalayer.load_data_from_filename_list, 
+                models.models[args.model['name']],
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
                 #tf.train.AdamOptimizer,{'learning_rate': 0.001, 'beta1':0.9, 'beta2':0.999},
@@ -112,8 +116,8 @@ def main():
             checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir)) # fix this to save checkpoints elsewhere
 
             # Evaluate after training
-            eval_metrics = tronn.learning.evaluate(tronn.load_data_from_filename_list,
-                tronn.models.models[args.model['name']],
+            eval_metrics = learning.evaluate(datalayer.load_data_from_filename_list,
+                models.models[args.model['name']],
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
                 checkpoint_path,
@@ -143,9 +147,9 @@ def main():
         checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir))
         print checkpoint_path
 
-        tronn.interpretation.interpret(tronn.load_data_from_filename_list,
+        interpretation.interpret(datalayer.load_data_from_filename_list,
             data_files,
-            tronn.models.models[args.model['name']],
+            models.models[args.model['name']],
             tf.losses.sigmoid_cross_entropy,
             checkpoint_path,
             args,

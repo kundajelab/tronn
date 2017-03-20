@@ -6,6 +6,19 @@ used frequently in genomics datasets.
 """
 import h5py
 import tensorflow as tf
+def get_total_num_examples(hdf5_filename_list):
+    '''
+    Quickly extracts total examples represented in an hdf5 file list. Can 
+    be used to calculate total steps to take (when 1 step represents going 
+    through a batch of examples)
+    '''
+    
+    num_examples = 0
+    for filename in hdf5_filename_list:
+        with h5py.File(filename,'r') as hf:
+            num_examples += hf['features'].shape[0]
+
+    return num_examples
 
 def hdf5_to_slices(hdf5_file, batch_size, days):
     h5py_handle = h5py.File(hdf5_file)

@@ -2,15 +2,12 @@
 
 """
 
-import os
 import math
-import models
 import tensorflow as tf
 import numpy as np
 import h5py
 
 from sklearn import metrics as skmetrics
-from random import shuffle
 
 
 def streaming_metrics_tronn(total_loss, predictions, labels):
