@@ -21,7 +21,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Run TRoNN')
 
     parser.add_argument('--data_file', help='(currently only) hdf5 file')
-    parser.add_argument('--out_dir', default='out', help='path to save model')
+    parser.add_argument('--expt_dir', default='expts', help='path to save model')
+    parser.add_argument('--out_dir', help='path to save model')
     parser.add_argument('--epochs', default=20, type=int, help='number of epochs')
     parser.add_argument('--batch_size', default=128, type=int, help='batch size')
     parser.add_argument('--days', nargs='+', default=[0,1,2,3,4,5,6,7,8,9,10,11,12], type=int, help='days over which to train multitask model on')
@@ -38,7 +39,7 @@ def parse_args():
     args = parser.parse_args()
 
     #set out_dir
-    out_dir = 'days%s,model%s' % (''.join(map(str, args.days)), ','.join(args.model))
+    out_dir = '%s,days%s,model%s' % (args.expt_dir, ''.join(map(str, args.days)), ','.join(args.model))
     if args.out_dir:
         out_dir = '%s,%s' % (out_dir, args.out_dir)
     
