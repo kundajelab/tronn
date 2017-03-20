@@ -12,7 +12,7 @@ import tensorflow.contrib.slim as slim
 import nn_ops
 
 def _final_pool(net, pool):
-    if pool is None:
+    if pool == 'flatten':
         net = slim.flatten(net, scope='flatten')
     elif pool == 'mean':
         net = tf.reduce_mean(net, axis=[1,2], name='avg_pooling')
@@ -31,6 +31,7 @@ def basset(features, labels, config, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
     '''
+    config['final_pool'] = config.get('final_pool', 'flatten')
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         with slim.arg_scope([slim.conv2d], padding='VALID', activation_fn=None):
             net = slim.conv2d(features, 300, [1, 19])
