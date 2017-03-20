@@ -8,7 +8,6 @@ import argparse
 import glob
 
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
 def parse_args():
     '''
@@ -33,33 +32,45 @@ def parse_args():
     parser.add_argument('--model', nargs='+', help='choose model and provide configs', required=True)
 
     args = parser.parse_args()
+
+    #set out_dir
+    out_dir = 'days%s,model%s' % (''.join(args.days), ','.join(args.model))
+    if args.out_dir:
+        out_dir = '%s,%s' % (out_dir, args.out_dir)
+    
+    num_similar_expts = len(glob.glob('%s*'%out_dir))
+    if num_similar_expts>0:
+        out_dir += '_%d' % num_similar_expts
+
+    args.out_dir = out_dir.replace(' ', '')
+    print 'out_dir: %s' % args.out_dir
+    
+    #parse model configs
     model_config = {}
     model_config['name'] = args.model[0]
     for model_arg in args.model[1:]:
         if '=' in model_arg:
-            name, value = model_arg[2:].split('=', 1)
+            name, value = model_arg.split('=', 1)
+            model_config[name] = eval(value)
         else:
-            name, value = model_arg, True
-        model_config[name] = value
+            model_config[model_arg] = True
     args.model = model_config
     return args
 
 def main():
-    # TODO fix input of info to make easier to run
-    DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
-    data_files = glob.glob('{}/*.h5'.format(DATA_DIR))
-    print 'Found {} chrom files'.format(len(data_files))
-
-    train_files = data_files[0:15]
-    valid_files = data_files[15:20]
-
     args = parse_args()
-
     os.makedirs(args.out_dir)
     with open(os.path.join(args.out_dir, 'command.txt'), 'w') as f:
         git_checkpoint_label = subprocess.check_output(["git", "describe", "--always"])
         f.write(git_checkpoint_label+'\n')
         f.write(' '.join(sys.argv)+'\n')
+
+    # TODO fix input of info to make easier to run
+    DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
+    data_files = glob.glob('{}/*.h5'.format(DATA_DIR))
+    print 'Found {} chrom files'.format(len(data_files))
+    train_files = data_files[0:15]
+    valid_files = data_files[15:20]
 
     if args.train:
 
@@ -105,13 +116,13 @@ def main():
                 tronn.models.models[args.model['name']],
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
-                tronn.streaming_metrics_tronn,
                 checkpoint_path,
                 args,
                 valid_files,
                 '{}/valid'.format(args.out_dir),
                 num_evals=valid_steps)
-            if metric_best is None or ('loss' in args.metric != eval_metrics[args.metric]>metric_best):
+            if metric_best is None or ('loss' in args.metric) != (eval_metrics[args.metric]>metric_best):
+                consecutive_bad_epochs = 0
                 metric_best = eval_metrics[args.metric]
                 with open(os.path.join(args.out_dir, 'best.txt'), 'w') as f:
                     f.write('epoch %d\n'%epoch)

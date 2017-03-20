@@ -6,26 +6,26 @@ import os
 import sys
 import argparse
 
-MODEL_DIR = 'expts'
+MODEL_DIR = 'expts_eachday'
 
 arg2options = {
     'epochs': [20],
     'batch_size': [128],
     'metric': ['mean_auPRC'],
     'patience': [2],
-    'days': [0],
+    'days': [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9], [10], [11], [12]],
     'model': ['danq']
 }
 
 danq_arg2options = {
-    'filters': [80, 160, 320],
+    'filters': [320],
     'kernel': [26],
     'rnn_layers': [1],
-    'rnn_units': [80, 160, 320],
+    'rnn_units': [320],
     'fc_layers': [1],
-    'fc_units': [320, 925],
-    'conv_drop': [0.0, 0.2],
-    'rnn_drop': [0.0, 0.3, 0.5],
+    'fc_units': [925],
+    'conv_drop': [0.2],
+    'rnn_drop': [0.5],
     'flag1': [None]
 }
 
@@ -37,10 +37,10 @@ def sample(arg2options):
     arg_values = {}
     for arg, options in arg2options.iteritems():
         arg_values[arg] = random.choice(options)
-    if arg2options is danq_arg2options:
-        arg_values['rnn_units'] = arg_values['filters']
-        arg_values['conv_drop'] = 0.2 if (arg_values['rnn_drop'] == 0.5) else 0.0
-        arg_values['fc_units'] = 925 if (arg_values['filters'] == 320) else 320
+    # if arg2options is danq_arg2options:
+    #     arg_values['rnn_units'] = arg_values['filters']
+    #     arg_values['conv_drop'] = 0.2 if (arg_values['rnn_drop'] == 0.5) else 0.0
+    #     arg_values['fc_units'] = 925 if (arg_values['filters'] == 320) else 320
     return arg_values
 
 
@@ -48,7 +48,11 @@ def sample(arg2options):
 def format_args(arg_values, prefix=''):
     string = ''
     for arg, value in sorted(arg_values.items()):
-        if 'flag' not in arg:
+        if arg == 'model': continue
+        if arg == 'days':
+            value = ' '.join(map(str, value))
+            string += ' --days %s' % value
+        elif 'flag' not in arg:
             string += ' %s%s=%s' % (prefix, arg, value)
         elif value is not None:
             string += ' %s%s' % (prefix, value)
@@ -82,6 +86,7 @@ def dirname_for_expt(arg_values, model_arg_values):
                         (sorted(arg_values.items()) +
                             sorted(model_arg_values.items()))])
     dirname = os.path.join(MODEL_DIR, dirname)
+    dirname = dirname.replace(' ', '').replace('[', '').replace(']', '')
     return dirname
 
 def random_launcher(gpu):
@@ -99,14 +104,14 @@ def launch_cmds_in_file(gpu, cmd_file):
             cmd = 'CUDA_VISIBLE_DEVICES=%d python run_tronn.py --train %s' % (gpu, cmd)
             out_dir = cmd.split('out_dir=')[-1].split()[0]
             if os.path.exists(out_dir): continue
-            print cmd.split('out_dir=')
+            print cmd
             subprocess.call(cmd, shell=True)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run TRoNN')
     parser.add_argument('--gpu', type=int, required=True, help='gpu on which to launch jobs')
-    parser.add_argument('--dir', default='expts', help='gpu on which to launch jobs')
+    parser.add_argument('--dir', default=MODEL_DIR, help='gpu on which to launch jobs')
     parser.add_argument('--cmd_file', help='file from which to read commands used to launch jobs')
     args = parser.parse_args()
     MODEL_DIR = args.dir
