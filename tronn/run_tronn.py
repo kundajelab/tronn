@@ -38,18 +38,6 @@ def parse_args():
 
     args = parser.parse_args()
 
-    #set out_dir
-    out_dir = '%s/days%s,model%s' % (args.expt_dir, ''.join(map(str, args.days)), ','.join(args.model))
-    if args.out_dir:
-        out_dir = '%s,%s' % (out_dir, args.out_dir)
-    
-    num_similar_expts = len(glob.glob('%s*'%out_dir))
-    if num_similar_expts>0:
-        out_dir += '_%d' % num_similar_expts
-
-    args.out_dir = out_dir.replace(' ', '')
-    print 'out_dir: %s' % args.out_dir
-    
     #parse model configs
     model_config = {}
     model_config['name'] = args.model[0]
@@ -60,6 +48,19 @@ def parse_args():
         else:
             model_config[model_arg] = True
     args.model = model_config
+
+    #set out_dir
+    out_dir = '%s/days%s,model%s' % (args.expt_dir, ''.join(map(str, args.days)), ','.join(['%s%s'%(k, v) for k,v in args.model.iteritems()]))
+    if args.out_dir:
+        out_dir = '%s,%s' % (out_dir, args.out_dir)
+    
+    num_similar_expts = len(glob.glob('%s*'%out_dir))
+    if num_similar_expts>0:
+        out_dir += '_%d' % num_similar_expts
+
+    args.out_dir = out_dir.replace(' ', '')
+    print 'out_dir: %s' % args.out_dir
+    print 'model args: %s' % args.model
     return args
 
 def main():
