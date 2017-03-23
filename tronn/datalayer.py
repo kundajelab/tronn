@@ -54,6 +54,7 @@ def hdf5_to_slices(hdf5_file, batch_size, days):
     return features_tensor, labels_tensor, metadata_tensor
 
 def load_data_from_filename_list(hdf5_files, batch_size, days=[0,1,2,3,4,5,6,7,8,9,10,11,12], shuffle_seed=0):
+    print 'loading days %s from %s' % (days, hdf5_files)
     example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, days) for hdf5_file in hdf5_files]
     min_after_dequeue = 10000
     capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
