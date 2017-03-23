@@ -39,7 +39,7 @@ def parse_args():
     args = parser.parse_args()
 
     #set out_dir
-    out_dir = '%s,days%s,model%s' % (args.expt_dir, ''.join(map(str, args.days)), ','.join(args.model))
+    out_dir = '%s/days%s,model%s' % (args.expt_dir, ''.join(map(str, args.days)), ','.join(args.model))
     if args.out_dir:
         out_dir = '%s,%s' % (out_dir, args.out_dir)
     
