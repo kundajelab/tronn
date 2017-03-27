@@ -28,15 +28,16 @@ def final_pool(net, pool):
     return net
 
 def mlp_module(features, num_labels, fc_layers, fc_dim, dropout=0.0, is_training=True):
+    net = features
     for i in xrange(fc_layers):
         with tf.variable_scope('fc%d'%i):
-            net = slim.fully_connected(features, fc_dim, activation_fn=None)
+            net = slim.fully_connected(net, fc_dim, activation_fn=None)
             net = slim.batch_norm(net, center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training)
             net = slim.dropout(net, keep_prob=1.0-dropout, is_training=is_training)
     logits = slim.fully_connected(net, num_labels, activation_fn=None)
     return logits
 
-def temporal_pred_module(features, num_days, share_logistic_weights):
+def temporal_pred_module(features, num_days, share_logistic_weights, is_training=True):
     dim = features.shape.as_list()[1]
     day_nets = [slim.fully_connected(features, dim, activation_fn=tf.nn.relu) for day in xrange(num_days)]#remove relu?
     cell_fw = tf.contrib.rnn.LSTMBlockCell(dim)
@@ -72,7 +73,7 @@ def basset(features, labels, config, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
     '''
-    config['temporal'] = 'temporal' in config
+    config['temporal'] = config.get('temporal', False)
     config['final_pool'] = config.get('final_pool', 'flatten')
     config['fc_layers'] = config.get('fc_layers', 2)
     config['fc_dim'] = config.get('fc_dim', 1000)
@@ -82,9 +83,9 @@ def basset(features, labels, config, is_training=True):
     net = basset_conv_module(features, is_training)
     net = final_pool(net, config['final_pool'])
     if config['temporal']:
-        logits = temporal_pred_module(net, num_days, share_logistic_weights=True)
+        logits = temporal_pred_module(net, num_days, share_logistic_weights=True, is_training=is_training)
     else:
-        logits = mlp_module(net, num_days, config['fc_layers'], config['fc_dim'], is_training=True)
+        logits = mlp_module(net, num_days, config['fc_layers'], config['fc_dim'], is_training=is_training)
     # Torch7 style maxnorm
     nn_ops.maxnorm(norm_val=7)
 
