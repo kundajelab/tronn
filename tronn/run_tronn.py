@@ -50,7 +50,7 @@ def parse_args():
     args.model = model_config
 
     #set out_dir
-    out_dir = '%s/days%s,model%s' % (args.expt_dir, ''.join(map(str, args.days)), ','.join(['%s%s'%(k, v) for k,v in args.model.iteritems()]))
+    out_dir = '%s/days%s,model%s' % (args.expt_dir, ''.join(map(str, sorted(args.days))), ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
     if args.out_dir:
         out_dir = '%s,%s' % (out_dir, args.out_dir)
     
