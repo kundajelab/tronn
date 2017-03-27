@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument('--batch_size', default=128, type=int, help='batch size')
     parser.add_argument('--days', nargs='+', default=[0,1,2,3,4,5,6,7,8,9,10,11,12], type=int, help='days over which to train multitask model on')
 
-    parser.add_argument('--restore', action='store_true', help='restore from last checkpoint')
+    parser.add_argument('--restore', help='restore from last checkpoint')
     parser.add_argument('--train', action='store_true', help='train the model')
     parser.add_argument('--evaluate', action='store_true', help='evaluate model')
     parser.add_argument('--interpret', action='store_true', help='run interpretation tools')
@@ -50,13 +50,16 @@ def parse_args():
     args.model = model_config
 
     #set out_dir
-    out_dir = '%s/days%s,model%s' % (args.expt_dir, ''.join(map(str, sorted(args.days))), ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
-    if args.out_dir:
-        out_dir = '%s,%s' % (out_dir, args.out_dir)
-    
-    num_similar_expts = len(glob.glob('%s*'%out_dir))
-    if num_similar_expts>0:
-        out_dir += '_%d' % num_similar_expts
+    if args.restore:
+        out_dir = args.restore
+    else:
+        out_dir = '%s/days%s,model%s' % (args.expt_dir, ''.join(map(str, sorted(args.days))), ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
+        if args.out_dir:
+            out_dir = '%s,%s' % (out_dir, args.out_dir)
+
+        num_similar_expts = len(glob.glob('%s*'%out_dir))
+        if num_similar_expts>0:
+            out_dir += '_%d' % num_similar_expts
 
     args.out_dir = out_dir.replace(' ', '')
     print 'out_dir: %s' % args.out_dir
@@ -65,8 +68,10 @@ def parse_args():
 
 def main():
     args = parse_args()
-    os.makedirs(args.out_dir)
-    with open(os.path.join(args.out_dir, 'command.txt'), 'w') as f:
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir)
+    num_restores = len(glob.glob('%s*'%out_dir))
+    with open(os.path.join(args.out_dir, 'command%d.txt'%num_restores), 'w') as f:
         git_checkpoint_label = subprocess.check_output(["git", "describe", "--always"])
         f.write(git_checkpoint_label+'\n')
         f.write(' '.join(sys.argv)+'\n')
@@ -96,7 +101,7 @@ def main():
         consecutive_bad_epochs = 0
         for epoch in xrange(args.epochs):
             print "EPOCH:", str(epoch)
-            restore = args.restore
+            restore = args.restore is not None
             if epoch > 0:
                 restore = True
 
