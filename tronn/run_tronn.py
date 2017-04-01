@@ -70,7 +70,7 @@ def main():
     args = parse_args()
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
-    num_restores = len(glob.glob('%s*'%out_dir))
+    num_restores = len(glob.glob(os.path.join(args.out_dir, 'command')))
     with open(os.path.join(args.out_dir, 'command%d.txt'%num_restores), 'w') as f:
         git_checkpoint_label = subprocess.check_output(["git", "describe", "--always"])
         f.write(git_checkpoint_label+'\n')
@@ -104,6 +104,13 @@ def main():
             restore = args.restore is not None
             if epoch > 0:
                 restore = True
+            
+            if restore:
+                curr_step = checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir))
+                curr_step = int(checkpoint_path.split('-')[1].split('.')[0])
+                target_step = curr_step + train_steps
+            else:
+                target_step = train_steps
 
             # Run training
             learning.train(datalayer.load_data_from_filename_list, 
@@ -117,7 +124,7 @@ def main():
                 args,
                 train_files,
                 '{}/train'.format(args.out_dir),
-                (epoch+1)*train_steps)
+                target_step)
 
             # Get last checkpoint
             checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir)) # fix this to save checkpoints elsewhere
