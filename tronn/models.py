@@ -118,7 +118,7 @@ def _residual_block(net_in, depth, pooling_info=(None, None), first=False, use_s
             net_preact = slim.batch_norm(net_in)
             first_stride = pooling_stride
         elif pooling=='max':
-            net = slim.max_pool2d(net, stride=[1, pooling_stride])#downsample for both shortcut and conv branch
+            net = slim.max_pool2d(net_in, stride=[1, pooling_stride])#downsample for both shortcut and conv branch
             net_preact = slim.batch_norm(net_in)
         else:
             raise Exception('unrecognized pooling: %s'%pooling_info)
@@ -151,7 +151,7 @@ def _resnet(features, initial_conv, kernel, stages, pooling_info, l2, is_trainin
                         num_blocks, depth = stage
                         for j in xrange(num_blocks):
                             with tf.variable_scope('block%d'%j):
-                                net = _residual_block(net, depth, pooling_info, first=(j==0 and i>0))
+                                net = _residual_block(net, depth, pooling_info, first=(i==0 and j==0))
         net = slim.batch_norm(net)
     return net
 

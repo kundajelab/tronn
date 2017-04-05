@@ -9,9 +9,9 @@ def launch_cmds_in_file(gpu, cmd_file, shuffle):
         cmds = f.readlines()
     if shuffle:
         random.shuffle(cmds)
-    for cmd in cmds:
+    for i, cmd in enumerate(cmds):
         cmd = 'CUDA_VISIBLE_DEVICES=%d %s' % (gpu, cmd)
-        print '-'*100
+        print i, '-'*100
         print cmd
         subprocess.call(cmd, shell=True)
 
