@@ -27,14 +27,15 @@ def final_pool(net, pool):
         raise Exception('Unrecognized final_pooling: %s'% pool)
     return net
 
-def mlp_module(features, num_labels, fc_layers, fc_dim, dropout=0.0, is_training=True):
+def mlp_module(features, num_labels, fc_dim, fc_layers, dropout=0.0, l2=0.0, is_training=True):
     net = features
-    for i in xrange(fc_layers):
-        with tf.variable_scope('fc%d'%i):
-            net = slim.fully_connected(net, fc_dim, activation_fn=None)
-            net = slim.batch_norm(net, center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training)
-            net = slim.dropout(net, keep_prob=1.0-dropout, is_training=is_training)
-    logits = slim.fully_connected(net, num_labels, activation_fn=None)
+    with slim.arg_scope([slim.fully_connected], activation_fn=tf.nn.relu, weights_regularizer=slim.l2_regularizer(l2), bias_initializer=None):
+        for i in xrange(fc_layers):
+            with tf.variable_scope('fc%d'%i):
+                net = slim.fully_connected(net, fc_dim)
+                net = slim.batch_norm(net, center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training)
+                net = slim.dropout(net, keep_prob=1.0-dropout, is_training=is_training)
+        logits = slim.fully_connected(net, num_labels)
     return logits
 
 def temporal_pred_module(features, num_days, share_logistic_weights, is_training=True):
@@ -106,6 +107,67 @@ def danq(features, labels, config, is_training=True):
     net = slim.dropout(net, keep_prob=0.5, is_training=is_training)
     net = slim.fully_connected(net, 925, activation_fn=tf.nn.relu)
     logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None)
+    return logits
+
+def _residual_block(net_in, depth, pooling_info=(None, None), first):
+    first_stride = 1
+    depth_in = net.get_shape()[-1]
+    if depth_in!=depth and not first:
+        pooling, pooling_stride = pooling_info
+        if pooling=='conv':
+            net_preact = slim.batch_norm(net_in)
+            first_stride = pooling_stride
+        elif pooling=='max':
+            net = slim.max_pool2d(net, stride=[1, pooling_stride])#downsample for both shortcut and conv branch
+            net_preact = slim.batch_norm(net_in)
+        else:
+            raise Exception('unrecognized pooling: %s'%pooling_info)
+    else:
+        net_preact = slim.batch_norm(net)
+    net = slim.conv2d(net_preact, depth, stride=[1, first_stride])
+    net = slim.batch_norm(net)
+    net = slim.conv2d(net, depth, stride=[1, 1])
+
+    if use_shortcut:
+        if depth_in!=depth:
+            shortcut = slim.conv2d(net_preact, depth, [1, 1], [1, first_stride])
+        elif first:
+            shortcut = net_preact
+        else:
+            shortcut = net_in
+        net = shortcut + net
+    return net
+
+def _resnet(features, initial_conv, kernel, stages, pooling_info, l2, is_training=True):
+    with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
+        with slim.arg_scope([slim.conv2d, slim.max_pool2d], kernel_size=[1, kernel], padding='SAME'):
+            with slim.arg_scope([slim.conv2d], activation_fn=None, weights_regularizer=slim.l2_regularizer(l2), bias_initializer=None):
+                # We do not include batch normalization or activation functions in embed because the first ResNet unit will perform these.
+                initial_filters, initial_kernel, initial_stride = initial_conv
+                net = slim.conv2d(features, initial_filters, initial_kernel, initial_stride, scope='embed')
+                for i, stage in enumerate(stages):
+                    with tf.variable_scope('stage%d'%i):
+                        num_blocks, depth = stage
+                        for j in xrange(num_blocks):
+                            with tf.variable_scope('block%d'%j):
+                                net = _residual_block(net, depth, pooling_info, first=(j==0 and i>0))
+        net = slim.batch_norm(net)
+    return net
+
+def conv_fc(features, labels, config, is_training=True):
+    initial_conv = config.get('initial_conv', (32, 3, 1))
+    kernel = config.get('kernel', 3)
+    stages = config.get('stages', [(1, 32),(1, 64),(1, 128),(1, 256)])
+    pooling_info = config.get('pooling', ('max', 2))
+    final_pooling = config.get('final_pooling', 'mean')
+    fc_dim, fc_layers = config.get('fc', (1, 1024))
+    drop = config.get('drop', 0.0)
+    l2 = config.get('l2', 0.0)
+    num_labels = int(labels.get_shape()[-1])
+
+    net = _resnet(features, initial_conv, kernel, stages, pooling_info, l2, is_training)
+    net = final_pool(net, final_pooling)
+    logits = mlp_module(net, num_labels, fc_dim, fc_layers, dropout, l2, is_training)
     return logits
 
 models = {}
