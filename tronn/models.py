@@ -35,7 +35,7 @@ def mlp_module(features, num_labels, fc_dim, fc_layers, dropout=0.0, l2=0.0, is_
                 net = slim.fully_connected(net, fc_dim)
                 net = slim.batch_norm(net, center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training)
                 net = slim.dropout(net, keep_prob=1.0-dropout, is_training=is_training)
-        logits = slim.fully_connected(net, num_labels)
+        logits = slim.fully_connected(net, num_labels, scope='logits')
     return logits
 
 def temporal_pred_module(features, num_days, share_logistic_weights, is_training=True):
@@ -86,7 +86,7 @@ def basset(features, labels, config, is_training=True):
     if config['temporal']:
         logits = temporal_pred_module(net, num_days, share_logistic_weights=True, is_training=is_training)
     else:
-        logits = mlp_module(net, num_days, config['fc_layers'], config['fc_dim'], is_training=is_training)
+        logits = mlp_module(net, num_days, config['fc_dim'], config['fc_layers'], is_training=is_training)
     # Torch7 style maxnorm
     nn_ops.maxnorm(norm_val=7)
 
