@@ -9,6 +9,7 @@ import math
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+import tensorflow.contrib.layers as layers
 import nn_ops
 
 def final_pool(net, pool):
