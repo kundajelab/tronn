@@ -29,7 +29,7 @@ def final_pool(net, pool):
 
 def mlp_module(features, num_labels, fc_dim, fc_layers, dropout=0.0, l2=0.0, is_training=True):
     net = features
-    with slim.arg_scope([slim.fully_connected], activation_fn=tf.nn.relu, weights_regularizer=slim.l2_regularizer(l2), biases_initializer=None):
+    with slim.arg_scope([slim.fully_connected], weights_regularizer=slim.l2_regularizer(l2), biases_initializer=None):
         for i in xrange(fc_layers):
             with tf.variable_scope('fc%d'%i):
                 net = slim.fully_connected(net, fc_dim)
@@ -56,7 +56,7 @@ def temporal_pred_module(features, num_days, share_logistic_weights, is_training
 
 def basset_conv_module(features, is_training=True):
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
-        with slim.arg_scope([slim.conv2d], padding='VALID', activation_fn=None):
+        with slim.arg_scope([slim.conv2d], padding='VALID', activation_fn=None, weights_initializer=layers.variance_scaling_initializer(), biases_initializer=None):
             net = slim.conv2d(features, 300, [1, 19])
             net = slim.batch_norm(net)
             net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
@@ -142,7 +142,7 @@ def _residual_block(net_in, depth, pooling_info=(None, None), first=False, use_s
 def _resnet(features, initial_conv, kernel, stages, pooling_info, l2, is_training=True):
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], kernel_size=[1, kernel], padding='SAME'):
-            with slim.arg_scope([slim.conv2d], activation_fn=None, weights_regularizer=slim.l2_regularizer(l2), biases_initializer=None):
+            with slim.arg_scope([slim.conv2d], activation_fn=None, weights_regularizer=slim.l2_regularizer(l2), weights_initializer=layers.variance_scaling_initializer(), biases_initializer=None):
                 # We do not include batch normalization or activation functions in embed because the first ResNet unit will perform these.
                 initial_filters, initial_kernel, initial_stride = initial_conv
                 net = slim.conv2d(features, initial_filters, kernel_size=[1, initial_kernel], stride=[1,initial_stride], scope='embed')
