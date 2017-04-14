@@ -20,7 +20,7 @@ def parse_args():
 
     parser = argparse.ArgumentParser(description='Run TRoNN')
 
-    parser.add_argument('--data_file', help='(currently only) hdf5 file')
+    parser.add_argument('--dataset', help='hdf5 file [encode, ggr]', required=True)
     parser.add_argument('--expt_dir', default='expts', help='path to save model')
     parser.add_argument('--out_dir', help='path to save model')
     parser.add_argument('--epochs', default=20, type=int, help='number of epochs')
@@ -53,7 +53,12 @@ def parse_args():
     if args.restore:
         out_dir = args.restore
     else:
-        out_dir = '%s/days%s,model%s' % (args.expt_dir, ''.join(map(str, sorted(args.days))), ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
+        if args.dataset == 'ggr'
+            out_dir = '%s/ggr,days%s,model%s' % (args.expt_dir, ''.join(map(str, sorted(args.days))), ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
+        elif args.dataset == 'encode':
+            out_dir = '%s/encode,model%s' % (args.expt_dir, ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
+        else:
+            raise
         if args.out_dir:
             out_dir = '%s,%s' % (out_dir, args.out_dir)
 
@@ -77,7 +82,10 @@ def main():
         f.write(' '.join(sys.argv)+'\n')
 
     # TODO fix input of info to make easier to run
-    DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
+    if args.dataset == 'ggr':
+        DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
+    else:
+        DATA_DIR = '/srv/scratch/shared/indra/dskim89/ggr/sequence_model.nn.2017-03-27.roadmap_encode_pretrain_tmp/data/h5'
     data_files = glob.glob('{}/*.h5'.format(DATA_DIR))
     print 'Found {} chrom files'.format(len(data_files))
     train_files = data_files[0:15]
