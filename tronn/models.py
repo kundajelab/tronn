@@ -30,10 +30,10 @@ def final_pool(net, pool):
 
 def mlp_module(features, num_labels, fc_dim, fc_layers, dropout=0.0, l2=0.0, is_training=True):
     net = features
-    with slim.arg_scope([slim.fully_connected], weights_regularizer=slim.l2_regularizer(l2), biases_initializer=None):
+    with slim.arg_scope([slim.fully_connected], activation_fn=None, weights_regularizer=slim.l2_regularizer(l2)):
         for i in xrange(fc_layers):
             with tf.variable_scope('fc%d'%i):
-                net = slim.fully_connected(net, fc_dim)
+                net = slim.fully_connected(net, fc_dim, biases_initializer=None)
                 net = slim.batch_norm(net, center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training)
                 net = slim.dropout(net, keep_prob=1.0-dropout, is_training=is_training)
         logits = slim.fully_connected(net, num_labels, scope='logits')
