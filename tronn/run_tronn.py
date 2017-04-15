@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument('--out_dir', help='path to save model')
     parser.add_argument('--epochs', default=20, type=int, help='number of epochs')
     parser.add_argument('--batch_size', default=128, type=int, help='batch size')
-    parser.add_argument('--days', nargs='+', default=[0,1,2,3,4,5,6,7,8,9,10,11,12], type=int, help='days over which to train multitask model on')
+    parser.add_argument('--tasks', nargs='+', default=[], type=int, help='tasks over which to train multitask model on')
 
     parser.add_argument('--restore', help='restore from last checkpoint')
     parser.add_argument('--train', action='store_true', help='train the model')
@@ -53,8 +53,8 @@ def parse_args():
     if args.restore:
         out_dir = args.restore
     else:
-        if args.dataset == 'ggr'
-            out_dir = '%s/ggr,days%s,model%s' % (args.expt_dir, ''.join(map(str, sorted(args.days))), ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
+        if args.dataset == 'ggr':
+            out_dir = '%s/ggr,tasks%s,model%s' % (args.expt_dir, ''.join(map(str, sorted(args.tasks))), ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
         elif args.dataset == 'encode':
             out_dir = '%s/encode,model%s' % (args.expt_dir, ','.join(['%s%s'%(k, v) for k,v in sorted(args.model.items())]))
         else:
