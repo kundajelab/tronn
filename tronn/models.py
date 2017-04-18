@@ -110,54 +110,61 @@ def danq(features, labels, config, is_training=True):
     logits = slim.fully_connected(net, int(labels.get_shape()[-1]), activation_fn=None)
     return logits
 
-def _residual_block(net_in, depth, pooling_info=(None, None), first=False, use_shortcut=True):
+def _residual_block(net_in, depth, pooling_info=(None, None), first=False):
     first_stride = 1
     depth_in = net_in.get_shape().as_list()[-1]
+
     if depth_in!=depth and not first:
         pooling, pooling_stride = pooling_info
         if pooling=='conv':
+            shortcut = slim.avg_pool2d(net_in, stride=[1, pooling_stride])#downsample for both shortcut and conv branch
             net_preact = slim.batch_norm(net_in)
             first_stride = pooling_stride
         elif pooling=='max':
             net = slim.max_pool2d(net_in, stride=[1, pooling_stride])#downsample for both shortcut and conv branch
-            net_preact = slim.batch_norm(net_in)
+            shortcut = net
+            net_preact = slim.batch_norm(net)
         else:
             raise Exception('unrecognized pooling: %s'%pooling_info)
     else:
         net_preact = slim.batch_norm(net_in)
+        if first:
+            shortcut = net_preact
+        else:
+            shortcut = net_in
     net = slim.conv2d(net_preact, depth, stride=[1, first_stride])
     net = slim.batch_norm(net)
     net = slim.conv2d(net, depth, stride=[1, 1])
 
-    if use_shortcut:
-        if depth_in != depth:
-            paddings = [(0,0),(0,0),(0,0),((depth-depth_in)/2, int(math.ceil((depth-depth_in)/2)))]
-            shortcut = tf.pad(net_preact, paddings)
-        elif first:
-            shortcut = net_preact
-        else:
-            shortcut = net_in
-        net = net + shortcut
+    if depth_in != depth:
+        paddings = [(0,0),(0,0),(0,0),((depth-depth_in)/2, int(math.ceil((depth-depth_in)/2)))]
+        shortcut = tf.pad(net_preact, paddings)
+    net = net + shortcut
     return net
 
 def _resnet(features, initial_conv, kernel, stages, pooling_info, l2, is_training=True):
+    print net.get_shape.as_list()
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], kernel_size=[1, kernel], padding='SAME'):
             with slim.arg_scope([slim.conv2d], activation_fn=None, weights_regularizer=slim.l2_regularizer(l2), weights_initializer=layers.variance_scaling_initializer(), biases_initializer=None):
                 # We do not include batch normalization or activation functions in embed because the first ResNet unit will perform these.
-                initial_filters, initial_kernel, initial_stride = initial_conv
-                net = slim.conv2d(features, initial_filters, kernel_size=[1, initial_kernel], stride=[1,initial_stride], scope='embed')
+                with tf.variable_scope('embed'):
+                    initial_filters, initial_kernel, initial_stride = initial_conv
+                    net = slim.conv2d(features, initial_filters, kernel_size=[1, initial_kernel])
+                    net = slim.max_pool2d(net, kernel_size=[1, initial_kernel], stride=[1, initial_stride])
+                print net.get_shape.as_list()
                 for i, stage in enumerate(stages):
                     with tf.variable_scope('stage%d'%i):
                         num_blocks, depth = stage
                         for j in xrange(num_blocks):
                             with tf.variable_scope('block%d'%j):
                                 net = _residual_block(net, depth, pooling_info, first=(i==0 and j==0))
+                                print net.get_shape.as_list()
         net = slim.batch_norm(net)
     return net
 
 def resnet(features, labels, config, is_training=True):
-    initial_conv = config.get('initial_conv', (32, 3, 1))
+    initial_conv = config.get('initial_conv', (16, 3, 1))
     kernel = config.get('kernel', 3)
     stages = config.get('stages', [(1, 32),(1, 64),(1, 128),(1, 256)])
     pooling_info = config.get('pooling', ('max', 2))

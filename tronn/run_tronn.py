@@ -65,7 +65,7 @@ def parse_args():
         num_similar_expts = len(glob.glob('%s*'%out_dir))
         if num_similar_expts>0:
             out_dir += '_%d' % num_similar_expts
-    out_dir = "".join(c if c not in "[]()" else '_' for c in out_dir.replace(' ', ''))
+    out_dir = "".join(c if c not in "[]()" for c in out_dir.replace(' ', ''))
     args.out_dir = out_dir
     print 'out_dir: %s' % args.out_dir
     print 'model args: %s' % args.model
