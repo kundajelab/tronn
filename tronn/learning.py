@@ -30,12 +30,12 @@ def train(data_loader,
     with tf.Graph().as_default():
 
         # data loader
-        features, labels, metadata = data_loader(data_file_list, args.batch_size, args.days)
+        features, labels, metadata = data_loader(data_file_list, args.batch_size, args.tasks)
 
         # model
         logits = model_builder(features, labels, args.model, is_training=True)
         loss = loss_fn(labels, logits)
-        names_to_metrics, updates = evaluation.get_metrics(args.days, logits, labels, final_activation_fn, loss_fn)
+        names_to_metrics, updates = evaluation.get_metrics(args.tasks, logits, labels, final_activation_fn, loss_fn)
         for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
 
         # optimizer
@@ -101,13 +101,13 @@ def evaluate(data_loader,
     with tf.Graph().as_default():
 
         # data loader
-        features, labels, metadata = data_loader(data_file_list, args.batch_size*4, args.days)
+        features, labels, metadata = data_loader(data_file_list, args.batch_size*4, args.tasks)
 
         # model - training=False
         logits = model_builder(features, labels, args.model, is_training=False)
         
         # Construct metrics to compute
-        names_to_metrics, updates = evaluation.get_metrics(args.days, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
+        names_to_metrics, updates = evaluation.get_metrics(args.tasks, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
 
         # Define the scalar summaries to write
         for name, metric in names_to_metrics.iteritems():
