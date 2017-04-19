@@ -43,27 +43,34 @@ def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
     auPRC_tensors = []
     accuracy_tensors = []
 
+    if tasks == []:
+        tasks = range(logits.get_shape().as_list()[1])
     predictions_prob = final_activation_fn(logits)
+    predictions = tf.cast(tf.greater(predictions_prob, 0.5), 'float32')
+    losses = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits), axis=0)
     with tf.name_scope('metrics') as scope:
+        losses = tf.unstack(losses, axis=0)
+        predictions_prob = tf.unstack(predictions_prob, axis=1)
+        predictions = tf.unstack(predictions, axis=1)
+        labels = tf.unstack(labels, axis=1)
         for task_num in range(len(tasks)):
             with tf.name_scope('loss'):
-                loss, loss_update = tf.contrib.metrics.streaming_mean(loss_fn(labels[:,task_num], logits[:,task_num], loss_collection=None), name='loss{}'.format(task_num))
+                loss, loss_update = tf.contrib.metrics.streaming_mean(losses[task_num], name='loss{}'.format(task_num))
                 loss_tensors.append(loss)
                 metric_updates.append(loss_update)
 
             with tf.name_scope('roc'):
-                auROC, update_op_auROC = tf.contrib.metrics.streaming_auc(predictions_prob[:,task_num], labels[:,task_num], curve='ROC', name='roc{}'.format(task_num))
+                auROC, update_op_auROC = tf.contrib.metrics.streaming_auc(predictions_prob[task_num], labels[task_num], curve='ROC', name='roc{}'.format(task_num))
                 auROC_tensors.append(auROC)
                 metric_updates.append(update_op_auROC)
         
             with tf.name_scope('pr'):
-                auPRC, update_op_auPRC = tf.contrib.metrics.streaming_auc(predictions_prob[:,task_num], labels[:,task_num], curve='PR', name='pr{}'.format(task_num))
+                auPRC, update_op_auPRC = tf.contrib.metrics.streaming_auc(predictions_prob[task_num], labels[task_num], curve='PR', name='pr{}'.format(task_num))
                 auPRC_tensors.append(auPRC)
                 metric_updates.append(update_op_auPRC)
 
             with tf.name_scope('accuracy'):
-                accuracy, update_op_accuracy = tf.contrib.metrics.streaming_accuracy(tf.cast(tf.greater(predictions_prob[:,task_num], 0.5), 'float32'), 
-                                                                                     labels[:,task_num], name='acc{}'.format(task_num))
+                accuracy, update_op_accuracy = tf.contrib.metrics.streaming_accuracy(predictions[task_num],  labels[task_num], name='acc{}'.format(task_num))
                 accuracy_tensors.append(accuracy)
                 metric_updates.append(update_op_accuracy)
 

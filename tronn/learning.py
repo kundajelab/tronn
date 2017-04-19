@@ -35,8 +35,21 @@ def train(data_loader,
         # model
         logits = model_builder(features, labels, args.model, is_training=True)
         loss = loss_fn(labels, logits)
-        names_to_metrics, updates = evaluation.get_metrics(args.tasks, logits, labels, final_activation_fn, loss_fn)
-        for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
+        if args.dataset == 'ggr':
+            names_to_metrics, updates = evaluation.get_metrics(args.tasks, logits, labels, final_activation_fn, loss_fn)
+            for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
+            for name, metric in names_to_metrics.iteritems():
+                if metric.get_shape().ndims==0:
+                    tf.summary.scalar('train/%s'%name, metric)
+                else:
+                    tf.summary.histogram('train/%s'%name, metric)
+        else:
+            predictions_prob = final_activation_fn(logits)
+            predictions = tf.cast(tf.greater(predictions_prob, 0.5), 'float32')
+            mean_accuracy, _ = tf.metrics.accuracy(labels, predictions, updates_collections=[tf.GraphKeys.UPDATE_OPS], name='mean_accuracy')
+            mean_loss, _ = tf.metrics.mean(loss, updates_collections=[tf.GraphKeys.UPDATE_OPS], name='mean_loss')
+            tf.summary.scalar('train/mean_accuracy', mean_accuracy)
+            tf.summary.scalar('train/mean_loss', mean_loss)
 
         # optimizer
         optimizer = optimizer_fn(**optimizer_params)
@@ -47,12 +60,13 @@ def train(data_loader,
 
         # summaries
         tf.summary.scalar('train/loss', loss)
-        for name, metric in names_to_metrics.iteritems():
-            if metric.get_shape().ndims==0:
-                tf.summary.scalar('train/%s'%name, metric)
-            else:
-                tf.summary.histogram('train/%s'%name, metric)
         for var in tf.model_variables(): tf_utils.add_var_summaries(var)
+        if args.dataset == 'ggr':
+            imp_metrics = [names_to_metrics[name] for name in ['mean_auPRC', 'mean_auROC', 'mean_accuracy', 'mean_loss']]
+            summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step()] + imp_metrics + [loss, total_loss])
+        else:
+            imp_metrics = [mean_accuracy, mean_loss]
+        summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step()] + imp_metrics + [loss, total_loss])
 
         def restoreFn(sess):
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
@@ -72,8 +86,6 @@ def train(data_loader,
                     print var.name, var.get_shape().as_list(), num_elems
             print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
 
-        imp_metrics = [names_to_metrics[name] for name in ['mean_auPRC', 'mean_auROC', 'mean_accuracy', 'mean_loss']]
-        summary_op = tf.Print(tf.summary.merge_all(), [tf.train.get_global_step()] + imp_metrics + [loss, total_loss])
         slim.learning.train(train_op,
                             OUT_DIR,
                             init_fn=restoreFn if restore else None,
