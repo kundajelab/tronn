@@ -47,7 +47,7 @@ def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
         tasks = range(logits.get_shape().as_list()[1])
     predictions_prob = final_activation_fn(logits)
     predictions = tf.cast(tf.greater(predictions_prob, 0.5), 'float32')
-    losses = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits), axis=0)
+    losses = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits), axis=0)
     with tf.name_scope('metrics') as scope:
         losses = tf.unstack(losses, axis=0)
         predictions_prob = tf.unstack(predictions_prob, axis=1)
