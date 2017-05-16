@@ -32,7 +32,7 @@ def streaming_metrics_tronn(total_loss, predictions, labels):
 
 
 
-def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
+def get_metrics(tasks, logits, labels, final_activation_fn):
     '''
     Set up streaming metrics
     '''
@@ -47,18 +47,9 @@ def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
         tasks = range(logits.get_shape().as_list()[1])
     predictions_prob = final_activation_fn(logits)
     predictions = tf.cast(tf.greater(predictions_prob, 0.5), 'float32')
-    losses = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits), axis=0)
     with tf.name_scope('metrics') as scope:
-        losses = tf.unstack(losses, axis=0)
-        predictions_prob = tf.unstack(predictions_prob, axis=1)
-        predictions = tf.unstack(predictions, axis=1)
         labels = tf.unstack(labels, axis=1)
         for task_num in range(len(tasks)):
-            with tf.name_scope('loss'):
-                loss, loss_update = tf.contrib.metrics.streaming_mean(losses[task_num], name='loss{}'.format(task_num))
-                loss_tensors.append(loss)
-                metric_updates.append(loss_update)
-
             with tf.name_scope('roc'):
                 auROC, update_op_auROC = tf.contrib.metrics.streaming_auc(predictions_prob[task_num], labels[task_num], curve='ROC', name='roc{}'.format(task_num))
                 auROC_tensors.append(auROC)
@@ -75,11 +66,9 @@ def get_metrics(tasks, logits, labels, final_activation_fn, loss_fn):
                 metric_updates.append(update_op_accuracy)
 
         learning_metrics = {
-                'mean_loss' : tf.reduce_mean(tf.stack(loss_tensors), name='mean_loss'),
                 'mean_accuracy' : tf.reduce_mean(tf.stack(accuracy_tensors), name='mean_accuracy'),
                 'mean_auROC' : tf.reduce_mean(tf.stack(auROC_tensors), name='mean_auROC'),
                 'mean_auPRC' : tf.reduce_mean(tf.stack(auPRC_tensors), name='mean_auPRC'),
-                'losses' : tf.stack(loss_tensors),
                 'accuracies' : tf.stack(accuracy_tensors),
                 'auROCs' : tf.stack(auROC_tensors),
                 'auPRCs' : tf.stack(auPRC_tensors)
@@ -250,3 +239,4 @@ def evaluate_seq_importances(out_h5_file, sess, importance, train_prediction, la
             batch_end += batch_size
     
     return None
+
