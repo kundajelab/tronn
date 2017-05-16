@@ -28,7 +28,7 @@ def final_pool(net, pool):
         raise Exception('Unrecognized final_pooling: %s'% pool)
     return net
 
-def mlp_module(features, num_labels, fc_dim, fc_layers, dropout=0.0, l2=0.0, is_training=True):
+def mlp_module(features, num_tasks, fc_dim, fc_layers, dropout=0.0, l2=0.0, is_training=True):
     net = features
     with slim.arg_scope([slim.fully_connected], activation_fn=None, weights_regularizer=slim.l2_regularizer(l2)):
         for i in xrange(fc_layers):
@@ -36,7 +36,7 @@ def mlp_module(features, num_labels, fc_dim, fc_layers, dropout=0.0, l2=0.0, is_
                 net = slim.fully_connected(net, fc_dim, biases_initializer=None)
                 net = slim.batch_norm(net, center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training)
                 net = slim.dropout(net, keep_prob=1.0-dropout, is_training=is_training)
-        logits = slim.fully_connected(net, num_labels, scope='logits')
+        logits = slim.fully_connected(net, num_tasks, scope='logits')
     return logits
 
 def temporal_pred_module(features, num_days, share_logistic_weights, is_training=True):
@@ -80,14 +80,19 @@ def basset(features, labels, config, is_training=True):
     config['fc_layers'] = config.get('fc_layers', 2)
     config['fc_dim'] = config.get('fc_dim', 1000)
     config['drop'] = config.get('drop', 0.3)
-    num_days = int(labels.get_shape()[-1])
+    num_tasks = int(labels.get_shape()[-1])
 
     net = basset_conv_module(features, is_training)
     net = final_pool(net, config['final_pool'])
     if config['temporal']:
-        logits = temporal_pred_module(net, num_days, share_logistic_weights=True, is_training=is_training)
+        logits = temporal_pred_module(net, num_tasks, share_logistic_weights=True, is_training=is_training)
     else:
-        logits = mlp_module(net, num_days, config['fc_dim'], config['fc_layers'], is_training=is_training)
+        logits = mlp_module(net, 
+                    num_tasks = num_tasks, 
+                    fc_dim = config['fc_dim'], 
+                    fc_layers = config['fc_layers'],
+                    dropout=config['drop'],
+                    is_training=is_training)
     # Torch7 style maxnorm
     nn_ops.maxnorm(norm_val=7)
 
@@ -183,3 +188,4 @@ models = {}
 models['basset'] = basset
 models['danq'] = danq
 models['resnet'] = resnet
+

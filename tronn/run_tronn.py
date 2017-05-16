@@ -85,7 +85,7 @@ def main():
     if args.dataset == 'ggr':
         DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
     else:
-        DATA_DIR = '/srv/scratch/shared/indra/dskim89/ggr/sequence_model.nn.2017-03-27.roadmap_encode_pretrain_tmp/data/h5'
+        DATA_DIR = '/srv/scratch/shared/indra/naveen67/roadcode/data/neg_region0/h5'
     data_files = glob.glob('{}/*.h5'.format(DATA_DIR))
     print 'Found {} chrom files'.format(len(data_files))
     train_files = data_files[0:15]
