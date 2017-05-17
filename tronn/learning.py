@@ -44,6 +44,8 @@ def train(data_loader,
                                                                                 'accuracy': tf.contrib.metrics.streaming_accuracy(tf.cast(tf.greater(probabilities, 0.5), 'float32'), labels)})
         for update in metric_update.values():
             tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
+        for metric, value in metric_value.iteritems():
+            tf.summary.scalar('train/%s'%metric, value)
         
         # train op
         total_loss = tf.losses.get_total_loss()
@@ -107,16 +109,18 @@ def evaluate(data_loader,
 
         # model - training=False
         logits = model_builder(features, labels, args.model, is_training=False)
-        
-        # Construct metrics to compute
-        names_to_metrics, updates = evaluation.get_metrics(args.tasks, logits, labels, final_activation_fn, loss_fn)#13 days(tasks)
+        probabilities = final_activation_fn(logits)
+        loss = loss_fn(labels, logits)
 
-        # Define the scalar summaries to write
-        for name, metric in names_to_metrics.iteritems():
-            if metric.get_shape().ndims==0:
-                tf.summary.scalar(name, metric)
-            else:
-                tf.summary.histogram(name, metric)
+        # metrics
+        metric_value, metric_update = tf.contrib.metrics.aggregate_metric_map({'mean_loss': tf.contrib.metrics.streaming_mean(loss),
+                                                                                'auroc': tf.contrib.metrics.streaming_auc(probabilities, labels, curve='ROC'),
+                                                                                'auprc': tf.contrib.metrics.streaming_auc(probabilities, labels, curve='PR'),
+                                                                                'accuracy': tf.contrib.metrics.streaming_accuracy(tf.cast(tf.greater(probabilities, 0.5), 'float32'), labels)})
+        for update in metric_update.values():
+            tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
+        for metric, value in metric_value.iteritems():
+            tf.summary.scalar('train/%s'%metric, value)
 
         # Evaluate the checkpoint
         metrics_dict = slim.evaluation.evaluate_once(
@@ -125,8 +129,8 @@ def evaluate(data_loader,
             out_dir,
             num_evals=num_evals,
             summary_op=tf.summary.merge_all(),
-            eval_op=updates,
-            final_op=names_to_metrics,
+            eval_op=metric_update.values(),
+            final_op=metric_value,
             session_config=config.session_config)
         print 'Validation metrics:\n%s'%metrics_dict
     

@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('--train', action='store_true', help='train the model')
     parser.add_argument('--evaluate', action='store_true', help='evaluate model')
     parser.add_argument('--interpret', action='store_true', help='run interpretation tools')
-    parser.add_argument('--metric', default='mean_auPRC', type=str, help='metric to use for early stopping')
+    parser.add_argument('--metric', default='auroc', type=str, help='metric to use for early stopping')
     parser.add_argument('--patience', default=2, type=int, help='metric to use for early stopping')
 
     parser.add_argument('--model', nargs='+', help='choose model and provide configs', required=True)
