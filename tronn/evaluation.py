@@ -15,21 +15,21 @@ from random import shuffle
 
 def streaming_metrics_tronn(total_loss, predictions, labels):
 
-    tf.scalar_summary('loss', total_loss)
+    tf.summary.scalar('loss', total_loss)
 
 
     # See weights
-    weights = [v for v in tf.all_variables()
+    weights = [v for v in tf.global_variables()
                if ('weights' in v.name)]
 
     weight_sum = tf.add_n([ tf.reduce_sum(w) for w in weights ])
 
-    tf.scalar_summary('weight_sum', weight_sum)
+    tf.summary.scalar('weight_sum', weight_sum)
 
-    tf.scalar_summary('predictions', tf.reduce_sum(predictions))
+    tf.summary.scalar('predictions', tf.reduce_sum(predictions))
         
 
-    summary_op = tf.merge_all_summaries()
+    summary_op = tf.summary.merge_all()
 
     return summary_op
 
@@ -65,14 +65,14 @@ def get_metrics(tasks, predictions, labels):
 
         learning_metrics = {
             'scalar': {
-                'mean_accuracy' : tf.reduce_mean(tf.pack(accuracy_tensors), name='mean_accuracy'),
-                'mean_auROC' : tf.reduce_mean(tf.pack(auROC_tensors), name='mean_auROC'),
-                'mean_auPRC' : tf.reduce_mean(tf.pack(auPRC_tensors), name='mean_auPRC')
+                'mean_accuracy' : tf.reduce_mean(tf.stack(accuracy_tensors), name='mean_accuracy'),
+                'mean_auROC' : tf.reduce_mean(tf.stack(auROC_tensors), name='mean_auROC'),
+                'mean_auPRC' : tf.reduce_mean(tf.stack(auPRC_tensors), name='mean_auPRC')
             },
             'histogram': {
-                'accuracies' : tf.pack(accuracy_tensors),
-                'auROCs' : tf.pack(auROC_tensors),
-                'auPRCs' : tf.pack(auPRC_tensors)
+                'accuracies' : tf.stack(accuracy_tensors),
+                'auROCs' : tf.stack(auROC_tensors),
+                'auPRCs' : tf.stack(auPRC_tensors)
             },
         }
 
@@ -145,13 +145,13 @@ def make_tensorboard_metrics(sess, learning_metrics, LOG_DIR):
     Set up summaries and writers
     '''
     for metric in learning_metrics['scalar'].keys():
-        tf.scalar_summary(metric, learning_metrics['scalar'][metric])
+        tf.summary.scalar(metric, learning_metrics['scalar'][metric])
     for metric in learning_metrics['histogram'].keys():
-        tf.histogram_summary(metric, learning_metrics['histogram'][metric])
+        tf.summary.histogram(metric, learning_metrics['histogram'][metric])
     
-    merged = tf.merge_all_summaries()
-    train_writer = tf.train.SummaryWriter(LOG_DIR + '/train', sess.graph)
-    valid_writer = tf.train.SummaryWriter(LOG_DIR + '/valid')
+    merged = tf.summary.merge_all()
+    train_writer = tf.summary.FileWriter(LOG_DIR + '/train', sess.graph)
+    valid_writer = tf.summary.FileWriter(LOG_DIR + '/valid')
     
     return merged, train_writer, valid_writer
 

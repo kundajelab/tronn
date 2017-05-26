@@ -6,6 +6,9 @@ The wrappers follow the tf-slim structure for setting up and running a model
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+from tensorflow.python.framework import ops
+
+import nn_utils
 
 
 def train(data_loader,
@@ -19,7 +22,12 @@ def train(data_loader,
           args,
           data_file_list,
           OUT_DIR,
-          global_step_val):
+          global_step_val,
+          transfer=False,
+          transfer_dir='./',
+          weighted_cross_entropy=False,
+          model_has_config=False,
+          model_config=None):
     '''
     Wraps the routines needed for tf-slim
     '''
@@ -30,11 +38,32 @@ def train(data_loader,
         features, labels, metadata = data_loader(data_file_list,
                                                  args.batch_size)
 
+        num_tasks = labels.get_shape()
+        print num_tasks[1]
+
+        
         # model
-        predictions = model_builder(features, labels, is_training=True)
+        if model_has_config:
+            predictions = model_builder(features, int(num_tasks[1]), args.model, is_training=True)
+        else:
+            predictions = model_builder(features, labels, is_training=True)
 
         # loss
-        total_loss = loss_fn(predictions, labels)
+        # TODO adjust the loss for class imbalance scenario
+        if not weighted_cross_entropy:
+            total_loss = loss_fn(predictions, labels)
+        else:
+            print "NOTE: using weighted loss!"
+            pos_weights = nn_utils.get_positive_weights_per_task(data_file_list)
+            task_losses = []
+            for task_num in range(labels.get_shape()[1]):
+                # somehow need to calculate task imbalance...
+                task_losses.append(loss_fn(predictions[:,task_num], labels[:,task_num], pos_weights[task_num]))
+            task_loss_tensor = tf.stack(task_losses, axis=1)
+            # stuff for tf-slim
+            total_loss = tf.reduce_sum(task_loss_tensor)
+            tf.add_to_collection(ops.GraphKeys.LOSSES, total_loss)
+            
 
         # optimizer
         optimizer = optimizer_fn(**optimizer_params)
@@ -48,7 +77,15 @@ def train(data_loader,
         if restore:
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
             variables_to_restore = slim.get_model_variables()
-            variables_to_restore.append(slim.get_global_step()) 
+            variables_to_restore.append(slim.get_global_step())
+            
+            # TODO if pretrained on different dataset, remove final layer variables
+            if transfer:
+                #variables_to_restore_tmp = [ var for var in variables_to_restore if ('out' not in var.name) ]
+                variables_to_restore_tmp = [ var for var in variables_to_restore if (('logit' not in var.name) and ('out' not in var.name)) ]
+                variables_to_restore = variables_to_restore_tmp
+                checkpoint_path = tf.train.latest_checkpoint(transfer_dir)
+            
             init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
                 checkpoint_path,
                 variables_to_restore)
@@ -62,14 +99,18 @@ def train(data_loader,
                                 init_fn=InitAssignFn,
                                 number_of_steps=global_step_val,
                                 summary_op=summary_op,
-                                save_summaries_secs=20)
+                                save_summaries_secs=20,
+                                saver=tf.train.Saver(max_to_keep=None),
+                                save_interval_secs=3600)
 
         else:
             slim.learning.train(train_op,
                                 OUT_DIR,
                                 number_of_steps=global_step_val,
                                 summary_op=summary_op,
-                                save_summaries_secs=20)
+                                save_summaries_secs=20,
+                                saver=tf.train.Saver(max_to_keep=None),
+                                save_interval_secs=3600)
 
     return None
 
@@ -82,7 +123,8 @@ def evaluate(data_loader,
              args,
              data_file_list,
              out_dir,
-             num_evals=10000):
+             num_evals=10000,
+             model_has_config=False):
     '''
     Wrapper function for doing evaluation (ie getting metrics on a model)
     Note that if you want to reload a model, you must load the same model
@@ -95,9 +137,16 @@ def evaluate(data_loader,
         features, labels, metadata = data_loader(data_file_list,
                                                  args.batch_size)
 
+        num_tasks = labels.get_shape()
+        print num_tasks[1]
+        
         # model - training=False
-        predictions_prob = final_activation_fn(
-            model_builder(features, labels, is_training=False))
+        if model_has_config:
+            predictions_prob = final_activation_fn(
+                model_builder(features, int(num_tasks[1]), args.model, is_training=False))
+        else:
+            predictions_prob = final_activation_fn(
+                model_builder(features, labels, is_training=False))
 
         # boolean classification predictions and labels
         labels_bool = tf.cast(labels, tf.bool)
@@ -115,7 +164,7 @@ def evaluate(data_loader,
 
         # Define the scalar summaries to write
         for metric_name, metric_value in names_to_values.iteritems():
-            tf.scalar_summary(metric_name, metric_value)
+            tf.summary.scalar(metric_name, metric_value)
 
         # Evaluate the checkpoint
         metrics_dict = slim.evaluation.evaluate_once(
@@ -123,7 +172,7 @@ def evaluate(data_loader,
             checkpoint_path,
             out_dir,
             num_evals=num_evals,
-            summary_op=tf.merge_all_summaries(),
+            summary_op=tf.summary.merge_all(),
             eval_op= names_to_updates.values(),
             final_op=names_to_values)
         
