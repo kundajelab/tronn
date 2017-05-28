@@ -65,7 +65,7 @@ def parse_args():
         num_similar_expts = len(glob.glob('%s*'%out_dir))
         if num_similar_expts>0:
             out_dir += '_%d' % num_similar_expts
-    out_dir = "".join(c if c not in "[]()" else '' for c in out_dir.replace(' ', ''))
+        out_dir = "".join(c if c not in "[]()" else '' for c in out_dir.replace(' ', ''))
     args.out_dir = out_dir
     print 'out_dir: %s' % args.out_dir
     print 'model args: %s' % args.model
@@ -163,9 +163,10 @@ def main():
     if args.interpret:
 
         # Look at keratin loci for now
-        data_files = ['{}/skin_atac_idr_chr12.h5'.format(DATA_DIR)]
+        data_files = valid_files[:1]
 
         # checkpoint file
+        print args.out_dir
         checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir))
         print checkpoint_path
 
@@ -175,7 +176,8 @@ def main():
             tf.losses.sigmoid_cross_entropy,
             checkpoint_path,
             args,
-            'importances.h5')
+            'keratin_importances.h5')
+            #[158, 172, 257, 322]
 
     # run test set when needed for final evaluation
 

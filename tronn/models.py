@@ -71,7 +71,7 @@ def basset_conv_module(features, is_training=True):
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
     return net
 
-def basset(features, labels, config, is_training=True):
+def basset(features, num_tasks, config, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
     '''
@@ -80,7 +80,6 @@ def basset(features, labels, config, is_training=True):
     config['fc_layers'] = config.get('fc_layers', 2)
     config['fc_dim'] = config.get('fc_dim', 1000)
     config['drop'] = config.get('drop', 0.3)
-    num_tasks = int(labels.get_shape()[-1])
 
     net = basset_conv_module(features, is_training)
     net = final_pool(net, config['final_pool'])

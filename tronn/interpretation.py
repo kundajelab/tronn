@@ -42,7 +42,7 @@ def run_lrp(checkpoint_path,
     '''
 
     # open a session from checkpoint
-    sess = tf.Session(session_config=config.session_config)
+    sess = tf.Session(config=config.session_config)
 
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())
@@ -124,25 +124,28 @@ def interpret(data_loader,
     with tf.Graph().as_default() as g:
 
         # data loader
-        features, labels, metadata = data_loader(data_file_list, args.batch_size, args.days)
-        num_tasks = labels.get_shape()[1]
+        features, labels, metadata = data_loader(data_file_list, args.batch_size, args.tasks)
         task_labels = tf.unstack(labels, axis=1)
 
         # model
-        logits = model_builder(features, labels, args.model, is_training=False)
+        logits = model_builder(features, 431, args.model, is_training=False)
         task_logits = tf.unstack(logits, axis=1)
 
         # loss, global and task-specific
-        total_loss = loss_fn(logits, labels)
-        task_losses = []
-        for task_num in range(num_tasks):
-            task_losses.append(loss_fn(task_logits[task_num], task_labels[task_num]))
-
-        # get importance scores
         importances = {}
-        importances['importance_global'] = layerwise_relevance_propagation(total_loss, features)
-        for task_num in range(num_tasks):
-            importances['importance_{}'.format(task_num)] = layerwise_relevance_propagation(task_losses[task_num], features)
+        if args.tasks == []:
+            num_tasks = int(labels.get_shape()[1])
+            tasks = range(num_tasks)
+        else:
+            tasks = args.tasks
+        total_loss = 0.0
+        
+        for i, task_id in enumerate(tasks):
+            task_loss = loss_fn(task_logits[task_id], task_labels[i])
+            total_loss += task_loss
+            importances['importance_{}'.format(task_id)] = layerwise_relevance_propagation(task_loss, features)
+        if len(tasks)>1:
+            importances['importance_global'] = layerwise_relevance_propagation(total_loss, features)
 
         # run the model to get the importance scores
         run_lrp(checkpoint_path,
@@ -169,10 +172,15 @@ def importance_to_plot(hdf5_file, out_plot, dataset_name='importance_global'):
         importances_max = np.amax(importances_redux, axis=2) 
 
         # regions: get start and finish and make a numpy array
-        regions = hf.get('regions')
-        region_start = int(regions[0][0].split(':')[1].split('-')[0])
+        def parse_region(region_str):
+            region_start = int(region_str.split(':')[1].split('-')[0])
+            region_end = int(region_str.split(':')[1].split('-')[1].split('(')[0])
+            assert region_start<region_end
+            return region_start, region_end
+        regions = map(parse_region, hf.get('regions')[:,0])
+        region_start = min([region[0] for region in regions])
+        region_end = max([region[1] for region in regions])
         print region_start
-        region_end = int(regions[-1][0].split(':')[1].split('-')[1].split('(')[0])
         print region_end
 
         aggregate_info = np.zeros((region_end - region_start,))
@@ -191,11 +199,7 @@ def importance_to_plot(hdf5_file, out_plot, dataset_name='importance_global'):
             example_idx = pos_indices[0][i]
 
             # Get the region name
-            region_name = regions[example_idx][0]
-            local_region_start = int(region_name.split(':')[1].split('-')[0]) - region_start
-            local_region_end = int(region_name.split(':')[1].split('-')[1].split('(')[0]) - region_start
-            #print local_region_start, local_region_end
-
+            local_region_start, local_region_end = regions[example_idx]
             aggregate_info[local_region_start:local_region_end] += importances_poslabel[i,:]
             normalizer[local_region_start:local_region_end] += 1
 
