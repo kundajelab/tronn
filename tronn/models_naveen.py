@@ -71,7 +71,7 @@ def basset_conv_module(features, is_training=True):
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
     return net
 
-def basset(features, num_tasks, config, is_training=True):
+def basset(features, labels, config, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
     '''
@@ -84,10 +84,10 @@ def basset(features, num_tasks, config, is_training=True):
     net = basset_conv_module(features, is_training)
     net = final_pool(net, config['final_pool'])
     if config['temporal']:
-        logits = temporal_pred_module(net, num_tasks, share_logistic_weights=True, is_training=is_training)
+        logits = temporal_pred_module(net, int(labels.get_shape()[-1]), share_logistic_weights=True, is_training=is_training)
     else:
         logits = mlp_module(net, 
-                    num_tasks = num_tasks, 
+                    num_tasks = int(labels.get_shape()[-1]), 
                     fc_dim = config['fc_dim'], 
                     fc_layers = config['fc_layers'],
                     dropout=config['drop'],

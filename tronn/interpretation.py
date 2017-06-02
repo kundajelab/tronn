@@ -24,7 +24,6 @@ from scipy.signal import convolve2d
 
 import multiprocessing
 import Queue
-import ggr_utils
 import ggr_plotting
 
 # =======================================================================

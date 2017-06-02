@@ -15,7 +15,7 @@ from tensorflow.python.ops import nn
 from tronn import initializers
 from tronn import layers
 from tronn import nn_ops
-from tronn import nn_utils
+from tronn import tf_utils
 
 
 def basset(features, labels, is_training=True):
@@ -31,9 +31,9 @@ def basset(features, labels, is_training=True):
         net = slim.conv2d(
             features, 300, conv1_filter_size,
             weights_initializer=initializers.torch_conv_initializer(
-                conv1_filter_size, nn_utils.get_fan_in(features)),
+                conv1_filter_size, tf_utils.get_fan_in(features)),
             biases_initializer=initializers.torch_conv_initializer(
-                conv1_filter_size, nn_utils.get_fan_in(features)),
+                conv1_filter_size, tf_utils.get_fan_in(features)),
             scope='conv1/conv')
         net = slim.batch_norm(net, center=True, scale=True,
                               activation_fn=nn.relu, 
@@ -47,9 +47,9 @@ def basset(features, labels, is_training=True):
         net = slim.conv2d(
             net, 200, conv2_filter_size,
             weights_initializer=initializers.torch_conv_initializer(
-                conv2_filter_size, nn_utils.get_fan_in(net)),
+                conv2_filter_size, tf_utils.get_fan_in(net)),
             biases_initializer=initializers.torch_conv_initializer(
-                conv2_filter_size, nn_utils.get_fan_in(net)),
+                conv2_filter_size, tf_utils.get_fan_in(net)),
             scope='conv2/conv')
         net = slim.batch_norm(net, center=True, scale=True, 
                               activation_fn=nn.relu, 
@@ -63,9 +63,9 @@ def basset(features, labels, is_training=True):
         net = slim.conv2d(
             net, 200, conv3_filter_size,
             weights_initializer=initializers.torch_conv_initializer(
-                conv3_filter_size, nn_utils.get_fan_in(net)),
+                conv3_filter_size, tf_utils.get_fan_in(net)),
             biases_initializer=initializers.torch_conv_initializer(
-                conv3_filter_size, nn_utils.get_fan_in(net)),
+                conv3_filter_size, tf_utils.get_fan_in(net)),
             scope='conv3/conv')
         net = slim.batch_norm(net, center=True, scale=True,
                               activation_fn=nn.relu, 
@@ -82,9 +82,9 @@ def basset(features, labels, is_training=True):
         net = slim.fully_connected(
             net, 1000, 
             weights_initializer=initializers.torch_fullyconnected_initializer(
-                nn_utils.get_fan_in(net)),
+                tf_utils.get_fan_in(net)),
             biases_initializer=initializers.torch_fullyconnected_initializer(
-                nn_utils.get_fan_in(net)),
+                tf_utils.get_fan_in(net)),
             scope='fullyconnected1/fullyconnected')
         net = slim.batch_norm(net, center=True, scale=True,
                               activation_fn=nn.relu, 
@@ -97,9 +97,9 @@ def basset(features, labels, is_training=True):
         net = slim.fully_connected(
             net, 1000, 
             weights_initializer=initializers.torch_fullyconnected_initializer(
-                nn_utils.get_fan_in(net)),
+                tf_utils.get_fan_in(net)),
             biases_initializer=initializers.torch_fullyconnected_initializer(
-                nn_utils.get_fan_in(net)),
+                tf_utils.get_fan_in(net)),
             scope='fullyconnected2/fullyconnected')
         net = slim.batch_norm(net, center=True, scale=True,
                               activation_fn=nn.relu, 
@@ -112,9 +112,9 @@ def basset(features, labels, is_training=True):
         logits = slim.fully_connected(
             net, int(labels.get_shape()[-1]), activation_fn=None,
             weights_initializer=initializers.torch_fullyconnected_initializer(
-                nn_utils.get_fan_in(net)),
+                tf_utils.get_fan_in(net)),
             biases_initializer=initializers.torch_fullyconnected_initializer(
-                nn_utils.get_fan_in(net)),
+                tf_utils.get_fan_in(net)),
             scope='out')
 
     # Torch7 style maxnorm

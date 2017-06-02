@@ -29,3 +29,31 @@ def maxnorm(norm_val=7):
                              maxnorm_update)
         
     return None
+
+def order_preserving_k_max(input, k):
+    '''
+    Finds values k largest entries for the last dimension and returns them in the order they originally appeared.
+    If the input is a vector (rank-1), finds the k largest entries in the vector and outputs their values and indices as vectors. Thus values[j] is the j-th largest entry in input, and its index is indices[j].
+    For matrices (resp. higher rank input), computes the top k entries in each row (resp. vector along the last dimension).
+    return value shape: input.shape[:-1] + [k]
+    Example:
+    input: input=[1, 3, 2, 4], k=3
+    output: [3,2,4]
+    '''
+    ndims = input.shape.ndims
+    
+    #get indices of topk elements
+    indices = tf.nn.top_k(input, k, sorted=False).indices#shape [d1,d2..,dn-1,k]
+    #sort indices of topk elements
+    indices = tf.nn.top_k(indices, k, sorted=True).values#shape [d1,d2..,dn-1,k]
+    indices = tf.expand_dims(indices, axis=ndims)#shape [d1,d2..,dn-1,1,k]
+
+    #build supporting indices for first n-1 dims
+    support = tf.meshgrid(*[tf.range(tf.shape(input)[d]) for d in xrange(ndims-1)], indexing='ij')#see numpy.meshgrid
+    support = tf.stack(support, axis=ndims-1)#shape [d1,d2..,dn-1,ndims-1]
+    support = tf.expand_dims(support, axis=ndims-1)#shape [d1,d2..,dn-1,1,ndims-1]
+    support = tf.tile(support, [1]*(ndims-1)+[k, 1])#shape [d1,d2..,dn-1,k,ndims-1]
+
+    full_indices = tf.concat([support, indices], axis=ndims)#shape [d1,d2..,dn-1,k,ndims]
+    output = tf.gather_nd(input, full_indices)
+    return output

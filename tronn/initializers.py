@@ -11,9 +11,6 @@ import tensorflow as tf
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import random_ops
 
-from tronn import nn_utils
-
-
 def torch_initializer(stdv, dtype=dtypes.float32):
     '''
     Torch7 style initializer. Can be used for weights and biases.
