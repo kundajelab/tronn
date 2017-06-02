@@ -20,3 +20,10 @@ def add_var_summaries(var):
             tf.summary.scalar('max', tf.reduce_max(var))
             tf.summary.scalar('min', tf.reduce_min(var))
             tf.summary.histogram('histogram', var)
+
+def add_summaries(name_value):
+    for name, value in name_value.iteritems():
+        if value.get_shape().ndims==0:
+            tf.summary.scalar(name, value)
+        else:
+            tf.summary.histogram(name, value)

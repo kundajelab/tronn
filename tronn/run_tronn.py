@@ -1,9 +1,6 @@
 # test main script for running tronn package
 
-import learning
-import models
-import datalayer
-import interpretation
+import tronn
 
 import sys
 import os
@@ -12,6 +9,8 @@ import argparse
 import glob
 
 import tensorflow as tf
+
+print dir(tronn)
 
 def parse_args():
     '''
@@ -84,8 +83,10 @@ def main():
     # TODO fix input of info to make easier to run
     if args.dataset == 'ggr':
         DATA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/data/nn.atac.idr_regions.2016-11-30.hdf5/h5'
-    else:
+    elif args.dataset == 'encode':
         DATA_DIR = '/srv/scratch/shared/indra/naveen67/roadcode/data/neg_region0/h5'
+    else:
+        raise ValueError, "Unrecognized dataset %s" % args.dataset
     data_files = glob.glob('{}/*.h5'.format(DATA_DIR))
     print 'Found {} chrom files'.format(len(data_files))
     train_files = data_files[0:15]
@@ -94,15 +95,13 @@ def main():
     if args.train:
 
         # This all needs to be cleaned up into some kind of init function...
-        num_train_examples = datalayer.get_total_num_examples(train_files)
+        num_train_examples = tronn.get_total_num_examples(train_files)
         train_steps = num_train_examples / args.batch_size - 100
-        print train_steps
-        #train_steps = 10000 # for now. just to make it easier to test
-        print 'Num train examples: {}'.format(num_train_examples)
-
-        num_valid_examples = datalayer.get_total_num_examples(valid_files)
+        print 'Num train examples: %d' % num_train_examples
+        num_valid_examples = tronn.get_total_num_examples(valid_files)
         valid_steps = num_valid_examples / args.batch_size - 100
-        print 'Num valid examples: {}'.format(num_valid_examples)
+        print 'Num valid examples: %d' % num_valid_examples
+        print 'train_steps/epoch: %d' % train_steps
 
         # Should epoch level be where things are exposed here? or is this loop abstractable too?
         metric_best = None
@@ -121,12 +120,13 @@ def main():
                 target_step = train_steps
 
             # Run training
-            learning.train(datalayer.load_data_from_filename_list, 
-                models.models[args.model['name']],
+            tronn.train(tronn.load_data_from_filename_list, 
+                tronn.models_naveen.models[args.model['name']],
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
                 #tf.train.AdamOptimizer,{'learning_rate': 0.001, 'beta1':0.9, 'beta2':0.999},
                 tf.train.RMSPropOptimizer,{'learning_rate': 0.001, 'decay':0.98, 'momentum':0.0},
+                tronn.get_global_avg_metrics,
                 restore,
                 'Not yet implemented',
                 args,
@@ -139,7 +139,7 @@ def main():
 
             # Evaluate after training
             eval_metrics = learning.evaluate(datalayer.load_data_from_filename_list,
-                models.models[args.model['name']],
+                tronn.models_naveen.models[args.model['name']],
                 tf.nn.sigmoid,
                 tf.losses.sigmoid_cross_entropy,
                 checkpoint_path,
@@ -147,6 +147,8 @@ def main():
                 valid_files,
                 '{}/valid'.format(args.out_dir),
                 num_evals=valid_steps)
+
+            # Early stopping and saving best model
             if metric_best is None or ('loss' in args.metric) != (eval_metrics[args.metric]>metric_best):
                 consecutive_bad_epochs = 0
                 metric_best = eval_metrics[args.metric]
@@ -163,23 +165,24 @@ def main():
     if args.interpret:
 
         # Look at keratin loci for now
-        data_files = valid_files[:1]
+        data_files = ['{}/skin_atac_idr_chr12.h5'.format(DATA_DIR)]
 
         # checkpoint file
-        print args.out_dir
-        checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir))
+        checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(OUT_DIR))
         print checkpoint_path
 
-        interpretation.interpret(datalayer.load_data_from_filename_list,
+        tronn.interpretation.interpret(tronn.load_data_from_filename_list,
             data_files,
-            models.models[args.model['name']],
-            tf.losses.sigmoid_cross_entropy,
+            tronn.basset,
+            slim.losses.sigmoid_cross_entropy,
             checkpoint_path,
             args,
-            'keratin_importances.h5')
-            #[158, 172, 257, 322]
+            'importances.h5')
 
     # run test set when needed for final evaluation
+
+
+    return None
 
 if __name__ == '__main__':
     main()

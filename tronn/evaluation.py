@@ -30,51 +30,55 @@ def streaming_metrics_tronn(total_loss, predictions, labels):
 
     return summary_op
 
+def get_global_avg_metrics(labels, probabilities, tasks=[]):
+    predictions = tf.cast(tf.greater(probabilities, 0.5), 'float32')
+    metric_map = {'mean_auroc': tf.metrics.auc(labels, probabilities, curve='ROC', name='mean_auroc'),
+                  'mean_auprc': tf.metrics.auc(labels, probabilities, curve='PR', name='mean_auprc'),
+                  'mean_accuracy': tf.metrics.accuracy(labels, predictions, name='mean_accuracy')}
+    metric_value, metric_updates = tf.contrib.metrics.aggregate_metric_map(metric_map)
+    update_ops = metric_updates.values()
+    return metric_value, update_ops
 
-
-def get_metrics(tasks, logits, labels, final_activation_fn):
+def get_metrics(labels, probabilities, tasks=[]):
     '''
     Set up streaming metrics
+    'tasks' is only needed for labeling metric tensors
     '''
 
-    metric_updates = []
+    update_ops = []
     loss_tensors = []
     auROC_tensors = []
     auPRC_tensors = []
     accuracy_tensors = []
 
-    if tasks == []:
-        tasks = range(logits.get_shape().as_list()[1])
-    predictions_prob = final_activation_fn(logits)
-    predictions = tf.cast(tf.greater(predictions_prob, 0.5), 'float32')
-    with tf.name_scope('metrics') as scope:
-        labels = tf.unstack(labels, axis=1)
-        for task_num in range(len(tasks)):
-            with tf.name_scope('roc'):
-                auROC, update_op_auROC = tf.contrib.metrics.streaming_auc(predictions_prob[task_num], labels[task_num], curve='ROC', name='roc{}'.format(task_num))
-                auROC_tensors.append(auROC)
-                metric_updates.append(update_op_auROC)
-        
-            with tf.name_scope('pr'):
-                auPRC, update_op_auPRC = tf.contrib.metrics.streaming_auc(predictions_prob[task_num], labels[task_num], curve='PR', name='pr{}'.format(task_num))
-                auPRC_tensors.append(auPRC)
-                metric_updates.append(update_op_auPRC)
+    if tasks == []:#all tasks
+        tasks = range(labels.get_shape().as_list()[1])
+    predictions = tf.cast(tf.greater(probabilities, 0.5), 'float32')
+    labels = tf.unstack(labels, axis=1)
+    #TODO check probabilities being passed to metrics
+    for task_num in range(len(tasks)):
+        auroc, auroc_update = tf.metrics.auc(labels[task_num], probabilities[task_num], curve='ROC', name='auroc{}'.format(task_num))
+        auROC_tensors.append(auroc)
+        metric_updates.append(auroc_update)
 
-            with tf.name_scope('accuracy'):
-                accuracy, update_op_accuracy = tf.contrib.metrics.streaming_accuracy(predictions[task_num],  labels[task_num], name='acc{}'.format(task_num))
-                accuracy_tensors.append(accuracy)
-                metric_updates.append(update_op_accuracy)
+        auprc, auprc_update = tf.metrics.auc(labels[task_num], probabilities[task_num], curve='PR', name='auprc{}'.format(task_num))
+        auPRC_tensors.append(auprc)
+        metric_updates.append(auprc_update)
 
-        learning_metrics = {
-                'mean_accuracy' : tf.reduce_mean(tf.stack(accuracy_tensors), name='mean_accuracy'),
-                'mean_auROC' : tf.reduce_mean(tf.stack(auROC_tensors), name='mean_auROC'),
-                'mean_auPRC' : tf.reduce_mean(tf.stack(auPRC_tensors), name='mean_auPRC'),
-                'accuracies' : tf.stack(accuracy_tensors),
-                'auROCs' : tf.stack(auROC_tensors),
-                'auPRCs' : tf.stack(auPRC_tensors)
-        }
+        accuracy, accuracy_update = tf.metrics.accuracy(labels[task_num], predictions[task_num], name='accuracy{}'.format(task_num))
+        accuracy_tensors.append(accuracy)
+        metric_updates.append(accuracy_update)
 
-    return learning_metrics, metric_updates
+    metric_value = {
+            'mean_accuracy' : tf.reduce_mean(tf.stack(accuracy_tensors), name='mean_accuracy'),
+            'mean_auroc' : tf.reduce_mean(tf.stack(auROC_tensors), name='mean_auroc'),
+            'mean_auprc' : tf.reduce_mean(tf.stack(auPRC_tensors), name='mean_auprc'),
+            'accuracies' : tf.stack(accuracy_tensors, name='accuracies'),
+            'aurocs' : tf.stack(auROC_tensors, name='aurocs'),
+            'auprcs' : tf.stack(auPRC_tensors, name='auprcs')
+    }
+
+    return metric_value, update_ops
 
 
 def streaming_evaluate(sess, current_model_state, summary_writer, metric_updates, loss_sum, merged,
