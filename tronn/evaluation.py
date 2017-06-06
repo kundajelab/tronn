@@ -30,7 +30,10 @@ def streaming_metrics_tronn(total_loss, predictions, labels):
 
     return summary_op
 
+
 def get_global_avg_metrics(labels, probabilities, tasks=[]):
+    """Get global metric values: predictions, mean metric values
+    """
     predictions = tf.cast(tf.greater(probabilities, 0.5), 'float32')
     metric_map = {'mean_auroc': tf.metrics.auc(labels, probabilities, curve='ROC', name='mean_auroc'),
                   'mean_auprc': tf.metrics.auc(labels, probabilities, curve='PR', name='mean_auprc'),
@@ -38,6 +41,7 @@ def get_global_avg_metrics(labels, probabilities, tasks=[]):
     metric_value, metric_updates = tf.contrib.metrics.aggregate_metric_map(metric_map)
     update_ops = metric_updates.values()
     return metric_value, update_ops
+
 
 def get_metrics(labels, probabilities, tasks=[]):
     '''

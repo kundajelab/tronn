@@ -96,7 +96,9 @@ def train(data_loader,
                 variables_to_restore_tmp = [ var for var in variables_to_restore if (('logit' not in var.name) and ('out' not in var.name)) ]
                 variables_to_restore = variables_to_restore_tmp
                 checkpoint_path = tf.train.latest_checkpoint(transfer_dir)
-            
+
+            print variables_to_restore
+                
             init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
                 checkpoint_path,
                 variables_to_restore)
@@ -172,3 +174,115 @@ def evaluate(data_loader,
     
     return metrics_dict
 
+
+def train_and_evaluate_once(
+    args,
+    data_loader, 
+    model, 
+    final_activation_fn,
+    loss_fn,
+    optimizer,
+    optimizer_params,
+    metrics_fn,
+    restore,
+    train_files,
+    validation_files,
+    stop_step):
+    """Run training for the given number of steps and then evaluate
+    """
+
+    # Run training
+    train(data_loader, 
+          model,
+          final_activation_fn,
+          loss_fn,
+          optimizer, 
+          optimizer_params,
+          metrics_fn,
+          restore,
+          'Not yet implemented',
+          args,
+          train_files,
+          '{}/train'.format(args.out_dir),
+          stop_step)
+
+    # Get last checkpoint
+    checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir)) 
+
+    # Evaluate after training
+    eval_metrics = evaluate(
+        data_loader,
+        model,
+        final_activation_fn,
+        loss_fn,
+        checkpoint_path,
+        args,
+        validation_files,
+        '{}/valid'.format(args.out_dir),
+        num_evals=valid_steps)
+    
+
+    return eval_metrics
+
+
+def train_and_evaluate(
+        args,
+        data_loader,
+        model,
+        final_activation_fn,
+        loss_fn,
+        optimizer,
+        optimizer_params,
+        metrics_fn,
+        restore,
+        train_files,
+        validation_files,
+        epoch_limit):
+    """Runs training and evaluation for X epochs"""
+
+    # track metric and bad epochs
+    metric_best = None
+    consecutive_bad_epochs = 0
+
+    for epoch in xrange(epoch_limit):
+        print "CURRENT EPOCH:", str(epoch)
+
+        #restore = args.restore is not None
+
+        if epoch > 0:
+            restore = True
+            
+        if restore:
+            checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir))
+            curr_step = int(checkpoint_path.split('-')[1].split('.')[0])
+            target_step = curr_step + args.train_steps
+        else:
+            target_step = args.train_steps
+
+        eval_metrics = train_and_evaluate_once(args,
+                                                data_loader,
+                                                model,
+                                                final_activation_fn,
+                                                loss_fn,
+                                                optimizer, optimizer_params,
+                                                metrics_fn,
+                                                restore,
+                                                train_files,
+                                                validation_files,
+                                                target_step)
+
+        # Early stopping and saving best model
+        if metric_best is None or ('loss' in args.metric) != (eval_metrics[args.metric]>metric_best):
+            consecutive_bad_epochs = 0
+            metric_best = eval_metrics[args.metric]
+            with open(os.path.join(args.out_dir, 'best.txt'), 'w') as f:
+                f.write('epoch %d\n'%epoch)
+                f.write(str(eval_metrics))
+        else:
+            consecutive_bad_epochs += 1
+            if consecutive_bad_epochs>args.patience:
+                print 'early stopping triggered'
+                break
+    
+    
+    return None

@@ -1,0 +1,149 @@
+#!/usr/bin/env python
+
+"""Main executable for TRoNN
+"""
+
+import os
+import sys
+import subprocess
+import argparse
+import glob
+
+import tensorflow as tf
+
+from tronn.datalayer import get_total_num_examples
+from tronn.datalayer import load_data_from_filename_list
+from tronn.learning import train_and_evaluate
+from tronn.evaluation import get_global_avg_metrics
+from tronn.interpretation import interpret
+from tronn.models import models
+
+
+def parse_args():
+    """Setup arguments"""
+
+    parser = argparse.ArgumentParser(description='Run TRoNN')
+
+    # key functions
+    parser.add_argument('--train', action='store_true', help='train the model')
+    parser.add_argument('--interpret', action='store_true', help='run interpretation tools')
+    
+    # core args
+    parser.add_argument('--out_dir', help='path to save model')
+    parser.add_argument('--restore', action='store_true', help='restore from last checkpoint')
+    parser.add_argument('--data_dir', help='hdf5 file directory')
+    parser.add_argument('--transfer_dir', help='directory with same model to transfer')
+
+    # model
+    parser.add_argument('--model', nargs='+', help='choose model and provide configs')
+
+    # default settings: epoch limit, batch, early stopping
+    parser.add_argument('--epochs', default=20, type=int, help='number of epochs')
+    parser.add_argument('--batch_size', default=128, type=int, help='batch size')
+    parser.add_argument('--metric', default='auroc', type=str, help='metric to use for early stopping')
+    parser.add_argument('--patience', default=2, type=int, help='metric to use for early stopping')
+    
+    # useful optionals
+    parser.add_argument('--dataset', help='hdf5 file [encode, ggr]')
+    parser.add_argument('--tasks', nargs='+', default=[], type=int, help='tasks over which to train multitask model on')
+
+    args = parser.parse_args()
+
+    # parse model configs
+    model_config = {}
+    model_config['name'] = args.model[0]
+    for model_arg in args.model[1:]:
+        if '=' in model_arg:
+            name, value = model_arg.split('=', 1)
+            model_config[name] = eval(value)
+        else:
+            model_config[model_arg] = True
+    args.model = model_config
+
+    # set out_dir
+    if not args.out_dir:
+        args.out_dir = './log'
+
+    print 'out_dir: %s' % args.out_dir
+    print 'model args: %s' % args.model
+    
+    return args
+
+
+def main():
+    """Main function for running TRoNN functions"""
+    
+    args = parse_args()
+    
+    # Set up folders, files, etc
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir)
+        
+    # important metadata tracking (git, actual command, etc)
+    num_restores = len(glob.glob(os.path.join(args.out_dir, 'command')))
+    with open(os.path.join(args.out_dir, 'command%d.txt'%num_restores), 'w') as f:
+        #git_checkpoint_label = subprocess.check_output(["git", "describe", "--always"])
+        #git_checkpoint_label = subprocess.check_output(["git", "-C", "~/git/tronn/", "rev-parse", "HEAD"])
+        #f.write(git_checkpoint_label+'\n')
+        f.write(' '.join(sys.argv)+'\n')
+
+    # find data files
+    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
+    print 'Found {} chrom files'.format(len(data_files))
+    train_files = data_files[0:20]
+    valid_files = data_files[20:22]
+
+    if args.train:
+
+        # This all needs to be cleaned up into some kind of init function...
+        args.num_train_examples = get_total_num_examples(train_files)
+        args.train_steps = args.num_train_examples / args.batch_size - 100
+        args.num_valid_examples = get_total_num_examples(valid_files)
+        args.valid_steps = args.num_valid_examples / args.batch_size - 100
+        
+        print 'Num train examples: %d' % args.num_train_examples
+        print 'Num valid examples: %d' % args.num_valid_examples
+        print 'train_steps/epoch: %d' % args.train_steps
+
+        # TODO fix transfer args
+        train_and_evaluate(args,
+                           load_data_from_filename_list,
+                           models[args.model['name']],
+                           tf.nn.sigmoid,
+                           tf.losses.sigmoid_cross_entropy,
+                           tf.train.RMSPropOptimizer, {'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
+                           get_global_avg_metrics,
+                           args.restore,
+                           train_files,
+                           valid_files,
+                           args.epochs)
+
+    # extract importance
+    if args.interpret:
+        
+        # checkpoint file
+        checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(OUT_DIR))
+        print checkpoint_path
+
+        interpret(args,
+                  load_data_from_filename_list,
+                  data_files,
+                  models[args.model['name']],
+                  tf.losses.sigmoid_cross_entropy,
+                  'test',# CHANGE
+                  scratch_dir, #FIX
+                  out_dir, # FIX
+                  task_nums, # manual
+                  dendro_cutoffs, # manual
+                  pwm_file,
+                  motif_sim_file,
+                  motif_offsets_file,
+                  rna_file,
+                  rna_conversion_file,
+                  checkpoint_path)
+        
+    return None
+
+
+if __name__ == '__main__':
+    main()

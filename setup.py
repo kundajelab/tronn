@@ -10,4 +10,6 @@ if __name__== '__main__':
           url='https://github.com/kundajelab/tronn',
           license='MIT',
           install_requires=['numpy', 'tensorflow-gpu', 'six'],
-          packages=find_packages())
+          packages=find_packages(),
+          scripts=['bin/tronn', 'scripts/run_region_clustering.R', 'scripts/make_network_grammar.R']
+    )

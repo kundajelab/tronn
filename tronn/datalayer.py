@@ -136,7 +136,7 @@ def make_bed_from_h5(h5_file, out_file):
 
 
 def hdf5_to_slices(hdf5_file, batch_size, tasks=[], features_key='features'):
-    print hdf5_file
+    print "Data layer: loading {}".format(hdf5_file)
     h5py_handle = h5py.File(hdf5_file)
     num_examples = h5py_handle[features_key].shape[0]
     max_batches = num_examples/batch_size

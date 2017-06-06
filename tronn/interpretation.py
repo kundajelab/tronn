@@ -1370,171 +1370,90 @@ def get_significant_motif_pairs(motif_list, motif_x_motif_mat_file, out_file, ma
 
 
 
-# =======================================================
-# OLD
-# =======================================================
+def interpret(
+        args,
+        data_loader,
+        data_files,
+        model,
+        loss_fn,
+        prefix,
+        scratch_dir,
+        out_dir, 
+        task_nums, # manual
+        dendro_cutoffs, # manual
+        pwm_file,
+        motif_sim_file,
+        motif_offsets_file,
+        rna_file,
+        rna_conversion_file,
+        checkpoint_path):
+    """placeholder for now"""
 
-def convolve_pwms(sequence, pwm_list, top_n):
-    pwm_vector = np.zeros((len(pwm_list),))
+    importances_mat_h5 = '{0}/{1}.importances.h5'.format(scratch_dir, prefix)
 
-    # Convolve PWMs through it and save out to numpy array
-    # TODO push out to workers?
-    sequence_rc = np.flipud(np.fliplr(sequence))
+    # ---------------------------------------------------
+    # generate importance scores across all open sites
+    # ---------------------------------------------------
 
-    # TO TRY: concatentate first then do 1 convolve through it
-    # space it with zeros
+    if not os.path.isfile(importances_mat_h5):
+        generate_importance_scores(
+            data_loader,
+            data_files,
+            model,
+            loss_fn,
+            checkpoint_path,
+            args,
+            importances_mat_h5,
+            guided_backprop=True, 
+            method='importances',
+            sample_size=220000) # TODO change this, it's a larger set than this
 
-    for pwm_idx in range(len(pwm_list)):
-        pwm = pwm_list[pwm_idx]
+    # ---------------------------------------------------
+    # for each task, do the following:
+    # ---------------------------------------------------
 
+    for task_num_idx in range(len(task_nums)):
 
-        # TO TRY: concatentate first then do 1 convolve through it
-        # space it with zeros
-        fwd_convolution = fftconvolve(sequence, pwm.weights)
-        rev_convolution = fftconvolve(sequence_rc, pwm.weights)
-        
-        # we only care about where the letters match
-        convolution = np.concatenate((fwd_convolution[1,:], rev_convolution[1,:]), axis=0)
+        task_num = task_nums[task_num_idx]
+        print "Working on task {}".format(task_num)
 
-        # test out sum across whole convolution
-        indices = np.argsort(convolution).tolist()
-        indices.reverse()
+        # ---------------------------------------------------
+        # Run all task-specific importance scores through PWM convolutions
+        # IN: sequences x importance scores
+        # OUT: sequences x motifs
+        # ---------------------------------------------------
+        motif_mat_h5 = 'task_{}.motif_mat.h5'.format(task_num)
+        if not os.path.isfile(motif_mat_h5):
+            run_pwm_convolution(
+                tronn.load_data_from_importances_list,
+                importances_mat_h5,
+                motif_mat_h5,
+                args.batch_size * 2,
+                motif_file,
+                task_num)
 
-        for i in range(top_n):
-            pwm_vector[pwm_idx] += convolution[indices[i]]
+        # ---------------------------------------------------
+        # extract the positives to cluster in R and visualize
+        # IN: sequences x motifs
+        # OUT: positive sequences x motifs
+        # ---------------------------------------------------
+        pos_motif_mat = 'task_{}.motif_mat.positives.txt.gz'.format(task_num)
+        if not os.path.isfile(pos_motif_mat):
+            extract_positives_from_motif_mat(motif_mat_h5, pos_motif_mat, task_num)
 
-    return pwm_vector
-
-
-def fast_convolve_pwms(sequence, pwm_list, top_n):
-    pwm_vector = np.zeros((len(pwm_list),))
-
-    #padding = np.max((20, 8192 - 2 * sequence.shape[1])) # hack for speed
-    padding = 20
-
-    # Convolve PWMs through it and save out to numpy array
-    # TODO push out to workers?
-    sequence_rc = np.flipud(np.fliplr(sequence))
-
-    # TO TRY: concatentate first then do 1 convolve through it
-    # space it with zeros
-
-    fwd_and_rev_sequence = np.concatenate((sequence, np.zeros((4,padding)), sequence_rc), axis=1)
-    sequence_len = fwd_and_rev_sequence.shape[1]
-
-    #print sequence_len
-
-    for pwm_idx in range(len(pwm_list)):
-        pwm = pwm_list[pwm_idx]
-
-        # do convolution across all of it
-        full_convolution = fftconvolve(sequence, pwm.weights, mode='same')
-        #full_convolution = convolve2d(sequence, pwm.weights, mode='same')
-        convolution = full_convolution[1,:]
-
-        indices = np.argpartition(convolution, -top_n)[-top_n:]     
-
-        for i in indices:
-            pwm_vector[pwm_idx] += convolution[i]
-
-    #print "done"
-
-    return pwm_vector
-
-
-def fn_worker(queue, out_queue):
-    '''
-    Takes function from queue with its arguments
-    and run
-    '''
-
-    while not queue.empty():
-        try: [fn, args] = queue.get(timeout=0.1)
-        except Queue.Empty: continue
-        print args[1][2]
-        result = fn(*args)
-        out_queue.put(result)
-
-    return None
-
-def run_queue(queue, out_queue, parallel=10):
-    '''
-    Take a filled queue and run stuff
-    '''
-
-    pids = []
-    for i in xrange(parallel):
-        pid = os.fork()
-        if pid == 0:
-            fn_worker(queue, out_queue)
-            os._exit(0)
-        else:
-            pids.append(pid)
-            
-    for pid in pids:
-        os.waitpid(pid,0)
-
-    return None
-
-
-
-
-def build_motif_mat(checkpoint_path,
-                    features,
-                    labels,
-                    metadata,
-                    predictions,
-                    importances,
-                    batch_size,
-                    out_file,
-                    num_task,
-                    pwm_file,
-                    top_n=3):
-    '''
-    Set up the graph and then build motif matrix for a specific task
-    '''
-
-    # open a session from checkpoint
-    sess = tf.Session()
-
-    sess.run(tf.global_variables_initializer())
-    sess.run(tf.local_variables_initializer())
-
-    # start queue runners
-    coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-    saver = tf.train.Saver()
-    saver.restore(sess, checkpoint_path)
-
-    # load pwm_file
-    pwm_list = PWM.get_encode_pwms(pwm_file)
-    sequence_names = []
-    pwm_vector_list = []
-
-    convolve_queue = multiprocessing.Queue()
-    results_queue = multiprocessing.Queue()
-
-    # TODO build a hdf5 file that will have importance scores by motif, and whether that region was positive for this task or not
-    for sequence, name, idx, label in region_generator(sess, importances, predictions, labels, metadata, 100, num_task):
-
-        if idx % 10 == 0:
-            print idx
-
-        # pad with zeros and store in hdf5 file
-
-        convolve_queue.put([convolve_pwms, [sequence, pwm_list, top_n]])
-        #print name
-
-        #pwm_vector = fast_convolve_pwms(sequence, pwm_list, top_n)
-
-        #pwm_vector_list.append(pwm_vector)
-        #sequence_names.append(name.replace(':', '-'))
-
-    run_queue(convolve_queue, results_queue)
-
-
-    # once all done save to hdf5 file of importances, and make sure to mark whether positive or not
+        # ---------------------------------------------------
+        # Cluster positives in R and output subgroups
+        # IN: positive sequences x motifs
+        # OUT: subgroups of sequences
+        # ---------------------------------------------------
+        cluster_dir = 'task_{}.positives.clustered'.format(task_num)
+        if not os.path.isdir(cluster_dir):
+            os.system('mkdir -p {}'.format(cluster_dir))
+            prefix = 'task_{}'.format(task_num)
+            os.system('Rscript ./run_region_clustering.R {0} 50 {1} {2}/{3}'.format(pos_motif_mat,
+                                                                                    dendro_cutoffs[task_num_idx],
+                                                                                    cluster_dir,
+                                                                                    prefix))        
 
 
 
