@@ -9,13 +9,9 @@ import subprocess
 import argparse
 import glob
 
-import tensorflow as tf
+#import tensorflow as tf
 
-from tronn.datalayer import get_total_num_examples
-from tronn.datalayer import load_data_from_filename_list
-from tronn.learning import train_and_evaluate
-from tronn.evaluation import get_global_avg_metrics
-from tronn.interpretation import interpret
+
 from tronn.models import models
 
 
@@ -34,6 +30,18 @@ def parse_args():
     # parse args
     args = parser.parse_args()
 
+    # configs for model
+    add_model_config(args)
+
+    print 'out_dir: %s' % args.out_dir
+    print 'model args: %s' % args.model
+    
+    return args
+
+
+def add_model_config(args):
+    """Add model configs
+    """
     # parse model configs
     model_config = {}
     model_config['name'] = args.model[0]
@@ -45,21 +53,22 @@ def parse_args():
             model_config[model_arg] = True
     args.model = model_config
 
-    # set out_dir
-    if not args.out_dir:
-        args.out_dir = './log'
-
-    print 'out_dir: %s' % args.out_dir
-    print 'model args: %s' % args.model
-    
-    return args
+    return 
 
 
-def add_out_dir_option(parser):
+def add_out_dir_option(parser, default=''):
     """Add an output directory if defined
     """
-    parser.add_argument("--outdir", dest="outdir", type=str, default='',
+    parser.add_argument("--out_dir", dest="outdir", type=str, default=default,
                         help = "If specified all output files will be written to that directory. Default: the current working directory")
+
+
+def add_preprocess_parser(subparsers):
+    """Add data generation function argument parser
+    """
+
+
+    return
 
 
 def add_train_parser(subparsers):
@@ -88,7 +97,7 @@ def add_train_parser(subparsers):
 
     # group for output files
     group_output = argparser_train.add_argument_group("Output files and folders")
-    add_out_dir_option(group_output)
+    add_out_dir_option(group_output, default='log')
     group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
 
     return
@@ -102,8 +111,8 @@ def add_interpret_parser(subparsers):
 
     # group for input files
     group_input = argparser_interpret.add_argument_group("Input files and folders")
-    parser.add_argument('--data_dir', help='hdf5 file directory')
-    parser.add_argument('--model_dir', help='trained model for interpretation')
+    group_input.add_argument('--data_dir', help='hdf5 file directory')
+    group_input.add_argument('--model_dir', help='trained model for interpretation')
 
     # group for model
     group_model = argparser_interpret.add_argument_group("Model definition")
@@ -113,22 +122,37 @@ def add_interpret_parser(subparsers):
     group_params = argparser_interpret.add_argument_group("Interpretation hyperparameters")
     group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
 
+    # group for annotation files
+    group_data = argparser_interpret.add_argument_group("External data files")
+    group_data.add_argument('--annotations', help='json file of external data files')
+
     # group for output files
     group_output = argparser_interpret.add_argument_group("Output files and folders")
     add_out_dir_option(group_output)
     group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
+    group_output.add_argument('--scratch_dir', help='temporary scratch directory')
     
     return
     
+def track_runs():
+    """track command and github commit
+    """
+    return 
 
 def main():
     """Main function for running TRoNN functions"""
     
+    print os.path.realpath(__file__) # this works
+    #import inspect
+    #print inspect.getfile(parse_ar)
+
     args = parse_args()
     
     # Set up folders, files, etc
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
+
+    
         
     # important metadata tracking (git, actual command, etc)
     num_restores = len(glob.glob(os.path.join(args.out_dir, 'command')))
@@ -138,82 +162,14 @@ def main():
         #f.write(git_checkpoint_label+'\n')
         f.write(' '.join(sys.argv)+'\n')
 
-    # find data files
-    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
-    print 'Found {} chrom files'.format(len(data_files))
-    train_files = data_files[0:20]
-    valid_files = data_files[20:22]
+    subcommand  = args.subcommand_name
 
-    if args.train:
-
-        # This all needs to be cleaned up into some kind of init function...
-        args.num_train_examples = get_total_num_examples(train_files)
-        args.train_steps = args.num_train_examples / args.batch_size - 100
-        args.num_valid_examples = get_total_num_examples(valid_files)
-        args.valid_steps = args.num_valid_examples / args.batch_size - 100
-        
-        print 'Num train examples: %d' % args.num_train_examples
-        print 'Num valid examples: %d' % args.num_valid_examples
-        print 'train_steps/epoch: %d' % args.train_steps
-
-        # TODO fix transfer args
-        train_and_evaluate(args,
-                           load_data_from_filename_list,
-                           models[args.model['name']],
-                           tf.nn.sigmoid,
-                           tf.losses.sigmoid_cross_entropy,
-                           tf.train.RMSPropOptimizer, {'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
-                           get_global_avg_metrics,
-                           args.restore,
-                           train_files,
-                           valid_files,
-                           args.epochs)
-
-    # extract importance
-    if args.interpret:
-        
-        # checkpoint file
-        checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.trained_model_dir))
-        print checkpoint_path
-
-        # set up scratch_dir
-        SCRATCH_DIR = '/srv/scratch/shared/indra/dskim89/ggr/{}_tmp'.format(os.getcwd().split('/')[-1])
-        os.system('mkdir -p {}'.format(SCRATCH_DIR))
-
-        # motif file
-        MOTIF_DIR = '/mnt/lab_data/kundaje/users/dskim89/annotations/hocomoco'
-        motif_file = '{}/hocomoco.v10.pwms_HUMAN_mono.filt.and_custom.unique.txt'.format(MOTIF_DIR)
-
-        # motif similarity
-        MOTIF_SIM_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/results/postprocess.nn.2017-04-17.similarity_ordered_motifs'
-        motif_sim_file = '{}/motif_sim_mat.txt'.format(MOTIF_SIM_DIR)
-        motif_offsets_file = '{}/motif_offsets_mat.txt'.format(MOTIF_SIM_DIR)
-
-        # rna file
-        RNA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/transcriptome/data/long_cai'
-        rna_file = '{}/ggr.pas.tpm.txt.gz'.format(RNA_DIR)
-        rna_conversion_file = '{}/gencode.v19.ensembl_to_hgnc.txt.gz'.format(RNA_DIR)
-
-        # current manual choices
-        task_nums = [0, 9, 10, 14]
-        dendro_cutoffs = [7, 7, 7, 7]
-        
-        interpret(args,
-                  load_data_from_filename_list,
-                  data_files,
-                  models[args.model['name']],
-                  tf.losses.sigmoid_cross_entropy,
-                  args.prefix,
-                  args.out_dir,
-                  task_nums, 
-                  dendro_cutoffs, 
-                  motif_file,
-                  motif_sim_file,
-                  motif_offsets_file,
-                  rna_file,
-                  rna_conversion_file,
-                  checkpoint_path,
-                  scratch_dir=SCRATCH_DIR)
+    if subcommand == 'train':
+        from tronn.learning import run
+        run(args)
+    elif subcommand == 'interpret':
+        from tronn.interpretation import run
+        run(args)
         
     return None
 

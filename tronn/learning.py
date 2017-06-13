@@ -10,6 +10,11 @@ import tf_utils
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+from tronn.datalayer import get_total_num_examples
+from tronn.datalayer import load_data_from_filename_list
+from tronn.evaluation import get_global_avg_metrics
+from tronn.models import models
+
 
 def train(
         data_loader,
@@ -316,3 +321,39 @@ def train_and_evaluate(
     
     
     return None
+
+
+def run(args):
+    """Main training and evaluation function
+    """
+
+    # find data files
+    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
+    print 'Found {} chrom files'.format(len(data_files))
+    train_files = data_files[0:20]
+    valid_files = data_files[20:22]
+
+    # Get number of train and validation steps
+    args.num_train_examples = get_total_num_examples(train_files)
+    args.train_steps = args.num_train_examples / args.batch_size - 100
+    args.num_valid_examples = get_total_num_examples(valid_files)
+    args.valid_steps = args.num_valid_examples / args.batch_size - 100
+    
+    print 'Num train examples: %d' % args.num_train_examples
+    print 'Num valid examples: %d' % args.num_valid_examples
+    print 'train_steps/epoch: %d' % args.train_steps
+
+    # TODO fix transfer args
+    train_and_evaluate(args,
+                       load_data_from_filename_list,
+                       models[args.model['name']],
+                       tf.nn.sigmoid,
+                       tf.losses.sigmoid_cross_entropy,
+                       tf.train.RMSPropOptimizer, {'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
+                       get_global_avg_metrics,
+                       args.restore,
+                       train_files,
+                       valid_files,
+                       args.epochs)
+    
+    return

@@ -5,6 +5,7 @@ import os
 import h5py
 import gzip
 import math
+import json
 import tensorflow as tf
 import numpy as np
 import pandas as pd
@@ -17,7 +18,7 @@ import matplotlib.pyplot as plt
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_nn_ops
 
-from tronn import models
+from tronn.models import models
 
 from scipy.signal import fftconvolve
 from scipy.signal import convolve2d
@@ -1460,3 +1461,44 @@ def interpret(
 
 
     return None
+
+
+def run(args):
+
+    # find data files
+    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
+    print 'Found {} chrom files'.format(len(data_files))
+
+    # checkpoint file
+    checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.model_dir))
+    print checkpoint_path
+
+    # set up scratch_dir
+    os.system('mkdir -p {}'.format(args.scratch_dir))
+
+    # load external data files
+    with open(args.annotations, 'r') as fp:
+        annotation_files = json.load(fp)
+
+    # current manual choices
+    task_nums = [0, 9, 10, 14]
+    dendro_cutoffs = [7, 7, 7, 7]
+    
+    interpret(args,
+              load_data_from_filename_list,
+              data_files,
+              models[args.model['name']],
+              tf.losses.sigmoid_cross_entropy,
+              args.prefix,
+              args.out_dir,
+              task_nums, 
+              dendro_cutoffs, 
+              annotation_files["motif_file"],
+              annotation_files["motif_sim_file"],
+              annotation_files["motif_offsets_file"],
+              annotation_files["rna_file"],
+              annotation_files["rna_conversion_file"],
+              checkpoint_path,
+              scratch_dir=args.scratch_dir)
+
+    return
