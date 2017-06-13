@@ -98,6 +98,7 @@ def train(
                     print var.name, var.get_shape().as_list(), num_elems
             print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
 
+        # TODO consider changing the logic here
         if restore:
             checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
             variables_to_restore = slim.get_model_variables()

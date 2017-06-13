@@ -11,8 +11,8 @@ import glob
 
 
 def parse_args():
-    """Setup arguments"""
-
+    """Setup arguments
+    """
     parser = argparse.ArgumentParser(description='Run TRoNN')
     subparsers = parser.add_subparsers(dest='subcommand_name')
 
@@ -60,7 +60,6 @@ def add_out_dir_option(parser, default=''):
 def add_preprocess_parser(subparsers):
     """Add data generation function argument parser
     """
-
     argparser_preprocess = subparsers.add_parser("preprocess", help="Preprocess data to TRoNN formats")
 
     # group for input files
@@ -85,7 +84,6 @@ def add_preprocess_parser(subparsers):
 def add_train_parser(subparsers):
     """Add training function argument parser
     """
-
     argparser_train = subparsers.add_parser("train", help="Train a TRoNN model")
     
     # group for input files
@@ -117,7 +115,6 @@ def add_train_parser(subparsers):
 def add_interpret_parser(subparsers):
     """Add interpretation function argument parser
     """
-    
     argparser_interpret = subparsers.add_parser("interpret", help="Interpret a TRoNN model")
 
     # group for input files
@@ -149,21 +146,21 @@ def add_interpret_parser(subparsers):
 def track_runs(args):
     """track command and github commit
     """
-
     # keeps track of restores (or different commands) in folder
-    num_restores = len(glob.glob(os.path.join(args.out_dir, 'command')))
+    num_restores = len(glob.glob('{0}/{1}.command'.format(args.out_dir, args.subcommand_name)))
+    logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, args.subcommand_name, num_restores)
     
     # track github commit
     git_repo_path = os.path.dirname(os.path.realpath(__file__))
-    os.system('echo -e "commit:" > {1}/command{2}.txt'.format(args.out_dir, num_restores))
-    os.system('git -C {0} rev-parse HEAD >> {1}/command{2}.txt'.format(git_repo_path, args.out_dir, num_restores))
-    os.system('echo -e "" > {1}/command{2}.txt'.format(args.out_dir, num_restores))
+    os.system('echo -e "commit:" > {0}'.format(logging_file))
+    os.system('git -C {0} rev-parse HEAD >> {1}'.format(git_repo_path, logging_file))
+    os.system('echo -e "" > {0}'.format(logging_file))
     
     # write out the command
-    with open(os.path.join(args.out_dir, 'command%d.txt'%num_restores), 'a') as f:
+    with open(logging_file, 'a') as f:
         f.write(' '.join(sys.argv)+'\n')
     
-    return 
+    return logging_file
 
 
 def main():
@@ -174,7 +171,7 @@ def main():
     print 'out_dir: %s' % args.out_dir
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
-    track_runs(args)
+    logging_file = track_runs(args)
 
     subcommand  = args.subcommand_name
 
