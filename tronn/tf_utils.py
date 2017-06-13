@@ -1,4 +1,4 @@
-"""Contains various utility functions
+"""Description: Contains various tensorflow utility functions
 """
 
 import tensorflow as tf

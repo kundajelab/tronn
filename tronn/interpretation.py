@@ -1,4 +1,4 @@
-"""Contains methods and routines for interpreting neural nets
+"""Description: Contains methods and routines for interpreting models
 """
 
 import matplotlib
@@ -23,10 +23,9 @@ from scipy.signal import convolve2d
 
 import multiprocessing
 import Queue
-import ggr_plotting
 
 from tronn.models import models
-
+from tronn.visualization import plot_weights
 
 # =======================================================================
 # Guided backpropagation - change Relu to guided Relu
@@ -54,88 +53,6 @@ def layerwise_relevance_propagation(loss, features):
     importances = tf.multiply(features, feature_grad, 'input_mul_grad')
 
     return importances
-
-
-def run_lrp(checkpoint_path,
-            features,
-            labels,
-            metadata,
-            predictions,
-            importances,
-            batch_size,
-            out_file,
-            sample_size=1000, # TODO check this out too
-            ignore_num=142000): #TODO fix this
-    '''
-    Wrapper for running LRP and saving all relevant outputs to an hdf5 file.
-    Note that you must set up the graph first to run this.
-    '''
-
-    # open a session from checkpoint
-    sess = tf.Session()
-
-    sess.run(tf.global_variables_initializer())
-    sess.run(tf.local_variables_initializer())
-
-    # start queue runners
-    coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-    saver = tf.train.Saver()
-    saver.restore(sess, checkpoint_path)
-
-    # from here, run evaluation
-    with h5py.File(out_file, 'w') as hf:
-
-        # create datasets
-        # TODO make a different importance dataset per importance requested
-        names_to_hf = {}
-        for dataset_name in importances.keys():
-            names_to_hf[dataset_name] = hf.create_dataset(dataset_name, [sample_size] + list(features.get_shape()[1:]))
-
-        predictions_hf = hf.create_dataset(
-            'predictions',
-            [sample_size] + list(predictions.get_shape()[1:]))
-        labels_hf = hf.create_dataset(
-            'labels',
-            [sample_size] + list(labels.get_shape()[1:]))
-        regions_hf = hf.create_dataset(
-            'regions',
-            [sample_size, 1], dtype='S100')
-
-        # Ignore num: current hacky way to burn samples to get to genommic region
-        # of interest
-        for i in xrange(int(math.ceil(ignore_num / batch_size))):
-            _ = sess.run([labels])
-
-        # run through the sample size
-        batch_start, batch_end = 0, batch_size
-        for i in xrange(int(math.ceil(sample_size / float(batch_size)))):
-            print "LRP on batch {}".format(str(i))
-
-            importances_dict, predictions_np, labels_np, regions_np = sess.run(
-                [importances, predictions, labels, metadata])
-
-            if batch_end < sample_size:
-                hf_end = batch_end
-                np_end = batch_end
-            else:
-                hf_end = sample_size
-                np_end = sample_size - batch_start
-
-            for dataset_name in importances.keys():
-                names_to_hf[dataset_name][batch_start:hf_end,:,:,:] = importances_dict[dataset_name][0:np_end,:,:,:]
-            predictions_hf[batch_start:hf_end,:] = predictions_np[0:np_end,:]
-            labels_hf[batch_start:hf_end,:] = labels_np[0:np_end,:]
-            regions_hf[batch_start:hf_end,:] = regions_np[0:np_end,:].astype('S100')
-
-            batch_start = batch_end
-            batch_end += batch_size
-
-    coord.request_stop()
-    coord.join(threads)
-
-    return None
 
 
 # =====================================================================
@@ -412,7 +329,7 @@ def visualize_sample_sequences(h5_file, num_task, out_dir, sample_size=10):
                                                                  visualized_region_num, 
                                                                  name.replace(':', '-'))
                     print out_plot
-                    ggr_plotting.plot_weights(sequence, out_plot)
+                    plot_weights(sequence, out_plot)
 
                     visualized_region_num += 1
                     region_idx += 1
@@ -462,7 +379,7 @@ def visualize_timeseries_sequences(h5_file, num_timepoints, out_dir, sample_size
                     out_plot = '{0}/region_{1}.task_{2}.label_{3}.png'.format(out_dir, name.replace(':', '-'), task_num, int(labels[sequence_idx, task_num]))
                     print out_plot
                     # TODO need to set the heights equal across all sequences to plot equal heights
-                    ggr_plotting.plot_weights(sequence, out_plot)
+                    plot_weights(sequence, out_plot)
 
                 visualized_region_num += 1
                 

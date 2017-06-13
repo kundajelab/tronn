@@ -8,70 +8,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-def make_point_centric_profile_heatmap(point_file, bigwig_files, prefix, sort=False, kval=4, referencepoint='TSS', extend_dist=1000):
-    '''
-    Uses deeptools to make a profile heatmap
-    '''
-    
-    # do the same with TSS
-    point_matrix = '{}.point.mat.gz'.format(prefix)
-    deeptools_compute_matrix = ("computeMatrix reference-point "
-                                "--referencePoint {0} "
-                                "-b {1} -a {1} "
-                                "-R {2} "
-                                "-S {3} "
-                                #"--skipZeros "
-                                "-o {4} ").format(referencepoint,
-                                                  extend_dist,
-                                                  point_file,
-                                                  ' '.join(bigwig_files),
-                                                  point_matrix)
-    if not os.path.isfile(point_matrix):
-        print deeptools_compute_matrix
-        os.system(deeptools_compute_matrix)
-
-    # set up sample labels as needed
-    sample_labels = []
-    for bigwig_file in bigwig_files:
-        fields = os.path.basename(bigwig_file).split('.')
-        sample_labels.append('{0}_{1}_{2}'.format(fields[3].split('-')[0],
-                                                  fields[0].split('-')[1],
-                                                  fields[4]))
-    
-    # make plot
-    point_plot = '{}.heatmap.profile.png'.format(prefix)
-    point_sorted_file = '{}.point.sorted.bed'.format(prefix)
-    if sort == False:
-        sorting = '--sortRegions=no'
-    elif kval == 1:
-        sorting = ''
-    else:
-        sorting = '--kmeans {0} --regionsLabel {1}'.format(kval, ' '.join([str(i) for i in range(kval)]))
-    deeptools_plot_heatmap = ("plotHeatmap -m {0} "
-                                  "-out {1} "
-                                  "--outFileSortedRegions {2} "
-                                  "--colorMap Blues "
-                                  "{3} "
-                                  "--samplesLabel {4} "
-                                  "--xAxisLabel '' "
-                                  "--refPointLabel Summit "
-                                  "--legendLocation none "
-                                  "--heatmapHeight 50").format(point_matrix,
-                                                               point_plot,
-                                                               point_sorted_file,
-                                                               sorting,
-                                                               ' '.join(sample_labels))
-    if not os.path.isfile(point_plot):
-        print deeptools_plot_heatmap
-        os.system(deeptools_plot_heatmap)
-        
-
-    return None
-
 
 # Avanti Shrikumar deeplift visualization code
-
-
 def plot_a(ax, base, left_edge, height, color):
     a_polygon_coords = [
         np.array([

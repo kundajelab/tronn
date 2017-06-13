@@ -1,8 +1,7 @@
-""" Contains functions for I/O 
+"""Description: Contains functions for I/O to tensorflow graphs
 
 Currently hdf5 is supported as an important standardized filetype
 used frequently in genomics datasets.
-
 """
 
 import h5py
@@ -34,7 +33,7 @@ def get_positive_weights_per_task(hdf5_filename_list):
       hdf_filename_list: a list of hdf5 filenames.
 
     Returns:
-      List of positive weights
+      List of positive weights calculated as (total_negs / total_pos)
     """
     for filename_idx in range(len(hdf5_filename_list)):
         with h5py.File(hdf5_filename_list[filename_idx], 'r') as hf:
@@ -48,7 +47,6 @@ def get_positive_weights_per_task(hdf5_filename_list):
                 total_pos += file_pos
                 total_examples += file_tot
 
-    # return (total_negs / total_pos) to use as positive weights
     return np.divide(total_examples - total_pos, total_pos)
 
 
@@ -76,12 +74,11 @@ def get_positives(h5_in_file, task_num, h5_out_file, region_set=None):
                 pos_indices = np.loadtxt(region_set, dtype=int)
                 is_positive = np.sort(pos_indices)
                 total_pos = is_positive.shape[0]
-                print total_pos
+                print 'total positives:', total_pos
             else:
                 is_positive = np.where(in_hf['labels'][:,task_num] > 0)
                 total_pos = np.sum(in_hf['labels'][:,task_num] > 0)
-                print total_pos
-
+                print 'total positives:', total_pos
 
             width = in_hf[importances_key].shape[2]
             total_labels = in_hf['labels'].shape[1]
@@ -96,9 +93,7 @@ def get_positives(h5_in_file, task_num, h5_out_file, region_set=None):
             out_start_idx = 0
             
             while in_start_idx < total_examples:
-
                 print in_start_idx
-                
                 in_end_idx = in_start_idx + h5_batch_size
 
                 importance_in = np.array(in_hf[importances_key][in_start_idx:in_end_idx,:,:])
@@ -108,11 +103,6 @@ def get_positives(h5_in_file, task_num, h5_out_file, region_set=None):
                     current_indices = is_positive[np.logical_and(in_start_idx <= is_positive, is_positive < in_end_idx)] - in_start_idx
                 else:
                     current_indices = is_positive[0][np.logical_and(in_start_idx <= is_positive[0], is_positive[0] < in_end_idx)] - in_start_idx
-
-                #current_indices = is_positive[np.logical_and(in_start_idx <= is_positive, is_positive < in_end_idx)]
-                #current_indices = is_positive[(in_start_idx <= is_positive) & (is_positive < in_end_idx)]
-                #print current_indices[-10:-1,]
-                #print current_indices.shape
 
                 out_end_idx = out_start_idx + current_indices.shape[0]
 
@@ -224,7 +214,6 @@ def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key=
       features: feature tensor
       labels: label tensor
       metadata: metadata tensor
-    
     """
     print 'loading data for tasks:%s from hdf5_files:%s' % (tasks, hdf5_files)
     example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, tasks, features_key) for hdf5_file in hdf5_files]

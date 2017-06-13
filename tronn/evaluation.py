@@ -1,13 +1,8 @@
-""" Contains functions for evaluation and summarization of metrics
+"""Description: Contains functions for evaluation and summarization of metrics
 
 """
 
-import math
 import tensorflow as tf
-import numpy as np
-import h5py
-
-from sklearn import metrics as skmetrics
 
 
 def get_global_avg_metrics(labels, probabilities, tasks=[]):
