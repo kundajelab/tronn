@@ -324,20 +324,22 @@ def generate_importance_scores(data_loader,
     and save out to file.
     '''
 
+    batch_size = int(args.batch_size / 2.0)
+    
     with tf.Graph().as_default() as g:
 
         # data loader
         features, labels, metadata = data_loader(data_file_list,
-                                                 args.batch_size)
+                                                 batch_size, args.tasks)
         num_tasks = labels.get_shape()[1]
         task_labels = tf.unstack(labels, axis=1)
 
         # model and predictions
         if guided_backprop:
             with g.gradient_override_map({'Relu': 'GuidedRelu'}):
-                predictions = model_builder(features, labels, is_training=False)
+                predictions = model_builder(features, labels, args.model, is_training=False)
         else:
-            predictions = model_builder(features, labels, is_training=False)
+            predictions = model_builder(features, labels, args.model, is_training=False)
             
         task_predictions = tf.unstack(predictions, axis=1) # keep this to check whether model doing well on these or not
 
@@ -363,7 +365,7 @@ def generate_importance_scores(data_loader,
                               metadata,
                               predictions,
                               importances,
-                              args.batch_size,
+                              batch_size,
                               out_file,
                               task,
                               sample_size=sample_size,
@@ -1377,7 +1379,6 @@ def interpret(
         model,
         loss_fn,
         prefix,
-        scratch_dir,
         out_dir, 
         task_nums, # manual
         dendro_cutoffs, # manual
@@ -1386,7 +1387,8 @@ def interpret(
         motif_offsets_file,
         rna_file,
         rna_conversion_file,
-        checkpoint_path):
+        checkpoint_path,
+        scratch_dir='./'):
     """placeholder for now"""
 
     importances_mat_h5 = '{0}/{1}.importances.h5'.format(scratch_dir, prefix)

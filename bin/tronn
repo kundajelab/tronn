@@ -23,30 +23,15 @@ def parse_args():
     """Setup arguments"""
 
     parser = argparse.ArgumentParser(description='Run TRoNN')
-
-    # key functions
-    parser.add_argument('--train', action='store_true', help='train the model')
-    parser.add_argument('--interpret', action='store_true', help='run interpretation tools')
+    subparsers = parser.add_subparsers(dest='subcommand_name')
     
-    # core args
-    parser.add_argument('--out_dir', help='path to save model')
-    parser.add_argument('--restore', action='store_true', help='restore from last checkpoint')
-    parser.add_argument('--data_dir', help='hdf5 file directory')
-    parser.add_argument('--transfer_dir', help='directory with same model to transfer')
+    # command for training
+    add_train_parser(subparsers)
 
-    # model
-    parser.add_argument('--model', nargs='+', help='choose model and provide configs')
+    # command for interpretation
+    add_interpret_parser(subparsers)
 
-    # default settings: epoch limit, batch, early stopping
-    parser.add_argument('--epochs', default=20, type=int, help='number of epochs')
-    parser.add_argument('--batch_size', default=128, type=int, help='batch size')
-    parser.add_argument('--metric', default='auroc', type=str, help='metric to use for early stopping')
-    parser.add_argument('--patience', default=2, type=int, help='metric to use for early stopping')
-    
-    # useful optionals
-    parser.add_argument('--dataset', help='hdf5 file [encode, ggr]')
-    parser.add_argument('--tasks', nargs='+', default=[], type=int, help='tasks over which to train multitask model on')
-
+    # parse args
     args = parser.parse_args()
 
     # parse model configs
@@ -69,6 +54,72 @@ def parse_args():
     
     return args
 
+
+def add_out_dir_option(parser):
+    """Add an output directory if defined
+    """
+    parser.add_argument("--outdir", dest="outdir", type=str, default='',
+                        help = "If specified all output files will be written to that directory. Default: the current working directory")
+
+
+def add_train_parser(subparsers):
+    """Add training function argument parser
+    """
+
+    argparser_train = subparsers.add_parser("train", help="Train a TRoNN model")
+    
+    # group for input files
+    group_input = argparser_train.add_argument_group("Input files and folders")
+    group_input.add_argument('--data_dir', help='hdf5 file directory')
+    group_input.add_argument('--restore', action='store_true', help='restore from last checkpoint')
+    group_input.add_argument('--transfer_dir', help='directory with same model to transfer') #this and the next are the same?
+    group_input.add_argument('--tasks', nargs='+', default=[], type=int, help='tasks over which to train multitask model on')
+    
+    # group for model
+    group_model = argparser_train.add_argument_group("Model definition")
+    group_model.add_argument('--model', nargs='+', help='choose model and provide configs')
+    
+    # group for parameters
+    group_params = argparser_train.add_argument_group("Training hyperparameters")
+    group_params.add_argument('--epochs', default=20, type=int, help='number of epochs')
+    group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
+    group_params.add_argument('--metric', default='mean_auprc', type=str, help='metric to use for early stopping')
+    group_params.add_argument('--patience', default=2, type=int, help='metric to use for early stopping')
+
+    # group for output files
+    group_output = argparser_train.add_argument_group("Output files and folders")
+    add_out_dir_option(group_output)
+    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
+
+    return
+
+
+def add_interpret_parser(subparsers):
+    """Add interpretation function argument parser
+    """
+    
+    argparser_interpret = subparsers.add_parser("interpret", help="Interpret a TRoNN model")
+
+    # group for input files
+    group_input = argparser_interpret.add_argument_group("Input files and folders")
+    parser.add_argument('--data_dir', help='hdf5 file directory')
+    parser.add_argument('--model_dir', help='trained model for interpretation')
+
+    # group for model
+    group_model = argparser_interpret.add_argument_group("Model definition")
+    group_model.add_argument('--model', nargs='+', help='choose model and provide configs')
+
+    # group for parameters
+    group_params = argparser_interpret.add_argument_group("Interpretation hyperparameters")
+    group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
+
+    # group for output files
+    group_output = argparser_interpret.add_argument_group("Output files and folders")
+    add_out_dir_option(group_output)
+    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
+    
+    return
+    
 
 def main():
     """Main function for running TRoNN functions"""
@@ -122,25 +173,47 @@ def main():
     if args.interpret:
         
         # checkpoint file
-        checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(OUT_DIR))
+        checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.trained_model_dir))
         print checkpoint_path
 
+        # set up scratch_dir
+        SCRATCH_DIR = '/srv/scratch/shared/indra/dskim89/ggr/{}_tmp'.format(os.getcwd().split('/')[-1])
+        os.system('mkdir -p {}'.format(SCRATCH_DIR))
+
+        # motif file
+        MOTIF_DIR = '/mnt/lab_data/kundaje/users/dskim89/annotations/hocomoco'
+        motif_file = '{}/hocomoco.v10.pwms_HUMAN_mono.filt.and_custom.unique.txt'.format(MOTIF_DIR)
+
+        # motif similarity
+        MOTIF_SIM_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/results/postprocess.nn.2017-04-17.similarity_ordered_motifs'
+        motif_sim_file = '{}/motif_sim_mat.txt'.format(MOTIF_SIM_DIR)
+        motif_offsets_file = '{}/motif_offsets_mat.txt'.format(MOTIF_SIM_DIR)
+
+        # rna file
+        RNA_DIR = '/mnt/lab_data/kundaje/users/dskim89/ggr/transcriptome/data/long_cai'
+        rna_file = '{}/ggr.pas.tpm.txt.gz'.format(RNA_DIR)
+        rna_conversion_file = '{}/gencode.v19.ensembl_to_hgnc.txt.gz'.format(RNA_DIR)
+
+        # current manual choices
+        task_nums = [0, 9, 10, 14]
+        dendro_cutoffs = [7, 7, 7, 7]
+        
         interpret(args,
                   load_data_from_filename_list,
                   data_files,
                   models[args.model['name']],
                   tf.losses.sigmoid_cross_entropy,
-                  'test',# CHANGE
-                  scratch_dir, #FIX
-                  out_dir, # FIX
-                  task_nums, # manual
-                  dendro_cutoffs, # manual
-                  pwm_file,
+                  args.prefix,
+                  args.out_dir,
+                  task_nums, 
+                  dendro_cutoffs, 
+                  motif_file,
                   motif_sim_file,
                   motif_offsets_file,
                   rna_file,
                   rna_conversion_file,
-                  checkpoint_path)
+                  checkpoint_path,
+                  scratch_dir=SCRATCH_DIR)
         
     return None
 

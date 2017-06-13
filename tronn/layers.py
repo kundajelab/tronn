@@ -8,10 +8,19 @@ import tensorflow as tf
 
 
 def threshold(input_tensor, th, val, name):
-    '''
-    Sets up a threshold. Needed for deepSEA and torch7 models that use
+    """Sets up a threshold layer
+
+    Use for torch7 models (like deepSEA) that use
     the threshold function instead of the ReLU function
-    '''
+
+    Args:
+      input_tensor: input tensor
+      th: threshold value
+      val: the value to output if below threshold
+
+    Returns:
+      out_tensor: tensor after threshold
+    """
     with tf.variable_scope(name) as scope:
 
         # First figure out where values are less than

@@ -3,31 +3,33 @@
 The wrappers follow the tf-slim structure for setting up and running a model
 
 """
+
+import os
 import tf_utils
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 
-def train(data_loader,
-          model_builder,
-          final_activation_fn,
-          loss_fn,
-          optimizer_fn,
-          optimizer_params,
-          metrics_fn,
-          restore,
-          stopping_criterion,
-          args,
-          data_file_list,
-          OUT_DIR,
-          target_global_step,
-          transfer=False,
-          transfer_dir='./',
-          weighted_cross_entropy=False):
-    '''
-    Wraps the routines needed for tf-slim
-    '''
+def train(
+        data_loader,
+        model_builder,
+        final_activation_fn,
+        loss_fn,
+        optimizer_fn,
+        optimizer_params,
+        metrics_fn,
+        restore,
+        stopping_criterion,
+        args,
+        data_file_list,
+        OUT_DIR,
+        target_global_step,
+        transfer=False,
+        transfer_dir='./',
+        weighted_cross_entropy=False):
+    """ Wraps the routines needed for tf-slim training
+    """
 
     with tf.Graph().as_default():
 
@@ -70,7 +72,13 @@ def train(data_loader,
         # summaries
         tf_utils.add_summaries(metric_value)
         for var in tf.model_variables(): tf_utils.add_var_summaries(var)
-        values_for_printing = [tf.train.get_global_step(), metric_value['mean_loss'], metric_value['mean_accuracy'], metric_value['mean_auprc'], metric_value['mean_auroc'], loss, total_loss]
+        values_for_printing = [tf.train.get_global_step(),
+                               metric_value['mean_loss'],
+                               metric_value['mean_accuracy'],
+                               metric_value['mean_auprc'],
+                               metric_value['mean_auroc'],
+                               loss,
+                               total_loss]
         summary_op = tf.Print(tf.summary.merge_all(), values_for_printing)
         
         # print parameter count
@@ -91,14 +99,20 @@ def train(data_loader,
             variables_to_restore.append(slim.get_global_step())
             
             # TODO if pretrained on different dataset, remove final layer variables
-            if transfer:
+            if args.transfer_dir:
+                print "transferring model"
+                checkpoint_path = tf.train.latest_checkpoint(args.transfer_dir)
+                variables_to_restore = slim.get_model_variables()
+                variables_to_restore.append(slim.get_global_step())
+                
                 #variables_to_restore_tmp = [ var for var in variables_to_restore if ('out' not in var.name) ]
                 variables_to_restore_tmp = [ var for var in variables_to_restore if (('logit' not in var.name) and ('out' not in var.name)) ]
                 variables_to_restore = variables_to_restore_tmp
-                checkpoint_path = tf.train.latest_checkpoint(transfer_dir)
-
-            print variables_to_restore
+                checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.transfer_dir))
                 
+            print variables_to_restore
+            print checkpoint_path
+            
             init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
                 checkpoint_path,
                 variables_to_restore)
@@ -115,21 +129,23 @@ def train(data_loader,
                             save_summaries_secs=60,
                             save_interval_secs=3600,)
 
-def evaluate(data_loader,
-             model_builder,
-             final_activation_fn,
-             loss_fn,
-             metrics_fn,
-             checkpoint_path,
-             args,
-             data_file_list,
-             out_dir,
-             num_evals=10000):
-    '''
+def evaluate(
+        data_loader,
+        model_builder,
+        final_activation_fn,
+        loss_fn,
+        metrics_fn,
+        checkpoint_path,
+        args,
+        data_file_list,
+        out_dir,
+        num_evals,
+        weighted_cross_entropy=False):
+    """
     Wrapper function for doing evaluation (ie getting metrics on a model)
     Note that if you want to reload a model, you must load the same model
     and data loader
-    '''
+    """
     print 'evaluating %s...'%checkpoint_path
     with tf.Graph().as_default():
 
@@ -153,13 +169,17 @@ def evaluate(data_loader,
             # to later get total_loss
             tf.add_to_collection(ops.GraphKeys.LOSSES, loss)
 
+        total_loss = tf.losses.get_total_loss()
+
         # metrics
         metric_value, updates = metrics_fn(labels, probabilities, args.tasks)
         for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
 
         metric_value['loss'] = loss
         metric_value['total_loss'] = total_loss
-        tf.nn_utils.add_summaries(metric_value)
+        tf_utils.add_summaries(metric_value)
+
+        print "set up done"
 
         # Evaluate the checkpoint
         metrics_dict = slim.evaluation.evaluate_once(
@@ -168,26 +188,28 @@ def evaluate(data_loader,
             out_dir,
             num_evals=num_evals,
             summary_op=tf.summary.merge_all(),
-            eval_op=metric_update.values(),
+            eval_op=updates,
             final_op=metric_value,)
+        
         print 'Validation metrics:\n%s'%metrics_dict
     
     return metrics_dict
 
 
 def train_and_evaluate_once(
-    args,
-    data_loader, 
-    model, 
-    final_activation_fn,
-    loss_fn,
-    optimizer,
-    optimizer_params,
-    metrics_fn,
-    restore,
-    train_files,
-    validation_files,
-    stop_step):
+        args,
+        data_loader, 
+        model, 
+        final_activation_fn,
+        loss_fn,
+        optimizer,
+        optimizer_params,
+        metrics_fn,
+        restore,
+        train_files,
+        validation_files,
+        stop_step,
+        valid_steps=10000): # 10k
     """Run training for the given number of steps and then evaluate
     """
 
@@ -215,6 +237,7 @@ def train_and_evaluate_once(
         model,
         final_activation_fn,
         loss_fn,
+        metrics_fn,
         checkpoint_path,
         args,
         validation_files,
@@ -247,29 +270,36 @@ def train_and_evaluate(
     for epoch in xrange(epoch_limit):
         print "CURRENT EPOCH:", str(epoch)
 
+        print restore
         #restore = args.restore is not None
 
         if epoch > 0:
             restore = True
-            
-        if restore:
+
+        if args.transfer_dir:
+            checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.transfer_dir))
+            curr_step = int(checkpoint_path.split('-')[-1].split('.')[0])
+            print curr_step
+            target_step = curr_step + args.train_steps
+            print target_step
+        elif restore:
             checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir))
-            curr_step = int(checkpoint_path.split('-')[1].split('.')[0])
+            curr_step = int(checkpoint_path.split('-')[-1].split('.')[0])
             target_step = curr_step + args.train_steps
         else:
             target_step = args.train_steps
 
         eval_metrics = train_and_evaluate_once(args,
-                                                data_loader,
-                                                model,
-                                                final_activation_fn,
-                                                loss_fn,
-                                                optimizer, optimizer_params,
-                                                metrics_fn,
-                                                restore,
-                                                train_files,
-                                                validation_files,
-                                                target_step)
+                                               data_loader,
+                                               model,
+                                               final_activation_fn,
+                                               loss_fn,
+                                               optimizer, optimizer_params,
+                                               metrics_fn,
+                                               restore,
+                                               train_files,
+                                               validation_files,
+                                               target_step)
 
         # Early stopping and saving best model
         if metric_best is None or ('loss' in args.metric) != (eval_metrics[args.metric]>metric_best):
