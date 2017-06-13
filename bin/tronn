@@ -9,17 +9,15 @@ import subprocess
 import argparse
 import glob
 
-#import tensorflow as tf
-
-
-from tronn.models import models
-
 
 def parse_args():
     """Setup arguments"""
 
     parser = argparse.ArgumentParser(description='Run TRoNN')
     subparsers = parser.add_subparsers(dest='subcommand_name')
+
+    # command for preprocessing data
+    add_preprocess_parser(subparsers)
     
     # command for training
     add_train_parser(subparsers)
@@ -30,12 +28,6 @@ def parse_args():
     # parse args
     args = parser.parse_args()
 
-    # configs for model
-    add_model_config(args)
-
-    print 'out_dir: %s' % args.out_dir
-    print 'model args: %s' % args.model
-    
     return args
 
 
@@ -59,14 +51,33 @@ def add_model_config(args):
 def add_out_dir_option(parser, default=''):
     """Add an output directory if defined
     """
-    parser.add_argument("--out_dir", dest="outdir", type=str, default=default,
+    parser.add_argument("--out_dir", dest="out_dir", type=str, default=default,
                         help = "If specified all output files will be written to that directory. Default: the current working directory")
+
+    return
 
 
 def add_preprocess_parser(subparsers):
     """Add data generation function argument parser
     """
 
+    argparser_preprocess = subparsers.add_parser("preprocess", help="Preprocess data to TRoNN formats")
+
+    # group for input files
+    group_input = argparser_preprocess.add_argument_group("Input files and folders")
+    group_input.add_argument("--species_json", help='json of support files')
+    group_input.add_argument("--labels", nargs='+', help='list of label file peak sets (BED/narrowPeak)')
+
+    # group for options
+    # TODO add parallel option (to control num threads from here)
+    group_opts = argparser_preprocess.add_argument_group("Data generation options")
+    group_opts.add_argument("--rc", help='Reverse complement')
+    group_opts.add_argument("--univ_neg_num", default=200000, help='number of universal negatives to grab from univ DHS regions')
+    
+    # group for output files
+    group_output = argparser_preprocess.add_argument_group("Output files and folders")
+    add_out_dir_option(group_output)
+    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
 
     return
 
@@ -133,41 +144,51 @@ def add_interpret_parser(subparsers):
     group_output.add_argument('--scratch_dir', help='temporary scratch directory')
     
     return
-    
-def track_runs():
+
+
+def track_runs(args):
     """track command and github commit
     """
+
+    # keeps track of restores (or different commands) in folder
+    num_restores = len(glob.glob(os.path.join(args.out_dir, 'command')))
+    
+    # track github commit
+    git_repo_path = os.path.dirname(os.path.realpath(__file__))
+    os.system('echo -e "commit:" > {1}/command{2}.txt'.format(args.out_dir, num_restores))
+    os.system('git -C {0} rev-parse HEAD >> {1}/command{2}.txt'.format(git_repo_path, args.out_dir, num_restores))
+    os.system('echo -e "" > {1}/command{2}.txt'.format(args.out_dir, num_restores))
+    
+    # write out the command
+    with open(os.path.join(args.out_dir, 'command%d.txt'%num_restores), 'a') as f:
+        f.write(' '.join(sys.argv)+'\n')
+    
     return 
+
 
 def main():
     """Main function for running TRoNN functions"""
-    
-    print os.path.realpath(__file__) # this works
-    #import inspect
-    #print inspect.getfile(parse_ar)
 
     args = parse_args()
-    
-    # Set up folders, files, etc
+
+    print 'out_dir: %s' % args.out_dir
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
-
-    
-        
-    # important metadata tracking (git, actual command, etc)
-    num_restores = len(glob.glob(os.path.join(args.out_dir, 'command')))
-    with open(os.path.join(args.out_dir, 'command%d.txt'%num_restores), 'w') as f:
-        #git_checkpoint_label = subprocess.check_output(["git", "describe", "--always"])
-        #git_checkpoint_label = subprocess.check_output(["git", "-C", "~/git/tronn/", "rev-parse", "HEAD"])
-        #f.write(git_checkpoint_label+'\n')
-        f.write(' '.join(sys.argv)+'\n')
+    track_runs(args)
 
     subcommand  = args.subcommand_name
 
-    if subcommand == 'train':
+    if subcommand == "preprocess":
+        from tronn.preprocess import run
+        run(args)
+    elif subcommand == 'train':
+        add_model_config(args)
+        print 'model args: %s' % args.model
         from tronn.learning import run
         run(args)
     elif subcommand == 'interpret':
+        add_model_config(args)
+        print 'model args: %s' % args.model
         from tronn.interpretation import run
         run(args)
         

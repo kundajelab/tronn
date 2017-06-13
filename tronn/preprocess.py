@@ -5,6 +5,7 @@ import sys
 import gzip
 import glob
 import subprocess
+import json
 import random
 import h5py
 import multiprocessing
@@ -17,8 +18,6 @@ import pandas as pd
 
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
-import ggr_plotting
-
 
 # =====================================================================
 # GENERAL
@@ -27,7 +26,11 @@ import ggr_plotting
 def func_worker(queue):
     """Takes a tuple of (function, args) from queue and runs them
 
-    queue: multiprocessing Queue where each elem is (function, args)
+    Args:
+      queue: multiprocessing Queue where each elem is (function, args)
+
+    Returns:
+      None
     """
     while not queue.empty():
         time.sleep(5.0) # to give queue time to get set up
@@ -45,11 +48,13 @@ def func_worker(queue):
 def run_in_parallel(queue, parallel=12):
     """Takes a filled queue and runs in parallel
 
-    queue: multiprocessing Queue where each elem is (function, args)
-    parallel: how many to run in parallel
-    """
+    Args:
+      queue: multiprocessing Queue where each elem is (function, args)
+      parallel: how many to run in parallel
 
-    # Multiprocessing code
+    Returns:
+      None
+    """
     pids = []
     for i in xrange(parallel):
         pid = os.fork()
@@ -68,9 +73,13 @@ def run_in_parallel(queue, parallel=12):
 def generate_chrom_files(out_dir, peak_file, prefix):
     """Splits a gzipped peak file into its various chromosomes
 
-    out_dir: output directory to put chrom files
-    peak_file: BED file of form chr, start, stop (tab delim)
-    prefix: desired prefix on chrom files
+    Args:
+      out_dir: output directory to put chrom files
+      peak_file: BED file of form chr, start, stop (tab delim)
+      prefix: desired prefix on chrom files
+
+    Returns:
+      None
     """
     print "splitting into chromosomes..."
 
@@ -98,11 +107,15 @@ def generate_chrom_files(out_dir, peak_file, prefix):
 def bin_regions(in_file, out_file, bin_size, stride, method='plus_flank_negs'):
     """Bin regions based on bin size and stride
 
-    in_file: BED file to bin
-    out_file: name of output binned file
-    bin_size: length of the bin 
-    stride: how many base pairs to jump for next window
-    method: how to do binning (add flanks or not)
+    Args:
+      in_file: BED file to bin
+      out_file: name of output binned file
+      bin_size: length of the bin 
+      stride: how many base pairs to jump for next window
+      method: how to do binning (add flanks or not)
+
+    Returns:
+      None
     """
     print "binning regions for {}...".format(in_file)
 
@@ -135,14 +148,17 @@ def bin_regions(in_file, out_file, bin_size, stride, method='plus_flank_negs'):
 def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, parallel=12):
     """Utilize func_workder to run on chromosomes
 
-    in_dir: directory with BED files to bin
-    out_dir: directory to put binned files
-    prefix: desired prefix on the output files
-    bin_size: bin size
-    stride: how many base pairs to jump for next bin
-    parallel: how many processes in parallel
-    """
+    Args:
+      in_dir: directory with BED files to bin
+      out_dir: directory to put binned files
+      prefix: desired prefix on the output files
+      bin_size: bin size
+      stride: how many base pairs to jump for next bin
+      parallel: how many processes in parallel
 
+    Returns:
+      None
+    """
     bin_queue = multiprocessing.Queue()
 
     # First find chromosome files
@@ -171,9 +187,12 @@ def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, parallel=12):
 def one_hot_encode(sequence):
     """One hot encode sequence from string to numpy array
 
-    sequence: string of sequence, using [ACGTN] convention
+    Args:
+      sequence: string of sequence, using [ACGTN] convention
+
+    Returns:
+      one hot encoded numpy array of sequence
     """
-    
     # set for python version
     integer_type = np.int8 if sys.version_info[0] == 2 else np.int32
 
@@ -196,16 +215,19 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
                       reverse_complemented):
     """Generate one hot encoded sequence examples from binned regions
 
-    binned_file: BED file of binned (equal length) regions
-    binned_extended_file: BED output file of extended size regions (created in this function)
-    fasta_sequences: TAB delim output file of sequence strings for each bin
-    examples_file: h5 output file where final examples are stored
-    bin_size: bin size
-    final_length: final length of sequence for example
-    ref_fasta_file: reference FASTA file (to get sequences)
-    reverse_complemented: Boolean for whether to generate RC sequences too
-    """
+    Args:
+      binned_file: BED file of binned (equal length) regions
+      binned_extended_file: BED output file of extended size regions (created in this function)
+      fasta_sequences: TAB delim output file of sequence strings for each bin
+      examples_file: h5 output file where final examples are stored
+      bin_size: bin size
+      final_length: final length of sequence for example
+      ref_fasta_file: reference FASTA file (to get sequences)
+      reverse_complemented: Boolean for whether to generate RC sequences too
 
+    Returns:
+      None
+    """
     # First build extended binned file
     print "extending bins for {}...".format(binned_file)
     extend_length = (final_length - bin_size)/2
@@ -278,16 +300,20 @@ def generate_examples_chrom(bin_dir, bin_ext_dir, fasta_dir, out_dir, prefix,
                             parallel=12):
     """Utilize func_workder to run on chromosomes
 
-    bin_dir: directory with binned BED files
-    bin_ext_dir: directory to put extended length binned BED files
-    fasta_dir: directory to store FASTA sequences for each bin
-    out_dir: directory to store h5 files
-    prefix: prefix to append to output files
-    bin_size: bin size
-    final_length: final length of example
-    ref_fasta_file: reference FASTA file
-    reverse_complemented: boolean on whether to produce RC examples
-    parallel: number of parallel processes
+    Args:
+      bin_dir: directory with binned BED files
+      bin_ext_dir: directory to put extended length binned BED files
+      fasta_dir: directory to store FASTA sequences for each bin
+      out_dir: directory to store h5 files
+      prefix: prefix to append to output files
+      bin_size: bin size
+      final_length: final length of example
+      ref_fasta_file: reference FASTA file
+      reverse_complemented: boolean on whether to produce RC examples
+      parallel: number of parallel processes
+
+    Returns:
+      None
     """
 
     example_queue = multiprocessing.Queue()
@@ -325,15 +351,19 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
                     h5_ml_file, bin_size, final_length, method='half_peak'):
     """Generate labels
     
-    bin_dir: directory where to put new binned files for labeling
-    intersect_dir: directory to store temp intersect files from bedtools
-    prefix: prefix for output files
-    label_files: list of BED files to use for multitask labeling
-    fasta_file: tab delim output from examples to use as regions
-    h5_ml_file: where to store the labels
-    bin_size: bin size
-    final_length: final length of example
-    method: how to count a label as positive
+    Args:
+      bin_dir: directory where to put new binned files for labeling
+      intersect_dir: directory to store temp intersect files from bedtools
+      prefix: prefix for output files
+      label_files: list of BED files to use for multitask labeling
+      fasta_file: tab delim output from examples to use as regions
+      h5_ml_file: where to store the labels
+      bin_size: bin size
+      final_length: final length of example
+      method: how to count a label as positive
+
+    Returns:
+      None
     """
     print "generating labels..."
 
@@ -427,17 +457,20 @@ def generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
                           parallel=12):
     """Utilize func_worker to run on chromosomes
 
-    bin_ext_dir: directory to store extended bin files
-    intersect_dir: directory to put temp intersect files
-    prefix: output prefix
-    label_files: list of peak files to use for labeling
-    fasta_dir: directory of tab delim FASTA sequence examples
-    out_dir: h5 file directory
-    bin_size: bin_size
-    final_length: final length
-    parallel: nunmber to run in parallel
-    """
+    Args:
+      bin_ext_dir: directory to store extended bin files
+      intersect_dir: directory to put temp intersect files
+      prefix: output prefix
+      label_files: list of peak files to use for labeling
+      fasta_dir: directory of tab delim FASTA sequence examples
+      out_dir: h5 file directory
+      bin_size: bin_size
+      final_length: final length
+      parallel: nunmber to run in parallel
 
+    Returns: 
+      None
+    """
     label_queue = multiprocessing.Queue()
 
     # First find chromosome files
@@ -480,11 +513,11 @@ def generate_nn_dataset(celltype_master_regions,
                         final_length=1000,
                         softmax=False,
                         reverse_complemented=False):
-    '''
-    Convenient wrapper to run all relevant functions
+    """Convenient wrapper to run all relevant functions
     requires: ucsc_tools, bedtools
-    '''
-
+    """
+    os.system('mkdir -p {}'.format(work_dir))
+    
     # Select random set of negatives from univ master regions
     completely_neg_file = '{0}/{1}.negatives.bed.gz'.format(work_dir, prefix)
     select_negs = ("bedtools intersect -v -a {0} -b {1} | "
@@ -510,7 +543,6 @@ def generate_nn_dataset(celltype_master_regions,
     if not os.path.isfile(final_master):
         print merge_pos_neg
         os.system(merge_pos_neg)
-
 
     # split into chromosomes, everything below done by chromosome
     chrom_master_dir = '{}/master_by_chrom'.format(work_dir)
@@ -539,373 +571,61 @@ def generate_nn_dataset(celltype_master_regions,
         generate_examples_chrom(bin_dir, bin_ext_dir, regions_fasta_dir, chrom_hdf5_dir, prefix, bin_size, final_length, ref_fasta, reverse_complemented)
         generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files, regions_fasta_dir, chrom_hdf5_dir, bin_size, final_length)
 
-
     return None
 
 
-def generate_interpretation_dataset(h5_in_dir, task_num, out_h5):
-    '''
-    This takes in a directory of data files, checks for specific tasks and saves out those
-    files to a new hdf5 file that you can throw into the model for interpretation
-    '''
-
-    h5_files = glob.glob('{}/*.h5'.format(h5_in_dir))
-
-    # first need to figure out how many examples match, to make 
-    # a dataset of the right size in an hdf5 format
-    total_pos = 0
-    for i in range(len(h5_files)):
-
-        with h5py.File(h5_files[i], 'r') as hf:
-            total_pos += int(np.sum(hf['labels'][:,task_num]))
-
-            if i == 0:
-                num_tasks = hf['labels'].shape[1]
-                final_length = hf['features'].shape[2]
-
-    print total_pos, num_tasks, final_length
-
-    # Now save these to a file
-    with h5py.File(out_h5, 'w') as out:
-        # create datasets
-        features = out.create_dataset('features',
-                                         (total_pos, 1, final_length, 4))
-        labels = out.create_dataset('labels', (total_pos, num_tasks))
-        label_names = out.create_dataset('label_names', (num_tasks,), dtype='S1000')
-        regions = out.create_dataset('regions',
-                                        (total_pos,),
-                                        dtype='S100')
-
-        start_idx = 0
-        stop_idx = 0
-        for i in range(len(h5_files)):
-            print i
-            with h5py.File(h5_files[i], 'r') as hf:
-
-                if i == 0:
-                    label_names[:] = hf['label_names'][:]
-
-                pos_indices = np.nonzero(hf['labels'][:,task_num])[0]
-                if len(pos_indices) == 0:
-                    continue
-
-                stop_idx = start_idx + len(pos_indices)
-
-                # Save things into their places
-                features[start_idx:stop_idx,:,:,:] = hf['features'][pos_indices,:,:,:]
-                labels[start_idx:stop_idx,:] = hf['labels'][pos_indices,:]
-                regions[start_idx:stop_idx] = hf['regions'][list(pos_indices)]
-
-                start_idx += len(pos_indices)
-
-        assert(stop_idx == total_pos)
-
-    return None
-
-def visualize_sequence(h5_file, num_task, out_dir):
-    '''
-    quick wrapper for Av viz tools
-    '''
-
-    with h5py.File(h5_file, 'r') as hf:
-        
-        sequences = [0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000, 3000]
-
-        for sequence_idx in sequences:
-            sequence = hf['importance_{}'.format(num_task)][sequence_idx,:,:,:]
-            sequence_name = hf['region'][sequence_idx, 0].split('(')[0]
-            ggr_plotting.plot_weights(sequence, '{0}/task_{1}.example_{2}.viz_all.png'.format(out_dir, num_task, sequence_idx))
-        # quit()
-
-        # for sequence_idx in sequences:
-        #     start = 0
-        #     skip = 100
-        #     length = 200
-        #     while start < 1000:
-        #         sequence = hf['importance_{}'.format(num_task)][sequence_idx,:,start:(start+length),:]
-        #         ggr_plotting.plot_weights(sequence, '{0}/task_{1}.example_{2}.viz_{3}.png'.format(out_dir, num_task, sequence_idx, start))
-        #         start += skip
-
-    return None
-
-
-def region_generator(h5_file, start_idx, stop_idx, num_task):
-    '''
-    Build a generator to easily extract regions from an h5 file of importance scores
-    '''
-
-    with h5py.File(h5_file, 'r') as hf:
-        regions = hf.get('regions')
-        sequence_idx = 0
-        region_idx = start_idx
-        current_chrom = 'NA'
-        current_region_start = 0
-        current_region_stop = 0
-        current_sequence = np.zeros((1,1))
-
-        while region_idx < stop_idx:
-            sequence = hf['importance_{}'.format(num_task)][sequence_idx,:,:,:]
-            sequence = np.squeeze(sequence)
-            sequence = sequence.transpose(1, 0)
-
-            region = regions[sequence_idx, 0]
-            chrom = region.split(':')[0]
-            region_start = int(region.split(':')[1].split('-')[0])
-            region_stop = int(region.split(':')[1].split('-')[1].split('(')[0])
-
-            if (current_chrom == chrom) and (region_start < current_region_stop) and (region_stop > current_region_stop):
-                # add on to current region
-                offset = region_start - current_region_start
-
-                # concat zeros
-                current_sequence = np.concatenate((current_sequence, np.zeros((4, region_stop - current_region_stop))), axis=1)
-                #normalizer = np.concatenate((normalizer, np.zeros((region_stop - current_region_stop,))))
-                # add new data on top
-                current_sequence[:,offset:] += sequence
-                #normalizer[offset:,] += 1e-8 * np.ones((region_stop - region_start,))
-
-                current_region_stop = region_stop
-
-            else:
-                # we're on a new region
-                if current_sequence.shape[0] == 4:
-                    region_name = '{0}:{1}-{2}'.format(current_chrom, current_region_start, current_region_stop)
-                    yield current_sequence, region_name, region_idx
-                    region_idx += 1
-
-                # save new region
-                current_chrom = chrom
-                current_region_start = region_start
-                current_region_stop = region_stop
-                current_sequence = sequence
-                #normalizer = 1e-8 * np.ones((region_stop - region_start,))
-
-            sequence_idx += 1
-
-
-def visualize_region(h5_file, num_task, out_dir):
-    '''
-    Aggregate examples into a region and visualize
-    '''
-
-    for sequence, name, idx in region_generator(h5_file, 0, 9, num_task):
-        print sequence.shape
-        ggr_plotting.plot_weights(sequence, '{0}/task_{1}.region_{2}.{3}.png'.format(out_dir, num_task, idx, name.replace(':', '-')))
-
-    return None
-
-
-# TODO function to extract regions of high impt and count kmers
-def onehot_to_string(array):
-    '''
-    Go from numpy array to letters
-    '''
-
-    assert (array.shape[0] == 4)
-
-    seq_list = ['']*array.shape[1]
-    for i in range(array.shape[1]):
-        # Convert into letter
-        if array[0,i] != 0:
-            seq_list[i] = 'A'
-        elif array[1,i] != 0:
-            seq_list[i] = 'C'
-        elif array[2,i] != 0:
-            seq_list[i] = 'G'
-        elif array[3,i] != 0:
-            seq_list[i] = 'T'
-        else: 
-            seq_list[i] = 'N'
-
-    return ''.join(seq_list)
-
-
-def build_kmer_clusters(kmer_dict, kmer_counts):
-    '''
-    Mutate kmer at position
-    '''
-
-    bases = ['A', 'C', 'G', 'T']
-
-    # TODO sort the dictionary to get top kmers
-    kmer_dict_sorted = sorted(kmer_dict.items(), key=operator.itemgetter(1), reverse=True)
-
-    current_kmer_idx = 0
-    current_kmer_community = 0
-    kmer_communities = {}
-    kmer_community_scores = {}
-    seen_kmers = {}
-
-    while kmer_dict_sorted[current_kmer_idx][1] > 0.1:
-        # do aggregation
-        current_kmer, current_kmer_score = kmer_dict_sorted[current_kmer_idx]
-
-        try:
-            seen = seen_kmers[current_kmer]
-            current_kmer_idx += 1
-            continue
-
-        except:
-            community = [current_kmer]
-            seen_kmers[current_kmer] = 1
-
-            # mutate the kmer (insert or mutate) and add if score is positive.
-            for pos in range(len(current_kmer)):
-                for base in bases:
-                    if current_kmer[pos] != base:
-                        new_kmer = list(current_kmer)
-                        new_kmer[pos] = base
-                        new_kmer = ''.join(new_kmer)
-                        try:
-                            seen = seen_kmers[new_kmer]
-                            continue
-                        except:
-                            try:
-                                new_kmer_score = kmer_dict[new_kmer]
-                                if new_kmer_score > 0:
-                                    current_kmer_score += new_kmer_score
-                                    community.append(new_kmer)
-                                    seen_kmers[new_kmer] = 1
-                            except:
-                                continue
-
-                for base in bases:
-                    new_kmer = base + str(current_kmer[:-1])
-                    try:
-                        seen = seen_kmers[new_kmer]
-                        continue
-                    except:
-                        try:
-                            new_kmer_score = kmer_dict[new_kmer]
-                            if new_kmer_score > 0:
-                                current_kmer_score += new_kmer_score
-                                community.append(new_kmer)
-                                seen_kmers[new_kmer] = 1
-                        except:
-                            continue
-
-                for base in bases:
-                    new_kmer = str(current_kmer[1:]) + base
-                    try:
-                        seen = seen_kmers[new_kmer]
-                        continue
-                    except:
-                        try:
-                            new_kmer_score = kmer_dict[new_kmer]
-                            if new_kmer_score > 0:
-                                current_kmer_score += new_kmer_score
-                                community.append(new_kmer)
-                                seen_kmers[new_kmer] = 1
-                        except:
-                            continue
-
-            kmer_communities[current_kmer_community] = community
-            kmer_community_scores[current_kmer_community] = current_kmer_score
-            current_kmer_community += 1
-
-    scores_sorted = sorted(kmer_community_scores.items(), key=operator.itemgetter(1), reverse=True)
-
-    import ipdb
-    ipdb.set_trace()
-
-    return None
-
-def extract_kmer_counts(h5_file, num_task, out_dir, k_val=8):
-    '''
-    Extracts kmers with high importance, adds them up
-    Keeps track of kmer's contexts.
-    '''
-
-    print "running kmer counts"
-
-    kmer_dict = {}
-    kmer_counts = {}
-
-    with h5py.File(h5_file, 'r') as hf:
-        dataset_name = 'importance_{}'.format(num_task)
-        print hf[dataset_name].shape
-
-        for i in range(hf[dataset_name].shape[0]):
-            if i % 100 == 0:
-                print i
-
-            sequence = np.squeeze(hf[dataset_name][i,:,:,:])
-            sequence = sequence.transpose(1, 0)
-
-            for j in range(hf[dataset_name].shape[2] - k_val):
-                kmer = sequence[:,j:j+k_val]
-                kmer_string = onehot_to_string(kmer)
-
-
-                kmer_importance = np.sum(kmer[kmer > 0])
-
-                try:
-                    kmer_total = kmer_dict[kmer_string]
-                    kmer_dict[kmer_string] = kmer_total + kmer_importance
-                    kmer_count = kmer_counts[kmer_string]
-                    kmer_counts[kmer_string] = kmer_count + 1
-                except:
-                    kmer_dict[kmer_string] = kmer_importance
-                    kmer_counts[kmer_string] = 1
-
-            if i % 100 == 0:
-                kmer_dict_sorted = sorted(kmer_dict.items(), key=operator.itemgetter(1), reverse=True)
-                print kmer_dict_sorted[0:30]
+def generate_master_regions(out_file, label_peak_files):
+    """Generate master regions file
+    """
+
+    print label_peak_files
+    tmp_master = '{}.tmp.bed.gz'.format(out_file.split('.bed')[0].split('.narrowPeak')[0])
+    for i in range(len(label_peak_files)):
+            
+        label_peak_file = label_peak_files[i]
+            
+        if i == 0:
+            transfer = "cp {0} {1}".format(label_peak_file, out_file)
+            print transfer
+            os.system(transfer)
+        else:
+            merge_bed = ("zcat {0} {1} | "
+                         "awk -F '\t' '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
+                         "sort -k1,1 -k2,2n | "
+                         "bedtools merge -i - | "
+                         "gzip -c > {2}").format(label_peak_file, out_file, tmp_master)
+            print merge_bed
+            os.system(merge_bed)
+            transfer = "cp {0} {1}".format(tmp_master, out_file)
+            print transfer
+            os.system(transfer)
+                
+    os.system('rm {}'.format(tmp_master))
+
+    return
+
+
+def run(args):
+    """Main function to generate dataset
+    """
+
+    # read in json of annotations
+    with open(args.species_json, 'r') as fp:
+        species_files = json.load(fp)
+
+    # generate master bed file
+    master_regions_bed = '{0}/{1}.master.bed.gz'.format(args.out_dir, args.prefix)
+    if not os.path.isfile(master_regions_bed):
+        generate_master_regions(master_regions_bed, args.labels)
+
+    # then run generate nn dataset
+    generate_nn_dataset(master_regions_bed,
+                        species_files["univ_dhs"],
+                        species_files["ref_fasta"],
+                        args.labels,
+                        '{}/data'.format(args.out_dir),
+                        args.prefix,
+                        neg_region_num=args.univ_neg_num,
+                        reverse_complemented=args.rc)
     
-    return kmer_dict, kmer_counts
-
-
-def extract_kmer_counts_maxpoints(h5_file, num_task, out_dir, k_val=8, num_max=3):
-    '''
-    Extracts kmers with high importance, adds them up
-    Keeps track of kmer's contexts.
-    '''
-
-    print "running kmer counts"
-
-    kmer_dict = {}
-    kmer_counts = {}
-
-    with h5py.File(h5_file, 'r') as hf:
-        dataset_name = 'importance_{}'.format(num_task)
-        print hf[dataset_name].shape
-
-        for i in range(hf[dataset_name].shape[0]):
-            if i % 100 == 0:
-                print i
-
-            sequence = np.squeeze(hf[dataset_name][i,:,:,:])
-            sequence = sequence.transpose(1, 0)
-            importances = np.sum(sequence, axis=0)
-            importances_by_index = np.argsort(importances).tolist()
-            importances_by_index.reverse()
-
-            # Now get kmers
-            for j in range(num_max):
-                center = importances_by_index[j]
-                extend = k_val / 2
-                kmer = sequence[:,center-extend:center+extend]
-                kmer_string = onehot_to_string(kmer)
-
-                if ("TGA" in kmer_string) or ("TCA" in kmer_string):
-                    continue
-                    
-                kmer_importance = np.sum(kmer[kmer > 0])
-
-                try:
-                    kmer_total = kmer_dict[kmer_string]
-                    kmer_dict[kmer_string] = kmer_total + kmer_importance
-                    kmer_count = kmer_counts[kmer_string]
-                    kmer_counts[kmer_string] = kmer_count + 1
-                except:
-                    kmer_dict[kmer_string] = kmer_importance
-                    kmer_counts[kmer_string] = 1
-
-            if i % 100 == 0:
-                kmer_dict_sorted = sorted(kmer_dict.items(), key=operator.itemgetter(1), reverse=True)
-                print kmer_dict_sorted[0:30]
-    
-    return kmer_dict, kmer_counts
-
-
-
+    return None

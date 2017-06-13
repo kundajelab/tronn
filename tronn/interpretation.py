@@ -1,6 +1,10 @@
 """Contains methods and routines for interpreting neural nets
 """
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
 import os
 import h5py
 import gzip
@@ -11,14 +15,8 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_nn_ops
-
-from tronn.models import models
 
 from scipy.signal import fftconvolve
 from scipy.signal import convolve2d
@@ -26,6 +24,9 @@ from scipy.signal import convolve2d
 import multiprocessing
 import Queue
 import ggr_plotting
+
+from tronn.models import models
+
 
 # =======================================================================
 # Guided backpropagation - change Relu to guided Relu
