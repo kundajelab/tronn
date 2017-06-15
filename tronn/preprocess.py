@@ -1,4 +1,7 @@
-# functions useful for processing into NN format
+"""Description: preprocessing functions that take standard
+bioinformatic formats (BED, FASTA, etc) and format into hdf5
+files that are input to deep learning models
+"""
 
 import os
 import sys
@@ -6,68 +9,14 @@ import gzip
 import glob
 import subprocess
 import json
-import random
 import h5py
-import multiprocessing
-import Queue
-import operator
-import time
 
 import numpy as np
 import pandas as pd
 
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
-
-# =====================================================================
-# GENERAL
-# =====================================================================
-
-def func_worker(queue):
-    """Takes a tuple of (function, args) from queue and runs them
-
-    Args:
-      queue: multiprocessing Queue where each elem is (function, args)
-
-    Returns:
-      None
-    """
-    while not queue.empty():
-        time.sleep(5.0) # to give queue time to get set up
-        try:
-            [func, args] = queue.get(timeout=0.1)
-        except Queue.empty:
-            time.sleep(5.0)
-            continue
-        func(*args) # run the function with appropriate arguments
-        time.sleep(5.0)
-        
-    return None
-
-
-def run_in_parallel(queue, parallel=12):
-    """Takes a filled queue and runs in parallel
-
-    Args:
-      queue: multiprocessing Queue where each elem is (function, args)
-      parallel: how many to run in parallel
-
-    Returns:
-      None
-    """
-    pids = []
-    for i in xrange(parallel):
-        pid = os.fork()
-        if pid == 0:
-            func_worker(queue)
-            os._exit(0)
-        else:
-            pids.append(pid)
-            
-    for pid in pids:
-        os.waitpid(pid,0)
-
-    return None
+from tronn.util.multiprocessing import *
 
 
 def generate_chrom_files(out_dir, peak_file, prefix):
@@ -159,7 +108,7 @@ def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, parallel=12):
     Returns:
       None
     """
-    bin_queue = multiprocessing.Queue()
+    bin_queue = setup_multiprocessing_queue()
 
     # First find chromosome files
     chrom_files = glob.glob('{0}/*.bed.gz'.format(in_dir))
@@ -316,7 +265,7 @@ def generate_examples_chrom(bin_dir, bin_ext_dir, fasta_dir, out_dir, prefix,
       None
     """
 
-    example_queue = multiprocessing.Queue()
+    example_queue = setup_multiprocessing_queue()
 
     # First find chromosome files
     chrom_files = glob.glob('{0}/*.bed.gz'.format(bin_dir))
@@ -471,7 +420,7 @@ def generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
     Returns: 
       None
     """
-    label_queue = multiprocessing.Queue()
+    label_queue = setup_multiprocessing_queue()
 
     # First find chromosome files
     chrom_files = glob.glob('{0}/*.fa.gz'.format(fasta_dir))
