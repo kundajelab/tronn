@@ -1,6 +1,7 @@
 """Description: helpful functions for multiprocessing
 """
 
+import os
 import multiprocessing
 import Queue
 import time
@@ -10,7 +11,8 @@ def setup_multiprocessing_queue():
     """Wrapper around multiprocessing so that only this script
     needs to import multiprocessing
     """
-    return multiprocessing.Queue()
+    mp_queue = multiprocessing.Queue()
+    return mp_queue
 
 
 def func_worker(queue, wait):

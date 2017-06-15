@@ -73,7 +73,8 @@ def add_preprocess_parser(subparsers):
     group_opts = argparser_preprocess.add_argument_group("Data generation options")
     group_opts.add_argument("--rc", help='Reverse complement')
     group_opts.add_argument("--univ_neg_num", default=200000, help='number of universal negatives to grab from univ DHS regions')
-    group_opts.add_argument("--parallel", default=12, help='Number of parallel threads to use')
+    group_opts.add_argument("--parallel", default=12, type=int,
+                            help='Number of parallel threads to use')
     
     # group for output files
     group_output = argparser_preprocess.add_argument_group("Output files and folders")

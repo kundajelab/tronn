@@ -10,14 +10,19 @@ import glob
 import subprocess
 import json
 import h5py
+import time
 
 import numpy as np
 import pandas as pd
 
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
-from tronn.util.multiprocessing import *
+from tronn.util.parallelize import *
 
+
+# =====================================================================
+# Split to chromosomes
+# =====================================================================
 
 def generate_chrom_files(out_dir, peak_file, prefix):
     """Splits a gzipped peak file into its various chromosomes
@@ -50,7 +55,7 @@ def generate_chrom_files(out_dir, peak_file, prefix):
 
 
 # =====================================================================
-# BINNING
+# Binning
 # =====================================================================
 
 def bin_regions(in_file, out_file, bin_size, stride, method='plus_flank_negs'):
@@ -130,7 +135,7 @@ def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, parallel=12):
 
 
 # =====================================================================
-# FEATURE GENERATION
+# Feature generation
 # =====================================================================
 
 def one_hot_encode(sequence):
@@ -293,7 +298,7 @@ def generate_examples_chrom(bin_dir, bin_ext_dir, fasta_dir, out_dir, prefix,
 
 
 # =====================================================================
-# LABEL GENERATION
+# Label generation
 # =====================================================================
 
 def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
@@ -428,11 +433,7 @@ def generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
 
     # Then for each file, give the function and run
     for chrom_file in chrom_files:
-
         print chrom_file
-        
-        #if not ('chr1.fa' in chrom_file):
-        #    continue
 
         chrom_prefix = chrom_file.split('/')[-1].split('.fa.gz')[0]
         regions_fasta_file = '{0}/{1}.fa.gz'.format(fasta_dir,
@@ -449,6 +450,9 @@ def generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
 
     return None
 
+# =====================================================================
+# Dataset generation
+# =====================================================================
 
 def generate_nn_dataset(celltype_master_regions,
                         univ_master_regions,
@@ -505,14 +509,15 @@ def generate_nn_dataset(celltype_master_regions,
     bin_dir = '{}/binned'.format(work_dir)
     if not os.path.isfile('{0}/{1}_chrY_binned.bed.gz'.format(bin_dir, prefix)):
         os.system('mkdir -p {}'.format(bin_dir))
-        bin_regions_chrom(chrom_master_dir, bin_dir, prefix, bin_size, stride)
+        bin_regions_chrom(chrom_master_dir, bin_dir, prefix, bin_size, stride, parallel=parallel)
 
     # generate one-hot encoding sequence files (examples) and then labels
     regions_fasta_dir = '{}/regions_fasta'.format(work_dir)
     bin_ext_dir = '{}/bin_ext'.format(work_dir)
     intersect_dir = '{}/intersect'.format(work_dir)
     chrom_hdf5_dir = '{}/h5'.format(work_dir)
-    
+
+    # now run example generation and label generation
     if not os.path.isfile('{0}/{1}_chrY.h5'.format(chrom_hdf5_dir, prefix)):
         os.system('mkdir -p {}'.format(chrom_hdf5_dir))
         os.system('mkdir -p {}'.format(regions_fasta_dir))
@@ -520,29 +525,36 @@ def generate_nn_dataset(celltype_master_regions,
         os.system('mkdir -p {}'.format(intersect_dir))
         generate_examples_chrom(bin_dir, bin_ext_dir, regions_fasta_dir,
                                 chrom_hdf5_dir, prefix, bin_size,
-                                final_length, ref_fasta, reverse_complemented)
+                                final_length, ref_fasta, reverse_complemented,
+                                parallel=parallel)
         generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
                               regions_fasta_dir, chrom_hdf5_dir, bin_size,
-                              final_length)
+                              final_length, parallel=parallel)
 
     return None
 
 
 def generate_master_regions(out_file, label_peak_files):
     """Generate master regions file
-    """
+    
+    Args:
+      out_file: BED file for master regions set
+      label_peak_files: BED files to use as labels
 
-    print label_peak_files
+    Returns:
+      None
+    """
+    assert len(label_peak_files) > 0
     tmp_master = '{}.tmp.bed.gz'.format(out_file.split('.bed')[0].split('.narrowPeak')[0])
     for i in range(len(label_peak_files)):
-            
         label_peak_file = label_peak_files[i]
-            
         if i == 0:
+            # for first file copy into master
             transfer = "cp {0} {1}".format(label_peak_file, out_file)
             print transfer
             os.system(transfer)
         else:
+            # merge master with current bed
             merge_bed = ("zcat {0} {1} | "
                          "awk -F '\t' '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
                          "sort -k1,1 -k2,2n | "
@@ -550,6 +562,8 @@ def generate_master_regions(out_file, label_peak_files):
                          "gzip -c > {2}").format(label_peak_file, out_file, tmp_master)
             print merge_bed
             os.system(merge_bed)
+
+            # copy tmp master over to master
             transfer = "cp {0} {1}".format(tmp_master, out_file)
             print transfer
             os.system(transfer)
@@ -562,7 +576,9 @@ def generate_master_regions(out_file, label_peak_files):
 def run(args):
     """Main function to generate dataset
     """
-    print "Found {} label sets".format(len(args.labels))
+    start = time.time()
+    print "Remember to load both bedtools and ucsc_tools!"
+    print "Using {} label sets".format(len(args.labels))
     
     # read in json of annotations
     with open(args.annotations_json, 'r') as fp:
@@ -583,5 +599,8 @@ def run(args):
                         parallel=args.parallel,
                         neg_region_num=args.univ_neg_num,
                         reverse_complemented=args.rc)
+
+    end = time.time()
+    print "Execution time: {}".format(end - start)
     
     return None
