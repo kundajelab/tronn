@@ -511,6 +511,7 @@ def generate_nn_dataset(celltype_master_regions,
                         bin_size=200,
                         stride=50,
                         final_length=1000,
+                        parallel=12,
                         softmax=False,
                         reverse_complemented=False):
     """Convenient wrapper to run all relevant functions
@@ -568,8 +569,12 @@ def generate_nn_dataset(celltype_master_regions,
         os.system('mkdir -p {}'.format(regions_fasta_dir))
         os.system('mkdir -p {}'.format(bin_ext_dir))
         os.system('mkdir -p {}'.format(intersect_dir))
-        generate_examples_chrom(bin_dir, bin_ext_dir, regions_fasta_dir, chrom_hdf5_dir, prefix, bin_size, final_length, ref_fasta, reverse_complemented)
-        generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files, regions_fasta_dir, chrom_hdf5_dir, bin_size, final_length)
+        generate_examples_chrom(bin_dir, bin_ext_dir, regions_fasta_dir,
+                                chrom_hdf5_dir, prefix, bin_size,
+                                final_length, ref_fasta, reverse_complemented)
+        generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
+                              regions_fasta_dir, chrom_hdf5_dir, bin_size,
+                              final_length)
 
     return None
 
@@ -608,10 +613,11 @@ def generate_master_regions(out_file, label_peak_files):
 def run(args):
     """Main function to generate dataset
     """
-
+    print "Found {} label sets".format(len(args.labels))
+    
     # read in json of annotations
-    with open(args.species_json, 'r') as fp:
-        species_files = json.load(fp)
+    with open(args.annotations_json, 'r') as fp:
+        annotation_files = json.load(fp)
 
     # generate master bed file
     master_regions_bed = '{0}/{1}.master.bed.gz'.format(args.out_dir, args.prefix)
@@ -620,11 +626,12 @@ def run(args):
 
     # then run generate nn dataset
     generate_nn_dataset(master_regions_bed,
-                        species_files["univ_dhs"],
-                        species_files["ref_fasta"],
+                        annotation_files["univ_dhs"],
+                        annotation_files["ref_fasta"],
                         args.labels,
                         '{}/data'.format(args.out_dir),
                         args.prefix,
+                        parallel=args.parallel,
                         neg_region_num=args.univ_neg_num,
                         reverse_complemented=args.rc)
     

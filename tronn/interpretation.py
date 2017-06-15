@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 
 import os
 import h5py
+import glob
 import gzip
 import math
 import json
@@ -25,7 +26,53 @@ import multiprocessing
 import Queue
 
 from tronn.models import models
+from tronn.models import pwm_convolve
 from tronn.visualization import plot_weights
+from tronn.datalayer import load_data_from_filename_list
+
+def func_worker(queue):
+    """Takes a tuple of (function, args) from queue and runs them
+
+    Args:
+      queue: multiprocessing Queue where each elem is (function, args)
+
+    Returns:
+      None
+    """
+    while not queue.empty():
+        try:
+            [func, args] = queue.get(timeout=0.1)
+        except Queue.Empty:
+            continue
+        func(*args) # run the function with appropriate arguments
+    
+    return None
+
+
+def run_in_parallel(queue, parallel=12):
+    """Takes a filled queue and runs in parallel
+    
+    Args:
+      queue: multiprocessing Queue where each elem is (function, args)
+      parallel: how many to run in parallel
+
+    Returns:
+      None
+    """
+    pids = []
+    for i in xrange(parallel):
+        pid = os.fork()
+        if pid == 0:
+            func_worker(queue)
+            os._exit(0)
+        else:
+            pids.append(pid)
+            
+    for pid in pids:
+        os.waitpid(pid,0)
+        
+    return None
+
 
 # =======================================================================
 # Guided backpropagation - change Relu to guided Relu
@@ -91,12 +138,16 @@ def region_generator(sess,
             predictions,
             labels,
             metadata])
-
-        # TODO check here to make sure there are differences
+        
+        # TODO remove negatives and negative flanks
 
         # go through the examples in array, yield as you finish a region
         for i in range(regions_np.shape[0]):
 
+            if np.sum(labels_np[i,:]) == 0:
+                # ignore this region
+                continue
+            
             # get the region info
             region = regions_np[i, 0]
             chrom = region.split(':')[0]
@@ -108,7 +159,7 @@ def region_generator(sess,
             for importance_key in importances_dict.keys():
                 sequence_dict[importance_key] = np.squeeze(
                     importances_dict[importance_key][i,:,:,:]).transpose(1, 0)
-
+                
             if ((current_chrom == chrom) and
                 (region_start < current_region_stop) and
                 (region_stop > current_region_stop)):
@@ -150,6 +201,14 @@ def region_generator(sess,
                     current_sequences[importance_key] = sequence_dict[importance_key]
                 current_labels = labels_np[i,:]
 
+                
+def store_importances(padded_sequence, importance_key, idx, out_file):
+
+    with h5py.File(out_file, 'a') as hf:
+        hf[importance_key][idx,:,:] = padded_sequence
+
+    return
+                
 
 def run_importance_scores(checkpoint_path,
                           features, # NOT USED
@@ -182,7 +241,7 @@ def run_importance_scores(checkpoint_path,
 
     # get importance scores and save out to hdf5 file
     with h5py.File(out_file, 'w') as hf:
-        
+
         # set up datasets
         importances_datasets = {}
         for importance_key in importances.keys():
@@ -192,12 +251,12 @@ def run_importance_scores(checkpoint_path,
 
         # run the region generator
         for sequence, name, idx, labels_np in region_generator(sess,
-                                                           importances,
-                                                           predictions,
-                                                           labels,
-                                                           metadata,
-                                                           sample_size,
-                                                           num_task):
+                                                               importances,
+                                                               predictions,
+                                                               labels,
+                                                               metadata,
+                                                               sample_size,
+                                                               num_task):
 
             
             if idx % 100 == 0:
@@ -211,14 +270,13 @@ def run_importance_scores(checkpoint_path,
                 else:
                     trim_len = (sequence[importance_key].shape[1] - width) / 2
                     padded_sequence = sequence[importance_key][:,trim_len:width+trim_len]
-
+                    
                 # save into hdf5 files
                 importances_datasets[importance_key][idx,:,:] = padded_sequence
-                
+
             regions_hf[idx,] = name
             labels_hf[idx,] = labels_np
             # TODO save out predictions too
-            
 
     coord.request_stop()
     coord.join(threads)
@@ -243,14 +301,16 @@ def generate_importance_scores(data_loader,
     and save out to file.
     '''
 
-    batch_size = int(args.batch_size / 2.0)
+    batch_size = int(args.batch_size * 3 / 4.0)
+    #batch_size = int(args.batch_size / 4.0)
     
     with tf.Graph().as_default() as g:
 
         # data loader
         features, labels, metadata = data_loader(data_file_list,
-                                                 batch_size, args.tasks)
+                                                 batch_size, args.tasks, shuffle=False)
         num_tasks = labels.get_shape()[1]
+        print num_tasks
         task_labels = tf.unstack(labels, axis=1)
 
         # model and predictions
@@ -303,10 +363,12 @@ def visualize_sample_sequences(h5_file, num_task, out_dir, sample_size=10):
     and negative sequences to visualize
     '''
 
+    importances_key = 'importances_task{}'.format(num_task)
+    
     with h5py.File(h5_file, 'r') as hf:
         labels = hf['labels'][:,0]
 
-        for label_val in range(2):
+        for label_val in [1, 0]:
 
             visualized_region_num = 0
             region_idx = 0
@@ -315,7 +377,7 @@ def visualize_sample_sequences(h5_file, num_task, out_dir, sample_size=10):
 
                 if hf['labels'][region_idx,0] == label_val:
                     # get sequence and plot it out
-                    sequence = np.squeeze(hf['importances'][region_idx,:,:])
+                    sequence = np.squeeze(hf[importances_key][region_idx,:,:])
                     name = hf['regions'][region_idx,0]
 
                     start = int(name.split(':')[1].split('-')[0])
@@ -462,10 +524,10 @@ def run_pwm_convolution(data_loader,
         # data loader
         features, labels, metadata = data_loader([importance_h5],
                                                  batch_size,
-                                                 importance_key)
+                                                 features_key=importance_key)
 
         # load the model
-        motif_tensor, load_pwm_update = models.pwm_convolve(features, pwm_list)
+        motif_tensor, load_pwm_update = pwm_convolve(features, pwm_list)
 
         # run the model (set up sessions, etc)
         sess = tf.Session()
@@ -804,7 +866,7 @@ def importance_h5_to_txt(h5_file, txt_file):
 # =======================================================================
 
 def bootstrap_fdr(motif_mat_h5, out_prefix, task_num, region_set=None,
-                  bootstrap_num=999, fdr=0.05, zscore_cutoff=1.5):
+                  bootstrap_num=9999, fdr=0.005, zscore_cutoff=1.0):
     '''
     Given a motif matrix and labels, calculate a bootstrap FDR
     '''
@@ -845,7 +907,7 @@ def bootstrap_fdr(motif_mat_h5, out_prefix, task_num, region_set=None,
 
         for i in range(bootstrap_num):
 
-            if i % 100 == 0:
+            if i % 1000 == 0:
                 print i
 
             # randomly select examples 
@@ -878,7 +940,8 @@ def bootstrap_fdr(motif_mat_h5, out_prefix, task_num, region_set=None,
     fdr_w_zscore = motif_z_avg_df.merge(pos_fdr_t, left_index=True, right_index=True)
     fdr_w_zscore.columns = ['zscore', 'FDR']
     fdr_w_zscore_cutoffs = fdr_w_zscore[(fdr_w_zscore['FDR'] < 0.005) & (fdr_w_zscore['zscore'] > zscore_cutoff)]
-    fdr_w_zscore_cutoffs.to_csv('{}.fdr_cutoff.zscore_cutoff.txt'.format(out_prefix), sep='\t')
+    fdr_w_zscore_cutoffs_sorted = fdr_w_zscore_cutoffs.sort_values('zscore', ascending=False)
+    fdr_w_zscore_cutoffs_sorted.to_csv('{}.fdr_cutoff.zscore_cutoff.txt'.format(out_prefix), sep='\t')
     
     
     return None
@@ -1301,13 +1364,14 @@ def interpret(
         out_dir, 
         task_nums, # manual
         dendro_cutoffs, # manual
-        pwm_file,
+        motif_file,
         motif_sim_file,
         motif_offsets_file,
         rna_file,
         rna_conversion_file,
         checkpoint_path,
-        scratch_dir='./'):
+        scratch_dir='./',
+        sample_size=220000):
     """placeholder for now"""
 
     importances_mat_h5 = '{0}/{1}.importances.h5'.format(scratch_dir, prefix)
@@ -1327,7 +1391,7 @@ def interpret(
             importances_mat_h5,
             guided_backprop=True, 
             method='importances',
-            sample_size=220000) # TODO change this, it's a larger set than this
+            sample_size=sample_size) # TODO change this, it's a larger set than this
 
     # ---------------------------------------------------
     # for each task, do the following:
@@ -1338,6 +1402,12 @@ def interpret(
         task_num = task_nums[task_num_idx]
         print "Working on task {}".format(task_num)
 
+        if args.plot_importances:
+            # visualize a few samples
+            sample_seq_dir = 'task_{}.sample_seqs'.format(task_num)
+            os.system('mkdir -p {}'.format(sample_seq_dir))
+            visualize_sample_sequences(importances_mat_h5, task_num, sample_seq_dir)
+            
         # ---------------------------------------------------
         # Run all task-specific importance scores through PWM convolutions
         # IN: sequences x importance scores
@@ -1346,7 +1416,7 @@ def interpret(
         motif_mat_h5 = 'task_{}.motif_mat.h5'.format(task_num)
         if not os.path.isfile(motif_mat_h5):
             run_pwm_convolution(
-                tronn.load_data_from_importances_list,
+                data_loader,
                 importances_mat_h5,
                 motif_mat_h5,
                 args.batch_size * 2,
@@ -1371,13 +1441,53 @@ def interpret(
         if not os.path.isdir(cluster_dir):
             os.system('mkdir -p {}'.format(cluster_dir))
             prefix = 'task_{}'.format(task_num)
-            os.system('Rscript ./run_region_clustering.R {0} 50 {1} {2}/{3}'.format(pos_motif_mat,
-                                                                                    dendro_cutoffs[task_num_idx],
-                                                                                    cluster_dir,
-                                                                                    prefix))        
+            os.system('run_region_clustering.R {0} 50 {1} {2}/{3}'.format(pos_motif_mat,
+                                                                          dendro_cutoffs[task_num_idx],
+                                                                          cluster_dir,
+                                                                          prefix))        
 
 
+        # ---------------------------------------------------
+        # Now for each subgroup of sequences, get a grammar back
+        # ---------------------------------------------------
+        for subgroup_idx in range(dendro_cutoffs[task_num_idx]):
+            
+            index_group = "{0}/task_{1}.group_{2}.indices.txt.gz".format(cluster_dir, task_num, subgroup_idx+1)
+            out_prefix = '{}'.format(index_group.split('.indices')[0])
+            
+            
+            # ---------------------------------------------------
+            # Run boostrap FDR to get back significant motifs
+            # IN: subgroup x motifs
+            # OUT: sig motifs
+            # ---------------------------------------------------
+            bootstrap_fdr_cutoff_file = '{}.fdr_cutoff.zscore_cutoff.txt'.format(out_prefix)
+            if not os.path.isfile(bootstrap_fdr_cutoff_file):
+                bootstrap_fdr(motif_mat_h5, out_prefix, task_num, index_group)
 
+            # Filter with RNA evidence
+            rna_filtered_file = '{}.rna_filtered.txt'.format(bootstrap_fdr_cutoff_file.split('.txt')[0])
+            if not os.path.isfile(rna_filtered_file):
+                add_rna_evidence = ("filter_w_rna.R "
+                                    "{0} "
+                                    "{1} "
+                                    "{2} "
+                                    "{3}").format(bootstrap_fdr_cutoff_file, rna_conversion_file, rna_file, rna_filtered_file)
+                print add_rna_evidence
+                os.system(add_rna_evidence)
+
+            # make a network grammar
+            # size of node is motif strength, links are motif similarity
+            grammar_network_plot = '{}.grammar.network.pdf'.format(rna_filtered_file.split('.txt')[0])
+            
+            #if not os.path.isfile(grammar_network_plot):
+            make_network_plot = 'make_network_grammar_v2.R {0} {1} {2}'.format(rna_filtered_file, motif_sim_file, grammar_network_plot)
+            print make_network_plot
+            os.system(make_network_plot)
+
+
+            
+                
     return None
 
 
@@ -1400,7 +1510,7 @@ def run(args):
 
     # current manual choices
     task_nums = [0, 9, 10, 14]
-    dendro_cutoffs = [7, 7, 7, 7]
+    dendro_cutoffs = [7, 6, 7, 7]
     
     interpret(args,
               load_data_from_filename_list,
@@ -1417,6 +1527,7 @@ def run(args):
               annotation_files["rna_file"],
               annotation_files["rna_conversion_file"],
               checkpoint_path,
-              scratch_dir=args.scratch_dir)
+              scratch_dir=args.scratch_dir,
+              sample_size=args.sample_size)
 
     return

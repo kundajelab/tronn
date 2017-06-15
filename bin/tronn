@@ -25,6 +25,8 @@ def parse_args():
     # command for interpretation
     add_interpret_parser(subparsers)
 
+    # TODO consider a command for visualizing some example sequences
+
     # parse args
     args = parser.parse_args()
 
@@ -64,14 +66,14 @@ def add_preprocess_parser(subparsers):
 
     # group for input files
     group_input = argparser_preprocess.add_argument_group("Input files and folders")
-    group_input.add_argument("--species_json", help='json of support files')
+    group_input.add_argument("--annotations_json", help='json of support files')
     group_input.add_argument("--labels", nargs='+', help='list of label file peak sets (BED/narrowPeak)')
 
     # group for options
-    # TODO add parallel option (to control num threads from here)
     group_opts = argparser_preprocess.add_argument_group("Data generation options")
     group_opts.add_argument("--rc", help='Reverse complement')
     group_opts.add_argument("--univ_neg_num", default=200000, help='number of universal negatives to grab from univ DHS regions')
+    group_opts.add_argument("--parallel", default=12, help='Number of parallel threads to use')
     
     # group for output files
     group_output = argparser_preprocess.add_argument_group("Output files and folders")
@@ -90,8 +92,9 @@ def add_train_parser(subparsers):
     group_input = argparser_train.add_argument_group("Input files and folders")
     group_input.add_argument('--data_dir', help='hdf5 file directory')
     group_input.add_argument('--restore', action='store_true', help='restore from last checkpoint')
-    group_input.add_argument('--transfer_dir', help='directory with same model to transfer') #this and the next are the same?
-    group_input.add_argument('--tasks', nargs='+', default=[], type=int, help='tasks over which to train multitask model on')
+    group_input.add_argument('--transfer_dir', help='directory with same model to transfer') 
+    group_input.add_argument('--tasks', nargs='+', default=[], type=int,
+                             help='tasks over which to train multitask model on')
     
     # group for model
     group_model = argparser_train.add_argument_group("Model definition")
@@ -121,6 +124,8 @@ def add_interpret_parser(subparsers):
     group_input = argparser_interpret.add_argument_group("Input files and folders")
     group_input.add_argument('--data_dir', help='hdf5 file directory')
     group_input.add_argument('--model_dir', help='trained model for interpretation')
+    group_input.add_argument('--tasks', nargs='+', default=[], type=int,
+                             help='tasks over which to train multitask model on')
 
     # group for model
     group_model = argparser_interpret.add_argument_group("Model definition")
@@ -129,6 +134,8 @@ def add_interpret_parser(subparsers):
     # group for parameters
     group_params = argparser_interpret.add_argument_group("Interpretation hyperparameters")
     group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
+    group_params.add_argument('--sample_size', default=220000, type=int,
+                              help='number of regions to get importance scores')
 
     # group for annotation files
     group_data = argparser_interpret.add_argument_group("External data files")
@@ -139,6 +146,8 @@ def add_interpret_parser(subparsers):
     add_out_dir_option(group_output)
     group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
     group_output.add_argument('--scratch_dir', help='temporary scratch directory')
+    group_output.add_argument('--plot_importances', action='store_true',
+                              help='plot some sample sequences weighted by importance scores')
     
     return
 
@@ -152,9 +161,9 @@ def track_runs(args):
     
     # track github commit
     git_repo_path = os.path.dirname(os.path.realpath(__file__))
-    os.system('echo -e "commit:" > {0}'.format(logging_file))
+    os.system('echo "commit:" > {0}'.format(logging_file))
     os.system('git -C {0} rev-parse HEAD >> {1}'.format(git_repo_path, logging_file))
-    os.system('echo -e "" > {0}'.format(logging_file))
+    os.system('echo "" >> {0}'.format(logging_file))
     
     # write out the command
     with open(logging_file, 'a') as f:

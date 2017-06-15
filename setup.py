@@ -11,5 +11,9 @@ if __name__== '__main__':
           license='MIT',
           install_requires=['numpy', 'tensorflow-gpu', 'six'],
           packages=find_packages(),
-          scripts=['bin/tronn', 'scripts/run_region_clustering.R', 'scripts/make_network_grammar.R']
+          scripts=['bin/tronn',
+                   'scripts/run_region_clustering.R',
+                   'scripts/make_network_grammar.R',
+                   'scripts/make_network_grammar_v2.R',
+                   'scripts/filter_w_rna.R']
     )
