@@ -124,7 +124,7 @@ def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, parallel=12):
         bin_queue.put([bin_regions, bin_args])
 
     # run the queue
-    run_in_parallel(bin_queue, parallel=parallel)
+    run_in_parallel(bin_queue, parallel=parallel, wait=True)
 
     return None
 
@@ -287,7 +287,7 @@ def generate_examples_chrom(bin_dir, bin_ext_dir, fasta_dir, out_dir, prefix,
         if not os.path.isfile(examples_file):
             example_queue.put([generate_examples, examples_args])
 
-    run_in_parallel(example_queue, parallel=parallel)
+    run_in_parallel(example_queue, parallel=parallel, wait=True)
 
     return None
 
@@ -445,7 +445,7 @@ def generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
 
         label_queue.put([generate_labels, labels_args])
 
-    run_in_parallel(label_queue, parallel=parallel)
+    run_in_parallel(label_queue, parallel=parallel, wait=True)
 
     return None
 
