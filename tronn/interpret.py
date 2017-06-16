@@ -11,6 +11,7 @@ from tronn.datalayer import load_data_from_filename_list
 from tronn.models import models
 from tronn.interpretation.importances import generate_importance_scores
 from tronn.interpretation.importances import visualize_sample_sequences
+from tronn.interpretation.motifs import bootstrap_fdr
 from tronn.interpretation.motifs import run_pwm_convolution
 from tronn.interpretation.motifs import extract_positives_from_motif_mat
 
@@ -141,10 +142,10 @@ def interpret(
             # size of node is motif strength, links are motif similarity
             grammar_network_plot = '{}.grammar.network.pdf'.format(rna_filtered_file.split('.txt')[0])
             
-            #if not os.path.isfile(grammar_network_plot):
-            make_network_plot = 'make_network_grammar_v2.R {0} {1} {2}'.format(rna_filtered_file, motif_sim_file, grammar_network_plot)
-            print make_network_plot
-            os.system(make_network_plot)
+            if not os.path.isfile(grammar_network_plot):
+                make_network_plot = 'make_network_grammar_v2.R {0} {1} {2}'.format(rna_filtered_file, motif_sim_file, grammar_network_plot)
+                print make_network_plot
+                os.system(make_network_plot)
 
 
             

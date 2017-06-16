@@ -1,45 +1,49 @@
 """Description: contains code to generate per-base-pair importance scores
 """
 
+import h5py
+import numpy as np
 
 import tensorflow as tf
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_nn_ops
 
+from tronn.visualization import plot_weights
+
 
 @ops.RegisterGradient("GuidedRelu")
 def _GuidedReluGrad(op, grad):
-	"""Replaces ReLUs with guided ReLUs in a tensorflow graph. Use to 
-	allow guided backpropagation in interpretation mode. Generally only 
-	turn on for a trained model.
-
-	Args:
-	  op: the op to replace the gradient
-	  grad: the gradient value
-
-	Returns:
-	  tensorflow operation that removes negative gradients
-	"""
+    """Replaces ReLUs with guided ReLUs in a tensorflow graph. Use to 
+    allow guided backpropagation in interpretation mode. Generally only 
+    turn on for a trained model.
+    
+    Args:
+      op: the op to replace the gradient
+      grad: the gradient value
+    
+    Returns:
+      tensorflow operation that removes negative gradients
+    """
     return tf.where(0. < grad,
-                     gen_nn_ops._relu_grad(grad, op.outputs[0]),
-                     tf.zeros(grad.get_shape()))
+                    gen_nn_ops._relu_grad(grad, op.outputs[0]),
+                    tf.zeros(grad.get_shape()))
 
 
 def layerwise_relevance_propagation(tensor, features):
     """Layer-wise Relevance Propagation (Batch et al), implemented
     as input * gradient (equivalence is demonstrated in deepLIFT paper,
     Shrikumar et al). Generally center the tensor on the logits.
-
-	Args:
-	  tensor: the tensor from which to propagate gradients backwards
-	  features: the input tensor on which you want the importance scores
-
-	Returns:
-	  Input tensor weighted by gradient backpropagation.
+    
+    Args:
+      tensor: the tensor from which to propagate gradients backwards
+      features: the input tensor on which you want the importance scores
+    
+    Returns:
+      Input tensor weighted by gradient backpropagation.
     """
     [feature_grad] = tf.gradients(tensor, [features])
     importances = tf.multiply(features, feature_grad, 'input_mul_grad')
-
+    
     return importances
 
 
@@ -52,23 +56,23 @@ def region_generator(sess,
                      num_task): # TODO check if this arg is needed
     """Build a generator to easily extract regions from session run 
     (input data must be ordered)
-	
-	Args:
-	  sess: tensorflow session with graph/model
-	  importances: a dictionary of tensors that correspond to importances
-	  predictions: predictions tensor
-	  labels: labels tensor
-	  metadata: metadata tensor
-	  stop_idx: how many regions to generate
-	  num_task: whic task to focus on
+    
+    Args:
+      sess: tensorflow session with graph/model
+      importances: a dictionary of tensors that correspond to importances
+      predictions: predictions tensor
+      labels: labels tensor
+      metadata: metadata tensor
+      stop_idx: how many regions to generate
+      num_task: whic task to focus on
 
-	Returns:
-	  current_sequences: dictionary of importance scores {task: importances}
-	  region_name: name of region {chr}:{start}-{stop}
-	  region_idx: index of region for output file
-	  current_labels: labels for the region
+    Returns:
+      current_sequences: dictionary of importance scores {task: importances}
+      region_name: name of region {chr}:{start}-{stop}
+      region_idx: index of region for output file
+      current_labels: labels for the region
     """
-
+    
     # initialize variables to track progress through generator
     current_chrom = 'NA'
     current_region_start = 0
@@ -166,23 +170,23 @@ def run_importance_scores(checkpoint_path,
                           width=4096,
                           pos_only=False):
     """Set up the session and then build motif matrix for a specific task
-
+    
     Args:
-	  checkpoint_path: where the model is stored
-	  features: feature tensor
-	  labels: label tensor
-	  metadata: metadata tensor
-	  predictions: predictions tensor
-	  importances: importances tensor
-	  batch_size: batch size
-	  out_file: hdf5 file to store importances
-	  num_task: which task to focus on
-	  sample_size: number of samples to run
-	  width: how wide to keep importances
-	  pos_only: only keep regions that have at least 1 positive
-
-	Returns:
-	  hdf5 file with importance datasets for each task
+      checkpoint_path: where the model is stored
+      features: feature tensor
+      labels: label tensor
+      metadata: metadata tensor
+      predictions: predictions tensor
+      importances: importances tensor
+      batch_size: batch size
+      out_file: hdf5 file to store importances
+      num_task: which task to focus on
+      sample_size: number of samples to run
+      width: how wide to keep importances
+      pos_only: only keep regions that have at least 1 positive
+    
+    Returns:
+      hdf5 file with importance datasets for each task
     """
     # open a session from checkpoint
     sess = tf.Session()

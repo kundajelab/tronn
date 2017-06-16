@@ -1,10 +1,13 @@
 """Description: code to analyze motif matrices
 """
 
+import h5py
+import numpy as np
+import pandas as pd
+import scipy.stats
 
 from scipy.signal import fftconvolve
 from scipy.signal import convolve2d
-
 
 from tronn.models import pwm_convolve
 from tronn.visualization import plot_weights
