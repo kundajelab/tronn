@@ -85,6 +85,10 @@ def plot_weights_given_ax(ax, array,
     heights_at_positions = []
     depths_at_positions = []
     for i in range(array.shape[0]):
+
+        if np.sum(array[i,:]) == 0:
+            continue
+
         #sort from smallest to highest magnitude
         acgt_vals = sorted(enumerate(array[i,:]), key=lambda x: abs(x[1]))
         positive_height_so_far = 0.0

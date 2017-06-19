@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 
+import tensorflow as tf
+
 from scipy.signal import fftconvolve
 from scipy.signal import convolve2d
 

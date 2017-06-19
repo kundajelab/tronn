@@ -8,6 +8,9 @@ style maxnorm)
 
 import tensorflow as tf
 
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import math_ops
+
 
 def maxnorm(norm_val=7):
     """Torch7 style maxnorm. After gradients are applied in a training step,
