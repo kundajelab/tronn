@@ -6,6 +6,7 @@ import os
 import glob
 import h5py
 import json
+import numpy as np
 
 import tensorflow as tf
 
@@ -65,13 +66,11 @@ def call_importance_peaks(data_loader,
             importance_mat = out_hf.create_dataset(importance_key,
                                               [num_examples, 4, seq_length])
             labels_mat = out_hf.create_dataset('labels',
-                                               labels.get_shape())
+                                               [num_examples, num_tasks])
             regions_mat = out_hf.create_dataset('regions',
-                                                metadata.get_shape(),
+                                                [num_examples, 1],
                                                 dtype='S100')
 
-            # TODO remove this
-            num_examples = 12800
             # run through batches worth of sequence
             for batch_idx in range(num_examples / batch_size + 1):
 
@@ -100,11 +99,89 @@ def call_importance_peaks(data_loader,
     return None
 
 
-def kmerize():
-    """Convert weighted sequence into weighted kmers
+def kmer_to_idx(kmer_array):
+    """Get unique identifying position of kmer
     """
+    kmer_idx = 0
+    for i in range(kmer_array.shape[1]):
+        kmer_idx += np.argmax(kmer_array[:,i]) * (4**i)
+    return kmer_idx
+
+
+def kmerize(importances_h5, task_num, kmer_lens=[6, 8, 10], min_pos=4):
+    """Convert weighted sequence into weighted kmers
+
+    Args:
+      importances_h5: file with importances h5 file
+
+    Returns:
+      sparse matrix of kmer scores
+    """
+    importances_key = 'importances_task{}'.format(task_num)
+
+    # determine total cols of matrix
+    total_cols = 0
+    for kmer_len in kmer_lens:
+        total_cols += 4**kmer_len
+    print total_cols
+        
+    # determine number of sequences and generate sparse matrix
+    with h5py.File(importances_h5, 'r') as hf:
+        num_pos_examples = np.sum(hf['labels'][:,task_num] > 0)
+        num_examples = hf['regions'].shape[0]
+
+        pos_indices = np.where(hf['labels'][:,task_num] > 0)
+
+    wkm_mat = np.zeros((num_pos_examples, total_cols))
+        
+    # now start reading into file
+    with h5py.File(importances_h5, 'r') as hf:
+
+        # for each kmer:
+        for kmer_len_idx in range(len(kmer_lens)):
+            print 'kmer len', kmer_lens[kmer_len_idx]
+            kmer_len = kmer_lens[kmer_len_idx]
+            
+            if kmer_len_idx == 0:
+                start_idx = 0
+            else:
+                start_idx = kmer_len_idx * (4**kmer_lens[kmer_len_idx-1])
+
+            current_idx = 0
+            for example_idx in pos_indices[0]:
+
+                if current_idx % 100 == 0:
+                    print current_idx
+
+                # go through the sequence
+                sequence = hf[importances_key][example_idx,:,:]
+
+                for i in range(sequence.shape[1] - kmer_len):
+                    weighted_kmer = sequence[:,i:(i+kmer_len)]
+                    kmer = (weighted_kmer > 0).astype(int)
+
+                    if np.sum(kmer) < min_pos:
+                        continue
+
+                    kmer_idx = kmer_to_idx(kmer)
+                    wkm_score = np.sum(weighted_kmer)
+                    wkm_mat[current_idx, start_idx+kmer_idx] += wkm_score
+                current_idx += 1
+
+        # TODO save out a copy
+                
+    return wkm_mat
+
+
+def reduce_kmer_mat(wkm_mat, cutoff=100):
+    """Remove zeros and things below cutoff 
+    """
+    reduced_wkm_mat = wkm_mat[:,np.any(wkm_mat > cutoff, axis=0)]
+    np.savetxt('test.txt', reduced_wkm_mat, delimiter='\t')
+
+    # TODO keep indices
     
-    return None
+    return reduced_wkm_mat
 
 
 def cluster_kmers():
@@ -112,7 +189,15 @@ def cluster_kmers():
     communities of kmers that can then be merged to make motifs
     """
 
-    # consider jaccard distance?    
+    # compute distance metric
+    # consider jaccard distance
+
+
+
+    # and then cluster based on distances
+    # use phenograph (wrap in python3 script?)
+
+    
 
     return None
 
@@ -175,12 +260,12 @@ def interpret_wkm(
         task_num = task_nums[task_num_idx]
         print "Working on task {}".format(task_num)
 
-		# ---------------------------------------------------
+	# ---------------------------------------------------
         # Generate thresholded importance scores
         # IN: sequences x importance scores
         # OUT: sequences x importance scores
         # ---------------------------------------------------           
-        thresholded_importances_mat_h5 = '{}.thresholded.h5'.format(importances_mat_h5.split('.h5')[0])
+        thresholded_importances_mat_h5 = 'task_{}.importances.thresholded.h5'.format(task_num)
         if not os.path.isfile(thresholded_importances_mat_h5):
         	call_importance_peaks(data_loader, 
         		importances_mat_h5, 
@@ -194,6 +279,26 @@ def interpret_wkm(
             sample_seq_dir = 'task_{}.sample_seqs.thresholded'.format(task_num)
             os.system('mkdir -p {}'.format(sample_seq_dir))
             visualize_sample_sequences(thresholded_importances_mat_h5, task_num, sample_seq_dir)
+
+	# ---------------------------------------------------
+        # Convert into weighted kmers
+        # IN: sequences x importance scores
+        # OUT: sequences x importance scores
+        # ---------------------------------------------------
+        wkm_h5 = 'task_{}.wkm.h5'.format(task_num)
+        if not os.path.isfile(wkm_h5):
+            # first convert to wkm
+            wkm_sparse_mat = kmerize(thresholded_importances_mat_h5, task_num_idx, kmer_lens=[6])
+
+            # then remove zero columns
+            wkm_sparse_mat_redux = reduce_kmer_mat(wkm_sparse_mat, cutoff=150)
+
+            # and then cluster
+            #clusters = cluster_kmers(wkm_sparse_mat_redux)
+
+            quit()
+        
+        
             
                 
     return None
