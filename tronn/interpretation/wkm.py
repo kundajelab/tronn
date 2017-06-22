@@ -22,21 +22,20 @@ from scipy.signal import correlate2d
 
 from tronn.visualization import plot_weights
 
-# TODO move region generator to a utils group?
-# TODO move bootstrap FDR to utils group?
+import phenograph
 
 
-def call_importance_peaks(data_loader,
-                        importance_h5,
-                        out_h5,
-                        batch_size,
-                        task_num,
-                        pval):
+def call_importance_peaks(
+        data_loader,
+        importance_h5,
+        out_h5,
+        batch_size,
+        task_num,
+        pval):
     """Calls peaks on importance scores
     
     Currently assumes a poisson distribution of scores. Calculates
     poisson lambda and uses it to get a pval threshold.
-
 
     """
     print "calling peaks with pval {}".format(pval)
@@ -125,6 +124,7 @@ def kmer_to_idx(kmer_array, num_bases=5):
         
     return kmer_idx
 
+
 def kmer_to_string(kmer_array, num_bases=5):
     """Get unique identifying position of kmer
     """
@@ -144,6 +144,33 @@ def kmer_to_string(kmer_array, num_bases=5):
         else:
             num = 'N'
         base_list.append(num)
+        
+    return ''.join(base_list)
+
+
+def kmer_to_string2(kmer_array, num_bases=5):
+    """Get unique identifying position of kmer
+    """
+    kmer_idx = 0
+    base_list = []
+    # TODO check reversal
+    for i in range(kmer_array.shape[1]):
+
+        if np.sum(kmer_array[:,i]) == 0:
+            bp = 'N'
+        else:
+            idx = np.argmax(kmer_array[:,i])
+        
+            if idx == 0:
+                bp = 'A'
+            elif idx == 1:
+                bp = 'C'
+            elif idx == 2:
+                bp = 'G'
+            elif idx == 3:
+                bp = 'T'
+
+        base_list.append(bp)
         
     return ''.join(base_list)
 
@@ -209,7 +236,7 @@ def kmerize(importances_h5, task_num, kmer_lens=[6, 8, 10], min_pos=4, num_bases
             current_idx = 0
             for example_idx in pos_indices[0]:
 
-                if current_idx % 100 == 0:
+                if current_idx % 500 == 0:
                     print current_idx
 
                 # go through the sequence
@@ -254,6 +281,9 @@ def cluster_kmers():
     communities of kmers that can then be merged to make motifs
     """
 
+    # TODO phenograph
+
+    
     # compute distance metric
     # consider jaccard distance
 
@@ -268,8 +298,7 @@ def cluster_kmers():
 
 
 def generate_offsets(array_1, array_2, offset):
-    '''
-    This script sets up two sequences with the offset 
+    '''This script sets up two sequences with the offset 
     intended. Offset is set by first sequence
     '''
     bases_len = array_1.shape[0]
@@ -333,7 +362,7 @@ def merge_pwms(pwm1, pwm2, offset):
     return final_pwm
 
 
-def xcor_pwms(pwm1, pwm2, allowed_offset=2):
+def xcor_pwms(pwm1, pwm2):
     """cross correlation of pwms
     """
 
@@ -427,13 +456,15 @@ def make_motifs(kmer_list, cor_cutoff=3):
     return motifs
 
 
-def agglom_motifs(kmer_list):
+def agglom_motifs(starting_motif_list, cut_fract):
     """
     go through hierarchical until no more combinations
+    also set up score tracking to choose when to stop merging
     """
-
+    motif_list = list(starting_motif_list)
     all_motif_lists = []
-    motif_list = [np.squeeze(one_hot_encode(kmer)).transpose(1,0) for kmer in kmer_list]
+    scores = np.zeros((len(motif_list)))
+    score_idx = 0
     
     while True:
 
@@ -448,6 +479,9 @@ def agglom_motifs(kmer_list):
         # calculate every pair of xcor
         for i in range(len(motif_list)):
             for j in range(len(motif_list)):
+                # for this calculation, normalize (but otherwise, keep counts)
+
+                
                 score, offset = xcor_pwms(motif_list[i], motif_list[j])
                 xcor_mat[i,j] = score
 
@@ -455,7 +489,7 @@ def agglom_motifs(kmer_list):
         np.fill_diagonal(xcor_mat, 0)
         pwm1_idx, pwm2_idx = np.unravel_index(np.argmax(xcor_mat), dims=xcor_mat.shape)
 
-        print "chose", kmer_to_string(motif_list[pwm1_idx]), kmer_to_string(motif_list[pwm2_idx]), offset
+        #print "chose", kmer_to_string(motif_list[pwm1_idx]), kmer_to_string(motif_list[pwm2_idx]), offset
         
         score, offset = xcor_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx])
         merged_pwm = merge_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx], offset)
@@ -463,51 +497,70 @@ def agglom_motifs(kmer_list):
         del motif_list[pwm1_idx]
         del motif_list[pwm2_idx]
 
-
+        scores[score_idx] = score
         all_motif_lists.append(list(motif_list))
 
-        print [kmer_to_string(motif) for motif in all_motif_lists[-1]]
+        score_idx += 1
+
+        #print [kmer_to_string(motif) for motif in all_motif_lists[-1]]
+
+    scores_fract = scores / scores[0]
+    stop_idx = np.argmax(scores_fract < cut_fract) - 2
+
+    return all_motif_lists[stop_idx]
 
 
-    return all_motif_lists
-
-
-def make_motif_sets(clustered_file):
+def make_motif_sets(clustered_df, cut_fract=0.5):
     """Given clusters of kmers, make motifs
     """
 
     # For now just merge by kmers (don't worry about exact heights yet)
-    data = pd.read_table(clustered_file, index_col=0)
+    #data = pd.read_table(clustered_file, index_col=0)
+    data = clustered_df
     communities = list(set(data['community']))
-    communities.remove(-1) # remove ones not in a community
-
+    if (-1 in communities):
+        communities.remove(-1) # remove ones not in a community
+    community_motif_sets = []
+    
     # for each community group:
     for community in communities:
         print "community:", community
         # get the kmers
         community_df = data.loc[data['community'] == community]
-        kmers = community_df.index.tolist()
+        kmers = sorted(community_df.index.tolist()) # sort to make deterministic (for now)
+        print "kmers: ", kmers
+        
         if 'Unnamed: 0' in kmers:
             kmers.remove('Unnamed: 0')
         
         #motifs = make_motifs(kmers)
-        motifs = agglom_motifs(kmers)
+        motif_list = [np.squeeze(one_hot_encode(kmer)).transpose(1,0) for kmer in kmers]
+        motifs = agglom_motifs(motif_list, cut_fract)
 
-        print len(motifs)
-        #motif_strings = [kmer_to_string(motif) for motif in motifs]
-        #print motif_strings
+        motif_strings = [kmer_to_string(motif) for motif in motifs]
+        print "motifs ({0}): {1}".format(len(motifs), motif_strings)
 
         prefix = 'test'
-        for motif_idx in range(len(motifs[-3])):
-            motif = motifs[-3][motif_idx]
-            plot_weights(motif, '{0}.community{1}.motif{2}.png'.format(prefix, community, motif_idx), figsize=(20,2))
-        
-        import pdb
-        pdb.set_trace()
-        
-    import pdb
-    pdb.set_trace()
-        
+        for motif_idx in range(len(motifs)):
+            motif = motifs[motif_idx]
+            plot_weights(motif, '{0}.community{1}.motif{2}.png'.format(prefix, community, motif_idx), figsize=(motif.shape[1],2))
+
+        community_motif_sets.append(motifs)
+
+    # TODO: save out to PWM file
+    # set up PWM (use PWM formula)
+    flat_motif_list = [motif for community_list in community_motif_sets for motif in community_list]
+    # sort motifs by kmer name
+    flat_motif_ordered_indices = np.argsort([kmer_to_string2(motif) for motif in flat_motif_list])
+    flat_motifs_ordered = [flat_motif_list[i] for i in flat_motif_ordered_indices]
+    print [kmer_to_string2(motif) for motif in flat_motifs_ordered]
+    master_motifs = agglom_motifs(flat_motifs_ordered, cut_fract=0.7)
+
+    print "master_list:", [kmer_to_string2(motif) for motif in master_motifs]
+    for motif_idx in range(len(master_motifs)):
+        motif = master_motifs[motif_idx]
+        plot_weights(motif, '{0}.master.motif{1}.png'.format(prefix, motif_idx), figsize=(motif.shape[1],2))
+    
     return None
 
 
@@ -583,29 +636,52 @@ def interpret_wkm(
         wkm_h5 = 'task_{}.wkm.h5'.format(task_num)
         if not os.path.isfile(wkm_h5):
             # first convert to wkm
-            if False:
-                wkm_sparse_mat = kmerize(thresholded_importances_mat_h5, task_num_idx, kmer_lens=[6])
+            if True:
+                wkm_full = kmerize(thresholded_importances_mat_h5, task_num_idx, kmer_lens=[6])
 
                 # then remove zero columns
                 # TODO need to keep the kmer position names
-                wkm_sparse_mat_redux = reduce_kmer_mat(wkm_sparse_mat, cutoff=100)
+                wkm_reduced = reduce_kmer_mat(wkm_full, cutoff=100)
 
-                # GO OUT TO PHENOGRAPH HERE
+                print "number kmers kept", wkm_reduced.shape[1]
+                
+                # import and run phenograph here
+                phenograph_results_file = 'task_{}.phenograph.txt'.format(task_num)
+
+                wkm_reduced_transposed = wkm_reduced.transpose().as_matrix()
+                communities, graph, Q = phenograph.cluster(wkm_reduced_transposed)
+                                                           #k=15,
+                                                           #min_cluster_size=10)
+                
+                # and save results out to various matrices
+                sort_indices = np.argsort(communities)
+                data_sorted = wkm_reduced_transposed[sort_indices,:]
+                communities_sorted = communities[sort_indices]
+                columns_sorted = wkm_reduced.columns[sort_indices]
+                
+                out_df = pd.DataFrame(data=data_sorted, index=columns_sorted)
+                out_df['community'] = communities_sorted
+                out_df.to_csv(phenograph_results_file, sep='\t')
+                
+            # make motifs at this point
+            # and save out as a PWM file
+            make_motif_sets(out_df)
             
-            # make motifs at this point?
-            make_motif_sets('/srv/scratch/shared/indra/dskim89/home/git/tronn/scripts/communities.txt')
-
-            
-
-
-            
-            # and then cluster
-            #clusters = cluster_kmers(wkm_sparse_mat_redux)
-
             quit()
+
+        # after all tasks, take all PWM files and then merge again into master PWM file
+        # and then make sure to keep track of hierarchy
+
+        # Using master PWM file, make heatmap of (community x motif), ie, each row is a grammar
         
         
-            
+        # PWMs with adjusted thresholds?
+
+
+        # from here, key outputs:
+        # motif folder - PWMs for each individual task, and master PWM file
+        # grammars folder - decision tree models with distances and scores, optimized
+        
                 
     return None
 
