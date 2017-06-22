@@ -181,15 +181,16 @@ def idx_to_kmer(idx, kmer_len=6, num_bases=5):
     num_to_base = {0: "N", 1:"A", 2:"C", 3:"G", 4:"T"}
 
     idx_tmp = idx
-    kmer_string = []
+    reverse_kmer_string = []
     for pos in reversed(range(kmer_len)):
         num = int(idx_tmp / num_bases**pos)
         try:
-            kmer_string.append(num_to_base[num])
+            reverse_kmer_string.append(num_to_base[num])
         except:
             import pdb
             pdb.set_trace()
         idx_tmp -= num * (num_bases**pos)
+    kmer_string = reversed(reverse_kmer_string)
     
     return ''.join(kmer_string)
 
@@ -343,7 +344,26 @@ def generate_offsets(array_1, array_2, offset):
     return array_1_padded, array_2_padded
 
 
-def merge_pwms(pwm1, pwm2, offset):
+def normalize_pwm(pwm):
+    """normalize columns so each column adds up to 1
+    """
+    col_sums = pwm.sum(axis=0)
+    normalized_pwm = pwm / np.amax(col_sums[np.newaxis,:])
+    final_pwm = np.nan_to_num(normalized_pwm)
+
+    return final_pwm
+    
+def chomp_pwm(pwm):
+    """chomp off trailing/leading Ns
+    """
+    chomped_pwm = pwm[:,~np.all(pwm == 0, axis=0)]
+
+    assert(pwm.shape[0] == 4)
+
+    return chomped_pwm
+
+
+def merge_pwms(pwm1, pwm2, offset, normalize=False):
     """Merge pwms by offset
     """
 
@@ -353,20 +373,28 @@ def merge_pwms(pwm1, pwm2, offset):
     except:
         import pdb
         pdb.set_trace()
-        
-    # renormalize by columns
-    col_sums = merged_pwm.sum(axis=0)
-    normalized_pwm = merged_pwm / col_sums[np.newaxis,:]
-    final_pwm = np.nan_to_num(normalized_pwm)
+
+    if normalize:
+        final_pwm = normalize_pwm(merged_pwm)
+    else:
+        final_pwm = merged_pwm
         
     return final_pwm
 
 
-def xcor_pwms(pwm1, pwm2):
+def xcor_pwms(pwm1, pwm2, normalize=True):
     """cross correlation of pwms
     """
 
-    xcor_vals = correlate2d(pwm1, pwm2, mode='same')
+    if normalize:
+        pwm1_norm = normalize_pwm(pwm1)
+        pwm2_norm = normalize_pwm(pwm2)
+    else:
+        pwm1_norm = pwm1
+        pwm2_norm = pwm2
+
+    # TODO log first?
+    xcor_vals = correlate2d(pwm1_norm, pwm2_norm, mode='same')
 
     score = np.max(xcor_vals[1,:])
     offset = np.argmax(xcor_vals[1,:]) - (pwm1.shape[1] / 2 - 1)
@@ -468,6 +496,9 @@ def agglom_motifs(starting_motif_list, cut_fract):
     
     while True:
 
+        for motif in motif_list:
+            chomp_pwm(motif)
+        
         if len(motif_list) == 1:
             break
         
@@ -480,8 +511,6 @@ def agglom_motifs(starting_motif_list, cut_fract):
         for i in range(len(motif_list)):
             for j in range(len(motif_list)):
                 # for this calculation, normalize (but otherwise, keep counts)
-
-                
                 score, offset = xcor_pwms(motif_list[i], motif_list[j])
                 xcor_mat[i,j] = score
 
@@ -510,7 +539,7 @@ def agglom_motifs(starting_motif_list, cut_fract):
     return all_motif_lists[stop_idx]
 
 
-def make_motif_sets(clustered_df, cut_fract=0.5):
+def make_motif_sets(clustered_df, prefix, cut_fract=0.5):
     """Given clusters of kmers, make motifs
     """
 
@@ -527,22 +556,31 @@ def make_motif_sets(clustered_df, cut_fract=0.5):
         print "community:", community
         # get the kmers
         community_df = data.loc[data['community'] == community]
-        kmers = sorted(community_df.index.tolist()) # sort to make deterministic (for now)
-        print "kmers: ", kmers
-        
+        kmers = community_df.index.tolist() # sort to make deterministic (for now)
         if 'Unnamed: 0' in kmers:
             kmers.remove('Unnamed: 0')
+        kmers_scores = community_df.sum(axis=1).tolist()
+
+        motif_list = [kmers_scores[i] * np.squeeze(one_hot_encode(kmers[i])).transpose(1,0) for i in range(len(kmers))]
+        # and sort
+        kmers_sort_indices = np.argsort([kmer_to_string2(motif) for motif in motif_list])
+        motif_list_sorted = [motif_list[i] for i in kmers_sort_indices]
+
+        print "kmers: ", kmers
+        
         
         #motifs = make_motifs(kmers)
-        motif_list = [np.squeeze(one_hot_encode(kmer)).transpose(1,0) for kmer in kmers]
-        motifs = agglom_motifs(motif_list, cut_fract)
 
-        motif_strings = [kmer_to_string(motif) for motif in motifs]
+        # TODO weight the motifs by their kmer scores
+        
+        motifs = agglom_motifs(motif_list_sorted, cut_fract)
+        
+        normalized_motifs = [normalize_pwm(motif) for motif in motifs]
+        motif_strings = [kmer_to_string(motif) for motif in normalized_motifs]
         print "motifs ({0}): {1}".format(len(motifs), motif_strings)
 
-        prefix = 'test'
         for motif_idx in range(len(motifs)):
-            motif = motifs[motif_idx]
+            motif = normalized_motifs[motif_idx]
             plot_weights(motif, '{0}.community{1}.motif{2}.png'.format(prefix, community, motif_idx), figsize=(motif.shape[1],2))
 
         community_motif_sets.append(motifs)
@@ -556,9 +594,10 @@ def make_motif_sets(clustered_df, cut_fract=0.5):
     print [kmer_to_string2(motif) for motif in flat_motifs_ordered]
     master_motifs = agglom_motifs(flat_motifs_ordered, cut_fract=0.7)
 
-    print "master_list:", [kmer_to_string2(motif) for motif in master_motifs]
+    normalized_master_motifs = [normalize_pwm(motif) for motif in master_motifs]
+    print "master_list:", [kmer_to_string2(motif) for motif in normalized_master_motifs]
     for motif_idx in range(len(master_motifs)):
-        motif = master_motifs[motif_idx]
+        motif = normalized_master_motifs[motif_idx]
         plot_weights(motif, '{0}.master.motif{1}.png'.format(prefix, motif_idx), figsize=(motif.shape[1],2))
     
     return None
@@ -637,7 +676,7 @@ def interpret_wkm(
         if not os.path.isfile(wkm_h5):
             # first convert to wkm
             if True:
-                wkm_full = kmerize(thresholded_importances_mat_h5, task_num_idx, kmer_lens=[6])
+                wkm_full = kmerize(thresholded_importances_mat_h5, task_num, kmer_lens=[6])
 
                 # then remove zero columns
                 # TODO need to keep the kmer position names
@@ -665,9 +704,8 @@ def interpret_wkm(
                 
             # make motifs at this point
             # and save out as a PWM file
-            make_motif_sets(out_df)
+            make_motif_sets(out_df, 'task_{}'.format(task_num))
             
-            quit()
 
         # after all tasks, take all PWM files and then merge again into master PWM file
         # and then make sure to keep track of hierarchy
