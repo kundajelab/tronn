@@ -6,6 +6,7 @@ import os
 import glob
 import h5py
 import json
+import math
 import numpy as np
 import pandas as pd
 
@@ -21,6 +22,9 @@ from tronn.preprocess import one_hot_encode
 from scipy.signal import correlate2d
 
 from tronn.visualization import plot_weights
+
+from tronn.interpretation.motifs import run_pwm_convolution
+from tronn.interpretation.motifs import extract_positives_from_motif_mat
 
 import phenograph
 
@@ -175,7 +179,7 @@ def kmer_to_string2(kmer_array, num_bases=5):
     return ''.join(base_list)
 
 
-def idx_to_kmer(idx, kmer_len=6, num_bases=5):
+def idx_to_kmer(idx, kmer_len=7, num_bases=5):
     """From unique index val, get kmer string back
     """
     num_to_base = {0: "N", 1:"A", 2:"C", 3:"G", 4:"T"}
@@ -195,7 +199,7 @@ def idx_to_kmer(idx, kmer_len=6, num_bases=5):
     return ''.join(kmer_string)
 
 
-def kmerize(importances_h5, task_num, kmer_lens=[6, 8, 10], min_pos=4, num_bases=5):
+def kmerize(importances_h5, task_num, kmer_lens=[6, 8, 10], num_bases=5):
     """Convert weighted sequence into weighted kmers
 
     Args:
@@ -220,7 +224,8 @@ def kmerize(importances_h5, task_num, kmer_lens=[6, 8, 10], min_pos=4, num_bases
         pos_indices = np.where(hf['labels'][:,task_num] > 0)
 
     wkm_mat = np.zeros((num_pos_examples, total_cols))
-        
+    onehot_wkm_mat = np.zeros((num_pos_examples, total_cols, 4, max(kmer_lens)))
+    
     # now start reading into file
     with h5py.File(importances_h5, 'r') as hf:
 
@@ -228,6 +233,8 @@ def kmerize(importances_h5, task_num, kmer_lens=[6, 8, 10], min_pos=4, num_bases
         for kmer_len_idx in range(len(kmer_lens)):
             print 'kmer len', kmer_lens[kmer_len_idx]
             kmer_len = kmer_lens[kmer_len_idx]
+
+            min_pos = kmer_len - 2
             
             if kmer_len_idx == 0:
                 start_idx = 0
@@ -251,25 +258,39 @@ def kmerize(importances_h5, task_num, kmer_lens=[6, 8, 10], min_pos=4, num_bases
                         continue
 
                     kmer_idx = kmer_to_idx(kmer)
-                    wkm_score = np.sum(weighted_kmer)
+                    wkm_score = np.sum(weighted_kmer) # bp adjusted score?
                     wkm_mat[current_idx, start_idx+kmer_idx] += wkm_score
+
+                    # TODO - adjust kmer as needed
+                    # TODO consider adjusting for base pair importances - ex CNNGT for p63 is only two bp of importance
+                    onehot_wkm_mat[current_idx, start_idx+kmer_idx,:,0:kmer_len] += weighted_kmer
+                    
                 current_idx += 1
 
-        # TODO save out a copy
-                
-    return wkm_mat
+    onehot_wkm_avg = np.mean(onehot_wkm_mat, axis=0)
+
+    return wkm_mat, onehot_wkm_avg
 
 
-def reduce_kmer_mat(wkm_mat, cutoff=100, kmer_len=6):
+def reduce_kmer_mat(wkm_mat, kmer_len, cutoff=100, topk=200):
     """Remove zeros and things below cutoff 
     """
-    #kmer_mask = np.any(wkm_mat > cutoff, axis=0)
 
-    kmer_indices = np.arange(wkm_mat.shape[1])[np.any(wkm_mat > cutoff, axis=0)]
+    if False: # ie old code
+        #kmer_mask = np.any(wkm_mat > cutoff, axis=0)
+        
+        kmer_indices = np.arange(wkm_mat.shape[1])[np.any(wkm_mat > cutoff, axis=0)]
+        kmer_strings = [idx_to_kmer(kmer_idx, kmer_len=kmer_len)
+                        for kmer_idx in kmer_indices]
+        #reduced_wkm_mat = wkm_mat[:,np.any(wkm_mat > cutoff, axis=0)]
+
+    # using top k kmer mode for now
+    wkm_colsums = np.sum(wkm_mat, axis=0)
+    kmer_indices = np.arange(wkm_mat.shape[1])[np.argpartition(wkm_colsums, -topk)[-topk:]]
     kmer_strings = [idx_to_kmer(kmer_idx, kmer_len=kmer_len)
-                    for kmer_idx in kmer_indices]
-    reduced_wkm_mat = wkm_mat[:,np.any(wkm_mat > cutoff, axis=0)]
-
+                        for kmer_idx in kmer_indices]
+    reduced_wkm_mat = wkm_mat[:,np.argpartition(wkm_colsums, -topk)[-topk:]]
+    
     # make pandas dataframe
     wkm_df = pd.DataFrame(data=reduced_wkm_mat, columns=kmer_strings)
     wkm_df.to_csv('test.txt', sep='\t')
@@ -352,6 +373,20 @@ def normalize_pwm(pwm):
     final_pwm = np.nan_to_num(normalized_pwm)
 
     return final_pwm
+
+
+def normalize_pwm2(pwm):
+    """normalize so that it matches N(0,1)
+    ie subtract mean and divide by standard dev
+    """
+
+    mean = np.mean(pwm)
+    std = np.std(pwm)
+
+    normalized_pwm = (pwm - mean) / std
+    final_pwm = np.nan_to_num(normalized_pwm)
+
+    return final_pwm
     
 def chomp_pwm(pwm):
     """chomp off trailing/leading Ns
@@ -387,18 +422,41 @@ def xcor_pwms(pwm1, pwm2, normalize=True):
     """
 
     if normalize:
-        pwm1_norm = normalize_pwm(pwm1)
-        pwm2_norm = normalize_pwm(pwm2)
+        pwm1_norm = normalize_pwm2(pwm1)
+        pwm2_norm = normalize_pwm2(pwm2)
     else:
         pwm1_norm = pwm1
         pwm2_norm = pwm2
 
     # TODO log first?
     xcor_vals = correlate2d(pwm1_norm, pwm2_norm, mode='same')
+    #xcor_vals = correlate2d(pwm1_norm, pwm2_norm)
 
-    score = np.max(xcor_vals[1,:])
-    offset = np.argmax(xcor_vals[1,:]) - (pwm1.shape[1] / 2 - 1)
+    if False:
+        # and divide by length of shorter one to get max val be 1
+        # TODO divide by max possible score (sum of each val squared) to get max
+        max_attainable_val = np.sum(np.power(pwm1_norm, 2))
+        #max_attainable_val = np.sum(np.power((pwm1_norm > 0).astype(int), 2))
+        
+        #xcor_norm = xcor_vals / min(pwm1_norm.shape[1], pwm2_norm.shape[1])
+        xcor_norm = xcor_vals / max_attainable_val
+        
+        score = np.max(xcor_norm[1,:]) # NOTE - this depends on correlate2d mode
+        offset = np.argmax(xcor_norm[1,:]) - int(math.ceil(pwm2_norm.shape[1] / 2.) - 1)
+        #offset = np.argmax(xcor_norm[3,:]) - pwm2.shape[1] # NOTE this depends on correlate2d mode
 
+    elif False:
+        perfect_match_score = np.sum(np.power(pwm1_norm, 2)) # exact match is like multiplying it by itself
+        pwm_diff = np.absolute(xcor_vals[1,:] - perfect_match_score) / pwm1_norm.shape[1] # get absolute diff between PWMs and normalize by length
+
+        score = np.min(pwm_diff)
+        offset = np.argmin(pwm_diff) - int(math.ceil(pwm2_norm.shape[1] / 2.) - 1)
+
+    else:
+        xcor_norm = xcor_vals / (pwm1_norm.shape[0]*pwm1_norm.shape[1])
+        score = np.max(xcor_norm[1,:])
+        offset = np.argmax(xcor_norm[1,:]) - int(math.ceil(pwm2_norm.shape[1] / 2.) - 1)
+        
     #ordered_offsets = np.argsort(xcor_vals[1,:])
 
     #offset_index = -1
@@ -409,6 +467,9 @@ def xcor_pwms(pwm1, pwm2, normalize=True):
     #        break
 
     #offset = ordered_offsets[offset_index]
+
+    #import pdb
+    #pdb.set_trace()
     
     return score, offset
 
@@ -496,8 +557,9 @@ def agglom_motifs(starting_motif_list, cut_fract):
     
     while True:
 
-        for motif in motif_list:
-            chomp_pwm(motif)
+        motif_list = [chomp_pwm(motif) for motif in motif_list]
+
+        print [kmer_to_string2(normalize_pwm(motif)) for motif in motif_list]
         
         if len(motif_list) == 1:
             break
@@ -514,32 +576,72 @@ def agglom_motifs(starting_motif_list, cut_fract):
                 score, offset = xcor_pwms(motif_list[i], motif_list[j])
                 xcor_mat[i,j] = score
 
-        # take the best xcor (above cutoff) and merge
-        np.fill_diagonal(xcor_mat, 0)
-        pwm1_idx, pwm2_idx = np.unravel_index(np.argmax(xcor_mat), dims=xcor_mat.shape)
+        if True:
+            # take the best xcor (above cutoff) and merge
+            np.fill_diagonal(xcor_mat, 0)
+            pwm1_idx, pwm2_idx = np.unravel_index(np.argmax(xcor_mat), dims=xcor_mat.shape)
+            
+            print "chose", kmer_to_string(motif_list[pwm1_idx]), kmer_to_string(motif_list[pwm2_idx])
+            
+            score, offset = xcor_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx])
+            print score, offset
+            merged_pwm = merge_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx], offset)
 
-        #print "chose", kmer_to_string(motif_list[pwm1_idx]), kmer_to_string(motif_list[pwm2_idx]), offset
-        
-        score, offset = xcor_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx])
-        merged_pwm = merge_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx], offset)
-        motif_list.append(merged_pwm)
-        del motif_list[pwm1_idx]
-        del motif_list[pwm2_idx]
+            motif_list.append(merged_pwm)
+            del motif_list[pwm1_idx]
+            del motif_list[pwm2_idx]
+            
+            scores[score_idx] = score
+            all_motif_lists.append(list(motif_list))
+            
+            score_idx += 1
 
-        scores[score_idx] = score
-        all_motif_lists.append(list(motif_list))
+        else:
+            # take the best xcor (above cutoff) and merge
+            np.fill_diagonal(xcor_mat, 1000)
+            pwm1_idx, pwm2_idx = np.unravel_index(np.argmin(xcor_mat), dims=xcor_mat.shape)
+            
+            print "chose", kmer_to_string(motif_list[pwm1_idx]), kmer_to_string(motif_list[pwm2_idx])
 
-        score_idx += 1
+            score, offset = xcor_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx])
+            print score, offset
+            merged_pwm = merge_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx], offset)
 
-        #print [kmer_to_string(motif) for motif in all_motif_lists[-1]]
+            motif_list.append(merged_pwm)
+            del motif_list[pwm1_idx]
+            del motif_list[pwm2_idx]
+            
+            scores[score_idx] = score
+            all_motif_lists.append(list(motif_list))
+            
+            score_idx += 1
 
-    scores_fract = scores / scores[0]
-    stop_idx = np.argmax(scores_fract < cut_fract) - 2
+            #print [kmer_to_string(motif) for motif in all_motif_lists[-1]]
+            
+        #scores_fract = scores / scores[0]
+    scores_fract = scores
+    #stop_idx = np.argmin(scores_fract < 0.15) - 2
+    stop_idx = np.argmin(scores_fract > cut_fract) - 2
 
     return all_motif_lists[stop_idx]
 
 
-def make_motif_sets(clustered_df, prefix, cut_fract=0.5):
+def write_pwm(pwm_file, pwm, pwm_name):
+    """Append a PWM (normalized to center at zero) to a motif file
+    """
+    normalized_pwm = normalize_pwm2(pwm)
+    
+    with open(pwm_file, 'a') as fp:
+        fp.write('>{}\n'.format(pwm_name))
+        for i in range(normalized_pwm.shape[1]):
+            vals = normalized_pwm[:,i].tolist()
+            val_strings = [str(val) for val in vals]
+            fp.write('{}\n'.format('\t'.join(val_strings)))
+
+    return None
+    
+
+def make_motif_sets(clustered_df, wkm_array, prefix, cut_fract=0.7):
     """Given clusters of kmers, make motifs
     """
 
@@ -561,17 +663,21 @@ def make_motif_sets(clustered_df, prefix, cut_fract=0.5):
             kmers.remove('Unnamed: 0')
         kmers_scores = community_df.sum(axis=1).tolist()
 
-        motif_list = [kmers_scores[i] * np.squeeze(one_hot_encode(kmers[i])).transpose(1,0) for i in range(len(kmers))]
+        #kmer_indices = [kmer_to_idx(kmer) for kmer in kmers]
+        
+        #motif_list = [kmers_scores[i] * np.squeeze(one_hot_encode(kmers[i])).transpose(1,0) for i in range(len(kmers))]
+        # motifs: you want to take the kmer PWMs (as identified by the NN) but also weight by number of sequences
+        motif_list = [wkm_array[
+            kmer_to_idx(
+                np.squeeze(
+                    one_hot_encode(kmers[i])).transpose(1,0)
+            ),:,:] for i in range(len(kmers))]
+        #motif_list = [kmers_scores[i] * wkm_array[kmer_indices[i],:,:] for i in range(len(kmers))]
         # and sort
         kmers_sort_indices = np.argsort([kmer_to_string2(motif) for motif in motif_list])
         motif_list_sorted = [motif_list[i] for i in kmers_sort_indices]
 
         print "kmers: ", kmers
-        
-        
-        #motifs = make_motifs(kmers)
-
-        # TODO weight the motifs by their kmer scores
         
         motifs = agglom_motifs(motif_list_sorted, cut_fract)
         
@@ -592,8 +698,13 @@ def make_motif_sets(clustered_df, prefix, cut_fract=0.5):
     flat_motif_ordered_indices = np.argsort([kmer_to_string2(motif) for motif in flat_motif_list])
     flat_motifs_ordered = [flat_motif_list[i] for i in flat_motif_ordered_indices]
     print [kmer_to_string2(motif) for motif in flat_motifs_ordered]
-    master_motifs = agglom_motifs(flat_motifs_ordered, cut_fract=0.7)
+    master_motifs = agglom_motifs(flat_motifs_ordered, cut_fract=0.8)
 
+    # write out to PWM file
+    for motif_idx in range(len(master_motifs)):
+        motif_name = '{0}.motif_{1}'.format(prefix, motif_idx)
+        write_pwm('{}.motif_file.txt'.format(prefix), master_motifs[motif_idx], motif_name)
+    
     normalized_master_motifs = [normalize_pwm(motif) for motif in master_motifs]
     print "master_list:", [kmer_to_string2(motif) for motif in normalized_master_motifs]
     for motif_idx in range(len(master_motifs)):
@@ -676,11 +787,13 @@ def interpret_wkm(
         if not os.path.isfile(wkm_h5):
             # first convert to wkm
             if True:
-                wkm_full = kmerize(thresholded_importances_mat_h5, task_num, kmer_lens=[6])
+                kmer_len = 7
+                
+                wkm_full, onehot_wkm_full = kmerize(thresholded_importances_mat_h5, task_num, kmer_lens=[kmer_len])
 
                 # then remove zero columns
                 # TODO need to keep the kmer position names
-                wkm_reduced = reduce_kmer_mat(wkm_full, cutoff=100)
+                wkm_reduced = reduce_kmer_mat(wkm_full, kmer_len, cutoff=120) # for 6, 100 was good
 
                 print "number kmers kept", wkm_reduced.shape[1]
                 
@@ -704,21 +817,59 @@ def interpret_wkm(
                 
             # make motifs at this point
             # and save out as a PWM file
-            make_motif_sets(out_df, 'task_{}'.format(task_num))
-            
+            make_motif_sets(out_df, onehot_wkm_full, 'task_{}'.format(task_num))
 
-        # after all tasks, take all PWM files and then merge again into master PWM file
-        # and then make sure to keep track of hierarchy
+            motif_mat_h5 = 'task_{}.wkm.motif_mat.h5'.format(task_num)
+            if not os.path.isfile(motif_mat_h5):
+                run_pwm_convolution(
+                    data_loader,
+                    importances_mat_h5,
+                    motif_mat_h5,
+                    args.batch_size * 4,
+                    'task_{}.motif_file.txt'.format(task_num),
+                    task_num)
 
-        # Using master PWM file, make heatmap of (community x motif), ie, each row is a grammar
+            # ---------------------------------------------------
+            # extract the positives to cluster in R and visualize
+            # IN: sequences x motifs
+            # OUT: positive sequences x motifs
+            # ---------------------------------------------------
+            pos_motif_mat = 'task_{}.wkm_mat.positives.txt.gz'.format(task_num)
+            if not os.path.isfile(pos_motif_mat):
+                extract_positives_from_motif_mat(motif_mat_h5, pos_motif_mat, task_num)
+                 
+            # ---------------------------------------------------
+            # Cluster positives in R and output subgroups
+            # IN: positive sequences x motifs
+            # OUT: subgroups of sequences
+            # ---------------------------------------------------
+            cluster_dir = 'task_{}.positives.wkm.clustered'.format(task_num)
+            if not os.path.isdir(cluster_dir):
+                os.system('mkdir -p {}'.format(cluster_dir))
+                prefix = 'task_{}'.format(task_num)
+                os.system('run_region_clustering.R {0} 50 {1} {2}/{3}'.format(pos_motif_mat,
+                                                                              dendro_cutoffs[task_num_idx],
+                                                                              cluster_dir,
+                                                                              prefix))
+
+
+        # From here, can take these PWMs and run pwm convolve to get sequence by PWM matrix
+        
+
+        
+
+    # after all tasks, take all PWM files and then merge again into master PWM file
+    # and then make sure to keep track of hierarchy
+
+    # Using master PWM file, make heatmap of (community x motif), ie, each row is a grammar
         
         
-        # PWMs with adjusted thresholds?
+    # PWMs with adjusted thresholds?
 
 
-        # from here, key outputs:
-        # motif folder - PWMs for each individual task, and master PWM file
-        # grammars folder - decision tree models with distances and scores, optimized
+    # from here, key outputs:
+    # motif folder - PWMs for each individual task, and master PWM file
+    # grammars folder - decision tree models with distances and scores, optimized
         
                 
     return None
