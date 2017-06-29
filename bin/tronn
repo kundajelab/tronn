@@ -28,6 +28,9 @@ def parse_args():
     # command for interpretation with kmers
     add_interpret_parser_2(subparsers)
 
+    # command for scanning grammars
+    add_scan_grammars_parser(subparsers)
+
     # TODO consider a command for visualizing some example sequences
 
     # parse args
@@ -191,6 +194,34 @@ def add_interpret_parser_2(subparsers):
     
     return
 
+def add_scan_grammars_parser(subparsers):
+    """Add grammar scanning function argument parser
+    """
+    argparser_scan = subparsers.add_parser("scangrammars", help="Scan genomic regions for grammars")
+
+    # group for input files
+    group_input = argparser_scan.add_argument_group("Input files and folders")
+    group_input.add_argument('--regions', help='input BED file')
+    group_input.add_argument('--motifs', help='PWM file')
+    group_input.add_argument('--grammars', help='Grammar file (must use names that match PWM file')
+    group_input.add_argument("--annotations_json", help='json of support files')
+    
+    # group for options
+    group_opts = argparser_scan.add_argument_group("Scanning options")
+    group_opts.add_argument('--batch_size', default=128, type=int, help='batch size')
+    group_opts.add_argument("--rc", action='store_true', help='Reverse complement')
+    group_opts.add_argument("--univ_neg_num", default=0, help='number of universal negatives to grab from univ DHS regions')
+    group_opts.add_argument("--parallel", default=24, type=int,
+                            help='Number of parallel threads to use')
+
+    # group for output files
+    group_output = argparser_scan.add_argument_group("Output files and folders")
+    add_out_dir_option(group_output)
+    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
+    group_output.add_argument('--scratch_dir', help='temporary scratch directory')
+
+    return
+
 
 def track_runs(args):
     """track command and github commit
@@ -241,6 +272,9 @@ def main():
         add_model_config(args)
         print 'model args: %s' % args.model
         from tronn.interpretation.wkm import run
+        run(args)
+    elif subcommand == 'scangrammars':
+        from tronn.interpretation.grammars import run
         run(args)
         
     return None

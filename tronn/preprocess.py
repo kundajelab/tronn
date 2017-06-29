@@ -58,7 +58,7 @@ def generate_chrom_files(out_dir, peak_file, prefix):
 # Binning
 # =====================================================================
 
-def bin_regions(in_file, out_file, bin_size, stride, method='plus_flank_negs'):
+def bin_regions(in_file, out_file, bin_size, stride, method):
     """Bin regions based on bin size and stride
 
     Args:
@@ -99,7 +99,7 @@ def bin_regions(in_file, out_file, bin_size, stride, method='plus_flank_negs'):
     return None
 
 
-def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, parallel=12):
+def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, bin_method, parallel=12):
     """Utilize func_workder to run on chromosomes
 
     Args:
@@ -125,7 +125,8 @@ def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, parallel=12):
         bin_args = [chrom_file,
                     '{0}/{1}_binned.bed.gz'.format(out_dir, chrom_prefix),
                     bin_size,
-                    stride]
+                    stride,
+                    bin_method]
         bin_queue.put([bin_regions, bin_args])
 
     # run the queue
@@ -462,6 +463,7 @@ def generate_nn_dataset(celltype_master_regions,
                         prefix,
                         neg_region_num=200000,
                         bin_size=200,
+                        bin_method='plus_flank_negs',
                         stride=50,
                         final_length=1000,
                         parallel=12,
@@ -509,7 +511,7 @@ def generate_nn_dataset(celltype_master_regions,
     bin_dir = '{}/binned'.format(work_dir)
     if not os.path.isfile('{0}/{1}_chrY_binned.bed.gz'.format(bin_dir, prefix)):
         os.system('mkdir -p {}'.format(bin_dir))
-        bin_regions_chrom(chrom_master_dir, bin_dir, prefix, bin_size, stride, parallel=parallel)
+        bin_regions_chrom(chrom_master_dir, bin_dir, prefix, bin_size, stride, bin_method, parallel=parallel)
 
     # generate one-hot encoding sequence files (examples) and then labels
     regions_fasta_dir = '{}/regions_fasta'.format(work_dir)
@@ -531,7 +533,7 @@ def generate_nn_dataset(celltype_master_regions,
                               regions_fasta_dir, chrom_hdf5_dir, bin_size,
                               final_length, parallel=parallel)
 
-    return None
+    return '{}/h5'.format(work_dir)
 
 
 def generate_master_regions(out_file, label_peak_files):

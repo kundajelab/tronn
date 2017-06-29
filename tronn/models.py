@@ -20,6 +20,11 @@ from tensorflow.contrib.distributions import Poisson
 from tronn.nn_ops import maxnorm
 from tronn.util.sample_stats import percentile
 
+from tronn.initializers import pwm_initializer
+
+from tronn.util.tf_utils import get_fan_in
+
+
 
 def final_pool(net, pool):
     if pool == 'flatten':
@@ -524,5 +529,76 @@ def stdev_cutoff(signal, num_stdev=3):
     thresholded_tensor = signal * greaterthan_tensor
 
     out_tensor = tf.transpose(tf.squeeze(thresholded_tensor), [0, 2, 1])
+
+    return out_tensor
+
+
+# ===============================
+# grammars
+# ===============================
+
+
+
+def _grammar_module(features, grammar, threshold=False):
+    """Set up grammar part of graph
+    This is separated out in case we do more complicated grammar analyses 
+    (such as involving distances, make decision trees, etc)
+    """
+
+    # bad: clean up later
+    from tronn.interpretation.motifs import PWM
+    
+    # get various sizes needed to instantiate motif matrix
+    num_filters = len(grammar.pwms)
+
+    max_size = 0
+    for pwm in grammar.pwms:
+        # TODO write out order so that we have it
+        
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+
+
+    # run through motifs and select max score of each
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope([slim.conv2d],
+                        padding='VALID',
+                        activation_fn=None,
+                        weights_initializer=pwm_initializer(conv1_filter_size, grammar.pwms, get_fan_in(features), num_filters),
+                        biases_initializer=None):
+        net = slim.conv2d(features, num_filters, conv1_filter_size)
+
+        width = net.get_shape()[2]
+        net = slim.max_pool2d(net, [1, width], stride=[1, 1])
+
+        # and squeeze it
+        net = tf.squeeze(net)
+
+        # and then just do a summed score for now? averaged score?
+        net = tf.reduce_mean(net, axis=1)
+        
+        # TODO throw in optional threshold
+        if threshold:
+            print "not yet implemented!"
+
+    return net
+
+
+def grammar_scanner(features, grammars):
+    """Sets up grammars to run
+
+    Args:
+      features: input sequence (one hot encoded)
+      grammars: dictionary, grammar name to grammar object
+
+    Returns:
+      out_tensor: vector of output values after running grammars
+    """
+    grammar_out = []
+    for grammar_key in sorted(grammars.keys()):
+        grammar_out.append(_grammar_module(features, grammars[grammar_key]))
+        
+    # then pack it into a vector and return vector
+    out_tensor = tf.stack(grammar_out, axis=1)
 
     return out_tensor

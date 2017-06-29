@@ -61,6 +61,8 @@ class PWM(object):
             weights = np.loadtxt(fp)[:, 1:]
         return PWM(weights, name)
 
+    def get_weights(self):
+        return self.weights
 
 
 def run_pwm_convolution(data_loader,

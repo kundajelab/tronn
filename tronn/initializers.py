@@ -6,6 +6,7 @@ implemented in tensorflow
 """
 
 import math
+import numpy as np
 import tensorflow as tf
 
 from tensorflow.python.framework import dtypes
@@ -39,17 +40,19 @@ def torch_fullyconnected_initializer(fan_in, dtype=dtypes.float32):
     return torch_initializer(stdv)
 
 
-def pwm_initializer(filter_shape, pwm_list, fan_in, dtype=dtypes.float32):
+def pwm_initializer(filter_shape, pwm_list, fan_in, total_filters=900, flip=False, dtype=dtypes.float32):
     '''
     Load PWMs into layer
     '''
 
+    filter_length = filter_shape[1]
+    
     # for each PWM,
     weights_list = []
     for i in range(len(pwm_list)):
         pwm = pwm_list[i]
         
-        extend_length = int((19 - pwm.weights.shape[1]) / 2)
+        extend_length = int((filter_length - pwm.weights.shape[1]) / 2)
         
         if extend_length >= 0:
             # centered weight
@@ -58,14 +61,15 @@ def pwm_initializer(filter_shape, pwm_list, fan_in, dtype=dtypes.float32):
             pwm_center = pwm.weights.shape[1] / 2
             padded_weights = pwm.weights[:,pwm_center-10:pwm_center+9]
         weights_list.append(padded_weights) # do it twice to double chance of it succeeding
-        weights_list.append(np.flipud(np.fliplr(padded_weights)))
+        if flip:
+            weights_list.append(np.flipud(np.fliplr(padded_weights)))
             
     # stack into weights tensor and assign to subset
     pwm_all_weights = np.stack(weights_list, axis=0).transpose(2, 1, 0)
     pwm_np_array_subset = np.expand_dims(pwm_all_weights, axis=0)
 
     complementary_shape = list(pwm_np_array_subset.shape)
-    complementary_shape[3] = 900 - pwm_np_array_subset.shape[3]
+    complementary_shape[3] = total_filters - pwm_np_array_subset.shape[3]
             
     # conv initializer stdv
     stdv = 1. / math.sqrt(filter_shape[0] * filter_shape[1] * fan_in)

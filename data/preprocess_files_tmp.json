@@ -1,4 +1,4 @@
 {
-    "univ_dhs":"/srv/scratch/shared/indra/dskim89/home/annotations_tmp/reg2map_dnase_p10_regions_all.bed.gz"
+    "univ_dhs":"/srv/scratch/shared/indra/dskim89/home/annotations_tmp/reg2map_dnase_p10_regions_all.bed.gz",
     "ref_fasta":"/srv/scratch/shared/indra/dskim89/home/annotations_tmp/hg19.genome.fa"
 }

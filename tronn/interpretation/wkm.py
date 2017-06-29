@@ -28,6 +28,8 @@ from tronn.interpretation.motifs import extract_positives_from_motif_mat
 
 import phenograph
 
+import scipy.stats
+
 
 def call_importance_peaks(
         data_loader,
@@ -714,6 +716,57 @@ def make_motif_sets(clustered_df, wkm_array, prefix, cut_fract=0.7):
     return None
 
 
+def get_sequence_communities(text_mat_file, prefix):
+    """Cluster sequences by which motifs they have. Uses phenograph - this is good
+    because it has a way of ignoring things that don't really belong in clusters
+    """
+
+    data = pd.read_table(text_mat_file)
+
+    if 'Unnamed: 0' in data.columns:
+        del data['Unnamed: 0']
+
+    # TODO change this later to keep locations
+    del data['indices']
+
+    # normalize first
+    data_norm = data.apply(scipy.stats.zscore, axis=1)
+
+    
+    data_npy = data_norm.as_matrix()
+    communities, graph, Q = phenograph.cluster(data_npy)
+    data_norm['community'] = communities
+
+    # sort by community
+    data_sorted = data_norm.sort_values('community')
+
+
+    # For each community, save out significant motifs (ie, greater than 1 stdev?)
+    communities = list(np.unique(communities))
+
+    # TODO save out motif grammar lists
+    grammar_file = '{}.grammars.txt'.format(prefix)
+    with open(grammar_file, 'w') as out:
+        for community in communities:
+            community_data = data_sorted.loc[data_sorted['community'] == community]
+            print community_data.shape
+            
+            del community_data['community']
+            community_motif_avg = community_data.mean(axis=0)
+            
+            community_motifs = community_data.loc[:,community_motif_avg > 0.5] #TODO move parameter
+
+            print community_motifs.columns.tolist()
+            out.write('{0}.{1}\t{2}\n'.format(prefix, community,'\t'.join(community_motifs.columns.tolist())))
+        
+    print communities
+    
+    seq_communities_file = '{}.seq_communities.txt'.format(prefix)
+    data_sorted.to_csv(seq_communities_file, sep='\t')
+    
+    return grammar_file, seq_communities_file
+
+
 def interpret_wkm(
         args,
         data_loader,
@@ -786,7 +839,7 @@ def interpret_wkm(
         wkm_h5 = 'task_{}.wkm.h5'.format(task_num)
         if not os.path.isfile(wkm_h5):
             # first convert to wkm
-            if True:
+            if False:
                 kmer_len = 7
                 
                 wkm_full, onehot_wkm_full = kmerize(thresholded_importances_mat_h5, task_num, kmer_lens=[kmer_len])
@@ -815,9 +868,9 @@ def interpret_wkm(
                 out_df['community'] = communities_sorted
                 out_df.to_csv(phenograph_results_file, sep='\t')
                 
-            # make motifs at this point
-            # and save out as a PWM file
-            make_motif_sets(out_df, onehot_wkm_full, 'task_{}'.format(task_num))
+                # make motifs at this point
+                # and save out as a PWM file
+                make_motif_sets(out_df, onehot_wkm_full, 'task_{}'.format(task_num))
 
             motif_mat_h5 = 'task_{}.wkm.motif_mat.h5'.format(task_num)
             if not os.path.isfile(motif_mat_h5):
@@ -837,7 +890,18 @@ def interpret_wkm(
             pos_motif_mat = 'task_{}.wkm_mat.positives.txt.gz'.format(task_num)
             if not os.path.isfile(pos_motif_mat):
                 extract_positives_from_motif_mat(motif_mat_h5, pos_motif_mat, task_num)
-                 
+
+
+            # TODO can try phenograph here again for the clustering
+            grammar_file, seq_communities_file = get_sequence_communities(pos_motif_mat, 'task_{}'.format(task_num))
+
+
+            
+
+            quit()
+            
+            
+                
             # ---------------------------------------------------
             # Cluster positives in R and output subgroups
             # IN: positive sequences x motifs
