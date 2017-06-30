@@ -237,8 +237,19 @@ def hdf5_list_to_slices(hdf5_files, batch_size, tasks=[], features_key='features
             local_batch += 1
         else:
             local_batch = 0
-            current_file_idx += 1
-            current_file_example_total = num_examples_per_file[current_file_idx] / batch_size
+
+            while True:
+                # go to next file index
+                if (current_file_idx + 1) == len(h5py_handles):
+                    current_file_idx = 0
+                else:
+                    current_file_idx += 1
+                
+                current_file_example_total = num_examples_per_file[current_file_idx] / batch_size
+                if local_batch < current_file_example_total:
+                    break
+            
+            #current_file_example_total = num_examples_per_file[current_file_idx] / batch_size
             global_batch_to_file_idx[global_batch] = (current_file_idx, local_batch)
             local_batch += 1
     

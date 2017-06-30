@@ -16,3 +16,6 @@ def get_global_avg_metrics(labels, probabilities, tasks=[]):
     update_ops = metric_updates.values()
     return metric_value, update_ops
 
+
+
+# TODO use TFlearn random forest. To do this, make a preprocess to kmer hdf5 file and new datalayer for that input

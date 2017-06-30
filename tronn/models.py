@@ -539,7 +539,7 @@ def stdev_cutoff(signal, num_stdev=3):
 
 
 
-def _grammar_module(features, grammar, threshold=False):
+def _grammar_module(features, grammar, threshold=False, nonlinear=False):
     """Set up grammar part of graph
     This is separated out in case we do more complicated grammar analyses 
     (such as involving distances, make decision trees, etc)
@@ -574,8 +574,16 @@ def _grammar_module(features, grammar, threshold=False):
         # and squeeze it
         net = tf.squeeze(net)
 
+        if len(net.get_shape()) == 1:
+            return net
+
         # and then just do a summed score for now? averaged score?
-        net = tf.reduce_mean(net, axis=1)
+        # TODO there needs to be some sort of cooperative nonlinearity?
+        # consider a joint multiplication of everything
+        if nonlinear:
+            net = tf.reduce_prod(net, axis=1)
+        else:
+            net = tf.reduce_mean(net, axis=1)
         
         # TODO throw in optional threshold
         if threshold:
@@ -584,7 +592,7 @@ def _grammar_module(features, grammar, threshold=False):
     return net
 
 
-def grammar_scanner(features, grammars):
+def grammar_scanner(features, grammars, normalize=True):
     """Sets up grammars to run
 
     Args:
@@ -594,9 +602,15 @@ def grammar_scanner(features, grammars):
     Returns:
       out_tensor: vector of output values after running grammars
     """
+
+    if normalize:
+        features_norm = (features - 0.25) / 0.4330127
+    else:
+        features_norm = features
+    
     grammar_out = []
     for grammar_key in sorted(grammars.keys()):
-        grammar_out.append(_grammar_module(features, grammars[grammar_key]))
+        grammar_out.append(_grammar_module(features_norm, grammars[grammar_key]))
         
     # then pack it into a vector and return vector
     out_tensor = tf.stack(grammar_out, axis=1)

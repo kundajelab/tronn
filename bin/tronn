@@ -204,6 +204,7 @@ def add_scan_grammars_parser(subparsers):
     group_input.add_argument('--regions', help='input BED file')
     group_input.add_argument('--motifs', help='PWM file')
     group_input.add_argument('--grammars', help='Grammar file (must use names that match PWM file')
+    group_input.add_argument('--labels', help='subset of --regions. Used to calculate metrics for you')
     group_input.add_argument("--annotations_json", help='json of support files')
     
     # group for options
