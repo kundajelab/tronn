@@ -14,6 +14,7 @@ from tronn.preprocess import generate_nn_dataset
 from tronn.datalayer import load_data_from_filename_list, get_total_num_examples
 from tronn.models import grammar_scanner
 from tronn.interpretation.motifs import PWM
+from tronn.util.bioinformatics import run_great
 
 from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
 from scipy.stats import zscore
@@ -144,7 +145,7 @@ def scan_grammars(data_files, motif_file, grammars, prefix, out_dir, batch_size,
                                 index=regions_list[0:total_region_num],
                                 columns=sorted(grammars.keys()))
 
-    grammar_hits.to_csv('task_0.testing_grammar_hits.txt', sep='\t')
+    grammar_hits.to_csv('{}.grammar_convolves.txt'.format(prefix), sep='\t')
 
 
     # To think about: right now taking the max prob from independent grammars
@@ -166,14 +167,49 @@ def scan_grammars(data_files, motif_file, grammars, prefix, out_dir, batch_size,
         grammar_min_vals = grammar_hits.min(axis=1)
         grammar_predictions = grammar_hits.max(axis=1) # need to convert this to probabilities...
         grammar_prediction_probs = (grammar_predictions - grammar_predictions.min()) / grammar_predictions.max()
-        
-    for label_idx in range(all_labels.shape[1]):
-        # get PR val
-        precision, recall = precision_recall_curve(all_labels[:,label_idx], grammar_prediction_probs)[:2]
-        print auc(recall, precision)
-        # get AUROC val
-        print roc_auc_score(all_labels[:,label_idx], grammar_prediction_probs)
 
+    if False:
+        for label_idx in range(all_labels.shape[1]):
+            # get PR val
+            precision, recall = precision_recall_curve(all_labels[:,label_idx], grammar_prediction_probs)[:2]
+            print auc(recall, precision)
+            # get AUROC val
+            print roc_auc_score(all_labels[:,label_idx], grammar_prediction_probs)
+
+
+    # somewhere here need to choose thresholds for grammars? or should this happen earlier
+    # for now, heuristic - this will be fixed with a better grammar analysis
+    grammar_hits_norm = (grammar_hits - grammar_hits.mean(axis=0)) / grammar_hits.std(axis=0)
+
+    great_dir = '{}/great'.format(out_dir)
+    os.system('mkdir -p {}'.format(great_dir))
+    
+    for grammar_name in grammar_hits_norm.columns:
+        thresholded_file = '{0}.{1}.hits_thresholded.txt'.format(prefix, grammar_name)
+        thresholded_bed = '{0}.{1}.hits_thresholded.bed'.format(prefix, grammar_name)
+
+        if os.path.isfile(thresholded_bed):
+            continue
+        
+        subset = grammar_hits_norm.loc[grammar_hits_norm[grammar_name] > 1.5]
+        subset.to_csv(thresholded_file, columns=[], header=False)
+        
+        # and format into a BED file
+        make_bed = ("cat {} | "
+                    "awk -F ':' '{{ print $1\"\t\"$2}}' | "
+                    "awk -F '-' '{{ print $1\"\t\"$2}}' > "
+                    "{}").format(thresholded_file, thresholded_bed)
+        os.system(make_bed)
+
+        # run optional GREAT analysis
+        run_great(thresholded_bed, '{0}/{1}.{2}'.format(great_dir, prefix, grammar_name))
+        
+        
+    import ipdb
+    ipdb.set_trace()
+
+
+    
 
     quit()
 
@@ -195,7 +231,6 @@ def run(args):
             num_regions += 1
 
     print num_regions
-        
         
     # first set up grammar dataset
     if not os.path.isdir('{}/data'.format(args.scratch_dir)):

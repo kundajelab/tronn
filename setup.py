@@ -15,5 +15,6 @@ if __name__== '__main__':
                    'scripts/run_region_clustering.R',
                    'scripts/make_network_grammar.R',
                    'scripts/make_network_grammar_v2.R',
-                   'scripts/filter_w_rna.R']
+                   'scripts/filter_w_rna.R',
+                   'scripts/run_rgreat.R']
     )

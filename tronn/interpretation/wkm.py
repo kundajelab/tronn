@@ -703,10 +703,12 @@ def make_motif_sets(clustered_df, wkm_array, prefix, cut_fract=0.7):
     master_motifs = agglom_motifs(flat_motifs_ordered, cut_fract=0.8)
 
     # write out to PWM file
+    # TODO put in optional MEME tool to name the motifs by closest hit(s)
     for motif_idx in range(len(master_motifs)):
         motif_name = '{0}.motif_{1}'.format(prefix, motif_idx)
         write_pwm('{}.motif_file.txt'.format(prefix), master_motifs[motif_idx], motif_name)
-    
+
+    # and plot it out so you have a representation of the motif
     normalized_master_motifs = [normalize_pwm(motif) for motif in master_motifs]
     print "master_list:", [kmer_to_string2(motif) for motif in normalized_master_motifs]
     for motif_idx in range(len(master_motifs)):
@@ -872,6 +874,10 @@ def interpret_wkm(
                 # and save out as a PWM file
                 make_motif_sets(out_df, onehot_wkm_full, 'task_{}'.format(task_num))
 
+                # and here also make some educated guesses for what PWM this matches (tomtom?)
+                # TODO convert PWM to meme format (see basset code)
+                # also convert HOCOMOCO to meme format
+
             motif_mat_h5 = 'task_{}.wkm.motif_mat.h5'.format(task_num)
             if not os.path.isfile(motif_mat_h5):
                 run_pwm_convolution(
@@ -896,9 +902,13 @@ def interpret_wkm(
             grammar_file, seq_communities_file = get_sequence_communities(pos_motif_mat, 'task_{}'.format(task_num))
 
 
+            # TODO here we make thresholds for the grammars
+            
+            
+            # TODO here we can do in silico mutagenesis to build better grammars
             
 
-            quit()
+            continue
             
             
                 
@@ -916,26 +926,6 @@ def interpret_wkm(
                                                                               cluster_dir,
                                                                               prefix))
 
-
-        # From here, can take these PWMs and run pwm convolve to get sequence by PWM matrix
-        
-
-        
-
-    # after all tasks, take all PWM files and then merge again into master PWM file
-    # and then make sure to keep track of hierarchy
-
-    # Using master PWM file, make heatmap of (community x motif), ie, each row is a grammar
-        
-        
-    # PWMs with adjusted thresholds?
-
-
-    # from here, key outputs:
-    # motif folder - PWMs for each individual task, and master PWM file
-    # grammars folder - decision tree models with distances and scores, optimized
-        
-                
     return None
 
 
