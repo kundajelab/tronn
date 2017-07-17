@@ -349,42 +349,88 @@ def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key=
     return features, labels, metadata
 
 
-    # elif shuffle == False:
-    #     example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, tasks, features_key) for hdf5_file in hdf5_files]
-    #     min_after_dequeue = 10000
-    #     capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
-    #     features, labels, metadata = tf.train.batch_join(example_slices_list,
-    #                                                      batch_size,
-    #                                                      capacity=capacity,
-    #                                                      enqueue_many=True,
-    #                                                      name='batcher')
-        
-    # else:
-    #     # use for importance scores
-    #     filename_queue = tf.train.string_input_producer(hdf5_files)
-    #     filename_tensor = filename_queue.dequeue()
-        
-    #     features_tensor, labels_tensor, metadata_tensor = tf.py_func(
-    #         func=hdf5_to_slices,
-    #         inp=[filename_tensor, batch_size, tasks, features_key],
-    #         Tout=[tf.float32, tf.float32, tf.string],
-    #         stateful=False, name='py_func_filename_to_examples')
+def hdf5_kmers_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shuffle=True):
+    """Reads in kmer feature file from hdf5
 
-    #     # set shapes
-    #     h5py_handle = h5py.File(hdf5_files[0]) # currently hacky
-    #     feature_shape = h5py_handle[features_key].shape[1:]
-    #     label_shape = h5py_handle['labels'].shape[1:]
-    #     if len(tasks) == 0:
-    #         tasks = range(label_shape[0])
-    #     if features_key == 'features':
-    #         features_tensor.set_shape([batch_size, feature_shape[0], feature_shape[1], feature_shape[2]])
-    #     else: # features are importance scores
-    #         features_tensor.set_shape([batch_size, 1, feature_shape[1], 4])
-    #     labels_tensor.set_shape([batch_size, len(tasks)])
-    #     metadata_tensor.set_shape([batch_size, 1])
+    Args:
+      hdf5_file: hdf5 file with input data 
+      batch_size: desired batch size to return to tensor
+      tasks: use if a subset of tasks desired
+      features_key: the key for the input dataset examples ('features' or 'importances')
+
+    Returns:
+      features_tensor: a tensor (batch_size, feature_dims) for examples
+      labels_tensor: a tensor (batch_size, num_tasks) for labels
+      metadata_tensor: a tensor (batch_size, 1) for a metadata string (often region name)
+    """
+    # Extract hdf5 file params (number of examples, max batches, batch IDs)
+    print "Data layer: loading {}".format(hdf5_file)
+    h5py_handle = h5py.File(hdf5_file)
+    num_examples = h5py_handle[features_key].shape[0]
+    max_batches = num_examples/batch_size
+    batch_id_queue = tf.train.range_input_producer(max_batches, shuffle=shuffle)
+
+    # Check shapes from the hdf5 file so that we can set the tensor shapes
+    num_features = h5py_handle[features_key].shape[1]
+    num_labels= h5py_handle['labels'].shape[1]
+    if len(tasks) == 0:
+        tasks = range(num_labels)
+
+    # Extract examples based on batch_id
+    def batchid_to_examples(batch_id):
+        """Given a batch ID, get the features, labels, and metadata
+
+        Args:
+          batch_id: an int that is the batch ID
+
+        Returns:
+          features: feature array
+          labels: label array
+          metadata: metadata array
+        """
+        batch_start = batch_id*batch_size
+        batch_end = batch_start + batch_size
+        features = h5py_handle[features_key][batch_start:batch_end,:]
+        labels = h5py_handle['labels'][batch_start:batch_end, tasks]
+        metadata = h5py_handle['regions'][batch_start:batch_end].reshape((batch_size, 1))
+        return [features, labels, metadata]
+
+    batch_id_tensor = batch_id_queue.dequeue()
+    [features_tensor, labels_tensor, metadata_tensor] = tf.py_func(
+        func=batchid_to_examples,
+        inp=[batch_id_tensor],
+        Tout=[tf.float32, tf.float32, tf.string],
+        stateful=False, name='py_func_batchid_to_examples')
+
+    # set shapes
+    features_tensor.set_shape([batch_size, num_features])
+    labels_tensor.set_shape([batch_size, len(tasks)])
+    metadata_tensor.set_shape([batch_size, 1])
+
+    return features_tensor, labels_tensor, metadata_tensor
+
+    return None
+
+
+def tflearn_input_fn(hdf5_files, batch_size, tasks=[19], features_key='features', shuffle=True, shuffle_seed=0): # CHANGE THIS LATER
+    """Wrapper to make input function work in TFLearn
+    """
+
+    def load_kmer_data_from_filename_list():
+        """Load kmer features into TFLearn style output (features, labels)
+        """
         
-    #     features, labels, metadata = tf.train.batch([features_tensor, labels_tensor, metadata_tensor],
-    #                                                 batch_size,
-    #                                                 capacity=100000,
-    #                                                 enqueue_many=True,
-    #                                                 name="batcher")
+        example_slices_list = [hdf5_kmers_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=shuffle) for hdf5_file in hdf5_files]
+        min_after_dequeue = 10000
+        capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
+        features, labels, metadata = tf.train.shuffle_batch_join(example_slices_list,
+                                                                 batch_size,
+                                                                 capacity=capacity,
+                                                                 min_after_dequeue=min_after_dequeue,
+                                                                 seed=shuffle_seed,
+                                                                 enqueue_many=True,
+                                                                 name='batcher')
+        
+        return features, labels
+
+    return load_kmer_data_from_filename_list

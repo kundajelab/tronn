@@ -20,6 +20,7 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from tronn.util.parallelize import *
 
 
+
 # =====================================================================
 # Split to chromosomes
 # =====================================================================
@@ -536,6 +537,7 @@ def generate_nn_dataset(celltype_master_regions,
     return '{}/h5'.format(work_dir)
 
 
+
 def generate_master_regions(out_file, label_peak_files):
     """Generate master regions file
     
@@ -601,6 +603,16 @@ def run(args):
                         parallel=args.parallel,
                         neg_region_num=args.univ_neg_num,
                         reverse_complemented=args.rc)
+
+    # TODO utilize the kmerize function from wkm
+    if args.kmerize:
+        # run kmerize function and save to hdf5 files
+        print "kmerize!"
+        from tronn.interpretation.wkm import kmerize_parallel
+        os.system('mkdir -p {}/data/h5_kmer'.format(args.out_dir))
+        kmerize_parallel('{}/data/h5'.format(args.out_dir),
+                         '{}/data/h5_kmer'.format(args.out_dir))
+        
 
     end = time.time()
     print "Execution time: {}".format(end - start)

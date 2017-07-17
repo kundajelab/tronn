@@ -2,7 +2,11 @@
 
 """
 
+import numpy as np
 import tensorflow as tf
+
+from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
+
 
 
 def get_global_avg_metrics(labels, probabilities, tasks=[]):
@@ -19,3 +23,18 @@ def get_global_avg_metrics(labels, probabilities, tasks=[]):
 
 
 # TODO use TFlearn random forest. To do this, make a preprocess to kmer hdf5 file and new datalayer for that input
+
+
+
+
+
+# TODO determine format for prediction files. definitely save them out so that can plot curves. hdf5 for prediction vectors, text for AUROC curves
+
+
+
+def calculate_standard_metrics():
+    """Summary function to calculate AUROC, AUPRC, recall at precision thresh
+    """
+
+
+    return None

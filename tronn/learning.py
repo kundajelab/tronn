@@ -329,7 +329,7 @@ def run(args):
     """
 
     # find data files
-    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
+    data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
     print 'Found {} chrom files'.format(len(data_files))
     train_files = data_files[0:20]
     valid_files = data_files[20:22]

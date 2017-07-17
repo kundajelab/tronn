@@ -616,3 +616,68 @@ def grammar_scanner(features, grammars, normalize=True):
     out_tensor = tf.stack(grammar_out, axis=1)
 
     return out_tensor
+
+
+
+def ism(features, model, sample_num=100):
+    """Run ISM to get differential scores from perturbing motifs
+    Needs to be run for a pair of motifs
+    Note that since the model does mutagenesis in parallel (random selection)
+    the batch should be tiny (maybe just 1 example at a time)
+    """
+
+    # for features, mutate the positions of the base pairs (3 other bases for each position)
+    # ^ this is a significant bit of code
+
+    
+
+
+    # Also pass along features
+
+
+    # stack into batched set of examples where last one is real one
+
+
+    # go through model and then through final activation sigmoid for probabilities
+
+
+    # post process - take max mutation score
+
+
+    # then do the log odds calculation using nonmodified and modified sequence info
+    # which is troyanskaya norm
+
+    
+
+
+    # OLD BELOW
+
+    
+    # For the features, mutate to 100
+
+
+    # For the features, mutate motif positions (up to 28 ish?)
+
+
+    # Also pass along features
+
+
+    # Stack into "batched" set of examples where last one is the real one
+
+
+
+    # put through model used
+
+
+
+    # post process: for "examples" 1:sample_num, get difference from example[-1] (using troyanskaya norm, log odds)
+    # and calculate a mean and std with tf.nn.moments
+
+
+    # post process: for "examples" sample_num:sample_num+28, zscore the difference val
+    
+
+    # push out the mean zscore
+    
+
+    return None

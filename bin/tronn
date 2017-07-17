@@ -31,6 +31,9 @@ def parse_args():
     # command for scanning grammars
     add_scan_grammars_parser(subparsers)
 
+    # command for running a baseline model (on kmers)
+    add_baseline_parser(subparsers)
+    
     # TODO consider a command for visualizing some example sequences
 
     # parse args
@@ -81,6 +84,7 @@ def add_preprocess_parser(subparsers):
     group_opts.add_argument("--univ_neg_num", default=200000, help='number of universal negatives to grab from univ DHS regions')
     group_opts.add_argument("--parallel", default=12, type=int,
                             help='Number of parallel threads to use')
+    group_opts.add_argument("--kmerize", action='store_true', help="generate kmer datasets also")
     
     # group for output files
     group_output = argparser_preprocess.add_argument_group("Output files and folders")
@@ -158,6 +162,7 @@ def add_interpret_parser(subparsers):
     
     return
 
+
 def add_interpret_parser_2(subparsers):
     """Add interpretation function argument parser
     """
@@ -194,6 +199,7 @@ def add_interpret_parser_2(subparsers):
     
     return
 
+
 def add_scan_grammars_parser(subparsers):
     """Add grammar scanning function argument parser
     """
@@ -220,6 +226,27 @@ def add_scan_grammars_parser(subparsers):
     add_out_dir_option(group_output)
     group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
     group_output.add_argument('--scratch_dir', help='temporary scratch directory')
+
+    return
+
+
+def add_baseline_parser(subparsers):
+    """Add train baseline function argument parser
+    """
+    argparser_baseline = subparsers.add_parser("baseline", help="Run baseline model")
+
+    # group for input files
+    group_input = argparser_baseline.add_argument_group("Input files and folders")
+    group_input.add_argument('--data_dir', help='Data directory of kmer hdf5 files')
+
+    # group for parameters
+    group_params = argparser_baseline.add_argument_group("Training hyperparameters")
+    group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
+
+    # group for output files
+    group_output = argparser_baseline.add_argument_group("Output files and folders")
+    add_out_dir_option(group_output, default='log_rf')
+    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
 
     return
 
@@ -276,6 +303,9 @@ def main():
         run(args)
     elif subcommand == 'scangrammars':
         from tronn.interpretation.grammars import run
+        run(args)
+    elif subcommand == "baseline":
+        from tronn.baselines import run
         run(args)
         
     return None

@@ -18,6 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+"""DK: present here in case calculating Poisson dist
+"""
+
 import numpy as np
 
 from tensorflow.python.framework import dtypes
