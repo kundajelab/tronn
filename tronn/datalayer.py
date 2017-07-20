@@ -399,7 +399,7 @@ def hdf5_kmers_to_slices(hdf5_file, batch_size, tasks=[], features_key='features
     [features_tensor, labels_tensor, metadata_tensor] = tf.py_func(
         func=batchid_to_examples,
         inp=[batch_id_tensor],
-        Tout=[tf.float32, tf.float32, tf.string],
+        Tout=[tf.float32, tf.float32, tf.string], 
         stateful=False, name='py_func_batchid_to_examples')
 
     # set shapes
@@ -409,10 +409,8 @@ def hdf5_kmers_to_slices(hdf5_file, batch_size, tasks=[], features_key='features
 
     return features_tensor, labels_tensor, metadata_tensor
 
-    return None
 
-
-def tflearn_input_fn(hdf5_files, batch_size, tasks=[19], features_key='features', shuffle=True, shuffle_seed=0): # CHANGE THIS LATER
+def tflearn_input_fn(hdf5_files, batch_size, tasks=[], features_key='features', shuffle=True, shuffle_seed=0): # CHANGE THIS LATER
     """Wrapper to make input function work in TFLearn
     """
 

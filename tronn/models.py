@@ -619,6 +619,45 @@ def grammar_scanner(features, grammars, normalize=True):
 
 
 
+def ism_for_grammar_dependencies(features, model, pwm_a, pwm_b, num_mutations=10):
+    """Run a form of in silico mutagenesis to get dependencies between motifs
+    Remember that the input to this should be onehot encoded sequence
+    NOT importance scores, and only those for the subtask set you care about
+    """
+
+    # first layer - instantiate motifs and scan for best match in sequence
+
+
+    # for motif 1: mutate (num_mutations) positions at best motif hit 3x (every other base pair)
+    # and then stack them, keeping track of which set of the batch corresponds to
+    # first motif
+
+    
+    # for motif 2: do the same as motif 1
+
+    
+    # for joint: (num_mutations x num_mutations) positions.
+
+    
+    # stack original sequence, motif 1 mutations, motif 2 mutations
+
+
+    # pass through model
+
+
+    # get max change from original in motif 1 set and motif 2 set and joint set
+
+
+    # stats: calculate the joint prob and individual probs
+
+
+    # output the ratio
+    
+
+    return None
+
+
+
 def ism(features, model, sample_num=100):
     """Run ISM to get differential scores from perturbing motifs
     Needs to be run for a pair of motifs

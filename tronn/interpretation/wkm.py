@@ -1039,16 +1039,21 @@ def interpret_wkm(
                 extract_positives_from_motif_mat(motif_mat_h5, pos_motif_mat, task_num)
 
 
-            # TODO can try phenograph here again for the clustering
+            # TODO isolate this bit here for now
+            #os.system('mkdir -p ')
+            
+                
+            #  phenograph here again for the clustering
             grammar_file, seq_communities_file = get_sequence_communities(pos_motif_mat, 'task_{}'.format(task_num))
 
+            # TODO fix seq communities file to keep chrom info. take that and make a BED? use preprocess code
+            
+            # TODO from there for every pair of motifs, set up model and get back dependencies.
+            # TODO take phenograph clusters and use ISM to induce the dependencies
+            
 
-            # TODO here we make thresholds for the grammars
+            quit()
             
-            
-            # TODO here we can do in silico mutagenesis to build better grammars
-            
-
             continue
             
             

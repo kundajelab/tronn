@@ -220,16 +220,15 @@ def scan_grammars(data_files, motif_file, grammars, prefix, out_dir, batch_size,
 
 def run(args):
 
-    print "not implemented yet"
-
+    # Get annotations for grammar run
     with open(args.annotations_json, 'r') as fp:
         annotation_files = json.load(fp)
 
+    # calculate how many regions
     num_regions = 0
     with gzip.open(args.regions) as fp:
         for line in fp:
             num_regions += 1
-
     print num_regions
         
     # first set up grammar dataset
