@@ -51,3 +51,27 @@ def add_summaries(name_value):
             tf.summary.scalar(name, value)
         else:
             tf.summary.histogram(name, value)
+
+
+def setup_tensorflow_session():
+    """Start up session in a graph
+    """
+    # set up session
+    sess = tf.Session()
+    sess.run(tf.global_variables_initializer())
+    sess.run(tf.local_variables_initializer())
+    
+    # start queue runners
+    coord = tf.train.Coordinator()
+    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+    return sess, coord, threads
+
+
+def close_tensorflow_session(coord, threads):
+    """Cleanly close a running graph
+    """
+    coord.request_stop()
+    coord.join(threads)
+    
+    return None

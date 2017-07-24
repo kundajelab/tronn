@@ -12,11 +12,12 @@ import pandas as pd
 
 import tensorflow as tf
 
-from tronn.datalayer import load_data_from_filename_list
+from tronn.datalayer import load_data_from_filename_list, get_total_num_examples
 from tronn.interpretation.importances import generate_importance_scores
 from tronn.interpretation.importances import visualize_sample_sequences
 from tronn.models import stdev_cutoff
 from tronn.models import models
+
 
 from tronn.preprocess import one_hot_encode
 from scipy.signal import correlate2d
@@ -27,6 +28,13 @@ from tronn.interpretation.motifs import run_pwm_convolution
 from tronn.interpretation.motifs import extract_positives_from_motif_mat
 
 from tronn.util.parallelize import *
+
+# for ISM
+from tronn.interpretation.motifs import PWM
+from tronn.preprocess import generate_nn_dataset
+from tronn.models import ism_for_grammar_dependencies
+from tronn.util.tf_utils import setup_tensorflow_session, close_tensorflow_session
+import tensorflow.contrib.slim as slim
 
 import phenograph
 
@@ -863,9 +871,10 @@ def get_sequence_communities(text_mat_file, prefix):
     """Cluster sequences by which motifs they have. Uses phenograph - this is good
     because it has a way of ignoring things that don't really belong in clusters
     """
+    data = pd.read_table(text_mat_file, index_col=0)
 
-    data = pd.read_table(text_mat_file)
-
+    print data.columns
+        
     if 'Unnamed: 0' in data.columns:
         del data['Unnamed: 0']
 
@@ -874,7 +883,6 @@ def get_sequence_communities(text_mat_file, prefix):
 
     # normalize first
     data_norm = data.apply(scipy.stats.zscore, axis=1)
-
     
     data_npy = data_norm.as_matrix()
     communities, graph, Q = phenograph.cluster(data_npy)
@@ -882,7 +890,6 @@ def get_sequence_communities(text_mat_file, prefix):
 
     # sort by community
     data_sorted = data_norm.sort_values('community')
-
 
     # For each community, save out significant motifs (ie, greater than 1 stdev?)
     communities = list(np.unique(communities))
@@ -896,18 +903,78 @@ def get_sequence_communities(text_mat_file, prefix):
             
             del community_data['community']
             community_motif_avg = community_data.mean(axis=0)
-            
-            community_motifs = community_data.loc[:,community_motif_avg > 0.5] #TODO move parameter
+            community_motifs = community_data.loc[:,community_motif_avg > 0.5] #TODO move param, actually calc enrichment here
 
             print community_motifs.columns.tolist()
-            out.write('{0}.{1}\t{2}\n'.format(prefix, community,'\t'.join(community_motifs.columns.tolist())))
-        
+            out.write('{0}.grammar_{1}\t{2}\n'.format(prefix, community,'\t'.join(community_motifs.columns.tolist())))
+
+            # write out BED file
+            community_bed = '{0}.community_{1}.bed.gz'.format(prefix, community)
+            regions_df = pd.DataFrame(data=community_data.index, columns=['regions'])
+            bed_df = regions_df['regions'].str.split(':', 1, expand=True)
+            bed_df.columns = ['chr', 'start-stop']
+            bed_df['start'], bed_df['stop'] = bed_df['start-stop'].str.split('-', 1).str
+            del bed_df['start-stop']
+            bed_df.sort_values(['chr', 'start'], inplace=True)
+            bed_df.to_csv(community_bed, sep='\t', header=False, index=False, compression='gzip')
+            
     print communities
     
     seq_communities_file = '{}.seq_communities.txt'.format(prefix)
     data_sorted.to_csv(seq_communities_file, sep='\t')
     
-    return grammar_file, seq_communities_file
+    return grammar_file, seq_communities_file, communities
+
+
+def read_grammar_file(grammar_file):
+    """current helper function to track grammars
+    """
+
+    grammars = []
+    with open(grammar_file, 'r') as fp:
+        for line in fp:
+            fields = line.strip().split('\t')
+            grammars.append(fields[1:])
+            
+    return grammars
+
+
+def run_ism_for_motif_pairwise_dependency(data_files, model, model_config, checkpoint_path, pwm1, pwm2):
+    """ISM here
+    """
+    total_example_num = get_total_num_examples(data_files)
+
+    # create ism graph
+    with tf.Graph().as_default() as g:
+
+        # data loader
+        features, labels, metadata = load_data_from_filename_list(data_files,
+                                                                         1,
+                                                                         shuffle=False)
+        # model
+        synergy_score = ism_for_grammar_dependencies(features, labels,
+                                                     model, model_config, checkpoint_path,
+                                                     pwm1, pwm2)
+
+        # set up session and restore model
+        sess, coord, threads = setup_tensorflow_session()
+
+        # restore the basset part of the model
+        variables_to_restore = slim.get_model_variables()
+        
+        
+        # run the model
+
+        # close
+        close_tensorflow_session(coord, threads)
+        
+
+    print "running ISM"
+    
+
+    
+    
+    return None
 
 
 def interpret_wkm(
@@ -1038,19 +1105,63 @@ def interpret_wkm(
             if not os.path.isfile(pos_motif_mat):
                 extract_positives_from_motif_mat(motif_mat_h5, pos_motif_mat, task_num)
 
-
             # TODO isolate this bit here for now
-            #os.system('mkdir -p ')
-            
+            test_dir = 'testing_ism_task0'
+            os.system('mkdir -p {}'.format(test_dir))
                 
             #  phenograph here again for the clustering
-            grammar_file, seq_communities_file = get_sequence_communities(pos_motif_mat, 'task_{}'.format(task_num))
+            seq_communities_file = '{0}/task_{1}.seq_communities.txt'.format(test_dir, task_num)
+            grammar_file = '{0}/task_{1}.grammars.txt'.format(test_dir, task_num)
+            if not os.path.isfile(seq_communities_file):
+                grammar_file, seq_communities_file, communities = get_sequence_communities(pos_motif_mat,
+                                                                                           '{0}/task_{1}'.format(test_dir, task_num))
 
-            # TODO fix seq communities file to keep chrom info. take that and make a BED? use preprocess code
-            
-            # TODO from there for every pair of motifs, set up model and get back dependencies.
-            # TODO take phenograph clusters and use ISM to induce the dependencies
-            
+            # generate new datasets to run ISM
+            # glob the BED files, generate with preprocess code
+            task_grammars = read_grammar_file(grammar_file)
+            pwms = PWM.get_encode_pwms('task_0.motif_file.txt')
+            pwm_dict = {}
+            for pwm in pwms:
+                pwm_dict[pwm.name] = pwm
+            community_bed_sets = glob.glob('{}/*.bed.gz'.format(test_dir))
+            for community in range(13): # TODO change this!
+                community_bed = '{0}/task_{1}.community_{2}.bed.gz'.format(test_dir, task_num, community)
+                # TODO preprocess data
+                with open(args.preprocess_annotations, 'r') as fp:
+                    annotation_files = json.load(fp)
+
+                community_data_dir = '{}/data'.format(test_dir)
+                if not os.path.isdir(community_data_dir):
+                    generate_nn_dataset(community_bed,
+                                        annotation_files['univ_dhs'],
+                                        annotation_files['ref_fasta'],
+                                        [community_bed],
+                                        community_data_dir,
+                                        'task_0.community_{}'.format(community),
+                                        parallel=12,
+                                        neg_region_num=0)
+                data_files = glob.glob('{}/h5/*.h5'.format(community_data_dir))
+                
+                
+                # read in grammar sets
+                grammar = task_grammars[int(community)]
+                print grammar
+                # for each pair of motifs, read in and run model
+                for motif1_idx in range(len(grammar)):
+                    for motif2_idx in range(len(grammar)):
+                        if motif1_idx >= motif2_idx:
+                            continue
+                        # here, run ISM tests
+                        print motif1_idx, motif2_idx
+                        pwm1 = pwm_dict[grammar[motif1_idx]]
+                        pwm2 = pwm_dict[grammar[motif2_idx]]
+
+                        # here run ISM and get out multiplier info
+                        run_ism_for_motif_pairwise_dependency(data_files, model, args.model, checkpoint_path, pwm1, pwm2) # TODO requires dataset
+
+                        quit()
+
+                quit()
 
             quit()
             

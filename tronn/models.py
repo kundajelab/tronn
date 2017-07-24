@@ -21,6 +21,7 @@ from tronn.nn_ops import maxnorm
 from tronn.util.sample_stats import percentile
 
 from tronn.initializers import pwm_initializer
+from tronn.initializers import pwm_simple_initializer
 
 from tronn.util.tf_utils import get_fan_in
 
@@ -618,105 +619,217 @@ def grammar_scanner(features, grammars, normalize=True):
     return out_tensor
 
 
+def _mutate(feature_tensor, position_tensor):
+    """Small module to perform 3 mutations from reference base pair
+    Input goes from
+    """
+    mutated_examples = []
+    # build the index position
+    positions_tiled = tf.reshape(tf.stack([position_tensor for i in range(4)]), (4, 1))
+    indices_list = [tf.cast(tf.ones((4, 1)), 'int64'),
+                    tf.cast(tf.ones((4, 1)), 'int64'),
+                    tf.reshape(tf.cast(positions_tiled, 'int64'), (4, 1)),
+                    tf.reshape(tf.cast(tf.range(4), 'int64'), (4, 1))]
+    indices_tensor = tf.squeeze(tf.stack(indices_list, axis=1))
+    
+    # go through all 4 positions, and ignore (zero out) the one that is reference
+    for mut_idx in range(4):
+        updates_array = np.ones((4))
+        updates_array[mut_idx] = 0
+        updates_tensor = tf.constant(updates_array)
+        mutated_mask_inv = tf.cast(
+            tf.scatter_nd(indices_tensor, updates_tensor, feature_tensor.get_shape()),
+            'bool')
+        mutated_mask = tf.cast(
+            tf.logical_not(mutated_mask_inv),
+            'float32')
+        mutated_example = tf.squeeze(tf.multiply(feature_tensor, mutated_mask), axis=0)
+        mutated_examples.append(mutated_example)
 
-def ism_for_grammar_dependencies(features, model, pwm_a, pwm_b, num_mutations=10):
+    mutated_batch = tf.stack(mutated_examples, axis=0)
+    #print mutated_batch.get_shape()
+    
+    # zero out the one that is reference
+    
+    slice_start_position = tf.stack([tf.constant(0),
+                                     tf.constant(0),
+                                     tf.cast(position_tensor, 'int32'),
+                                     tf.constant(0)])
+
+    #print slice_start_position.get_shape()
+    #print feature_tensor.get_shape()
+    mut_position_slice = tf.slice(feature_tensor,
+                                  slice_start_position,
+                                  [1, 1, 1, 4])
+
+    #print mut_position_slice.get_shape()
+
+    mask_per_bp = [tf.expand_dims(tf.squeeze(mut_position_slice), axis=1) for i in range(feature_tensor.get_shape()[2])]
+    mask_per_bp_tensor = tf.stack(mask_per_bp, axis=2)
+    #print mask_per_bp_tensor.get_shape()
+
+    mask_list = [mask_per_bp_tensor for i in range(feature_tensor.get_shape()[3])]
+    mask_batch = tf.stack(mask_list, axis=3)
+    
+    #print mask_batch.get_shape()
+    mutated_filtered_examples = tf.multiply(mutated_batch, mask_batch)
+    #print mutated_filtered_examples.get_shape()
+    
+    return tf.unstack(mutated_filtered_examples)
+
+
+def generate_point_mutant_batch(features, max_idx, num_mutations):
+    """Given a position in a sequence (one hot encoded) generate mutants
+    """
+    half_num_mutations = num_mutations / 2
+    sequence_batch_list = []    
+    for mutation_idx in range(-half_num_mutations, half_num_mutations):
+        offset_tensor = tf.cast(mutation_idx, 'int64')
+        final_position_tensor = tf.add(max_idx, offset_tensor)
+        sequence_batch_list = sequence_batch_list + _mutate(features, final_position_tensor)
+    # then stack
+    return tf.stack(sequence_batch_list, axis=0)
+
+
+def generate_paired_mutant_batch(features, max_idx1, max_idx2, num_mutations):
+    """Given two positions, generate mutants
+    """
+    single_mutant_batch = generate_point_mutant_batch(features, max_idx1, num_mutations)
+    single_mutants = tf.unstack(single_mutant_batch)
+    paired_mutant_batch = []
+    for single_mutant in single_mutants:
+        paired_mutant_batch = paired_mutant_batch + tf.unstack(
+            generate_point_mutant_batch(features, max_idx2, num_mutations))
+    return tf.stack(paired_mutant_batch)
+    
+
+
+def ism_for_grammar_dependencies(
+        features,
+        labels,
+        model,
+        model_config,
+        checkpoint_path,
+        pwm_a,
+        pwm_b,
+        num_mutations=8):
     """Run a form of in silico mutagenesis to get dependencies between motifs
     Remember that the input to this should be onehot encoded sequence
     NOT importance scores, and only those for the subtask set you care about
     """
-
     # first layer - instantiate motifs and scan for best match in sequence
+    max_size = max(pwm_a.weights.shape[1], pwm_b.weights.shape[1])
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope([slim.conv2d],
+                        padding='VALID',
+                        activation_fn=None,
+                        weights_initializer=pwm_simple_initializer(conv1_filter_size, [pwm_a, pwm_b], get_fan_in(features)),
+                        biases_initializer=None):
+        net = slim.conv2d(features, 2, conv1_filter_size)
+    print net.get_shape()
 
+    max_indices = tf.argmax(net, axis=2) # TODO need to adjust to midpoint
+    max_idx1_tensor = tf.squeeze(tf.slice(max_indices, [0, 0, 0], [1, 1, 1]))
+    max_idx2_tensor = tf.squeeze(tf.slice(max_indices, [0, 0, 1], [1, 1, 1]))
 
     # for motif 1: mutate (num_mutations) positions at best motif hit 3x (every other base pair)
     # and then stack them, keeping track of which set of the batch corresponds to
     # first motif
-
+    motif1_mutants_batch = generate_point_mutant_batch(features,
+                                                       max_idx1_tensor,
+                                                       num_mutations)
+    print "motif 1 total mutants:", motif1_mutants_batch.get_shape()
     
     # for motif 2: do the same as motif 1
-
+    motif2_mutants_batch = generate_point_mutant_batch(features,
+                                                       max_idx2_tensor,
+                                                       num_mutations)
+    print "motif 2 total mutants:", motif2_mutants_batch.get_shape()
     
     # for joint: (num_mutations x num_mutations) positions.
-
+    motif1_motif2_mutants_batch = generate_paired_mutant_batch(features,
+                                                               max_idx1_tensor,
+                                                               max_idx2_tensor,
+                                                               num_mutations / 2)
+    print "joint mutant total:", motif1_motif2_mutants_batch
     
     # stack original sequence, motif 1 mutations, motif 2 mutations
+    all_mutants_batch = tf.stack(
+        tf.unstack(features) +
+        tf.unstack(motif1_mutants_batch) +
+        tf.unstack(motif2_mutants_batch) +
+        tf.unstack(motif1_motif2_mutants_batch)
+        )
 
+    print "full total batch size:", all_mutants_batch.get_shape()
+    batch_size = all_mutants_batch.get_shape()[0]
+
+    # extend label size (though it won't get used again)
+    labels_list = []
+    for i in range(batch_size):
+        labels_list = labels_list + tf.unstack(labels)
+    
+    #labels_extended = tf.stack([tf.unstack(labels) for i in range(batch_size)])
+    labels_extended = tf.stack(labels_list)
+    print labels_extended.get_shape()
 
     # pass through model
+    logits = model(all_mutants_batch,
+                        labels_extended,
+                        model_config,
+                        is_training=False)
+    print logits.get_shape()
+
+    # probabilities
+    probabilities = tf.nn.sigmoid(logits)
+
+    example_probs_list = tf.unstack(probabilities)
+
+    # might want to do it on logits actually (see larger synergy score?)
+    # like: logit(orig) / (logit(a)/2 + logit (b)/2)
+    # this tells you how much the score is versus only having 1 of each
+    # actually you'll get two scores back - synergy dependent on one vs other motif
+    example_logits_list = tf.unstack(logits)
+    logit_orig = example_logits_list[0]
+    
+    single_mutant_total = num_mutations*4
+    logit_mutant_motif1 = tf.reduce_min(example_logits_list[1:(1 + single_mutant_total)], axis=0)
+    logit_mutant_motif2 = tf.reduce_min(example_logits_list[(1 + single_mutant_total):], axis=0)
+
+    synergy_score = tf.divide(logit_orig, tf.divide(tf.add(logit_mutant_motif1, logit_mutant_motif2), 2))
 
 
+    
+    
+    
+    
     # get max change from original in motif 1 set and motif 2 set and joint set
+    # which, if we assume it should always be less open, is the min prob.
+    
+    prob_orig = example_probs_list[0]
+    print prob_orig.get_shape()
+    
+    single_mutant_total = num_mutations*4
+    prob_mutant_motif1 = tf.reduce_min(example_probs_list[1:(1 + single_mutant_total)], axis=0)
+    print prob_mutant_motif1.get_shape()
+    
+    prob_mutant_motif2 = tf.reduce_min(example_probs_list[(1 + single_mutant_total):(1 + 2 * single_mutant_total)], axis=0)
+    print prob_mutant_motif2.get_shape()
+    
+    prob_mutant_joint = tf.reduce_min(example_probs_list[(1 + 2 * single_mutant_total):], axis=0)
+    print prob_mutant_joint.get_shape()
 
 
+
+    
     # stats: calculate the joint prob and individual probs
+    joint_prob = tf.subtract(prob_orig, prob_mutant_joint)
+    prob_motif1 = tf.subtract(prob_orig, prob_motif1)
+    prob_motif2 = tf.subtract(prob_orig, prob_motif2)
 
+    synergy_score = tf.divide(joint_prob, tf.multiply(prob_motif1, prob_motif2))
+    print synergy_score.get_shape()
+    
 
     # output the ratio
-    
-
-    return None
-
-
-
-def ism(features, model, sample_num=100):
-    """Run ISM to get differential scores from perturbing motifs
-    Needs to be run for a pair of motifs
-    Note that since the model does mutagenesis in parallel (random selection)
-    the batch should be tiny (maybe just 1 example at a time)
-    """
-
-    # for features, mutate the positions of the base pairs (3 other bases for each position)
-    # ^ this is a significant bit of code
-
-    
-
-
-    # Also pass along features
-
-
-    # stack into batched set of examples where last one is real one
-
-
-    # go through model and then through final activation sigmoid for probabilities
-
-
-    # post process - take max mutation score
-
-
-    # then do the log odds calculation using nonmodified and modified sequence info
-    # which is troyanskaya norm
-
-    
-
-
-    # OLD BELOW
-
-    
-    # For the features, mutate to 100
-
-
-    # For the features, mutate motif positions (up to 28 ish?)
-
-
-    # Also pass along features
-
-
-    # Stack into "batched" set of examples where last one is the real one
-
-
-
-    # put through model used
-
-
-
-    # post process: for "examples" 1:sample_num, get difference from example[-1] (using troyanskaya norm, log odds)
-    # and calculate a mean and std with tf.nn.moments
-
-
-    # post process: for "examples" sample_num:sample_num+28, zscore the difference val
-    
-
-    # push out the mean zscore
-    
-
-    return None
+    return synergy_score

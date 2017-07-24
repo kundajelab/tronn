@@ -188,6 +188,7 @@ def add_interpret_parser_2(subparsers):
     # group for annotation files
     group_data = argparser_interpret.add_argument_group("External data files")
     group_data.add_argument('--annotations', help='json file of external data files')
+    group_data.add_argument('--preprocess_annotations', help='json file of preprocess annotations')
 
     # group for output files
     group_output = argparser_interpret.add_argument_group("Output files and folders")
