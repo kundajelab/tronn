@@ -943,38 +943,56 @@ def run_ism_for_motif_pairwise_dependency(data_files, model, model_config, check
     """ISM here
     """
     total_example_num = get_total_num_examples(data_files)
+    total_example_num = 100
 
     # create ism graph
     with tf.Graph().as_default() as g:
 
         # data loader
         features, labels, metadata = load_data_from_filename_list(data_files,
-                                                                         1,
-                                                                         shuffle=False)
-        # model
-        synergy_score = ism_for_grammar_dependencies(features, labels,
-                                                     model, model_config, checkpoint_path,
-                                                     pwm1, pwm2)
+                                                                  1,
+                                                                  shuffle=False)
 
-        # set up session and restore model
+        print "labels", labels.get_shape()
+        
+        # model
+        synergy_score_tensor = ism_for_grammar_dependencies(features, labels,
+                                                            model, model_config, checkpoint_path,
+                                                            pwm1, pwm2)
+        
+        # set up session (note that variables are initialized here, ie the pwm initializer is run here)
         sess, coord, threads = setup_tensorflow_session()
 
         # restore the basset part of the model
         variables_to_restore = slim.get_model_variables()
-        
+
+        # when restoring, ignore the mutate filter
+        variables_to_restore_tmp = [ var for var in variables_to_restore if ('mutate' not in var.name) ]
+        variables_to_restore = variables_to_restore_tmp
+
+        init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
+            checkpoint_path,
+            variables_to_restore)
+        sess.run(init_assign_op, init_feed_dict)
         
         # run the model
+        synergy_scores = np.zeros((total_example_num))
+        for i in range(total_example_num):
+            # TODO(dk) only keep if the prediction was correct
+            
+            synergy_score = sess.run(synergy_score_tensor)
+            synergy_scores[i] = synergy_score[0]
 
+        synergy_scores[np.isnan(synergy_scores)] = 1.
+        synergy_scores[np.isinf(synergy_scores)] = 1.
+            
+        print np.mean(synergy_scores)
+
+        
         # close
         close_tensorflow_session(coord, threads)
-        
-
-    print "running ISM"
     
-
-    
-    
-    return None
+    return np.mean(synergy_scores)
 
 
 def interpret_wkm(
@@ -1147,6 +1165,7 @@ def interpret_wkm(
                 grammar = task_grammars[int(community)]
                 print grammar
                 # for each pair of motifs, read in and run model
+                synergies = {}
                 for motif1_idx in range(len(grammar)):
                     for motif2_idx in range(len(grammar)):
                         if motif1_idx >= motif2_idx:
@@ -1157,9 +1176,16 @@ def interpret_wkm(
                         pwm2 = pwm_dict[grammar[motif2_idx]]
 
                         # here run ISM and get out multiplier info
-                        run_ism_for_motif_pairwise_dependency(data_files, model, args.model, checkpoint_path, pwm1, pwm2) # TODO requires dataset
+                        synergy_score = run_ism_for_motif_pairwise_dependency(data_files,
+                                                                              model,
+                                                                              args.model,
+                                                                              checkpoint_path,
+                                                                              pwm1,
+                                                                              pwm2) # TODO requires dataset
 
-                        quit()
+                        synergies["{0}_{1}".format(pwm1.name, pwm2.name)] = synergy_score
+
+                        print synergies
 
                 quit()
 

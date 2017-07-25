@@ -619,15 +619,15 @@ def grammar_scanner(features, grammars, normalize=True):
     return out_tensor
 
 
-def _mutate(feature_tensor, position_tensor):
+def _mutate(feature_tensor, position_tensor, zero_out_ref=False):
     """Small module to perform 3 mutations from reference base pair
     Input goes from
     """
     mutated_examples = []
     # build the index position
     positions_tiled = tf.reshape(tf.stack([position_tensor for i in range(4)]), (4, 1))
-    indices_list = [tf.cast(tf.ones((4, 1)), 'int64'),
-                    tf.cast(tf.ones((4, 1)), 'int64'),
+    indices_list = [tf.cast(tf.zeros((4, 1)), 'int64'),
+                    tf.cast(tf.zeros((4, 1)), 'int64'),
                     tf.reshape(tf.cast(positions_tiled, 'int64'), (4, 1)),
                     tf.reshape(tf.cast(tf.range(4), 'int64'), (4, 1))]
     indices_tensor = tf.squeeze(tf.stack(indices_list, axis=1))
@@ -649,32 +649,41 @@ def _mutate(feature_tensor, position_tensor):
     mutated_batch = tf.stack(mutated_examples, axis=0)
     #print mutated_batch.get_shape()
     
-    # zero out the one that is reference
+    if zero_out_ref:
+        # zero out the one that is reference
+        
+        slice_start_position = tf.stack([tf.constant(0),
+                                         tf.constant(0),
+                                         tf.cast(position_tensor, 'int32'),
+                                         tf.constant(0)])
+
+        #print slice_start_position.get_shape()
+        #print feature_tensor.get_shape()
+        mut_position_slice = tf.slice(feature_tensor,
+                                      slice_start_position,
+                                      [1, 1, 1, 4])
+
+        # and flip
+        mut_position_slice_bool = tf.cast(mut_position_slice, 'bool')
+        mut_position_mask = tf.cast(tf.logical_not(mut_position_slice_bool), 'float32')
     
-    slice_start_position = tf.stack([tf.constant(0),
-                                     tf.constant(0),
-                                     tf.cast(position_tensor, 'int32'),
-                                     tf.constant(0)])
-
-    #print slice_start_position.get_shape()
-    #print feature_tensor.get_shape()
-    mut_position_slice = tf.slice(feature_tensor,
-                                  slice_start_position,
-                                  [1, 1, 1, 4])
-
-    #print mut_position_slice.get_shape()
-
-    mask_per_bp = [tf.expand_dims(tf.squeeze(mut_position_slice), axis=1) for i in range(feature_tensor.get_shape()[2])]
-    mask_per_bp_tensor = tf.stack(mask_per_bp, axis=2)
-    #print mask_per_bp_tensor.get_shape()
-
-    mask_list = [mask_per_bp_tensor for i in range(feature_tensor.get_shape()[3])]
-    mask_batch = tf.stack(mask_list, axis=3)
     
-    #print mask_batch.get_shape()
-    mutated_filtered_examples = tf.multiply(mutated_batch, mask_batch)
-    #print mutated_filtered_examples.get_shape()
+        #print mut_position_slice.get_shape()
+        
+        mask_per_bp = [tf.expand_dims(tf.squeeze(mut_position_mask), axis=1) for i in range(feature_tensor.get_shape()[2])]
+        mask_per_bp_tensor = tf.stack(mask_per_bp, axis=2)
+        #print mask_per_bp_tensor.get_shape()
+        
+        mask_list = [mask_per_bp_tensor for i in range(feature_tensor.get_shape()[3])]
+        mask_batch = tf.stack(mask_list, axis=3)
     
+        #print mask_batch.get_shape()
+        mutated_filtered_examples = tf.multiply(mutated_batch, mask_batch)
+        #print mutated_filtered_examples.get_shape()
+    else:
+        mutated_filtered_examples = mutated_batch
+    
+        
     return tf.unstack(mutated_filtered_examples)
 
 
@@ -686,7 +695,10 @@ def generate_point_mutant_batch(features, max_idx, num_mutations):
     for mutation_idx in range(-half_num_mutations, half_num_mutations):
         offset_tensor = tf.cast(mutation_idx, 'int64')
         final_position_tensor = tf.add(max_idx, offset_tensor)
-        sequence_batch_list = sequence_batch_list + _mutate(features, final_position_tensor)
+        nonnegative_mask = tf.squeeze(tf.greater(final_position_tensor,
+                                                 tf.cast(tf.constant([0]), 'int64')))
+        final_position_tensor_filt = tf.multiply(final_position_tensor, tf.cast(nonnegative_mask, 'int64'))
+        sequence_batch_list = sequence_batch_list + _mutate(features, final_position_tensor_filt)
     # then stack
     return tf.stack(sequence_batch_list, axis=0)
 
@@ -698,11 +710,11 @@ def generate_paired_mutant_batch(features, max_idx1, max_idx2, num_mutations):
     single_mutants = tf.unstack(single_mutant_batch)
     paired_mutant_batch = []
     for single_mutant in single_mutants:
+        single_mutant_extended = tf.expand_dims(single_mutant, axis=0)
         paired_mutant_batch = paired_mutant_batch + tf.unstack(
-            generate_point_mutant_batch(features, max_idx2, num_mutations))
+            generate_point_mutant_batch(single_mutant_extended, max_idx2, num_mutations))
     return tf.stack(paired_mutant_batch)
     
-
 
 def ism_for_grammar_dependencies(
         features,
@@ -712,7 +724,9 @@ def ism_for_grammar_dependencies(
         checkpoint_path,
         pwm_a,
         pwm_b,
-        num_mutations=8):
+        num_mutations=6,
+        num_tasks=43,
+        current_task=0):
     """Run a form of in silico mutagenesis to get dependencies between motifs
     Remember that the input to this should be onehot encoded sequence
     NOT importance scores, and only those for the subtask set you care about
@@ -724,112 +738,100 @@ def ism_for_grammar_dependencies(
                         padding='VALID',
                         activation_fn=None,
                         weights_initializer=pwm_simple_initializer(conv1_filter_size, [pwm_a, pwm_b], get_fan_in(features)),
-                        biases_initializer=None):
+                        biases_initializer=None,
+                        scope='mutate'):
         net = slim.conv2d(features, 2, conv1_filter_size)
-    print net.get_shape()
 
+    # get max positions for each motif
     max_indices = tf.argmax(net, axis=2) # TODO need to adjust to midpoint
     max_idx1_tensor = tf.squeeze(tf.slice(max_indices, [0, 0, 0], [1, 1, 1]))
     max_idx2_tensor = tf.squeeze(tf.slice(max_indices, [0, 0, 1], [1, 1, 1]))
 
-    # for motif 1: mutate (num_mutations) positions at best motif hit 3x (every other base pair)
-    # and then stack them, keeping track of which set of the batch corresponds to
-    # first motif
-    motif1_mutants_batch = generate_point_mutant_batch(features,
-                                                       max_idx1_tensor,
-                                                       num_mutations)
+    # generate mutant sequences for motif 1
+    motif1_mutants_batch = generate_point_mutant_batch(features, max_idx1_tensor, num_mutations)
+    motif1_batch_size = motif1_mutants_batch.get_shape().as_list()[0]
     print "motif 1 total mutants:", motif1_mutants_batch.get_shape()
-    
+
     # for motif 2: do the same as motif 1
-    motif2_mutants_batch = generate_point_mutant_batch(features,
-                                                       max_idx2_tensor,
-                                                       num_mutations)
+    motif2_mutants_batch = generate_point_mutant_batch(features, max_idx2_tensor, num_mutations)
+    motif2_batch_size = motif2_mutants_batch.get_shape().as_list()[0]
     print "motif 2 total mutants:", motif2_mutants_batch.get_shape()
-    
-    # for joint: (num_mutations x num_mutations) positions.
-    motif1_motif2_mutants_batch = generate_paired_mutant_batch(features,
-                                                               max_idx1_tensor,
-                                                               max_idx2_tensor,
-                                                               num_mutations / 2)
-    print "joint mutant total:", motif1_motif2_mutants_batch
-    
+
+    # for joint
+    joint_mutants_batch = generate_paired_mutant_batch(features, max_idx1_tensor, max_idx2_tensor, num_mutations)
+    joint_batch_size = joint_mutants_batch.get_shape().as_list()[0]
+    print "joint motif total mutants:", joint_mutants_batch.get_shape()
+
     # stack original sequence, motif 1 mutations, motif 2 mutations
     all_mutants_batch = tf.stack(
         tf.unstack(features) +
         tf.unstack(motif1_mutants_batch) +
         tf.unstack(motif2_mutants_batch) +
-        tf.unstack(motif1_motif2_mutants_batch)
-        )
+        tf.unstack(joint_mutants_batch)
+    )
 
+    # check batch size
     print "full total batch size:", all_mutants_batch.get_shape()
     batch_size = all_mutants_batch.get_shape()[0]
 
-    # extend label size (though it won't get used again)
+    # use labels to set output size THEN need to select the correct output logit node
+    multilabel = tf.stack([labels for i in range(num_tasks)], axis=1)
     labels_list = []
     for i in range(batch_size):
-        labels_list = labels_list + tf.unstack(labels)
-    
-    #labels_extended = tf.stack([tf.unstack(labels) for i in range(batch_size)])
-    labels_extended = tf.stack(labels_list)
-    print labels_extended.get_shape()
+        labels_list = labels_list + tf.unstack(multilabel)
+    labels_extended = tf.squeeze(tf.stack(labels_list))
 
     # pass through model
-    logits = model(all_mutants_batch,
+    logits_alltasks = model(all_mutants_batch,
                         labels_extended,
                         model_config,
                         is_training=False)
+
+    # Now need to select the correct logit position
+    logits = tf.slice(logits_alltasks, [0, current_task], [tf.cast(batch_size, 'int32'), 1])
     print logits.get_shape()
-
-    # probabilities
-    probabilities = tf.nn.sigmoid(logits)
-
-    example_probs_list = tf.unstack(probabilities)
-
+    
     # might want to do it on logits actually (see larger synergy score?)
     # like: logit(orig) / (logit(a)/2 + logit (b)/2)
     # this tells you how much the score is versus only having 1 of each
     # actually you'll get two scores back - synergy dependent on one vs other motif
-    example_logits_list = tf.unstack(logits)
-    logit_orig = example_logits_list[0]
-    
     single_mutant_total = num_mutations*4
-    logit_mutant_motif1 = tf.reduce_min(example_logits_list[1:(1 + single_mutant_total)], axis=0)
-    logit_mutant_motif2 = tf.reduce_min(example_logits_list[(1 + single_mutant_total):], axis=0)
+    if False:
+        example_logits_list = tf.unstack(logits)
+        logit_orig = example_logits_list[0]
+            
+        logits_mutant_motif1 = tf.stack(example_logits_list[1:motif1_batch_size])
+        logit_mutant_motif1_min = tf.reduce_min(logits_mutant_motif1, axis=0)
+        logits_mutant_motif2 = tf.stack(example_logits_list[(1 + single_mutant_total):])
+        logit_mutant_motif2_min = tf.reduce_min(logits_mutant_motif2, axis=0)
 
-    synergy_score = tf.divide(logit_orig, tf.divide(tf.add(logit_mutant_motif1, logit_mutant_motif2), 2))
+        synergy_score = tf.divide(logit_orig, tf.divide(tf.add(logit_mutant_motif1_min, logit_mutant_motif2_min), 2))
 
+    # =============================
+    # probabilities
+    probabilities = tf.nn.sigmoid(logits)
 
-    
-    
-    
-    
-    # get max change from original in motif 1 set and motif 2 set and joint set
-    # which, if we assume it should always be less open, is the min prob.
-    
+    example_probs_list = tf.unstack(probabilities)
     prob_orig = example_probs_list[0]
-    print prob_orig.get_shape()
+    probs_mutant_motif1 = tf.stack(example_probs_list[1:motif1_batch_size])
+    prob_mutant_motif1_min = tf.reduce_min(probs_mutant_motif1, axis=0)
     
-    single_mutant_total = num_mutations*4
-    prob_mutant_motif1 = tf.reduce_min(example_probs_list[1:(1 + single_mutant_total)], axis=0)
-    print prob_mutant_motif1.get_shape()
+    probs_mutant_motif2 = tf.stack(example_probs_list[(1 + motif1_batch_size):(1 + motif1_batch_size + motif2_batch_size)])
+    print probs_mutant_motif2.get_shape()
+    prob_mutant_motif2_min = tf.reduce_min(probs_mutant_motif2, axis=0)
     
-    prob_mutant_motif2 = tf.reduce_min(example_probs_list[(1 + single_mutant_total):(1 + 2 * single_mutant_total)], axis=0)
-    print prob_mutant_motif2.get_shape()
+    probs_mutant_joint = tf.stack(example_probs_list[(1 + motif1_batch_size + motif2_batch_size):])
+    print probs_mutant_joint.get_shape()
+    prob_mutant_joint_min = tf.reduce_min(probs_mutant_joint, axis=0)
     
-    prob_mutant_joint = tf.reduce_min(example_probs_list[(1 + 2 * single_mutant_total):], axis=0)
-    print prob_mutant_joint.get_shape()
+    synergy_score = tf.divide(prob_orig, tf.divide(tf.add(prob_mutant_motif1_min, prob_mutant_motif2_min), 2))
 
-
-
+    synergy_score2 = tf.divide(prob_orig - prob_mutant_joint_min,
+                               tf.add(tf.subtract(prob_mutant_motif1_min, prob_mutant_joint_min),
+                                      tf.subtract(prob_mutant_motif2_min, prob_mutant_joint_min)))
     
-    # stats: calculate the joint prob and individual probs
-    joint_prob = tf.subtract(prob_orig, prob_mutant_joint)
-    prob_motif1 = tf.subtract(prob_orig, prob_motif1)
-    prob_motif2 = tf.subtract(prob_orig, prob_motif2)
-
-    synergy_score = tf.divide(joint_prob, tf.multiply(prob_motif1, prob_motif2))
-    print synergy_score.get_shape()
+    # debug tool
+    #interesting_outputs = [synergy_score, prob_orig, logit_orig, logit_mutant_motif1_min, logit_mutant_motif2_min, logits, all_mutants_batch, max_indices]
     
-
     # output the ratio
-    return synergy_score
+    return synergy_score2, prob_orig, prob_mutant_motif1_min, prob_mutant_motif2_min, prob_mutant_joint_min
