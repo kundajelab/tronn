@@ -977,22 +977,33 @@ def run_ism_for_motif_pairwise_dependency(data_files, model, model_config, check
         
         # run the model
         synergy_scores = np.zeros((total_example_num))
+        motif1_scores = np.zeros((total_example_num))
+        motif2_scores = np.zeros((total_example_num))
         for i in range(total_example_num):
             # TODO(dk) only keep if the prediction was correct
+            # TODO(dk) also track individual motif scores
             
-            synergy_score = sess.run(synergy_score_tensor)
-            synergy_scores[i] = synergy_score[0]
+            [synergy_score, motif1_score, motif2_score] = sess.run(synergy_score_tensor)
+            synergy_scores[i] = synergy_score
+            motif1_scores[i] = motif1_score
+            motif2_scores[i] = motif2_score
 
         synergy_scores[np.isnan(synergy_scores)] = 1.
         synergy_scores[np.isinf(synergy_scores)] = 1.
-            
+        motif1_scores[np.isnan(motif1_scores)] = 1.
+        motif1_scores[np.isinf(motif1_scores)] = 1.
+        motif2_scores[np.isnan(motif2_scores)] = 1.
+        motif2_scores[np.isinf(motif2_scores)] = 1.
+        
         print np.mean(synergy_scores)
-
+        print np.mean(motif1_scores)
+        print np.mean(motif2_scores)
+        
         
         # close
         close_tensorflow_session(coord, threads)
     
-    return np.mean(synergy_scores)
+    return np.mean(synergy_scores), np.mean(motif1_scores), np.mean(motif2_scores)
 
 
 def interpret_wkm(
@@ -1164,10 +1175,12 @@ def interpret_wkm(
                 # read in grammar sets
                 grammar = task_grammars[int(community)]
                 print grammar
+                num_motifs = len(grammar)
                 # for each pair of motifs, read in and run model
-                synergies = {}
-                for motif1_idx in range(len(grammar)):
-                    for motif2_idx in range(len(grammar)):
+                synergies = np.zeros((num_motifs, num_motifs))
+                indiv_motif_coeffs = np.zeros((num_motifs, num_motifs))
+                for motif1_idx in range(num_motifs):
+                    for motif2_idx in range(num_motifs):
                         if motif1_idx >= motif2_idx:
                             continue
                         # here, run ISM tests
@@ -1176,17 +1189,42 @@ def interpret_wkm(
                         pwm2 = pwm_dict[grammar[motif2_idx]]
 
                         # here run ISM and get out multiplier info
-                        synergy_score = run_ism_for_motif_pairwise_dependency(data_files,
-                                                                              model,
-                                                                              args.model,
-                                                                              checkpoint_path,
-                                                                              pwm1,
-                                                                              pwm2) # TODO requires dataset
+                        synergy_score, pwm1_score, pwm2_score = run_ism_for_motif_pairwise_dependency(data_files,
+                                                                                                      model,
+                                                                                                      args.model,
+                                                                                                      checkpoint_path,
+                                                                                                      pwm1,
+                                                                                                      pwm2) 
+                        indiv_motif_coeffs[motif1_idx, motif2_idx] = pwm1_score
+                        indiv_motif_coeffs[motif2_idx, motif1_idx] = pwm2_score
+                        synergies[motif1_idx, motif2_idx] = synergy_score
 
-                        synergies["{0}_{1}".format(pwm1.name, pwm2.name)] = synergy_score
 
-                        print synergies
+                # TODO(dk) get average by ROWs for the individual motif coeffs, write out to file
+                indiv_avg_scores = np.zeros((1, num_motifs))
+                for i in range(num_motifs):
+                    indiv_avg_scores[0,i] = np.mean(indiv_motif_coeffs[i,:])
+                
+                with open('{}/task_0.grammar.linear.txt'.format(test_dir), 'w') as fp:
 
+                    header='# Grammar model: Linear w pairwise interactions\n\n'
+                    fp.write(header)
+                    
+                    indiv_motif_coeff_header = 'Non_interacting_coefficients\n'
+                    fp.write(indiv_motif_coeff_header)
+
+                    indiv_df = pd.DataFrame(data=indiv_avg_scores, columns=grammar)
+                    indiv_df.to_csv(fp, sep='\t')
+
+                    fp.write("\n")
+                    
+                    synergy_motif_coeff_header = 'Pairwise_interacting_coefficients\n'
+                    fp.write(synergy_motif_coeff_header)
+
+                    synergy_df = pd.DataFrame(data=synergies, index=grammar, columns=grammar)
+                    synergy_df.to_csv(fp, sep='\t')
+
+                    
                 quit()
 
             quit()

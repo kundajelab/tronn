@@ -829,9 +829,15 @@ def ism_for_grammar_dependencies(
     synergy_score2 = tf.divide(prob_orig - prob_mutant_joint_min,
                                tf.add(tf.subtract(prob_mutant_motif1_min, prob_mutant_joint_min),
                                       tf.subtract(prob_mutant_motif2_min, prob_mutant_joint_min)))
+
+
+    # TODO(dk) individual motif scores
+    # this gives you the multiplier (coefficient) for each motif, relative to each other
+    motif1_score = tf.divide(prob_mutant_motif2_min, prob_mutant_joint_min)
+    motif2_score = tf.divide(prob_mutant_motif1_min, prob_mutant_joint_min)
     
     # debug tool
     #interesting_outputs = [synergy_score, prob_orig, logit_orig, logit_mutant_motif1_min, logit_mutant_motif2_min, logits, all_mutants_batch, max_indices]
     
     # output the ratio
-    return synergy_score2, prob_orig, prob_mutant_motif1_min, prob_mutant_motif2_min, prob_mutant_joint_min
+    return synergy_score2, motif1_score, motif2_score
