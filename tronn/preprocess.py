@@ -11,6 +11,7 @@ import subprocess
 import json
 import h5py
 import time
+import logging
 
 import numpy as np
 import pandas as pd
@@ -25,19 +26,21 @@ from tronn.util.parallelize import *
 # Split to chromosomes
 # =====================================================================
 
-def generate_chrom_files(out_dir, peak_file, prefix):
+def split_bed_to_chrom_bed(out_dir, peak_file, prefix):
     """Splits a gzipped peak file into its various chromosomes
 
     Args:
       out_dir: output directory to put chrom files
       peak_file: BED file of form chr, start, stop (tab delim)
+                 Does not need to be sorted
       prefix: desired prefix on chrom files
 
     Returns:
       None
     """
-    print "splitting into chromosomes..."
-
+    logging.info("Splitting BED file into chromosome BED files...")
+    assert os.path.splitext(peak_file)[1] == '.gz'
+    
     current_chrom = ''
     with gzip.open(peak_file, 'r') as fp:
         for line in fp:
@@ -49,7 +52,7 @@ def generate_chrom_files(out_dir, peak_file, prefix):
             
             # Tracking
             if chrom != current_chrom:
-                print "Started {}".format(chrom)
+                logging.info("Started {}".format(chrom))
                 current_chrom = chrom
 
     return None
@@ -59,7 +62,8 @@ def generate_chrom_files(out_dir, peak_file, prefix):
 # Binning
 # =====================================================================
 
-def bin_regions(in_file, out_file, bin_size, stride, method):
+def bin_regions(in_file, out_file,
+                bin_size, stride, method='plus_flank_negs'):
     """Bin regions based on bin size and stride
 
     Args:
@@ -72,9 +76,11 @@ def bin_regions(in_file, out_file, bin_size, stride, method):
     Returns:
       None
     """
-    print "binning regions for {}...".format(in_file)
+    logging.info("binning regions for {}...".format(in_file))
+    assert os.path.splitext(in_file)[1] == '.gz'
+    assert os.path.splitext(out_file)[1] == '.gz'
 
-    # Bin the files
+    # Open input and output files and bin regions
     with gzip.open(out_file, 'w') as out:
         with gzip.open(in_file, 'rb') as fp:
             for line in fp:
@@ -89,6 +95,7 @@ def bin_regions(in_file, out_file, bin_size, stride, method):
                     start -= 3 * stride
                     stop += 3 * stride
                     mark = start
+                # add other binning strategies as needed here
 
                 while mark < stop:
                     # write out bins
@@ -100,9 +107,11 @@ def bin_regions(in_file, out_file, bin_size, stride, method):
     return None
 
 
-def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, bin_method, parallel=12):
+def bin_regions_chrom(in_dir, out_dir, prefix,
+                      bin_size, stride, bin_method,
+                      parallel=12):
     """Utilize func_workder to run on chromosomes
-
+    
     Args:
       in_dir: directory with BED files to bin
       out_dir: directory to put binned files
@@ -118,7 +127,7 @@ def bin_regions_chrom(in_dir, out_dir, prefix, bin_size, stride, bin_method, par
 
     # First find chromosome files
     chrom_files = glob.glob('{0}/*.bed.gz'.format(in_dir))
-    print 'Found {} chromosome files'.format(len(chrom_files))
+    logging.info('Found {} chromosome files'.format(len(chrom_files)))
 
     # Then for each file, give the function and put in queue
     for chrom_file in chrom_files:
@@ -163,7 +172,8 @@ def one_hot_encode(sequence):
     one_hot_encoding = OneHotEncoder(
         sparse=False, n_values=5).fit_transform(integer_array)
 
-    return one_hot_encoding.reshape(1, 1, sequence_length, 5)[:, :, :, [0, 1, 2, 4]]
+    return one_hot_encoding.reshape(
+        1, 1, sequence_length, 5)[:, :, :, [0, 1, 2, 4]]
 
 
 def generate_examples(binned_file, binned_extended_file, fasta_sequences,
@@ -173,7 +183,8 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
 
     Args:
       binned_file: BED file of binned (equal length) regions
-      binned_extended_file: BED output file of extended size regions (created in this function)
+      binned_extended_file: BED output file of extended size regions 
+                            (created in this function)
       fasta_sequences: TAB delim output file of sequence strings for each bin
       examples_file: h5 output file where final examples are stored
       bin_size: bin size
@@ -184,8 +195,8 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
     Returns:
       None
     """
+    logging.info("extending bins for {}...".format(binned_file))
     # First build extended binned file
-    print "extending bins for {}...".format(binned_file)
     extend_length = (final_length - bin_size)/2
     with gzip.open(binned_extended_file, 'w') as out:
         with gzip.open(binned_file, 'rb') as fp:
@@ -199,13 +210,17 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
                     new_stop = int(stop) + extend_length
 
                 if reverse_complemented:
-                    out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t+\n'.format(chrom, new_start, new_stop))
-                    out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t-\n'.format(chrom, new_start, new_stop))
+                    out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t+\n'.format(chrom,
+                                                                          new_start,
+                                                                          new_stop))
+                    out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t-\n'.format(chrom,
+                                                                          new_start,
+                                                                          new_stop))
                 else:
                     out.write('{0}\t{1}\t{2}\n'.format(chrom, new_start, new_stop))
 
     # Then run get fasta to get sequences
-    print "getting fasta sequences..."
+    logging.info("getting fasta sequences...")
     get_sequence = ("bedtools getfasta -s -fo {0} -tab "
                     "-fi {1} "
                     "-bed {2}").format(fasta_sequences,
@@ -215,9 +230,9 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
     os.system(get_sequence)
 
     # Then one hot encode and save into hdf5 file
-    print "one hot encoding..."
-    num_bins = int(subprocess.check_output(['wc','-l',
-                                            fasta_sequences]).strip().split()[0])
+    logging.info("one hot encoding...")
+    num_bins = int(subprocess.check_output(
+        ['wc','-l', fasta_sequences]).strip().split()[0])
     
     with h5py.File(examples_file, 'a') as hf:
         all_examples = hf.create_dataset('features',
@@ -289,7 +304,8 @@ def generate_examples_chrom(bin_dir, bin_ext_dir, fasta_dir, out_dir, prefix,
                                             chrom_prefix)
 
         examples_args = [chrom_file, ext_binned_file, regions_fasta_file,
-                         examples_file, bin_size, final_length, ref_fasta_file, reverse_complemented]
+                         examples_file, bin_size, final_length, ref_fasta_file,
+                         reverse_complemented]
 
         if not os.path.isfile(examples_file):
             example_queue.put([generate_examples, examples_args])
@@ -326,7 +342,8 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
     # Get relevant peak files of interest
     peak_list = label_files
     num_tasks = len(peak_list)
-    label_set_names = [ os.path.basename(file_name).split('.narrowPeak')[0].split('.bed')[0] for file_name in peak_list ]
+    label_set_names = [ os.path.basename(file_name).split('.narrowPeak')[0].split('.bed')[0]
+                        for file_name in peak_list ]
     print "found {} peak sets for labels...".format(len(peak_list))
 
     # Then generate new short bins for labeling
@@ -355,7 +372,8 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
             all_labels = hf['labels']
 
         if not 'label_names' in hf:
-            label_names = hf.create_dataset('label_names', (num_tasks,), dtype='S1000')
+            label_names = hf.create_dataset('label_names', (num_tasks,),
+                                            dtype='S1000')
         hf['label_names'][:,] = label_set_names
 
         # initialize in-memory tmp label array
@@ -366,7 +384,8 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
         for peak_file in peak_list:
 
             peak_file_name = os.path.basename(peak_file).split('.narrowPeak')[0].split('bed.gz')[0]
-            intersect_file_name = '{0}/{1}_{2}_intersect.bed.gz'.format(intersect_dir, prefix, peak_file_name)
+            intersect_file_name = '{0}/{1}_{2}_intersect.bed.gz'.format(
+                intersect_dir, prefix, peak_file_name)
 
             # Do the intersection to get a series of 1s and 0s
             if method == 'summit': # Must overlap with summit
@@ -456,20 +475,21 @@ def generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
 # Dataset generation
 # =====================================================================
 
-def generate_nn_dataset(celltype_master_regions,
-                        univ_master_regions,
-                        ref_fasta,
-                        label_files,
-                        work_dir,
-                        prefix,
-                        neg_region_num=200000,
-                        bin_size=200,
-                        bin_method='plus_flank_negs',
-                        stride=50,
-                        final_length=1000,
-                        parallel=12,
-                        softmax=False,
-                        reverse_complemented=False):
+def generate_nn_dataset(
+        celltype_master_regions,
+        univ_master_regions,
+        ref_fasta,
+        label_files,
+        work_dir,
+        prefix,
+        neg_region_num=200000,
+        bin_size=200,
+        bin_method='plus_flank_negs',
+        stride=50,
+        final_length=1000,
+        parallel=12,
+        softmax=False,
+        reverse_complemented=False):
     """Convenient wrapper to run all relevant functions
     requires: ucsc_tools, bedtools
     """
@@ -505,14 +525,15 @@ def generate_nn_dataset(celltype_master_regions,
     chrom_master_dir = '{}/master_by_chrom'.format(work_dir)
     if not os.path.isfile('{0}/{1}_chrY.bed.gz'.format(chrom_master_dir, prefix)):
         os.system('mkdir -p {}'.format(chrom_master_dir))
-        generate_chrom_files(chrom_master_dir, final_master, prefix)
+        split_bed_to_chrom_bed(chrom_master_dir, final_master, prefix)
 
     # bin the files
     # NOTE: this does not check for chromosome lengths and WILL contain inappropriate regions
     bin_dir = '{}/binned'.format(work_dir)
     if not os.path.isfile('{0}/{1}_chrY_binned.bed.gz'.format(bin_dir, prefix)):
         os.system('mkdir -p {}'.format(bin_dir))
-        bin_regions_chrom(chrom_master_dir, bin_dir, prefix, bin_size, stride, bin_method, parallel=parallel)
+        bin_regions_chrom(chrom_master_dir, bin_dir, prefix,
+                          bin_size, stride, bin_method, parallel=parallel)
 
     # generate one-hot encoding sequence files (examples) and then labels
     regions_fasta_dir = '{}/regions_fasta'.format(work_dir)

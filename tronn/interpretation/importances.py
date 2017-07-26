@@ -8,6 +8,8 @@ import tensorflow as tf
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_nn_ops
 
+from tronn.util.tf_utils import setup_tensorflow_session, close_tensorflow_session
+from tronn.models import stdev_cutoff
 from tronn.visualization import plot_weights
 
 
@@ -87,14 +89,13 @@ def region_generator(sess,
     while region_idx < stop_idx:
 
         # run session to get importance scores etc
-        # TODO: eventually convert to parallel
         importances_dict, predictions_np, labels_np, regions_np = sess.run([
             importances,
             predictions,
             labels,
             metadata])
         
-        # TODO remove negatives and negative flanks
+        # TODO(dk) remove negatives and negative flanks
 
         # go through the examples in array, yield as you finish a region
         for i in range(regions_np.shape[0]):
@@ -189,13 +190,7 @@ def run_importance_scores(checkpoint_path,
       hdf5 file with importance datasets for each task
     """
     # open a session from checkpoint
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
-    sess.run(tf.local_variables_initializer())
-
-    # start queue runners
-    coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+    sess, coord, threads = setup_tensorflow_session()
 
     # get model from checkpoint file
     saver = tf.train.Saver()
@@ -240,24 +235,26 @@ def run_importance_scores(checkpoint_path,
             labels_hf[idx,] = labels_np
             # TODO save out predictions too
 
-    coord.request_stop()
-    coord.join(threads)
+    close_tensorflow_session(coord, threads)
 
     return None
 
 
-def generate_importance_scores(data_loader,
-                               data_file_list,
-                               model_builder,
-                               loss_fn,
-                               checkpoint_path,
-                               args,
-                               out_file,
-                               guided_backprop=True,
-                               method='importances',
-                               task=0,
-                               sample_size=500,
-                               pos_only=False):
+def extract_importances(
+        data_loader,
+        data_file_list,
+        tasks,
+        model_builder,
+        model_config,
+        loss_fn,
+        checkpoint_path,
+        out_file,
+        batch_size=64,
+        guided_backprop=True,
+        method='importances',
+        task=0,
+        sample_size=500,
+        pos_only=False):
     """Set up a graph and then run importance score extractor
     and save out to file.
 
@@ -278,13 +275,11 @@ def generate_importance_scores(data_loader,
     Returns:
       hdf5 file of importances
     """
-    batch_size = int(args.batch_size / 2.0)
-    
     with tf.Graph().as_default() as g:
 
         # data loader
         features, labels, metadata = data_loader(data_file_list,
-                                                 batch_size, args.tasks, shuffle=False)
+                                                 batch_size, tasks, shuffle=False)
         num_tasks = labels.get_shape()[1]
         print num_tasks
         task_labels = tf.unstack(labels, axis=1)
@@ -294,7 +289,7 @@ def generate_importance_scores(data_loader,
             with g.gradient_override_map({'Relu': 'GuidedRelu'}):
                 predictions = model_builder(features,
                                             labels,
-                                            args.model,
+                                            model_config,
                                             is_training=False)
         else:
             predictions = model_builder(features,
@@ -334,6 +329,80 @@ def generate_importance_scores(data_loader,
                               pos_only=pos_only)
 
     return None
+
+
+def call_importance_peaks(
+        data_loader,
+        importance_h5,
+        out_h5,
+        batch_size,
+        task_num,
+        pval):
+    """Calls peaks on importance scores
+    
+    Currently assumes a poisson distribution of scores. Calculates
+    poisson lambda and uses it to get a pval threshold.
+
+    """
+    print "calling peaks with pval {}".format(pval)
+    importance_key = 'importances_task{}'.format(task_num)
+    
+    with h5py.File(importance_h5, 'r') as hf:
+        num_examples = hf[importance_key].shape[0]
+        seq_length = hf[importance_key].shape[2]
+        num_tasks = hf['labels'].shape[1]
+
+    # First set up graph and convolutions model
+    with tf.Graph().as_default() as g:
+
+        # data loader
+        features, labels, metadata = data_loader([importance_h5],
+                                                 batch_size,
+                                                 features_key=importance_key)
+
+        # load the model
+        thresholded_tensor = stdev_cutoff(features)
+
+        # run the model (set up sessions, etc)
+        sess, coord, thrads = setup_tensorflow_session()
+
+        # set up hdf5 file for saving sequences
+        with h5py.File(out_h5, 'w') as out_hf:
+            importance_mat = out_hf.create_dataset(importance_key,
+                                              [num_examples, 4, seq_length])
+            labels_mat = out_hf.create_dataset('labels',
+                                               [num_examples, num_tasks])
+            regions_mat = out_hf.create_dataset('regions',
+                                                [num_examples, 1],
+                                                dtype='S100')
+
+            # run through batches worth of sequence
+            for batch_idx in range(num_examples / batch_size + 1):
+
+                print batch_idx * batch_size
+
+                batch_importances, batch_regions, batch_labels = sess.run([thresholded_tensor,
+                                                                           metadata,
+                                                                           labels])
+
+                batch_start = batch_idx * batch_size
+                batch_stop = batch_start + batch_size
+
+                # TODO save out to hdf5 file
+                if batch_stop < num_examples:
+                    importance_mat[batch_start:batch_stop,:] = batch_importances
+                    labels_mat[batch_start:batch_stop,:] = batch_labels
+                    regions_mat[batch_start:batch_stop] = batch_regions.astype('S100')
+                else:
+                    importance_mat[batch_start:num_examples,:] = batch_importances[0:num_examples-batch_start,:]
+                    labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start]
+                    regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
+
+        close_tensorflow_session(coord, threads)
+
+    return None
+
+
 
 
 def visualize_sample_sequences(h5_file, num_task, out_dir, sample_size=10):
