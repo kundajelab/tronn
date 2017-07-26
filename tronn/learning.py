@@ -5,63 +5,78 @@ The wrappers follow the tf-slim structure for setting up and running a model
 """
 
 import os
-import tf_utils
+import logging
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-from tronn.datalayer import get_total_num_examples
-from tronn.datalayer import load_data_from_filename_list
-from tronn.evaluation import get_global_avg_metrics
-from tronn.models import models
+from tronn.util.tf_ops import restore_variables_op
+from tronn.util.tf_ops import task_weighted_loss_fn
+from tronn.util.tf_utils import get_stop_step
+from tronn.util.tf_utils import add_summaries
+from tronn.util.tf_utils import add_var_summaries
 
 
 def train(
+        data_files,
+        tasks,
         data_loader,
-        model_builder,
+        model_fn,
+        model_params, # model config
         final_activation_fn,
         loss_fn,
+        metrics_fn,
         optimizer_fn,
         optimizer_params,
-        metrics_fn,
-        restore,
-        stopping_criterion,
-        args,
-        data_file_list,
-        OUT_DIR,
-        target_global_step,
-        transfer=False,
-        transfer_dir='./',
+        stop_step,
+        out_dir,
+        batch_size=128,
+        restore_model_dir=None,
+        transfer_model_dir=None,
         weighted_cross_entropy=False):
     """ Wraps the routines needed for tf-slim training
-    """
 
+    Args:
+      data_loader: datalayer interface to queue and load data
+      data_files: list of data files for data loader
+      tasks: list of task indices if using a subset of tasks
+      model_fn: defined architecture to build
+      model_params: extra configuration params
+      final_activation_fn: final activation function (normally sigmoid)
+      loss_fn: loss
+      metrics_fn: sets up metrics to calculate
+      optimizer_fn: optimizer
+      optimizer_params: extra optimizer params
+      stop_step: global stepping stop point
+      out_dir: where to save the model and events
+      batch_size: batch size
+      restore_model_dir: restore EXACT same model
+      transfer_model_dir: transfer EXACT model minus out nodes
+      weighted_cross_entropy: change to a weighted loss
+
+    Returns:
+      None
+    """
+    assert not ((restore_model_dir is not None) and (transfer_model_dir is not None))
+    
     with tf.Graph().as_default():
 
         # data loader
-        features, labels, metadata = data_loader(data_file_list, args.batch_size, args.tasks)
+        features, labels, metadata = data_loader(data_files, batch_size, tasks)
 
-        # model
-        logits = model_builder(features, labels, args.model, is_training=True)
+        # model and final activation
+        logits = model_fn(features, labels, model_params, is_training=True)
         probabilities = final_activation_fn(logits)
 
+        # loss
         if not weighted_cross_entropy:
             loss = loss_fn(labels, logits)
         else:
-            print "NOTE: using weighted loss!"
-            pos_weights = nn_utils.get_positive_weights_per_task(data_file_list)
-            task_losses = []
-            for task_num in range(labels.get_shape()[1]):
-                # somehow need to calculate task imbalance...
-                task_losses.append(loss_fn(predictions[:,task_num], labels[:,task_num], pos_weights[task_num], loss_collection=None))
-            task_loss_tensor = tf.stack(task_losses, axis=1)
-            loss = tf.reduce_sum(task_loss_tensor)
-            # to later get total_loss
-            tf.add_to_collection(ops.GraphKeys.LOSSES, loss)
+            loss = task_weighted_loss_fn(data_files, loss_fn, labels, logits)
         total_loss = tf.losses.get_total_loss()
 
         # metrics
-        metric_value, updates = metrics_fn(labels, probabilities, args.tasks)
+        metric_value, updates = metrics_fn(labels, probabilities, tasks)
         for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
         mean_loss, _ = tf.metrics.mean(loss, updates_collections=tf.GraphKeys.UPDATE_OPS)
         metric_value.update({
@@ -75,8 +90,8 @@ def train(
         train_op = slim.learning.create_train_op(total_loss, optimizer, summarize_gradients=True)
 
         # summaries
-        tf_utils.add_summaries(metric_value)
-        for var in tf.model_variables(): tf_utils.add_var_summaries(var)
+        add_summaries(metric_value)
+        for var in tf.model_variables(): add_var_summaries(var)
         values_for_printing = [tf.train.get_global_step(),
                                metric_value['mean_loss'],
                                metric_value['mean_accuracy'],
@@ -87,7 +102,7 @@ def train(
         summary_op = tf.Print(tf.summary.merge_all(), values_for_printing)
         
         # print parameter count
-        if not restore:
+        if (restore_model_dir is None) and (transfer_model_dir is None):
             print 'Created new model:'
             model_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
             trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
@@ -99,91 +114,74 @@ def train(
             print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
 
         # TODO consider changing the logic here
-        if restore:
-            checkpoint_path = tf.train.latest_checkpoint(OUT_DIR)
-            variables_to_restore = slim.get_model_variables()
-            variables_to_restore.append(slim.get_global_step())
-            
-            # TODO if pretrained on different dataset, remove final layer variables
-            if args.transfer_dir:
-                print "transferring model"
-                checkpoint_path = tf.train.latest_checkpoint(args.transfer_dir)
-                variables_to_restore = slim.get_model_variables()
-                variables_to_restore.append(slim.get_global_step())
-                
-                #variables_to_restore_tmp = [ var for var in variables_to_restore if ('out' not in var.name) ]
-                variables_to_restore_tmp = [ var for var in variables_to_restore if (('logit' not in var.name) and ('out' not in var.name)) ]
-                variables_to_restore = variables_to_restore_tmp
-                checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.transfer_dir))
-                
-            print variables_to_restore
-            print checkpoint_path
-            
-            init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
-                checkpoint_path,
-                variables_to_restore)
-            
+        if restore_model_dir is not None:
+            init_assign_op, init_feed_dict = restore_variables_op(restore_model_dir)
             # create init assignment function
             def restoreFn(sess):
                 sess.run(init_assign_op, init_feed_dict)
-
+        elif transfer_model_dir is not None:
+            init_assign_op, init_feed_dict = restore_variables_op(restore_transfer_dir,
+                                                                  skip=['logit','out'])
+            # create init assignment function
+            def restoreFn(sess):
+                sess.run(init_assign_op, init_feed_dict)
+        else:
+            restoreFn = None
+        
         slim.learning.train(train_op,
-                            OUT_DIR,
-                            init_fn=restoreFn if restore else None,
-                            number_of_steps=target_global_step,
+                            out_dir,
+                            init_fn=restoreFn,
+                            number_of_steps=stop_step,
                             summary_op=summary_op,
                             save_summaries_secs=60,
                             save_interval_secs=3600,)
 
+    return
+
+
 def evaluate(
+        data_files,
+        tasks,
         data_loader,
         model_builder,
+        model_params,
         final_activation_fn,
         loss_fn,
         metrics_fn,
-        checkpoint_path,
-        args,
-        data_file_list,
         out_dir,
+        model_dir,
         num_evals,
+        batch_size=128,
         weighted_cross_entropy=False):
     """
     Wrapper function for doing evaluation (ie getting metrics on a model)
     Note that if you want to reload a model, you must load the same model
     and data loader
     """
-    print 'evaluating %s...'%checkpoint_path
+    checkpoint_path = tf.train.latest_checkpoint(model_dir)
+    logging.info('evaluating %s...'%checkpoint_path)
+    
     with tf.Graph().as_default():
 
         # data loader
-        features, labels, metadata = data_loader(data_file_list, args.batch_size*4, args.tasks)
+        features, labels, metadata = data_loader(data_files, batch_size*4, tasks)
 
         # model - training=False
-        logits = model_builder(features, labels, args.model, is_training=False)
+        logits = model_builder(features, labels, model_params, is_training=False)
         probabilities = final_activation_fn(logits)
         if not weighted_cross_entropy:
             loss = loss_fn(labels, logits)
         else:
-            print "NOTE: using weighted loss!"
-            pos_weights = nn_utils.get_positive_weights_per_task(data_file_list)
-            task_losses = []
-            for task_num in range(labels.get_shape()[1]):
-                # somehow need to calculate task imbalance...
-                task_losses.append(loss_fn(predictions[:,task_num], labels[:,task_num], pos_weights[task_num], loss_collection=None))
-            task_loss_tensor = tf.stack(task_losses, axis=1)
-            loss = tf.reduce_sum(task_loss_tensor)
-            # to later get total_loss
-            tf.add_to_collection(ops.GraphKeys.LOSSES, loss)
-
+            loss = task_weighted_loss_fn(data_files, loss_fn, labels, logits)
         total_loss = tf.losses.get_total_loss()
 
         # metrics
-        metric_value, updates = metrics_fn(labels, probabilities, args.tasks)
+        metric_value, updates = metrics_fn(labels, probabilities, tasks)
         for update in updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
 
         metric_value['loss'] = loss
         metric_value['total_loss'] = total_loss
-        tf_utils.add_summaries(metric_value)
+        add_summaries(metric_value)
 
         print "set up done"
 
@@ -203,158 +201,135 @@ def evaluate(
 
 
 def train_and_evaluate_once(
-        args,
-        data_loader, 
-        model, 
-        final_activation_fn,
-        loss_fn,
-        optimizer,
-        optimizer_params,
-        metrics_fn,
-        restore,
         train_files,
         validation_files,
+        tasks,
+        data_loader,
+        model_fn,
+        model_params,
+        final_activation_fn,
+        loss_fn,
+        optimizer_fn,
+        optimizer_params,
+        metrics_fn,
         stop_step,
+        out_dir,
+        batch_size=128,
+        restore_model_dir=None,
+        transfer_model_dir=None,
         valid_steps=10000): # 10k
     """Run training for the given number of steps and then evaluate
     """
 
     # Run training
-    train(data_loader, 
-          model,
-          final_activation_fn,
-          loss_fn,
-          optimizer, 
-          optimizer_params,
-          metrics_fn,
-          restore,
-          'Not yet implemented',
-          args,
-          train_files,
-          '{}/train'.format(args.out_dir),
-          stop_step)
-
-    # Get last checkpoint
-    checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir)) 
-
-    # Evaluate after training
-    eval_metrics = evaluate(
+    train(
+        train_files,
+        tasks,
         data_loader,
-        model,
+        model_fn,
+        model_params,
         final_activation_fn,
         loss_fn,
         metrics_fn,
-        checkpoint_path,
-        args,
+        optimizer_fn, 
+        optimizer_params,
+        stop_step,
+        '{}/train'.format(out_dir),
+        batch_size=batch_size,
+        restore_model_dir=restore_model_dir,
+        transfer_model_dir=transfer_model_dir)
+
+    # Evaluate after training (use for stopping criteria)
+    eval_metrics = evaluate(
         validation_files,
-        '{}/valid'.format(args.out_dir),
-        num_evals=valid_steps)
-    
+        tasks,
+        data_loader,
+        model_fn,
+        model_params,
+        final_activation_fn,
+        loss_fn,
+        metrics_fn,
+        '{}/valid'.format(out_dir),
+        '{}/train'.format(out_dir),
+        valid_steps,
+        batch_size=batch_size)
 
     return eval_metrics
 
 
 def train_and_evaluate(
-        args,
-        data_loader,
-        model,
-        final_activation_fn,
-        loss_fn,
-        optimizer,
-        optimizer_params,
-        metrics_fn,
-        restore,
         train_files,
         validation_files,
-        epoch_limit):
-    """Runs training and evaluation for X epochs"""
-
+        tasks,
+        data_loader,
+        model_fn,
+        model_params,
+        final_activation_fn,
+        loss_fn,
+        optimizer_fn,
+        optimizer_params,
+        metrics_fn,
+        out_dir,
+        train_steps,
+        stop_metric,
+        patience,
+        epoch_limit,
+        batch_size=128,
+        restore_model_dir=None,
+        transfer_model_dir=None):
+    """Runs training and evaluation for {epoch_limit} epochs"""
+    assert not ((restore_model_dir is not None) and (transfer_model_dir is not None))
+    
     # track metric and bad epochs
     metric_best = None
     consecutive_bad_epochs = 0
 
     for epoch in xrange(epoch_limit):
-        print "CURRENT EPOCH:", str(epoch)
-
-        print restore
-        #restore = args.restore is not None
-
+        logging.info("CURRENT EPOCH:", str(epoch))
+        
         if epoch > 0:
-            restore = True
+            # make sure that transfer_model_dir is None and restore_model_dir is set correctly
+            transfer_model_dir = None
+            restore_model_dir = out_dir
 
-        if args.transfer_dir:
-            checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.transfer_dir))
-            curr_step = int(checkpoint_path.split('-')[-1].split('.')[0])
-            print curr_step
-            target_step = curr_step + args.train_steps
-            print target_step
-        elif restore:
-            checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.out_dir))
-            curr_step = int(checkpoint_path.split('-')[-1].split('.')[0])
-            target_step = curr_step + args.train_steps
+        # determine the global target step if restoring/transferring
+        if restore_model_dir is not None:
+            stop_step = get_stop_step(restore_model_dir, train_steps)
+        elif transfer_model_dir is not None:
+            stop_step = get_stop_step(transfer_model_dir, train_steps)
         else:
-            target_step = args.train_steps
+            stop_step = train_steps
 
-        eval_metrics = train_and_evaluate_once(args,
-                                               data_loader,
-                                               model,
-                                               final_activation_fn,
-                                               loss_fn,
-                                               optimizer, optimizer_params,
-                                               metrics_fn,
-                                               restore,
-                                               train_files,
-                                               validation_files,
-                                               target_step)
+        # train and evaluate one epoch
+        eval_metrics = train_and_evaluate_once(
+            train_files,
+            validation_files,
+            tasks,
+            data_loader,
+            model_fn,
+            model_params,
+            final_activation_fn,
+            loss_fn,
+            optimizer_fn,
+            optimizer_params,
+            metrics_fn,
+            stop_step,
+            out_dir,
+            batch_size,
+            restore_model_dir=restore_model_dir,
+            transfer_model_dir=transfer_model_dir)
 
         # Early stopping and saving best model
-        if metric_best is None or ('loss' in args.metric) != (eval_metrics[args.metric]>metric_best):
+        if metric_best is None or ('loss' in stop_metric) != (eval_metrics[stop_metric] > metric_best):
             consecutive_bad_epochs = 0
-            metric_best = eval_metrics[args.metric]
-            with open(os.path.join(args.out_dir, 'best.txt'), 'w') as f:
+            metric_best = eval_metrics[stop_metric]
+            with open(os.path.join(out_dir, 'best.txt'), 'w') as f:
                 f.write('epoch %d\n'%epoch)
                 f.write(str(eval_metrics))
         else:
             consecutive_bad_epochs += 1
-            if consecutive_bad_epochs>args.patience:
-                print 'early stopping triggered'
+            if consecutive_bad_epochs > patience:
+                logging.info("early stopping triggered")
                 break
     
-    
     return None
-
-
-def run(args):
-    """Main training and evaluation function
-    """
-
-    # find data files
-    data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
-    print 'Found {} chrom files'.format(len(data_files))
-    train_files = data_files[0:20]
-    valid_files = data_files[20:22]
-
-    # Get number of train and validation steps
-    args.num_train_examples = get_total_num_examples(train_files)
-    args.train_steps = args.num_train_examples / args.batch_size - 100
-    args.num_valid_examples = get_total_num_examples(valid_files)
-    args.valid_steps = args.num_valid_examples / args.batch_size - 100
-    
-    print 'Num train examples: %d' % args.num_train_examples
-    print 'Num valid examples: %d' % args.num_valid_examples
-    print 'train_steps/epoch: %d' % args.train_steps
-
-    # TODO fix transfer args
-    train_and_evaluate(args,
-                       load_data_from_filename_list,
-                       models[args.model['name']],
-                       tf.nn.sigmoid,
-                       tf.losses.sigmoid_cross_entropy,
-                       tf.train.RMSPropOptimizer, {'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
-                       get_global_avg_metrics,
-                       args.restore,
-                       train_files,
-                       valid_files,
-                       args.epochs)
-    
-    return

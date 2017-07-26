@@ -604,10 +604,6 @@ def run(args):
     start = time.time()
     print "Remember to load both bedtools and ucsc_tools!"
     print "Using {} label sets".format(len(args.labels))
-    
-    # read in json of annotations
-    with open(args.annotations_json, 'r') as fp:
-        annotation_files = json.load(fp)
 
     # generate master bed file
     master_regions_bed = '{0}/{1}.master.bed.gz'.format(args.out_dir, args.prefix)
@@ -616,8 +612,8 @@ def run(args):
 
     # then run generate nn dataset
     generate_nn_dataset(master_regions_bed,
-                        annotation_files["univ_dhs"],
-                        annotation_files["ref_fasta"],
+                        args.annotations["univ_dhs"],
+                        args.annotations["ref_fasta"],
                         args.labels,
                         '{}/data'.format(args.out_dir),
                         args.prefix,

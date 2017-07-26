@@ -1,0 +1,4 @@
+{
+    "ggr":"/srv/scratch/shared/indra/dskim89/ggr/chromatin/results/sequence_model.nn.2017-06-09.new_tronn_ggr_pretrained/log/train",
+    "encode-roadmap":"/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/results/sequence_model.nn.2017-06-06.new_tronn_roadcode/log/train"
+}

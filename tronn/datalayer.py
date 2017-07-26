@@ -5,6 +5,8 @@ used frequently in genomics datasets.
 """
 
 import h5py
+import logging
+
 import numpy as np
 import tensorflow as tf
 
@@ -151,7 +153,7 @@ def hdf5_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shu
       metadata_tensor: a tensor (batch_size, 1) for a metadata string (often region name)
     """
     # Extract hdf5 file params (number of examples, max batches, batch IDs)
-    print "Data layer: loading {}".format(hdf5_file)
+    logging.info("datalayer: loading {}".format(hdf5_file))
     h5py_handle = h5py.File(hdf5_file)
     num_examples = h5py_handle[features_key].shape[0]
     max_batches = num_examples/batch_size
@@ -318,7 +320,7 @@ def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key=
       labels: label tensor
       metadata: metadata tensor
     """
-    print 'loading data for tasks:%s from hdf5_files:%s' % (tasks, hdf5_files)
+    logging.info("loading data for tasks:%s from hdf5_files:%s" % (tasks, hdf5_files))
     # TODO add in ordered loading (for importance scores)
     # filename_id? dequeue in order?
     # with the ordered filename ids, make a py_func that takes in the hdf5_to_slices function, and input is the filename,

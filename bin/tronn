@@ -5,9 +5,12 @@
 
 import os
 import sys
+import logging
 import subprocess
 import argparse
 import glob
+import pkg_resources
+import json
 
 
 def parse_args():
@@ -55,10 +58,29 @@ def parse_args():
     
     # TODO consider a command for visualizing some example sequences
 
+
+    load_data_files(parser)
+
+
     # parse args
     args = parser.parse_args()
 
     return args
+
+
+def load_data_files(parser):
+    """Load all json files in so that we have handles on all data
+    """
+    json_files = glob.glob(pkg_resources.resource_filename('tronn', 'data/*.json'))
+    data_files = {}
+    
+    for json_file in json_files:
+        key_name = os.path.basename(json_file).split('.json')[0]
+        with open(json_file, 'r') as fp:
+            parser.add_argument("--{}".format(key_name), type=dict, default=json.load(fp),
+                                help="Support data files")
+
+    return
 
 
 def add_model_config(args):
@@ -98,9 +120,6 @@ def add_preprocess_parser(subparsers):
     # group for input files
     group_input = argparser_preprocess.add_argument_group(
         "Input files and folders")
-    group_input.add_argument(
-        "--annotations_json",
-        help='json of support files')
     group_input.add_argument(
         "--labels", nargs='+',
         help='list of label file peak sets (BED/narrowPeak)')
@@ -143,13 +162,13 @@ def add_train_parser(subparsers):
     group_input = argparser_train.add_argument_group(
         "Input files and folders")
     group_input.add_argument(
-        '--data_dir',
+        '--data_dir', required=True,
         help='hdf5 file directory')
     group_input.add_argument(
-        '--restore', action='store_true',
+        '--restore_model_dir', default=None,
         help='restore from last checkpoint')
     group_input.add_argument(
-        '--transfer_dir',
+        '--transfer_model_dir', default=None,
         help='directory with same model to transfer') 
     group_input.add_argument(
         '--tasks', nargs='+', default=[], type=int,
@@ -159,7 +178,7 @@ def add_train_parser(subparsers):
     group_model = argparser_train.add_argument_group(
         "Model definition")
     group_model.add_argument(
-        '--model', nargs='+',
+        '--model', nargs='+', required=True,
         help='choose model and provide configs')
     
     # group for parameters
@@ -430,7 +449,7 @@ def track_runs(args):
     
     # write out the command
     with open(logging_file, 'a') as f:
-        f.write(' '.join(sys.argv)+'\n')
+        f.write(' '.join(sys.argv)+'\n\n')
     
     return logging_file
 
@@ -439,12 +458,12 @@ def main():
     """Main function for running TRoNN functions
     """
     args = parse_args()
-
-    print 'out_dir: %s' % args.out_dir
-    if not os.path.exists(args.out_dir):
-        os.makedirs(args.out_dir)
+    print "out_dir: %s" % args.out_dir
+    os.system("mkdir -p {}".format(args.out_dir))
     logging_file = track_runs(args)
+    #logging.basicConfig(filename=logging_file, level=logging.INFO)
 
+    # get subcommand run function and run
     subcommand  = args.subcommand_name
 
     if subcommand == "preprocess":
@@ -453,7 +472,7 @@ def main():
     elif subcommand == 'train':
         add_model_config(args)
         print 'model args: %s' % args.model
-        from tronn.learning import run
+        from tronn.run_train import run
         run(args)
     elif subcommand == "extractimportances":
         add_model_config(args)

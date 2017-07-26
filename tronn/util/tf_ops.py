@@ -6,10 +6,14 @@ style maxnorm)
 
 """
 
+import logging
+
 import tensorflow as tf
 
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
+
+from tronn.datalayer import get_positive_weights_per_task
 
 
 def maxnorm(norm_val=7):
@@ -73,3 +77,47 @@ def order_preserving_k_max(input_tensor, k):
     output = tf.gather_nd(input_tensor, full_indices)
     
     return output
+
+
+def restore_variables_op(checkpoint_dir, skip=[]):
+    """Builds a function that can be run to restore from a checkpoint
+    """
+    # get the checkpoint file and variables
+    checkpoint_path = tf.train.latest_checkpoint(checkpoint_dir)
+    variables_to_restore = slim.get_model_variables()
+    variables_to_restore.append(slim.get_global_step())
+
+    # remove variables as needed
+    for skip_string in skip:
+        variables_to_restore_tmp = [var for var in variables_to_restore
+                                    if (skip_string not in var.name)]
+        variables_to_restore = variables_to_restore_tmp
+
+    logging.info(str(variables_to_restore))
+
+    # create assign op
+    init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
+        checkpoint_path,
+        variables_to_restore)
+
+    return init_assign_op, init_feed_dict
+
+
+def task_weighted_loss_fn(data_files, loss_fn, labels, logits):
+    """Use task pos example imbalances to reweight the tasks
+    """
+    print logging.info("NOTE: using weighted loss!")
+    pos_weights = get_positive_weights_per_task(data_files)
+    task_losses = []
+    for task_num in range(labels.get_shape()[1]):
+        # somehow need to calculate task imbalance...
+        task_losses.append(loss_fn(logits[:,task_num],
+                                   labels[:,task_num],
+                                   pos_weights[task_num],
+                                   loss_collection=None))
+        task_loss_tensor = tf.stack(task_losses, axis=1)
+        loss = tf.reduce_sum(task_loss_tensor)
+        # to later get total_loss
+        tf.add_to_collection(ops.GraphKeys.LOSSES, loss)
+
+    return loss

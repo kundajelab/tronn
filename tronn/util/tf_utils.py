@@ -2,6 +2,7 @@
 """
 
 import tensorflow as tf
+import tensorflow.contrib.slim as slim
 
 
 def get_fan_in(tensor, type='NHWC'):
@@ -75,3 +76,12 @@ def close_tensorflow_session(coord, threads):
     coord.join(threads)
     
     return None
+
+
+def get_stop_step(checkpoint_dir, num_steps):
+    """Add on steps in checkpoint to num steps to get final steps
+    """
+    checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+    checkpoint_steps = int(checkpoint.split("-")[-1].split(".")[0])
+    
+    return checkpoint_steps + num_steps
