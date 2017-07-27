@@ -34,12 +34,12 @@ def train(
         restore_model_dir=None,
         transfer_model_dir=None,
         weighted_cross_entropy=False):
-    """ Wraps the routines needed for tf-slim training
+    """Training routine utilizing tf-slim
 
     Args:
-      data_loader: datalayer interface to queue and load data
       data_files: list of data files for data loader
       tasks: list of task indices if using a subset of tasks
+      data_loader: datalayer interface to queue and load data
       model_fn: defined architecture to build
       model_params: extra configuration params
       final_activation_fn: final activation function (normally sigmoid)
@@ -143,20 +143,35 @@ def evaluate(
         data_files,
         tasks,
         data_loader,
-        model_builder,
+        model_fn,
         model_params,
         final_activation_fn,
         loss_fn,
         metrics_fn,
         out_dir,
         model_dir,
-        num_evals,
+        stop_step,
         batch_size=128,
         weighted_cross_entropy=False):
-    """
-    Wrapper function for doing evaluation (ie getting metrics on a model)
-    Note that if you want to reload a model, you must load the same model
-    and data loader
+    """Evaluation routine using tf-slim
+
+    Args:
+      data_files: list of data files to evaluate
+      tasks: list of task indices used in evaluation
+      data_loader: datalayer to stream data to graph
+      model_fn: model building function
+      model_params: extra params for model
+      final_activation_fn: final activation
+      loss_fn: loss
+      metrics_fn: metrics to calculate
+      out_dir: output directory
+      model_dir: directory with trained model
+      stop_step: how many evals to run
+      batch_size: batch size
+      weighted_cross_entropy: task weighted
+
+    Returns:
+      metrics_dict: dictionary of metrics from metrics fn
     """
     checkpoint_path = tf.train.latest_checkpoint(model_dir)
     logging.info('evaluating %s...'%checkpoint_path)
@@ -167,7 +182,7 @@ def evaluate(
         features, labels, metadata = data_loader(data_files, batch_size*4, tasks)
 
         # model - training=False
-        logits = model_builder(features, labels, model_params, is_training=False)
+        logits = model_fn(features, labels, model_params, is_training=False)
         probabilities = final_activation_fn(logits)
         if not weighted_cross_entropy:
             loss = loss_fn(labels, logits)
@@ -190,7 +205,7 @@ def evaluate(
             None,
             checkpoint_path,
             out_dir,
-            num_evals=num_evals,
+            num_evals=stop_step,
             summary_op=tf.summary.merge_all(),
             eval_op=updates,
             final_op=metric_value,)
@@ -212,13 +227,38 @@ def train_and_evaluate_once(
         optimizer_fn,
         optimizer_params,
         metrics_fn,
-        stop_step,
+        train_stop_step,
         out_dir,
         batch_size=128,
         restore_model_dir=None,
         transfer_model_dir=None,
-        valid_steps=10000): # 10k
-    """Run training for the given number of steps and then evaluate
+        valid_stop_step=10000): # 10k
+    """Routine to train and evaluate for some number of steps
+    
+    Args:
+      train_files: list of data files for training
+      validation_files: list of data files for validation
+      tasks: tasks to train/evaluate on
+      data_loader: datalayer to stream data to graph
+      model_fn: model builder
+      model_params: extra params for model
+      final_activation_fn: final activation
+      loss_fn: loss
+      optimizer_fn: optimizer
+      optimizer_params: extra params for optimizer
+      metrics_fn: metrics to calculate
+      train_stop_step: number of train steps to run
+      out_dir: output directory (fn makes train/valid dirs)
+      batch_size: batch size
+      restore_model_dir: location of a checkpoint that is
+        EXACTLY the same as the train model
+      transfer_model_dir: location of a checkpoint that is
+        exactly the same as the train model EXCEPT for the
+        last layer (logits)
+      valid_stop_step: number of valid steps to run
+
+    Returns:
+      eval_metrics: metric dictionary with stop metric
     """
 
     # Run training
@@ -233,7 +273,7 @@ def train_and_evaluate_once(
         metrics_fn,
         optimizer_fn, 
         optimizer_params,
-        stop_step,
+        train_stop_step,
         '{}/train'.format(out_dir),
         batch_size=batch_size,
         restore_model_dir=restore_model_dir,
@@ -251,7 +291,7 @@ def train_and_evaluate_once(
         metrics_fn,
         '{}/valid'.format(out_dir),
         '{}/train'.format(out_dir),
-        valid_steps,
+        valid_stop_step,
         batch_size=batch_size)
 
     return eval_metrics
@@ -277,7 +317,35 @@ def train_and_evaluate(
         batch_size=128,
         restore_model_dir=None,
         transfer_model_dir=None):
-    """Runs training and evaluation for {epoch_limit} epochs"""
+    """Runs training and evaluation for {epoch_limit} epochs
+
+    Args:
+      train_files: list of data files for training
+      validation_files: list of data files for validation
+      tasks: list of tasks to train/evaluate on
+      data_loader: datalayer for streaming data to graph
+      model_fn: model builder
+      model_params: extra params for model
+      final_activation_fn: final activation
+      loss_fn: loss
+      optimizer_fn: optimizer
+      optimizer_params: extra params for optimizer
+      metrics_fn: metrics to evaluate
+      out_dir: where to save outputs
+      train_steps: number of train steps to run
+      stop_metric: metric used for early stopping
+      patience: number of epochs to wait for improvement
+      epoch_limit: number of max epochs
+      batch_size: batch size
+      restore_model_dir: location of a checkpoint that is
+        EXACTLY the same as the train model
+      transfer_model_dir: location of a checkpoint that is
+        exactly the same as the train model EXCEPT for the
+        last layer (logits)
+
+    Returns:
+      None
+    """
     assert not ((restore_model_dir is not None) and (transfer_model_dir is not None))
     
     # track metric and bad epochs
