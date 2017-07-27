@@ -79,6 +79,7 @@ def train(
             number_of_steps=stop_step,
             summary_op=summary_op,
             save_summaries_secs=60,
+            saver=tf.train.Saver(max_to_keep=None),
             save_interval_secs=3600)
 
     return
