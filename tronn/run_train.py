@@ -8,9 +8,9 @@ import tensorflow as tf
 
 from tronn.datalayer import get_total_num_examples
 from tronn.datalayer import load_data_from_filename_list
-from tronn.evaluation import get_global_avg_metrics
 from tronn.architectures import models
 from tronn.learn.learning import train_and_evaluate
+from tronn.learn.evaluation import get_global_avg_metrics
 
 
 def run(args):

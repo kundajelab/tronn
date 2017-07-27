@@ -208,7 +208,7 @@ def evaluate(
             num_evals=stop_step,
             summary_op=tf.summary.merge_all(),
             eval_op=updates,
-            final_op=metric_value,)
+            final_op=metric_value)
         
         print 'Validation metrics:\n%s'%metrics_dict
     
@@ -402,4 +402,28 @@ def train_and_evaluate(
                 logging.info("early stopping triggered")
                 break
     
+    return None
+
+
+def predict(
+        data_files,
+        tasks,
+        data_loader,
+        model_fn,
+        model_params,
+        final_activation_fn,
+        model_dir,
+        batch_size=128,
+        num_evals=1000):
+    """Prediction routine. When called, returns predictions 
+    (with labels and metadata) as an array for downstream processing
+    """
+
+    
+    
+    
+
+
+    
+
     return None
