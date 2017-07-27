@@ -121,7 +121,7 @@ def add_preprocess_parser(subparsers):
     group_input = argparser_preprocess.add_argument_group(
         "Input files and folders")
     group_input.add_argument(
-        "--labels", nargs='+',
+        "--labels", nargs='+', required=True,
         help='list of label file peak sets (BED/narrowPeak)')
 
     # group for options
@@ -145,7 +145,7 @@ def add_preprocess_parser(subparsers):
         "Output files and folders")
     add_out_dir_option(group_output)
     group_output.add_argument(
-        '--prefix', default='tronn',
+        '--prefix', required=True,
         help='prefix to attach onto file names')
 
     return
@@ -289,6 +289,16 @@ def add_wkm_parser(subparsers):
     argparser_wkm = subparsers.add_parser(
         "makemotifs",
         help="Make motifs from weighted kmers")
+
+    # group for input files
+    group_input = argparser_wkm.add_argument_group(
+    	"Input files and folders")
+    group_input.add_argument(
+        "--importance_files", nargs="+", required=True,
+        help="Importance files (ideally thresholded) to extract kmers")
+
+    
+    
 
     
     return

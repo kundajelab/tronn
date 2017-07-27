@@ -494,9 +494,11 @@ def generate_nn_dataset(
     requires: ucsc_tools, bedtools
     """
     os.system('mkdir -p {}'.format(work_dir))
+    tmp_dir = "{}/tmp".format(work_dir)
+    os.system("mkdir -p {}".format(tmp_dir))
     
     # Select random set of negatives from univ master regions
-    completely_neg_file = '{0}/{1}.negatives.bed.gz'.format(work_dir, prefix)
+    completely_neg_file = '{0}/{1}.negatives.bed.gz'.format(tmp_dir, prefix)
     select_negs = ("bedtools intersect -v -a {0} -b {1} | "
                    "shuf -n {2} | "
                    "awk '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
@@ -509,7 +511,7 @@ def generate_nn_dataset(
         os.system(select_negs)
 
     # merge in to have a file of positive and negative regions
-    final_master = '{0}/{1}.master.ml.bed.gz'.format(work_dir, prefix)
+    final_master = '{0}/{1}.master.ml.bed.gz'.format(tmp_dir, prefix)
     merge_pos_neg = ("zcat {0} {1} | "
                      "awk -F '\t' '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
                      "sort -k1,1 -k2,2n | "
@@ -522,23 +524,23 @@ def generate_nn_dataset(
         os.system(merge_pos_neg)
 
     # split into chromosomes, everything below done by chromosome
-    chrom_master_dir = '{}/master_by_chrom'.format(work_dir)
+    chrom_master_dir = '{}/master_by_chrom'.format(tmp_dir)
     if not os.path.isfile('{0}/{1}_chrY.bed.gz'.format(chrom_master_dir, prefix)):
         os.system('mkdir -p {}'.format(chrom_master_dir))
         split_bed_to_chrom_bed(chrom_master_dir, final_master, prefix)
 
     # bin the files
     # NOTE: this does not check for chromosome lengths and WILL contain inappropriate regions
-    bin_dir = '{}/binned'.format(work_dir)
+    bin_dir = '{}/binned'.format(tmp_dir)
     if not os.path.isfile('{0}/{1}_chrY_binned.bed.gz'.format(bin_dir, prefix)):
         os.system('mkdir -p {}'.format(bin_dir))
         bin_regions_chrom(chrom_master_dir, bin_dir, prefix,
                           bin_size, stride, bin_method, parallel=parallel)
 
     # generate one-hot encoding sequence files (examples) and then labels
-    regions_fasta_dir = '{}/regions_fasta'.format(work_dir)
-    bin_ext_dir = '{}/bin_ext'.format(work_dir)
-    intersect_dir = '{}/intersect'.format(work_dir)
+    regions_fasta_dir = '{}/regions_fasta'.format(tmp_dir)
+    bin_ext_dir = '{}/bin_ext'.format(tmp_dir)
+    intersect_dir = '{}/intersect'.format(tmp_dir)
     chrom_hdf5_dir = '{}/h5'.format(work_dir)
 
     # now run example generation and label generation
@@ -554,6 +556,7 @@ def generate_nn_dataset(
         generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
                               regions_fasta_dir, chrom_hdf5_dir, bin_size,
                               final_length, parallel=parallel)
+        os.system("rm -r {}".format(intersect_dir))
 
     return '{}/h5'.format(work_dir)
 
@@ -615,7 +618,7 @@ def run(args):
                         args.annotations["univ_dhs"],
                         args.annotations["ref_fasta"],
                         args.labels,
-                        '{}/data'.format(args.out_dir),
+                        args.out_dir,
                         args.prefix,
                         parallel=args.parallel,
                         neg_region_num=args.univ_neg_num,

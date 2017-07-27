@@ -3,12 +3,12 @@
 Functions here are non-gradient training updates 
 that need to occur during training (such as torch7
 style maxnorm)
-
 """
 
 import logging
 
 import tensorflow as tf
+import tensorflow.contrib.slim as slim
 
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops

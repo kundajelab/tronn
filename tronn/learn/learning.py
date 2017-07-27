@@ -228,7 +228,8 @@ def train_and_evaluate_once(
         optimizer_params,
         metrics_fn,
         train_stop_step,
-        out_dir,
+        train_dir,
+        valid_dir,
         batch_size=128,
         restore_model_dir=None,
         transfer_model_dir=None,
@@ -274,7 +275,7 @@ def train_and_evaluate_once(
         optimizer_fn, 
         optimizer_params,
         train_stop_step,
-        '{}/train'.format(out_dir),
+        train_dir,
         batch_size=batch_size,
         restore_model_dir=restore_model_dir,
         transfer_model_dir=transfer_model_dir)
@@ -289,8 +290,8 @@ def train_and_evaluate_once(
         final_activation_fn,
         loss_fn,
         metrics_fn,
-        '{}/valid'.format(out_dir),
-        '{}/train'.format(out_dir),
+        valid_dir,
+        train_dir,
         valid_stop_step,
         batch_size=batch_size)
 
@@ -358,7 +359,7 @@ def train_and_evaluate(
         if epoch > 0:
             # make sure that transfer_model_dir is None and restore_model_dir is set correctly
             transfer_model_dir = None
-            restore_model_dir = out_dir
+            restore_model_dir = "{}/train".format(out_dir)
 
         # determine the global target step if restoring/transferring
         if restore_model_dir is not None:
@@ -382,7 +383,8 @@ def train_and_evaluate(
             optimizer_params,
             metrics_fn,
             stop_step,
-            out_dir,
+            "{}/train".format(out_dir),
+            "{}/valid".format(out_dir),
             batch_size,
             restore_model_dir=restore_model_dir,
             transfer_model_dir=transfer_model_dir)

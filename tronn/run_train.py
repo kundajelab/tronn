@@ -10,7 +10,7 @@ from tronn.datalayer import get_total_num_examples
 from tronn.datalayer import load_data_from_filename_list
 from tronn.evaluation import get_global_avg_metrics
 from tronn.architectures import models
-from tronn.learning import train_and_evaluate
+from tronn.learn.learning import train_and_evaluate
 
 
 def run(args):
@@ -35,7 +35,7 @@ def run(args):
     logging.info("Num valid examples: %d" % args.num_valid_examples)
     logging.info("Train_steps/epoch: %d" % args.train_steps)
 
-    # TODO fix transfer args
+    # Train and evaluate for some number of epochs
     train_and_evaluate(
         train_files,
         valid_files,
