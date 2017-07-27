@@ -61,11 +61,11 @@ def make_summary_op(metric_values, print_out=False):
         values_for_printing = [
             tf.train.get_global_step(),
             metric_values['mean_loss'],
+            metric_values['loss'],
+            metric_values['total_loss'],
             metric_values['mean_accuracy'],
             metric_values['mean_auprc'],
-            metric_values['mean_auroc'],
-            tronn_graph.loss,
-            tronn_graph.total_loss]
+            metric_values['mean_auroc']]
         summary_op = tf.Print(tf.summary.merge_all(), values_for_printing)
     else:
         summary_op = tf.summary.merge_all()
