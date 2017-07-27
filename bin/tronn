@@ -202,7 +202,7 @@ def add_train_parser(subparsers):
         "Output files and folders")
     add_out_dir_option(group_output, default='log')
     group_output.add_argument(
-        '--prefix', default='tronn',
+        '--prefix', required=True,
         help='prefix to attach onto file names')
 
     return

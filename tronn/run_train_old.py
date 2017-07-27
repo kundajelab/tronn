@@ -9,8 +9,6 @@ import tensorflow as tf
 from tronn.datalayer import get_total_num_examples
 from tronn.datalayer import load_data_from_filename_list
 from tronn.architectures import models
-from tronn.graphs import TronnNeuralNetGraph
-
 from tronn.learn.learning import train_and_evaluate
 from tronn.learn.evaluation import get_global_avg_metrics
 
@@ -37,10 +35,10 @@ def run(args):
     logging.info("Num valid examples: %d" % args.num_valid_examples)
     logging.info("Train_steps/epoch: %d" % args.train_steps)
 
-
-    # Set up neural net graph
-    tronn_graph = TronnNeuralNetGraph(
-        {"train": train_files, "valid": valid_files},
+    # Train and evaluate for some number of epochs
+    train_and_evaluate(
+        train_files,
+        valid_files,
         args.tasks,
         load_data_from_filename_list,
         models[args.model['name']],
@@ -49,17 +47,13 @@ def run(args):
         tf.losses.sigmoid_cross_entropy,
         tf.train.RMSPropOptimizer,
         {'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
-        args.batch_size,
-        metrics_fn=get_global_avg_metrics)
-    
-    # Train and evaluate for some number of epochs
-    train_and_evaluate(
-        tronn_graph,
+        get_global_avg_metrics,
         args.out_dir,
         args.train_steps,
         args.metric,
         args.patience,
         args.epochs,
+        batch_size=args.batch_size,
         restore_model_dir=args.restore_model_dir,
         transfer_model_dir=args.transfer_model_dir)
 

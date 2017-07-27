@@ -54,6 +54,41 @@ def add_summaries(name_value):
             tf.summary.histogram(name, value)
 
 
+def make_summary_op(metric_values, print_out=False):
+    """After adding summaries, merge and make op
+    """
+    if print_out:
+        values_for_printing = [
+            tf.train.get_global_step(),
+            metric_values['mean_loss'],
+            metric_values['mean_accuracy'],
+            metric_values['mean_auprc'],
+            metric_values['mean_auroc'],
+            tronn_graph.loss,
+            tronn_graph.total_loss]
+        summary_op = tf.Print(tf.summary.merge_all(), values_for_printing)
+    else:
+        summary_op = tf.summary.merge_all()
+
+    return summary_op
+            
+            
+def print_param_count():
+    """Get number of params for a model of interest (after setting it up in graph)
+    """
+    model_params = sum(v.get_shape().num_elements() for v in tf.model_variables())
+    trainable_params = sum(v.get_shape().num_elements() for v in tf.trainable_variables())
+    total_params = sum(v.get_shape().num_elements() for v in tf.global_variables())
+    for var in sorted(tf.trainable_variables(), key=lambda var: (var.name, var.get_shape().num_elements())):
+        num_elems = var.get_shape().num_elements()
+        if num_elems > 500:
+            print var.name, var.get_shape().as_list(), num_elems
+    print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
+            
+    return
+
+
+            
 def setup_tensorflow_session():
     """Start up session in a graph
     """
