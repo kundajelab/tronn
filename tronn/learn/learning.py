@@ -283,13 +283,13 @@ def predict(
         saver = tf.train.Saver()
         saver.restore(sess, checkpoint_path)
         
-        # set up storage matrices
-        # TODO(dk) do this in hdf5?
+        # set up arrays to hold outputs
         num_examples = num_evals * batch_size
         all_labels_array = np.zeros((num_examples, label_tensor.get_shape()[1]))
         all_logits_array = np.zeros((num_examples, logit_tensor.get_shape()[1]))
         all_probs_array = np.zeros((num_examples, probs_tensor.get_shape()[1]))
-    
+        all_metadata = []
+        
         batch_start = 0
         batch_end = batch_size
         # TODO turn this into an example producer (that has the option of merging into regions or not)
@@ -298,17 +298,21 @@ def predict(
                                                         logit_tensor,
                                                         probs_tensor,
                                                         metadata_tensor])
-            
+
             # put into numpy arrays
             all_labels_array[batch_start:batch_end,:] = labels
             all_logits_array[batch_start:batch_end,:] = logits
             all_probs_array[batch_start:batch_end,:] = probs
+
+            # metadata: convert to list and add
+            metadata_list = metadata.tolist()
+            metadata_string_list = [metadata_piece[0].split('(')[0] for metadata_piece in metadata_list]
+            all_metadata = all_metadata + metadata_string_list
             
-        
             # move batch pointer
             batch_start = batch_end
             batch_end += batch_size
 
         close_tensorflow_session(coord, threads)
     
-    return all_labels_array, all_logits_array, all_probs_array
+    return all_labels_array, all_logits_array, all_probs_array, all_metadata

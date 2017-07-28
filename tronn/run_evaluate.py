@@ -154,7 +154,7 @@ def run(args):
         tf.nn.sigmoid)
 
     # predict
-    labels, predictions, probs = predict(
+    labels, predictions, probs, metadata = predict(
         tronn_graph,
         args.model_dir,
         args.batch_size,

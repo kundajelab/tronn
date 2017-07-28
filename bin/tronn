@@ -200,7 +200,7 @@ def add_train_parser(subparsers):
     # group for output files
     group_output = argparser_train.add_argument_group(
         "Output files and folders")
-    add_out_dir_option(group_output, default='log')
+    add_out_dir_option(group_output, default='training')
     group_output.add_argument(
         '--prefix', required=True,
         help='prefix to attach onto file names')
@@ -302,7 +302,7 @@ def add_predict_parser(subparsers):
     # group for output files
     group_output = argparser_predict.add_argument_group(
         "Output files and folders")
-    add_out_dir_option(group_output, default='log')
+    add_out_dir_option(group_output, default='predictions')
     group_output.add_argument(
         '--prefix', required=True,
         help='prefix to attach onto file names')

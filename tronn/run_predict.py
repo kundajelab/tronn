@@ -6,6 +6,7 @@ import glob
 import logging
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 
 from tronn.graphs import TronnNeuralNetGraph
@@ -23,6 +24,7 @@ def run(args):
     """
     logging.info("Running predict...")
     os.system("mkdir -p {}".format(args.out_dir))
+    os.system("mkdir -p {0}/{1}".format(args.out_dir, args.prefix))
     
     # find data_files
     data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
@@ -37,18 +39,43 @@ def run(args):
         args.model,
         tf.nn.sigmoid)
   
-    # and predict
-    labels, predictions, probs = predict(
+    # predict
+    labels, predictions, probs, metadata = predict(
         tronn_graph,
         args.model_dir,
         args.batch_size,
         num_evals=args.num_evals)
-    
-    import ipdb
-    ipdb.set_trace()
 
+    # per task
+    for task_idx in range(labels.shape[1]):
+        task_key = "task_{}".format(task_idx)
+        logging.info("Predicing on {}...".format(task_key))
+        
+        task_labels = labels[:, task_idx]
+        task_probs = probs[:, task_idx]
+        task_predictions = predictions[:, task_idx]
+        
+        # With outputs, save out to file
+        out_table_file = "{0}/{1}/{2}.predictions.txt".format(
+            args.out_dir, args.prefix, task_key)
+        task_df = pd.DataFrame(
+            data=np.stack([
+                task_labels,
+                task_probs,
+                task_predictions], axis=1),
+            columns=["labels", "probabilities", "logits"],
+            index=metadata)
+        task_df.to_csv(out_table_file, sep='\t')
+        
+        # and convert to BED format too
+        task_df['region'] = task_df.index
+        task_df['chr'], task_df['start-stop'] = task_df['region'].str.split(':', 1).str
+        task_df['start'], task_df['stop'] = task_df['start-stop'].str.split('-', 1).str
 
-    
-    
+        task_df['joint'] = task_df['labels'].map(str) + ";" + task_df['probabilities'].map(str) + ";" + task_df['logits'].map(str)
+
+        out_bed_file = "{0}/{1}/{2}.predictions.bed".format(
+            args.out_dir, args.prefix, task_key)
+        task_df.to_csv(out_bed_file, columns=['chr', 'start', 'stop', 'joint'], sep='\t', header=False, index=False)
 
     return None
