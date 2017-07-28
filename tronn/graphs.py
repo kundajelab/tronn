@@ -47,23 +47,24 @@ class TronnGraph(object):
 
     
 class TronnNeuralNetGraph(TronnGraph):
-    """Builds a training graph"""
+    """Builds a trainable graph"""
 
     def __init__(self,
                  data_files,
                  tasks,
                  data_loader,
+                 batch_size,
                  model_fn,
                  model_params,
                  final_activation_fn,
-                 loss_fn,
-                 optimizer_fn,
-                 optimizer_params,
-                 batch_size,
+                 loss_fn=None,
+                 optimizer_fn=None,
+                 optimizer_params=None,
                  metrics_fn=None,
                  weighted_cross_entropy=False):
         super(TronnNeuralNetGraph, self).__init__(
-            data_files, tasks, data_loader, model_fn, model_params, batch_size)
+            data_files, tasks, data_loader,
+            model_fn, model_params, batch_size)
         self.final_activation_fn = final_activation_fn
         self.loss_fn = loss_fn
         self.optimizer_fn = optimizer_fn
@@ -72,50 +73,85 @@ class TronnNeuralNetGraph(TronnGraph):
         self.weighted_cross_entropy = weighted_cross_entropy
 
         
-    def build_training_graph(self, data_key="train"):
-        """Main function: use base class and then add to it
-        """
-        self.build_graph(data_key, is_training=True)
-
-        # add optimizer and get train op
-        self.optimizer = self.optimizer_fn(**self.optimizer_params)
-        train_op = slim.learning.create_train_op(self.total_loss, self.optimizer, summarize_gradients=True)
-
-        return train_op
-
-    
-    def build_graph(self, data_key="valid", is_training=False):
+    def build_graph(self, data_key="data", is_training=False):
         """Build a graph for evaluation/prediction/etc
         """
         # base function builds datalayer and model
         self.logits = super(TronnNeuralNetGraph, self).build_graph(
             data_key, is_training=is_training)
-
-        # add a final activation function
+        
+        # add a final activation function on the logits
         self.probs = self.final_activation_fn(self.logits)
         
-        # add a loss
-        if not self.weighted_cross_entropy:
-            self.loss = self.loss_fn(self.labels, self.logits)
-        else:
-            self.loss = task_weighted_loss_fn(data_files, loss_fn, labels, logits)
-        self.total_loss = tf.losses.get_total_loss()
+        return self.labels, self.logits, self.probs
 
+
+    def build_evaluation_graph(self, data_key="valid"):
+        """Build a graph with metrics functions for evaluation
+        """
+        assert self.metrics_fn is not None, "Need metrics to evaluate"
+        
+        self.build_graph(data_key, is_training=False)
+        
+        # add a loss
+        if self.loss_fn is not None:
+            self._add_loss()
+
+        # add metrics
+        if self.metrics_fn is not None:
+            self._add_metrics()
+
+        return None
+        
+        
+    def build_training_graph(self, data_key="train"):
+        """Main function: use base class and then add to it
+        """
+        assert self.loss_fn is not None, "Need loss to train on"
+        assert self.optimizer_fn is not None, "Need an optimizer for training"
+        
+        self.build_graph(data_key, is_training=True)
+
+        # add a loss
+        self._add_loss()
+
+        # add metrics
         if self.metrics_fn is not None:
             self._add_metrics()
         
-        return None
+        # add optimizer and get train op
+        self.optimizer = self.optimizer_fn(**self.optimizer_params)
+        train_op = slim.learning.create_train_op(
+            self.total_loss, self.optimizer, summarize_gradients=True)
 
+        return train_op
+
+
+    def _add_loss(self):
+        """set up loss function
+        """
+        if not self.weighted_cross_entropy:
+            self.loss = self.loss_fn(self.labels, self.logits)
+        else:
+            self.loss = task_weighted_loss_fn(
+                data_files, loss_fn, labels, logits)
+        self.total_loss = tf.losses.get_total_loss()
+
+        return
+    
     
     def _add_metrics(self):
         """set up metrics function with summaries etc
         """
         # set up metrics and values
-        self.metric_values, self.metric_updates = self.metrics_fn(self.labels, self.probs, self.tasks)
-        for update in self.metric_updates: tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update)
+        self.metric_values, self.metric_updates = self.metrics_fn(
+            self.labels, self.probs, self.tasks)
+        for update in self.metric_updates: tf.add_to_collection(
+                tf.GraphKeys.UPDATE_OPS, update)
 
         # Add losses to metrics
-        mean_loss, _ = tf.metrics.mean(self.loss, updates_collections=tf.GraphKeys.UPDATE_OPS)
+        mean_loss, _ = tf.metrics.mean(
+            self.loss, updates_collections=tf.GraphKeys.UPDATE_OPS)
         self.metric_values.update({
             "loss": self.loss,
             "total_loss": self.total_loss,

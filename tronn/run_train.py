@@ -43,13 +43,13 @@ def run(args):
         {"train": train_files, "valid": valid_files},
         args.tasks,
         load_data_from_filename_list,
+        args.batch_size
         models[args.model['name']],
         args.model,
         tf.nn.sigmoid,
-        tf.losses.sigmoid_cross_entropy,
-        tf.train.RMSPropOptimizer,
-        {'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
-        args.batch_size,
+        loss_fn=tf.losses.sigmoid_cross_entropy,
+        optimizer_fn=tf.train.RMSPropOptimizer,
+        optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
         metrics_fn=get_global_avg_metrics)
     
     # Train and evaluate for some number of epochs

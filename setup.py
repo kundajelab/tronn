@@ -13,6 +13,7 @@ if __name__== "__main__":
           packages=find_packages(),
           package_data={"tronn":"data/*.json"},
           scripts=['bin/tronn',
+                   "R/plot_metrics_curves.R",
                    'scripts/run_region_clustering.R',
                    'scripts/make_network_grammar.R',
                    'scripts/make_network_grammar_v2.R',

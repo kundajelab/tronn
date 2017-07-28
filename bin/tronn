@@ -215,7 +215,46 @@ def add_evaluate_parser(subparsers):
         "evaluate",
         help="Evaluate TRONN model")
 
-    # TODO(dk) fill out arguments
+    # group for input files
+    group_input = argparser_test.add_argument_group(
+        "Input files and folders")
+    group_input.add_argument(
+        '--data_dir', required=True,
+        help='hdf5 file directory')
+    group_input.add_argument(
+        '--model_dir', required=True,
+        help='restore from last checkpoint')
+    group_input.add_argument(
+        '--tasks', nargs='+', default=[], type=int,
+        help='tasks to predict')
+    
+    # group for model
+    group_model = argparser_test.add_argument_group(
+        "Model definition")
+    group_model.add_argument(
+        '--model', nargs='+', required=True,
+        help='choose model and provide configs')
+    
+    # group for parameters
+    group_params = argparser_test.add_argument_group(
+        "Parameters")
+    group_params.add_argument(
+    	"--num_evals", default=1000, type=int,
+    	help="Number of steps to run for prediction")
+    group_params.add_argument(
+    	"--merge_regions", action="store_true",
+    	help="Produce files where values are merged")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
+
+    # group for output files
+    group_output = argparser_test.add_argument_group(
+        "Output files and folders")
+    add_out_dir_option(group_output, default='evaluation')
+    group_output.add_argument(
+        '--prefix', required=True,
+        help='prefix to attach onto file names')
     
     return
 
@@ -226,6 +265,47 @@ def add_predict_parser(subparsers):
     argparser_predict = subparsers.add_parser(
         "predict",
         help="Predict with trained model")
+
+    # group for input files
+    group_input = argparser_predict.add_argument_group(
+        "Input files and folders")
+    group_input.add_argument(
+        '--data_dir', required=True,
+        help='hdf5 file directory')
+    group_input.add_argument(
+        '--model_dir', required=True,
+        help='restore from last checkpoint')
+    group_input.add_argument(
+        '--tasks', nargs='+', default=[], type=int,
+        help='tasks to predict')
+    
+    # group for model
+    group_model = argparser_predict.add_argument_group(
+        "Model definition")
+    group_model.add_argument(
+        '--model', nargs='+', required=True,
+        help='choose model and provide configs')
+    
+    # group for parameters
+    group_params = argparser_predict.add_argument_group(
+        "Parameters")
+    group_params.add_argument(
+    	"--num_evals", default=1000, type=int,
+    	help="Number of steps to run for prediction")
+    group_params.add_argument(
+    	"--merge_regions", action="store_true",
+    	help="Produce files where values are merged")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
+
+    # group for output files
+    group_output = argparser_predict.add_argument_group(
+        "Output files and folders")
+    add_out_dir_option(group_output, default='log')
+    group_output.add_argument(
+        '--prefix', required=True,
+        help='prefix to attach onto file names')
     
     return
 
@@ -483,6 +563,16 @@ def main():
         add_model_config(args)
         print 'model args: %s' % args.model
         from tronn.run_train import run
+        run(args)
+    elif subcommand == "evaluate":
+        add_model_config(args)
+        print "model args: %s" % args.model
+        from tronn.run_evaluate import run
+        run(args)
+    elif subcommand == "predict":
+        add_model_config(args)
+        print "model args: %s" % args.model
+        from tronn.run_predict import run
         run(args)
     elif subcommand == "extractimportances":
         add_model_config(args)

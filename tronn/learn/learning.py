@@ -7,11 +7,14 @@ The wrappers follow the tf-slim structure for setting up and running a model
 import os
 import logging
 
+import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 from tronn.util.tf_ops import restore_variables_op
-from tronn.util.tf_utils import get_stop_step
+from tronn.util.tf_utils import setup_tensorflow_session
+from tronn.util.tf_utils import close_tensorflow_session
+from tronn.util.tf_utils import get_checkpoint_steps
 from tronn.util.tf_utils import add_summaries
 from tronn.util.tf_utils import add_var_summaries
 from tronn.util.tf_utils import make_summary_op
@@ -107,7 +110,7 @@ def evaluate(
     with tf.Graph().as_default():
 
         # build graph
-        tronn_graph.build_graph(data_key="valid")
+        tronn_graph.build_evaluation_graph(data_key="valid")
 
         # add summaries
         add_summaries(tronn_graph.metric_values)
@@ -120,8 +123,8 @@ def evaluate(
             out_dir,
             num_evals=stop_step,
             summary_op=summary_op,
-            eval_op=updates,
-            final_op=metric_value)
+            eval_op=tronn_graph.metric_updates,
+            final_op=tronn_graph.metric_values)
         
         print 'Validation metrics:\n%s'%metrics_dict
     
@@ -185,7 +188,7 @@ def train_and_evaluate(
     Args:
       tronn_graph: a TronnNeuralNetGraph instance
       out_dir: where to save outputs
-      train_steps: number of train steps to run
+      train_steps: number of train steps to run before evaluating
       stop_metric: metric used for early stopping
       patience: number of epochs to wait for improvement
       epoch_limit: number of max epochs
@@ -207,20 +210,18 @@ def train_and_evaluate(
 
     for epoch in xrange(epoch_limit):
         logging.info("CURRENT EPOCH:", str(epoch))
-        
+
         if epoch > 0:
             # make sure that transfer_model_dir is None
             # and restore_model_dir is set correctly
             transfer_model_dir = None
             restore_model_dir = "{}/train".format(out_dir)
 
-        # determine the global target step if restoring/transferring
-        if restore_model_dir is not None:
-            stop_step = get_stop_step(restore_model_dir, train_steps)
-        elif transfer_model_dir is not None:
-            stop_step = get_stop_step(transfer_model_dir, train_steps)
-        else:
-            stop_step = train_steps
+        # set up stop steps and adjust if coming from a transfer
+        stop_step = (epoch + 1) * train_steps
+        # adjust if coming from a transfer
+        if transfer_model_dir is not None:
+            stop_step = get_checkpoint_steps(transfer_model_dir)
 
         # train and evaluate one epoch
         eval_metrics = train_and_evaluate_once(
@@ -248,24 +249,66 @@ def train_and_evaluate(
 
 
 def predict(
-        data_files,
-        tasks,
-        data_loader,
-        model_fn,
-        model_params,
-        final_activation_fn,
+        tronn_graph,
         model_dir,
-        batch_size=128,
+        batch_size,
         num_evals=1000):
     """Prediction routine. When called, returns predictions 
     (with labels and metadata) as an array for downstream processing
+
+    Args:
+      tronn_graph: a TronnNeuralNetGraph instance
+      model_dir: folder containing trained model
+      batch_size: batch size
+      num_evals: number of examples to run
+
+    Returns:
+      label_array
+      logit_array
+      probs_array
+      metadata_array
+
     """
-
+    # build graph and run
+    with tf.Graph().as_default():
+        
+        label_tensor, logit_tensor, probs_tensor = tronn_graph.build_graph()
+        metadata_tensor = tronn_graph.metadata
+        
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+        
+        # restore
+        checkpoint_path = tf.train.latest_checkpoint(model_dir)
+        saver = tf.train.Saver()
+        saver.restore(sess, checkpoint_path)
+        
+        # set up storage matrices
+        # TODO(dk) do this in hdf5?
+        num_examples = num_evals * batch_size
+        all_labels_array = np.zeros((num_examples, label_tensor.get_shape()[1]))
+        all_logits_array = np.zeros((num_examples, logit_tensor.get_shape()[1]))
+        all_probs_array = np.zeros((num_examples, probs_tensor.get_shape()[1]))
     
-    
-    
+        batch_start = 0
+        batch_end = batch_size
+        # TODO turn this into an example producer (that has the option of merging into regions or not)
+        for i in range(num_evals):
+            labels, logits, probs, metadata = sess.run([label_tensor,
+                                                        logit_tensor,
+                                                        probs_tensor,
+                                                        metadata_tensor])
+            
+            # put into numpy arrays
+            all_labels_array[batch_start:batch_end,:] = labels
+            all_logits_array[batch_start:batch_end,:] = logits
+            all_probs_array[batch_start:batch_end,:] = probs
+            
+        
+            # move batch pointer
+            batch_start = batch_end
+            batch_end += batch_size
 
-
+        close_tensorflow_session(coord, threads)
     
-
-    return None
+    return all_labels_array, all_logits_array, all_probs_array
