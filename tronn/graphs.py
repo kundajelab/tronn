@@ -6,6 +6,7 @@ import logging
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+from tronn.interpretation.importances import layerwise_relevance_propagation
 from tronn.util.tf_ops import task_weighted_loss_fn
 
 
@@ -38,6 +39,10 @@ class TronnGraph(object):
             self.data_files[data_key],
             self.batch_size,
             self.tasks)
+
+        # adjust tasks
+        if self.tasks == []:
+            self.tasks = range(self.labels.get_shape()[1])
         
         # model
         out = self.model_fn(self.features, self.labels, self.model_params,
@@ -126,10 +131,30 @@ class TronnNeuralNetGraph(TronnGraph):
 
         return train_op
 
+    
+    def build_inference_graph(self, data_key="data"):
+        """Build a graph with back prop ties to be able to get 
+        importance scores
+        """
+        self.build_graph(data_key, is_training=False)
+
+        # split logits into task level
+        task_logits = tf.unstack(self.logits)
+        
+        # add in importance score calculations
+        self.importances = {}
+        for task_idx in range(len(args.tasks)):
+            importance_key = "importances_task{}".format(args.tasks[task_idx])
+            self.importances[importance_key] = layerwise_relevance_propagation(
+                task_logits[task_idx], features)
+
+        return self.importances
+
 
     def _add_loss(self):
         """set up loss function
         """
+        # check if weighted or not
         if not self.weighted_cross_entropy:
             self.loss = self.loss_fn(self.labels, self.logits)
         else:

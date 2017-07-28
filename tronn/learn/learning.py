@@ -271,7 +271,8 @@ def predict(
     """
     # build graph and run
     with tf.Graph().as_default():
-        
+
+        # build graph
         label_tensor, logit_tensor, probs_tensor = tronn_graph.build_graph()
         metadata_tensor = tronn_graph.metadata
         

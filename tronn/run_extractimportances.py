@@ -25,6 +25,17 @@ def run(args):
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     logging.info("Found {} chrom files".format(len(data_files)))
 
+    # set up graph
+    tronn_graph = TronnNeuralNetGraph(
+        {'data', data_files},
+        args.tasks,
+        load_data_from_filename_list,
+        args.batch_size / 2,
+        models[args.model['name']],
+        args.model,
+        tf.nn.sigmoid,
+        importances_method="guided_backprop")
+
     # checkpoint file
     checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
     logging.info("Checkpoint: {}".format(checkpoint_path))
@@ -33,24 +44,16 @@ def run(args):
     importances_mat_h5 = '{0}/{1}.importances.h5'.format(args.tmp_dir, args.prefix)
     if not os.path.isfile(importances_mat_h5):
         extract_importances(
-            load_data_from_filename_list,
-            data_files,
-            args.tasks,
-            models[args.model['name']],
-            args.model,
-            tf.losses.sigmoid_cross_entropy,
-            checkpoint_path,
+            tronn_graph,
+            args.model_dir,
             importances_mat_h5,
-            batch_size=args.batch_size/2,
-            guided_backprop=True, 
-            method='importances',
-            sample_size=args.sample_size) # TODO change this, it's a larger set than this
+            args.sample_size,
+            method="guided_backprop")
 
-    # plot as needed
+    # TODO(dk) plot as needed
     
 
-    
-
+    quit()
 
     # threshold importances
     # this is per task (and separate) because you don't
@@ -70,9 +73,8 @@ def run(args):
                                   task_num,
                                   pval=pval)
 
-
-    # plot as needed
-
+    # TODO(dk) plot as needed
+    
 
     
 

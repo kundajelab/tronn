@@ -586,7 +586,7 @@ def main():
     elif subcommand == 'interpret':
         add_model_config(args)
         print 'model args: %s' % args.model
-        from tronn.interpret import run
+        from tronn.interpretation.interpret import run
         run(args)
     elif subcommand == 'interpret2':
         add_model_config(args)
