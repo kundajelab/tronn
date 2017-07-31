@@ -68,7 +68,7 @@ def train(
                 sess.run(init_assign_op, init_feed_dict)
         elif transfer_model_dir is not None:
             init_assign_op, init_feed_dict = restore_variables_op(
-                restore_transfer_dir, skip=['logit','out'])
+                transfer_model_dir, skip=['logit','out'])
             def restoreFn(sess):
                 sess.run(init_assign_op, init_feed_dict)
         else:
@@ -217,12 +217,15 @@ def train_and_evaluate(
             transfer_model_dir = None
             restore_model_dir = "{}/train".format(out_dir)
 
-        # set up stop steps and adjust if coming from a transfer
-        stop_step = (epoch + 1) * train_steps
-        # adjust if coming from a transfer
+        # set up stop steps and adjust if coming from a transfer or restore
         if transfer_model_dir is not None:
-            stop_step = get_checkpoint_steps(transfer_model_dir)
-
+            stop_step = get_checkpoint_steps(transfer_model_dir) + train_steps
+        elif restore_model_dir is not None:
+            stop_step = get_checkpoint_steps(restore_model_dir) + train_steps
+        else:
+            stop_step = train_steps
+            
+            
         # train and evaluate one epoch
         eval_metrics = train_and_evaluate_once(
             tronn_graph,
@@ -242,6 +245,7 @@ def train_and_evaluate(
         else:
             consecutive_bad_epochs += 1
             if consecutive_bad_epochs > patience:
+                print "early stopping triggered"
                 logging.info("early stopping triggered")
                 break
     

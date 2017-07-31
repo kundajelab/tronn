@@ -355,7 +355,7 @@ def add_importances_parser(subparsers):
         '--prefix', default='tronn',
         help='prefix to attach onto file names')
     group_output.add_argument(
-        '--tmp_dir', default='./',
+        '--tmp_dir', default='importances_tmp',
         help='temporary scratch directory')
     group_output.add_argument(
         '--plot_samples', action='store_true',

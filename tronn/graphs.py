@@ -6,7 +6,6 @@ import logging
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-from tronn.interpretation.importances import layerwise_relevance_propagation
 from tronn.util.tf_ops import task_weighted_loss_fn
 
 
@@ -19,7 +18,8 @@ class TronnGraph(object):
                  data_loader,
                  model_fn,
                  model_params,
-                 batch_size):
+                 batch_size,
+                 feature_key="features"):
         logging.info("Initialized TronnGraph")
         self.data_files = data_files # data files is a dict of lists
         self.tasks = tasks
@@ -27,6 +27,7 @@ class TronnGraph(object):
         self.model_fn = model_fn
         self.model_params = model_params
         self.batch_size = batch_size
+        self.feature_key = feature_key
         
     def build_graph(self, data_key="data", is_training=False):
         """Main function of graph: puts together the pieces
@@ -38,7 +39,8 @@ class TronnGraph(object):
         self.features, self.labels, self.metadata = self.data_loader(
             self.data_files[data_key],
             self.batch_size,
-            self.tasks)
+            self.tasks,
+            features_key=self.feature_key)
 
         # adjust tasks
         if self.tasks == []:
@@ -66,6 +68,7 @@ class TronnNeuralNetGraph(TronnGraph):
                  optimizer_fn=None,
                  optimizer_params=None,
                  metrics_fn=None,
+                 importances_fn=None,
                  weighted_cross_entropy=False):
         super(TronnNeuralNetGraph, self).__init__(
             data_files, tasks, data_loader,
@@ -75,6 +78,7 @@ class TronnNeuralNetGraph(TronnGraph):
         self.optimizer_fn = optimizer_fn
         self.optimizer_params = optimizer_params
         self.metrics_fn = metrics_fn
+        self.importances_fn = importances_fn
         self.weighted_cross_entropy = weighted_cross_entropy
 
         
@@ -136,6 +140,8 @@ class TronnNeuralNetGraph(TronnGraph):
         """Build a graph with back prop ties to be able to get 
         importance scores
         """
+        assert self.importances_fn is not None
+        
         self.build_graph(data_key, is_training=False)
 
         # split logits into task level
@@ -143,10 +149,10 @@ class TronnNeuralNetGraph(TronnGraph):
         
         # add in importance score calculations
         self.importances = {}
-        for task_idx in range(len(args.tasks)):
-            importance_key = "importances_task{}".format(args.tasks[task_idx])
-            self.importances[importance_key] = layerwise_relevance_propagation(
-                task_logits[task_idx], features)
+        for task_idx in range(len(self.tasks)):
+            importance_key = "importances_task{}".format(self.tasks[task_idx])
+            self.importances[importance_key] = self.importances_fn(
+                task_logits[task_idx], self.features)
 
         return self.importances
 

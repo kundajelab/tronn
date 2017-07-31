@@ -43,7 +43,7 @@ def run(args):
         {"train": train_files, "valid": valid_files},
         args.tasks,
         load_data_from_filename_list,
-        args.batch_size
+        args.batch_size,
         models[args.model['name']],
         args.model,
         tf.nn.sigmoid,

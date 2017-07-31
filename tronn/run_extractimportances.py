@@ -7,9 +7,12 @@ import logging
 
 import tensorflow as tf
 
+from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
-from tronn.models import models
+from tronn.architectures import models
+from tronn.architectures import stdev_cutoff
 from tronn.interpretation.importances import extract_importances
+from tronn.interpretation.importances import layerwise_relevance_propagation
 from tronn.interpretation.importances import call_importance_peaks
 
 
@@ -27,14 +30,14 @@ def run(args):
 
     # set up graph
     tronn_graph = TronnNeuralNetGraph(
-        {'data', data_files},
+        {'data': data_files},
         args.tasks,
         load_data_from_filename_list,
         args.batch_size / 2,
         models[args.model['name']],
         args.model,
         tf.nn.sigmoid,
-        importances_method="guided_backprop")
+        importances_fn=layerwise_relevance_propagation)
 
     # checkpoint file
     checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
@@ -63,15 +66,20 @@ def run(args):
 
         task_num = task_nums[task_num_idx]
 
+        # set up graph
+        callpeak_graph = TronnGraph(
+            {"data": [importances_mat_h5]},
+            [task_num],
+            load_data_from_filename_list,
+            stdev_cutoff,
+            {"pval": 0.05},
+            args.batch_size * 4,
+            feature_key="importances_task{}".format(task_num))
+
         # TODO(dk) make sure this goes in correct folder
         thresholded_importances_mat_h5 = 'task_{}.importances.thresholded.h5'.format(task_num)
         if not os.path.isfile(thresholded_importances_mat_h5):
-            call_importance_peaks(data_loader,
-                                  importances_mat_h5,
-                                  thresholded_importances_mat_h5,
-                                  args.batch_size * 4,
-                                  task_num,
-                                  pval=pval)
+            call_importance_peaks(callpeak_graph, thresholded_importances_mat_h5)
 
     # TODO(dk) plot as needed
     

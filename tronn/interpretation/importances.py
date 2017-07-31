@@ -9,8 +9,10 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_nn_ops
 
 from tronn.util.tf_utils import setup_tensorflow_session, close_tensorflow_session
-from tronn.models import stdev_cutoff
+from tronn.architectures import stdev_cutoff
 from tronn.visualization import plot_weights
+
+from tronn.interpretation.regions import RegionImportanceTracker
 
 
 @ops.RegisterGradient("GuidedRelu")
@@ -49,113 +51,175 @@ def layerwise_relevance_propagation(tensor, features):
     return importances
 
 
-def region_generator(sess,
-                     importances,
-                     predictions,
-                     labels,
-                     metadata,
-                     stop_idx,
-                     num_task): # TODO check if this arg is needed
-    """Build a generator to easily extract regions from session run 
-    (input data must be ordered)
-    
-    Args:
-      sess: tensorflow session with graph/model
-      importances: a dictionary of tensors that correspond to importances
-      predictions: predictions tensor
-      labels: labels tensor
-      metadata: metadata tensor
-      stop_idx: how many regions to generate
-      num_task: whic task to focus on
-
-    Returns:
-      current_sequences: dictionary of importance scores {task: importances}
-      region_name: name of region {chr}:{start}-{stop}
-      region_idx: index of region for output file
-      current_labels: labels for the region
+def region_generator_v2(sess, tronn_graph, stop_idx):
+    """Uses new regions class
     """
+    # TODO(dk) eventually rewrite as a function of TronnGraph and also
+    # make it work with variable keys, so that it's more extensible
     
-    # initialize variables to track progress through generator
-    current_chrom = 'NA'
-    current_region_start = 0
-    current_region_stop = 0
-    current_sequences = {}
-    for importance_key in importances.keys():
-        current_sequences[importance_key] = np.zeros((1, 1))
-    current_labels = np.zeros((labels.get_shape()[1],))
+    region_tracker = RegionImportanceTracker(tronn_graph.importances,
+                                             tronn_graph.labels,
+                                             tronn_graph.probs)
     region_idx = 0
-
-    # what's my stop condition? for now just have a stop_idx
+    
     while region_idx < stop_idx:
 
-        # run session to get importance scores etc
-        importances_dict, predictions_np, labels_np, regions_np = sess.run([
-            importances,
-            predictions,
-            labels,
-            metadata])
-        
-        # TODO(dk) remove negatives and negative flanks
+        # run session to get batched results
+        regions_array, importances_arrays, labels_array, probs_array = sess.run([
+            tronn_graph.metadata,
+            tronn_graph.importances,
+            tronn_graph.labels,
+            tronn_graph.probs])
 
-        # go through the examples in array, yield as you finish a region
-        for i in range(regions_np.shape[0]):
+        # Go through each example in batch
+        for i in range(regions_array.shape[0]):
 
-            if np.sum(labels_np[i,:]) == 0:
-                # ignore this region
+            # ignore univ region negs
+            if np.sum(labels_array[i,:]) == 0:
                 continue
-            
-            # get the region info
-            region = regions_np[i, 0]
-            chrom = region.split(':')[0]
-            region_start = int(region.split(':')[1].split('-')[0])
-            region_stop = int(region.split(':')[1].split('-')[1].split('(')[0])
 
-            # get the sequence importance scores across tasks
-            sequence_dict = {}
-            for importance_key in importances_dict.keys():
-                sequence_dict[importance_key] = np.squeeze(
-                    importances_dict[importance_key][i,:,:,:]).transpose(1, 0)
+            # extract example data
+            example_region = regions_array[i,0]
+            example_labels = labels_array[i,:]
+            example_probs = probs_array[i,:]
+
+            # extract example importances
+            example_importances = {}
+            for importance_key in importances_arrays.keys():
+                example_importances[importance_key] = np.squeeze(
+                    importances_arrays[importance_key][i,:,:,:]).transpose(1, 0)
                 
-            if ((current_chrom == chrom) and
-                (region_start < current_region_stop) and
-                (region_stop > current_region_stop)):
-                
-                # add on to current region
-                offset = region_start - current_region_start
-
-                # concat zeros to extend sequence array
-                for importance_key in importances_dict.keys():
-                    current_sequences[importance_key] = np.concatenate(
-                        (current_sequences[importance_key],
-                         np.zeros((4, region_stop - current_region_stop))),
-                        axis=1)
-
-                    # add new data on top
-                    current_sequences[importance_key][:,offset:] += sequence_dict[importance_key]
-                    
-                current_region_stop = region_stop
-                current_labels += labels_np[i,:]
-
+            # check if overlap
+            if region_tracker.check_downstream_overlap(example_region):
+                # if so, merge
+                region_tracker.merge(
+                    example_region,
+                    example_importances,
+                    example_labels,
+                    example_probs)
             else:
-                # we're on a new region
-                if current_chrom != 'NA':
-                    region_name = '{0}:{1}-{2}'.format(current_chrom,
-                                                       current_region_start,
-                                                       current_region_stop)
-                    if region_idx < stop_idx:
-                        # reduce labels to pos v neg
-                        current_labels = (current_labels > 0).astype(int)
-                        yield current_sequences, region_name, region_idx, current_labels
-                        region_idx += 1
-                    current_labels = labels_np[i,:]
+                # yield out the current sequence info if NOT the original fake init.
+                if region_tracker.chrom is not None:
+                    region_name, importances, labels, probs = region_tracker.get_region()
+                    yield importances, region_name, region_idx, labels
+                    region_idx += 1
                     
-                # reset current region with the new region info
-                current_chrom = chrom
-                current_region_start = region_start
-                current_region_stop = region_stop
-                for importance_key in importances.keys():
-                    current_sequences[importance_key] = sequence_dict[importance_key]
-                current_labels = labels_np[i,:]
+                # reset with new info
+                region_tracker.reset(
+                    example_region,
+                    example_importances,
+                    example_labels,
+                    example_probs)
+    
+    return
+
+
+# def region_generator(sess,
+#                      importances,
+#                      predictions,
+#                      labels,
+#                      metadata,
+#                      stop_idx): # TODO check if this arg is needed
+#     """Build a generator to easily extract regions from session run 
+#     (input data must be ordered)
+    
+#     Args:
+#       sess: tensorflow session with graph/model
+#       importances: a dictionary of tensors that correspond to importances
+#       predictions: predictions tensor
+#       labels: labels tensor
+#       metadata: metadata tensor
+#       stop_idx: how many regions to generate
+#       num_task: whic task to focus on
+
+#     Returns:
+#       current_sequences: dictionary of importance scores {task: importances}
+#       region_name: name of region {chr}:{start}-{stop}
+#       region_idx: index of region for output file
+#       current_labels: labels for the region
+#     """
+    
+#     # initialize variables to track progress through generator
+#     current_chrom = 'NA'
+#     current_region_start = 0
+#     current_region_stop = 0
+#     current_sequences = {}
+#     for importance_key in importances.keys():
+#         current_sequences[importance_key] = np.zeros((1, 1))
+#     current_labels = np.zeros((labels.get_shape()[1],))
+#     region_idx = 0
+
+#     # what's my stop condition? for now just have a stop_idx
+#     while region_idx < stop_idx:
+
+#         # run session to get importance scores etc
+#         importances_dict, predictions_np, labels_np, regions_np = sess.run([
+#             importances,
+#             predictions,
+#             labels,
+#             metadata])
+        
+#         # TODO(dk) remove negatives and negative flanks
+
+#         # go through the examples in array, yield as you finish a region
+#         for i in range(regions_np.shape[0]):
+
+#             if np.sum(labels_np[i,:]) == 0:
+#                 # ignore this region
+#                 continue
+            
+#             # get the region info
+#             region = regions_np[i, 0]
+#             chrom = region.split(':')[0]
+#             region_start = int(region.split(':')[1].split('-')[0])
+#             region_stop = int(region.split(':')[1].split('-')[1].split('(')[0])
+
+#             # get the sequence importance scores across tasks
+#             sequence_dict = {}
+#             for importance_key in importances_dict.keys():
+#                 sequence_dict[importance_key] = np.squeeze(
+#                     importances_dict[importance_key][i,:,:,:]).transpose(1, 0)
+                
+#             if ((current_chrom == chrom) and
+#                 (region_start < current_region_stop) and
+#                 (region_stop > current_region_stop)):
+                
+#                 # add on to current region
+#                 offset = region_start - current_region_start
+
+#                 # concat zeros to extend sequence array
+#                 for importance_key in importances_dict.keys():
+#                     current_sequences[importance_key] = np.concatenate(
+#                         (current_sequences[importance_key],
+#                          np.zeros((4, region_stop - current_region_stop))),
+#                         axis=1)
+
+#                     # add new data on top
+#                     current_sequences[importance_key][:,offset:] += sequence_dict[importance_key]
+                    
+#                 current_region_stop = region_stop
+#                 current_labels += labels_np[i,:]
+
+#             else:
+#                 # we're on a new region
+#                 if current_chrom != 'NA':
+#                     region_name = '{0}:{1}-{2}'.format(current_chrom,
+#                                                        current_region_start,
+#                                                        current_region_stop)
+#                     if region_idx < stop_idx:
+#                         # reduce labels to pos v neg
+#                         current_labels = (current_labels > 0).astype(int)
+#                         yield current_sequences, region_name, region_idx, current_labels
+#                         region_idx += 1
+#                     current_labels = labels_np[i,:]
+                    
+#                 # reset current region with the new region info
+#                 current_chrom = chrom
+#                 current_region_start = region_start
+#                 current_region_stop = region_stop
+#                 for importance_key in importances.keys():
+#                     current_sequences[importance_key] = sequence_dict[importance_key]
+#                 current_labels = labels_np[i,:]
 
 
 def extract_importances(
@@ -208,8 +272,11 @@ def extract_importances(
             regions_hf = hf.create_dataset('regions', [sample_size, 1], dtype='S100')
 
             # run the region generator
-            for sequence, name, idx, labels_np in region_generator(
-                    sess, importances, predictions, labels, metadata, sample_size, num_task):
+            #for sequence, name, idx, labels_np in region_generator(
+            #        sess, importances, tronn_graph.probs, tronn_graph.labels, tronn_graph.metadata, sample_size):
+
+            for sequence, name, idx, labels_np in region_generator_v2(
+                    sess, tronn_graph, sample_size):
             
                 if idx % 1000 == 0:
                     print idx
@@ -234,52 +301,115 @@ def extract_importances(
     return None
 
 
-def call_importance_peaks(
-        data_loader,
-        importance_h5,
-        out_h5,
-        batch_size,
-        task_num,
-        pval):
+# def call_importance_peaks(
+#         data_loader,
+#         importance_h5,
+#         out_h5,
+#         batch_size,
+#         task_num,
+#         pval):
+#     """Calls peaks on importance scores
+    
+#     Currently assumes a poisson distribution of scores. Calculates
+#     poisson lambda and uses it to get a pval threshold.
+
+#     """
+#     print "calling peaks with pval {}".format(pval)
+#     importance_key = 'importances_task{}'.format(task_num)
+    
+#     with h5py.File(importance_h5, 'r') as hf:
+#         num_examples = hf[importance_key].shape[0]
+#         seq_length = hf[importance_key].shape[2]
+#         num_tasks = hf['labels'].shape[1]
+
+#     # First set up graph and convolutions model
+#     with tf.Graph().as_default() as g:
+
+#         # data loader
+#         features, labels, metadata = data_loader([importance_h5],
+#                                                  batch_size,
+#                                                  features_key=importance_key)
+
+#         # load the model
+#         thresholded_tensor = stdev_cutoff(features)
+
+#         # run the model (set up sessions, etc)
+#         sess, coord, threads = setup_tensorflow_session()
+
+#         # set up hdf5 file for saving sequences
+#         with h5py.File(out_h5, 'w') as out_hf:
+#             importance_mat = out_hf.create_dataset(importance_key,
+#                                               [num_examples, 4, seq_length])
+#             labels_mat = out_hf.create_dataset('labels',
+#                                                [num_examples, num_tasks])
+#             regions_mat = out_hf.create_dataset('regions',
+#                                                 [num_examples, 1],
+#                                                 dtype='S100')
+
+#             # run through batches worth of sequence
+#             for batch_idx in range(num_examples / batch_size + 1):
+
+#                 print batch_idx * batch_size
+
+#                 batch_importances, batch_regions, batch_labels = sess.run([thresholded_tensor,
+#                                                                            metadata,
+#                                                                            labels])
+
+#                 batch_start = batch_idx * batch_size
+#                 batch_stop = batch_start + batch_size
+
+#                 # TODO save out to hdf5 file
+#                 if batch_stop < num_examples:
+#                     importance_mat[batch_start:batch_stop,:] = batch_importances
+#                     labels_mat[batch_start:batch_stop,:] = batch_labels
+#                     regions_mat[batch_start:batch_stop] = batch_regions.astype('S100')
+#                 else:
+#                     importance_mat[batch_start:num_examples,:] = batch_importances[0:num_examples-batch_start,:]
+#                     labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start]
+#                     regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
+
+#         close_tensorflow_session(coord, threads)
+
+#     return None
+
+
+def call_importance_peaks_v2(
+        callpeak_graph,
+        out_h5):
     """Calls peaks on importance scores
     
-    Currently assumes a poisson distribution of scores. Calculates
-    poisson lambda and uses it to get a pval threshold.
+    Currently assumes a normal distribution of scores. Calculates
+    mean and std and uses them to get a pval threshold.
 
     """
-    print "calling peaks with pval {}".format(pval)
-    importance_key = 'importances_task{}'.format(task_num)
-    
+    logging.info("Calling importance peaks...")
+
+    # determine some characteristics of data
     with h5py.File(importance_h5, 'r') as hf:
         num_examples = hf[importance_key].shape[0]
         seq_length = hf[importance_key].shape[2]
         num_tasks = hf['labels'].shape[1]
 
-    # First set up graph and convolutions model
+    # start the graph
     with tf.Graph().as_default() as g:
 
-        # data loader
-        features, labels, metadata = data_loader([importance_h5],
-                                                 batch_size,
-                                                 features_key=importance_key)
+        # build graph
+        thresholded_importances = callpeak_graph.build_graph()
 
-        # load the model
-        thresholded_tensor = stdev_cutoff(features)
-
-        # run the model (set up sessions, etc)
+        # setup session
         sess, coord, threads = setup_tensorflow_session()
 
-        # set up hdf5 file for saving sequences
         with h5py.File(out_h5, 'w') as out_hf:
-            importance_mat = out_hf.create_dataset(importance_key,
-                                              [num_examples, 4, seq_length])
-            labels_mat = out_hf.create_dataset('labels',
-                                               [num_examples, num_tasks])
-            regions_mat = out_hf.create_dataset('regions',
-                                                [num_examples, 1],
-                                                dtype='S100')
 
-            # run through batches worth of sequence
+            # initialize datasets
+            importance_mat = out_hf.create_dataset(
+                importance_key, [num_examples, 4, seq_length])
+            labels_mat = out_hf.create_dataset(
+                'labels', [num_examples, num_tasks])
+            regions_mat = out_hf.create_dataset(
+                'regions', [num_examples, 1], dtype='S100')
+
+            # run through batches of sequence
             for batch_idx in range(num_examples / batch_size + 1):
 
                 print batch_idx * batch_size
@@ -300,11 +430,11 @@ def call_importance_peaks(
                     importance_mat[batch_start:num_examples,:] = batch_importances[0:num_examples-batch_start,:]
                     labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start]
                     regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
-
-        close_tensorflow_session(coord, threads)
+        
+        # close session
+        close_tensorflow_session(coord, threads
 
     return None
-
 
 
 
