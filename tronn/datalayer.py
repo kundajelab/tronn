@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow as tf
 
 
-def get_total_num_examples(hdf5_filename_list):
+def get_total_num_examples(hdf5_filename_list, feature_key="features"):
     """Get total number of examples in a list of hdf5 files.
 
     Args:
@@ -23,7 +23,7 @@ def get_total_num_examples(hdf5_filename_list):
     num_examples = 0
     for filename in hdf5_filename_list:
         with h5py.File(filename,'r') as hf:
-            num_examples += hf['features'].shape[0]
+            num_examples += hf[feature_key].shape[0]
 
     return num_examples
 

@@ -20,6 +20,19 @@ from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
 from scipy.stats import zscore
 
 
+
+def read_motifset_file(motifset_file):
+    """Read file that has motifs, no dependencies
+    """
+    motif_sets = []
+    with open(motifset_file, 'r') as fp:
+        for line in fp:
+            fields = line.strip().split('\t')
+            motif_sets.append(fields[1:])
+            
+    return motif_sets
+
+
 class Grammar(object):
     def __init__(self, pwm_list, name):
         self.pwms = pwm_list

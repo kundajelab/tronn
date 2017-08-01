@@ -239,8 +239,10 @@ def train_and_evaluate(
         if metric_best is None or ('loss' in stop_metric) != (eval_metrics[stop_metric] > metric_best):
             consecutive_bad_epochs = 0
             metric_best = eval_metrics[stop_metric]
+            checkpoint_path = tf.train.latest_checkpoint("{}/train".format(out_dir))
             with open(os.path.join(out_dir, 'best.txt'), 'w') as fp:
                 fp.write('epoch %d\n'%epoch)
+                fp.write("checkpoint path: {}\n".format(checkpoint_path))
                 fp.write(str(eval_metrics))
         else:
             consecutive_bad_epochs += 1
@@ -283,10 +285,12 @@ def predict(
         # set up session
         sess, coord, threads = setup_tensorflow_session()
         
-        # restore
-        checkpoint_path = tf.train.latest_checkpoint(model_dir)
-        saver = tf.train.Saver()
-        saver.restore(sess, checkpoint_path)
+        # restore if given model (option to NOT restore because of models
+        # that do not use restore, like PWM convolutions)
+        if model_dir is not None:
+            checkpoint_path = tf.train.latest_checkpoint(model_dir)
+            saver = tf.train.Saver()
+            saver.restore(sess, checkpoint_path)
         
         # set up arrays to hold outputs
         num_examples = num_evals * batch_size

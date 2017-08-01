@@ -21,6 +21,9 @@ def run(args):
     Sets up a graph and then runs the graph for some number of batches
     to get predictions. Then, per task, these are saved out into 
     BED style files with label and probabilities.
+
+    TODO(dk) extend this to motifs scans, grammar scans
+
     """
     logging.info("Running predict...")
     os.system("mkdir -p {}".format(args.out_dir))
@@ -49,7 +52,7 @@ def run(args):
     # per task
     for task_idx in range(labels.shape[1]):
         task_key = "task_{}".format(task_idx)
-        logging.info("Predicing on {}...".format(task_key))
+        logging.info("Predicting on {}...".format(task_key))
         
         task_labels = labels[:, task_idx]
         task_probs = probs[:, task_idx]

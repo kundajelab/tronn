@@ -2,6 +2,7 @@
 """
 
 import h5py
+import logging
 import numpy as np
 
 import tensorflow as tf
@@ -103,6 +104,8 @@ def region_generator_v2(sess, tronn_graph, stop_idx):
                     region_name, importances, labels, probs = region_tracker.get_region()
                     yield importances, region_name, region_idx, labels
                     region_idx += 1
+                    if region_idx == stop_idx:
+                        break
                     
                 # reset with new info
                 region_tracker.reset(
@@ -374,6 +377,7 @@ def extract_importances(
 
 
 def call_importance_peaks_v2(
+        importance_h5,
         callpeak_graph,
         out_h5):
     """Calls peaks on importance scores
@@ -432,7 +436,7 @@ def call_importance_peaks_v2(
                     regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
         
         # close session
-        close_tensorflow_session(coord, threads
+        close_tensorflow_session(coord, threads)
 
     return None
 

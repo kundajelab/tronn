@@ -38,23 +38,26 @@ def parse_args():
     # command for making motifs with wkm
     add_wkm_parser(subparsers)
 
+    # command for grouping motifs
+    add_bagmotifs_parser(subparsers)
+
     # command for ISM
     add_ism_parser(subparsers)
 
 
     # OLD PARSERS BELOW TO BE DEPRECATED
     
-    # command for interpretation
-    add_interpret_parser(subparsers)
+    # # command for interpretation
+    # add_interpret_parser(subparsers)
 
-    # command for interpretation with kmers
-    add_interpret_parser_2(subparsers)
+    # # command for interpretation with kmers
+    # add_interpret_parser_2(subparsers)
 
-    # command for scanning grammars
-    add_scan_grammars_parser(subparsers)
+    # # command for scanning grammars
+    # add_scan_grammars_parser(subparsers)
 
-    # command for running a baseline model (on kmers)
-    add_baseline_parser(subparsers)
+    # # command for running a baseline model (on kmers)
+    # add_baseline_parser(subparsers)
     
     # TODO consider a command for visualizing some example sequences
 
@@ -376,10 +379,52 @@ def add_wkm_parser(subparsers):
     group_input.add_argument(
         "--importance_files", nargs="+", required=True,
         help="Importance files (ideally thresholded) to extract kmers")
-
     
+    # group for output files
+    group_output = argparser_wkm.add_argument_group(
+        "Output files and folders")
+    add_out_dir_option(group_output)
+    group_output.add_argument(
+        '--prefix', required=True,
+        help='prefix to attach onto file names')
     
+    return
 
+
+def add_bagmotifs_parser(subparsers):
+    """Add argument parser for scanning motifs and clustering into motif bags
+    """
+    argparser_bagmotifs = subparsers.add_parser(
+        "bagmotifs",
+        help="Cluster motifs into groups")
+
+    # group for input files
+    group_input = argparser_bagmotifs.add_argument_group(
+    	"Input files and folders")
+    group_input.add_argument(
+        "--importance_file", required=True,
+        help="Importance files (ideally thresholded) to extract kmers")
+    group_input.add_argument(
+    	"--task_num", required=True, type=int,
+    	help="Task number currently running (to get correct importance scores)")
+    group_input.add_argument(
+        "--motif_file", required=True,
+        help="motif file for scanning")
+
+    # group for parameters
+    group_params = argparser_bagmotifs.add_argument_group(
+        "Interpretation hyperparameters")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
+    
+    # group for output files
+    group_output = argparser_bagmotifs.add_argument_group(
+        "Output files and folders")
+    add_out_dir_option(group_output)
+    group_output.add_argument(
+        '--prefix', required=True,
+        help='prefix to attach onto file names')
     
     return
 
@@ -391,9 +436,44 @@ def add_ism_parser(subparsers):
     argparser_ism = subparsers.add_parser(
         "ism",
         help="Extract dependencies using ISM")
-    
+
+	# group for input files
+    group_input = argparser_ism.add_argument_group(
+    	"Input files and folders")
+    group_input.add_argument(
+        "--bed_dir", required=True,
+        help="Directory of BED files")
+    group_input.add_argument(
+    	"--motif_sets_file", required=True,
+    	help="Motif sets file")
+    group_input.add_argument(
+        "--pwm_file", required=True,
+        help="file of PWMs")
+
+    # group for output files
+    group_output = argparser_ism.add_argument_group(
+        "Output files and folders")
+    add_out_dir_option(group_output)
+    group_output.add_argument(
+        '--prefix', required=True,
+        help='prefix to attach onto file names')
 
     return
+
+
+def add_makegrammar_parser(subparsers):
+    """
+    """
+    argparser_grammars = subparsers.add_parser(
+        "makegrammar",
+        help="Get grammars")
+
+
+
+    return
+
+
+
 
 
 # OLD PARSERS BELOW TO BE DEPRECATED
@@ -579,6 +659,12 @@ def main():
         print 'model args: %s' % args.model
         from tronn.run_extractimportances import run
         run(args)
+    elif subcommand == "makemotifs":
+        from tronn.run_wkm import run
+        run(args)
+    elif subcommand == "bagmotifs":
+    	from tronn.run_bagmotifs import run
+    	run(args)
 
 
 

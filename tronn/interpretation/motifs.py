@@ -11,59 +11,244 @@ import tensorflow as tf
 from scipy.signal import fftconvolve
 from scipy.signal import convolve2d
 
-from tronn.models import pwm_convolve
+from tronn.architectures import pwm_convolve
 from tronn.visualization import plot_weights
 
 
 
+
+def get_encode_pwms(motif_file, as_dict=False):
+    """Extracts motifs into PWM class format
+    """
+    # option to set up as dict or list
+    if as_dict:
+        pwms = {}
+    else:
+        pwms = []
+
+    # open motif file and read
+    with open(motif_file) as fp:
+        line = fp.readline().strip()
+        while True:
+            if line == '':
+                break
+            
+            header = line.strip('>').strip()
+            weights = []
+            
+            while True:
+                line = fp.readline()
+                if line == '' or line[0] == '>': break
+                weights.append(map(float, line.split()))
+
+            pwm = PWM(np.array(weights).transpose(1,0), header)
+
+            # store into dict or list
+            if as_dict:
+                pwms[header] = pwm
+            else:
+                pwms.append(pwm)
+                
+    return pwms
+
+
+def generate_offsets(array_1, array_2, offset):
+    '''This script sets up two sequences with the offset 
+    intended. Offset is set by first sequence
+    '''
+    bases_len = array_1.shape[0]
+    seq_len1 = array_1.shape[1]
+    seq_len2 = array_2.shape[1]
+    
+    if offset > 0:
+        total_len = np.maximum(seq_len1, offset + seq_len2)
+        array_1_padded = np.concatenate((array_1,
+                                         np.zeros((bases_len, total_len - seq_len1))),
+                                        axis=1)
+        array_2_padded = np.concatenate((np.zeros((bases_len, offset)),
+                                         array_2,
+                                         np.zeros((bases_len, total_len - seq_len2 - offset))),
+                                        axis=1)
+    elif offset < 0:
+        total_len = np.maximum(seq_len2, -offset + seq_len1)
+        array_1_padded = np.concatenate((np.zeros((bases_len, -offset)),
+                                         array_1,
+                                         np.zeros((bases_len, total_len - seq_len1 + offset))),
+                                        axis=1)
+        array_2_padded = np.concatenate((array_2,
+                                         np.zeros((bases_len, total_len - seq_len2))),
+                                        axis=1)
+    else:
+        if seq_len1 > seq_len2:
+            total_len = seq_len1
+            array_1_padded = array_1
+            array_2_padded = np.concatenate((array_2,
+                                             np.zeros((bases_len, total_len - seq_len2))),
+                                            axis=1)
+        elif seq_len1 < seq_len2:
+            total_len = seq_len2
+            array_2_padded = array_2
+            array_1_padded = np.concatenate((array_1,
+                                             np.zeros((bases_len, total_len - seq_len1))),
+                                            axis=1)
+        else:
+            array_1_padded = array_1
+            array_2_padded = array_2
+            
+    return array_1_padded, array_2_padded
+                                                                
+
+
 class PWM(object):
+    """PWM class for PWM operations"""
+    
     def __init__(self, weights, name=None, threshold=None):
         self.weights = weights
         self.name = name
         self.threshold = threshold
 
-    @staticmethod
-    def from_homer_motif(motif_file):
-        with open(motif_file) as fp:
-            header = fp.readline().strip().split('\t')
-            name = header[1]
-            threshold = float(header[2])
-            weights = np.loadtxt(fp)
+        
+    def normalize(self, style="gaussian", in_place=True):
+        """Normalize pwm
+        """
+        if style == "gaussian":
+            mean = np.mean(self.weights)
+            std = np.std(self.weights)
+            normalized_weights = (self.weights - mean) / std
+        elif style == "probabilities":
+            col_sums = pwm.sum(axis=0)
+            normalized_pwm_tmp = self.weights / np.amax(col_sums[np.newaxis,:])
+            normalized_weights = np.nan_to_num(normalized_pwm_tmp)
+        elif style == "log_odds":
+            print "Not yet implemented"
+        else:
+            print "Style not recognized"
+            
+        if in_place:
+            self.weights = normalized_weights
+            return self
+        else:
+            new_pwm = PWM(normalized_weights, "{}.norm".format(self.name))
+            return new_pwm
 
-        return PWM(weights, name, threshold)
+        
+    def xcor(self, pwm, normalize=True):
+        """Compute xcor score with other motif, return score and offset relative to first pwm
+        """
+        if normalize:
+            pwm1_norm = normalize_pwm2(pwm1, in_place=False)
+            pwm2_norm = normalize_pwm2(pwm2, in_place=False)
+        else:
+            pwm1_norm = pwm1
+            pwm2_norm = pwm2
 
-    @staticmethod
-    def get_encode_pwms(motif_file):
-        pwms = []
+        # calculate xcor
+        xcor_vals = correlate2d(pwm1_norm.weights, pwm2_norm.weights, mode='same')
+        xcor_norm = xcor_vals / (pwm1_norm.shape[0]*pwm1_norm.shape[1])
+        score = np.max(xcor_norm[1,:])
+        offset = np.argmax(xcor_norm[1,:]) - int(math.ceil(pwm2_norm.shape[1] / 2.) - 1)
 
-        with open(motif_file) as fp:
-            line = fp.readline().strip()
-            while True:
-                if line == '':
-                    break
+        return score, offset
 
-                header = line.strip('>').strip()
-                weights = []
-                while True:
-                    line = fp.readline()
-                    if line == '' or line[0] == '>':
-                        break
-                    weights.append(map(float, line.split()))
-                pwms.append(PWM(np.array(weights).transpose(1,0), header))
+    
+    def chomp(self):
+        """Remove leading/trailing Ns. In place.
+        """
+        chomped_weights = pwm[:,~np.all(pwm == 0, axis=0)]
+        self.weights = chomped_weights
+        assert(self.weights.shape[0] == 4)
+        
+        return chomped_weights
+    
 
-        return pwms
+    def merge(self, pwm, offset, new_name=None, normalize=True):
+        """Merge in another PWM and output a new PWM
+        """
+        weights1_padded, weights2_padded = generate_offsets(self.weights, pwm.weights, offset)
+        try:
+            merged_pwm = weights1_padded + weights2_padded
+        except:
+            import pdb
+            pdb.set_trace()
 
-    @staticmethod
-    def from_cisbp_motif(motif_file):
-        name = os.path.basename(motif_file)
-        with open(motif_file) as fp:
-            _ = fp.readline()
-            weights = np.loadtxt(fp)[:, 1:]
-        return PWM(weights, name)
+        new_pwm = PWM(merged_pwm, new_name)
 
-    def get_weights(self):
-        return self.weights
+        if normalize:
+            new_pwm.normalize()
 
+        return new_pwm
+
+    
+    def to_motif_file(self, motif_file):
+        """Write PWM out to file
+        """
+        with open(motif_file, 'a') as fp:
+            fp.write('>{}\n'.format(self.name))
+            for i in range(self.weights.shape[1]):
+                vals = self.weights[:,i].tolist()
+                val_strings = [str(val) for val in vals]
+                fp.write('{}\n'.format('\t'.join(val_strings)))
+        
+        return None
+
+    
+    
+    
+    
+
+
+# class PWM(object):
+#     def __init__(self, weights, name=None, threshold=None):
+#         self.weights = weights
+#         self.name = name
+#         self.threshold = threshold
+
+#     @staticmethod
+#     def from_homer_motif(motif_file):
+#         with open(motif_file) as fp:
+#             header = fp.readline().strip().split('\t')
+#             name = header[1]
+#             threshold = float(header[2])
+#             weights = np.loadtxt(fp)
+
+#         return PWM(weights, name, threshold)
+
+#     @staticmethod
+#     def get_encode_pwms(motif_file):
+#         pwms = []
+
+#         with open(motif_file) as fp:
+#             line = fp.readline().strip()
+#             while True:
+#                 if line == '':
+#                     break
+
+#                 header = line.strip('>').strip()
+#                 weights = []
+#                 while True:
+#                     line = fp.readline()
+#                     if line == '' or line[0] == '>':
+#                         break
+#                     weights.append(map(float, line.split()))
+#                 pwms.append(PWM(np.array(weights).transpose(1,0), header))
+
+#         return pwms
+
+#     @staticmethod
+#     def from_cisbp_motif(motif_file):
+#         name = os.path.basename(motif_file)
+#         with open(motif_file) as fp:
+#             _ = fp.readline()
+#             weights = np.loadtxt(fp)[:, 1:]
+#         return PWM(weights, name)
+
+#     def get_weights(self):
+#         return self.weights
+
+
+    
+
+    
 
 def run_pwm_convolution(data_loader,
                         importance_h5,

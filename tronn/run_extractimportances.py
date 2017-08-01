@@ -7,13 +7,15 @@ import logging
 
 import tensorflow as tf
 
+from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.architectures import models
 from tronn.architectures import stdev_cutoff
 from tronn.interpretation.importances import extract_importances
 from tronn.interpretation.importances import layerwise_relevance_propagation
-from tronn.interpretation.importances import call_importance_peaks
+from tronn.interpretation.importances import call_importance_peaks_v2
+from tronn.interpretation.importances import visualize_sample_sequences
 
 
 def run(args):
@@ -53,15 +55,17 @@ def run(args):
             args.sample_size,
             method="guided_backprop")
 
-    # TODO(dk) plot as needed
-    
-
-    quit()
+    # plot as needed
+    if args.plot_samples:
+        sample_viz_dir = "{0}/{1}.seq_viz_samples".format(args.tmp_dir, args.prefix)
+        os.system("mkdir -p {}".format(sample_viz_dir))
+        visualize_sample_sequences(importances_mat_h5, 0, sample_viz_dir)
 
     # threshold importances
     # this is per task (and separate) because you don't
-    # want thresholded importances on negatives (I think?)
-    task_nums = [0, 14, 15]
+    # want thresholded importances on negatives so number of examples in each is different
+    #task_nums = [0, 14, 15]
+    task_nums = [0]
     for task_num_idx in range(len(task_nums)):
 
         task_num = task_nums[task_num_idx]
@@ -76,13 +80,19 @@ def run(args):
             args.batch_size * 4,
             feature_key="importances_task{}".format(task_num))
 
-        # TODO(dk) make sure this goes in correct folder
-        thresholded_importances_mat_h5 = 'task_{}.importances.thresholded.h5'.format(task_num)
+        # Get thresholded importances
+        thresholded_importances_mat_h5 = '{0}/{1}.task_{2}/{1}.task_{2}.importances.thresholded.h5'.format(
+            args.out_dir, args.prefix, task_num)
         if not os.path.isfile(thresholded_importances_mat_h5):
-            call_importance_peaks(callpeak_graph, thresholded_importances_mat_h5)
+            call_importance_peaks_v2(importances_mat_h5, callpeak_graph, thresholded_importances_mat_h5)
 
-    # TODO(dk) plot as needed
-    
+        # plot as needed
+        if args.plot_samples:
+            sample_viz_dir = "{0}/{1}.task_{2}/{1}.task_{2}.seq_viz_samples".format(
+                args.out_dir, args.prefix, task_num)
+            os.system("mkdir -p {}".format(sample_viz_dir))
+            visualize_sample_sequences(thresholded_importances_mat_h5, task_num, sample_viz_dir)
+        
 
     
 

@@ -89,8 +89,6 @@ def basset_conv_module(features, is_training=True):
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
     return net
 
-# TODO (Daniel) add a conv module for PWMs and wide 1st layer (or generally larger model to accomodate PWMs?)
-
 
 def basset(features, labels, config, is_training=True):
     '''
@@ -174,7 +172,12 @@ def _resnet(features, initial_conv, kernel, stages, pooling_info, l2, is_trainin
     print features.get_shape().as_list()
     with slim.arg_scope([slim.batch_norm], center=True, scale=True, activation_fn=tf.nn.relu, is_training=is_training):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d], kernel_size=[1, kernel], padding='SAME'):
-            with slim.arg_scope([slim.conv2d], activation_fn=None, weights_regularizer=slim.l2_regularizer(l2), weights_initializer=layers.variance_scaling_initializer(), biases_initializer=None):
+            with slim.arg_scope(
+                    [slim.conv2d],
+                    activation_fn=None,
+                    weights_regularizer=slim.l2_regularizer(l2),
+                    weights_initializer=layers.variance_scaling_initializer(),
+                    biases_initializer=None):
                 # We do not include batch normalization or activation functions in embed because the first ResNet unit will perform these.
                 with tf.variable_scope('embed'):
                     initial_filters, initial_kernel, initial_stride = initial_conv
@@ -219,7 +222,47 @@ models['resnet'] = resnet
 # MODELS USED IN INTERPRETATION BELOW
 # ================================================
 
-def pwm_convolve(features, pwm_list):
+def pwm_convolve_v2(features, labels, model_params, is_training=False):
+    '''
+    All this model does is convolve with PWMs and get top k pooling to output
+    a example by motif matrix.
+    '''
+
+    pwm_list = model_params["pwms"]
+
+    # get various sizes needed to instantiate motif matrix
+    num_filters = len(pwm_list)
+
+    max_size = 0
+    for pwm in pwm_list:
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+
+    # make the convolution net
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features)),
+            biases_initializer=None,
+            trainable=False):
+        net = slim.conv2d(
+            features, num_filters, conv1_filter_size,
+            scope='conv1/conv')
+
+    # Then get top k values across the correct axis
+    net = tf.transpose(net, perm=[0, 1, 3, 2])
+    top_k_val, top_k_indices = tf.nn.top_k(net, k=3)
+
+    # Do a summation
+    motif_tensor = tf.squeeze(tf.reduce_sum(top_k_val, 3)) # 3 is the axis
+
+    return labels, motif_tensor, motif_tensor
+
+
+def pwm_convolve(features, labels, pwm_list):
     '''
     All this model does is convolve with PWMs and get top k pooling to output
     a example by motif matrix.
@@ -719,11 +762,7 @@ def generate_paired_mutant_batch(features, max_idx1, max_idx2, num_mutations):
 def ism_for_grammar_dependencies(
         features,
         labels,
-        model,
-        model_config,
-        checkpoint_path,
-        pwm_a,
-        pwm_b,
+        model_params, 
         num_mutations=6,
         num_tasks=43,
         current_task=0):
@@ -731,13 +770,18 @@ def ism_for_grammar_dependencies(
     Remember that the input to this should be onehot encoded sequence
     NOT importance scores, and only those for the subtask set you care about
     """
+    model = model_params["trained_net"]
+    pwm_a = model_params["pwm_a"]
+    pwm_b = model_params["pwm_b"]
+    
     # first layer - instantiate motifs and scan for best match in sequence
     max_size = max(pwm_a.weights.shape[1], pwm_b.weights.shape[1])
     conv1_filter_size = [1, max_size]
     with slim.arg_scope([slim.conv2d],
                         padding='VALID',
                         activation_fn=None,
-                        weights_initializer=pwm_simple_initializer(conv1_filter_size, [pwm_a, pwm_b], get_fan_in(features)),
+                        weights_initializer=pwm_simple_initializer(
+                            conv1_filter_size, [pwm_a, pwm_b], get_fan_in(features)),
                         biases_initializer=None,
                         scope='mutate'):
         net = slim.conv2d(features, 2, conv1_filter_size)
@@ -748,17 +792,20 @@ def ism_for_grammar_dependencies(
     max_idx2_tensor = tf.squeeze(tf.slice(max_indices, [0, 0, 1], [1, 1, 1]))
 
     # generate mutant sequences for motif 1
-    motif1_mutants_batch = generate_point_mutant_batch(features, max_idx1_tensor, num_mutations)
+    motif1_mutants_batch = generate_point_mutant_batch(
+        features, max_idx1_tensor, num_mutations)
     motif1_batch_size = motif1_mutants_batch.get_shape().as_list()[0]
     print "motif 1 total mutants:", motif1_mutants_batch.get_shape()
 
     # for motif 2: do the same as motif 1
-    motif2_mutants_batch = generate_point_mutant_batch(features, max_idx2_tensor, num_mutations)
+    motif2_mutants_batch = generate_point_mutant_batch(
+        features, max_idx2_tensor, num_mutations)
     motif2_batch_size = motif2_mutants_batch.get_shape().as_list()[0]
     print "motif 2 total mutants:", motif2_mutants_batch.get_shape()
 
     # for joint
-    joint_mutants_batch = generate_paired_mutant_batch(features, max_idx1_tensor, max_idx2_tensor, num_mutations)
+    joint_mutants_batch = generate_paired_mutant_batch(
+        features, max_idx1_tensor, max_idx2_tensor, num_mutations)
     joint_batch_size = joint_mutants_batch.get_shape().as_list()[0]
     print "joint motif total mutants:", joint_mutants_batch.get_shape()
 
@@ -840,4 +887,4 @@ def ism_for_grammar_dependencies(
     #interesting_outputs = [synergy_score, prob_orig, logit_orig, logit_mutant_motif1_min, logit_mutant_motif2_min, logits, all_mutants_batch, max_indices]
     
     # output the ratio
-    return synergy_score2, motif1_score, motif2_score
+    return [synergy_score2, motif1_score, motif2_score]
