@@ -14,9 +14,9 @@ if __name__== "__main__":
           package_data={"tronn":"data/*.json"},
           scripts=['bin/tronn',
                    "R/plot_metrics_curves.R",
-                   'scripts/run_region_clustering.R',
-                   'scripts/make_network_grammar.R',
-                   'scripts/make_network_grammar_v2.R',
-                   'scripts/filter_w_rna.R',
-                   'scripts/run_rgreat.R']
+                   'R/run_region_clustering.R',
+                   'R/make_network_grammar.R',
+                   'R/make_network_grammar_v2.R',
+                   'R/filter_w_rna.R',
+                   'R/run_rgreat.R']
     )

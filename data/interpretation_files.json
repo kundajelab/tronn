@@ -1,7 +1,0 @@
-{
-    "motif_file":"/mnt/lab_data/kundaje/users/dskim89/annotations/hocomoco/hocomoco.v10.pwms_HUMAN_mono.filt.and_custom.unique.txt",
-    "motif_sim_file":"/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/results/postprocess.nn.2017-04-17.similarity_ordered_motifs/motif_sim_mat.txt",
-    "motif_offsets_file":"/mnt/lab_data/kundaje/users/dskim89/ggr/chromatin/results/postprocess.nn.2017-04-17.similarity_ordered_motifs/motif_offsets_mat.txt",
-    "rna_file":"/mnt/lab_data/kundaje/users/dskim89/ggr/transcriptome/data/long_cai/ggr.pas.tpm.txt.gz",
-    "rna_conversion_file":"/mnt/lab_data/kundaje/users/dskim89/ggr/transcriptome/data/long_cai/gencode.v19.ensembl_to_hgnc.txt.gz"
-}
