@@ -437,7 +437,7 @@ def add_ism_parser(subparsers):
         "ism",
         help="Extract dependencies using ISM")
 
-	# group for input files
+    # group for input files
     group_input = argparser_ism.add_argument_group(
     	"Input files and folders")
     group_input.add_argument(
@@ -449,6 +449,26 @@ def add_ism_parser(subparsers):
     group_input.add_argument(
         "--pwm_file", required=True,
         help="file of PWMs")
+    group_input.add_argument(
+        '--tasks', nargs='+', default=[], type=int,
+        help='tasks over which to get importances')
+    group_input.add_argument(
+        '--model_dir', required=True,
+        help='trained model (tensorflow checkpoint)')
+
+    # group for model
+    group_model = argparser_ism.add_argument_group(
+        "Model definition")
+    group_model.add_argument(
+        '--model', nargs='+', required=True,
+        help='choose model and provide configs')
+
+    # group for params
+    group_params = argparser_ism.add_argument_group(
+        "Interpretation hyperparameters")
+    group_params.add_argument(
+        '--batch_size', default=1, type=int,
+        help='batch size')
 
     # group for output files
     group_output = argparser_ism.add_argument_group(
@@ -478,109 +498,109 @@ def add_makegrammar_parser(subparsers):
 
 # OLD PARSERS BELOW TO BE DEPRECATED
 
-def add_interpret_parser(subparsers):
-    """Add interpretation function argument parser
-    """
-    argparser_interpret = subparsers.add_parser("interpret", help="Interpret a TRoNN model")
+# def add_interpret_parser(subparsers):
+#     """Add interpretation function argument parser
+#     """
+#     argparser_interpret = subparsers.add_parser("interpret", help="Interpret a TRoNN model")
 
-    # group for input files
-    group_input = argparser_interpret.add_argument_group("Input files and folders")
-    group_input.add_argument('--data_dir', help='hdf5 file directory')
-    group_input.add_argument('--model_dir', help='trained model for interpretation')
-    group_input.add_argument('--tasks', nargs='+', default=[], type=int,
-                             help='tasks over which to train multitask model on')
+#     # group for input files
+#     group_input = argparser_interpret.add_argument_group("Input files and folders")
+#     group_input.add_argument('--data_dir', help='hdf5 file directory')
+#     group_input.add_argument('--model_dir', help='trained model for interpretation')
+#     group_input.add_argument('--tasks', nargs='+', default=[], type=int,
+#                              help='tasks over which to train multitask model on')
 
-    # group for model
-    group_model = argparser_interpret.add_argument_group("Model definition")
-    group_model.add_argument('--model', nargs='+', help='choose model and provide configs')
+#     # group for model
+#     group_model = argparser_interpret.add_argument_group("Model definition")
+#     group_model.add_argument('--model', nargs='+', help='choose model and provide configs')
 
-    # group for parameters
-    group_params = argparser_interpret.add_argument_group("Interpretation hyperparameters")
-    group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
-    group_params.add_argument('--sample_size', default=220000, type=int,
-                              help='number of regions to get importance scores')
+#     # group for parameters
+#     group_params = argparser_interpret.add_argument_group("Interpretation hyperparameters")
+#     group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
+#     group_params.add_argument('--sample_size', default=220000, type=int,
+#                               help='number of regions to get importance scores')
 
-    # group for annotation files
-    group_data = argparser_interpret.add_argument_group("External data files")
-    group_data.add_argument('--annotations', help='json file of external data files')
+#     # group for annotation files
+#     group_data = argparser_interpret.add_argument_group("External data files")
+#     group_data.add_argument('--annotations', help='json file of external data files')
 
-    # group for output files
-    group_output = argparser_interpret.add_argument_group("Output files and folders")
-    add_out_dir_option(group_output)
-    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
-    group_output.add_argument('--scratch_dir', help='temporary scratch directory')
-    group_output.add_argument('--plot_importances', action='store_true',
-                              help='plot some sample sequences weighted by importance scores')
+#     # group for output files
+#     group_output = argparser_interpret.add_argument_group("Output files and folders")
+#     add_out_dir_option(group_output)
+#     group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
+#     group_output.add_argument('--scratch_dir', help='temporary scratch directory')
+#     group_output.add_argument('--plot_importances', action='store_true',
+#                               help='plot some sample sequences weighted by importance scores')
     
-    return
+#     return
 
 
-def add_interpret_parser_2(subparsers):
-    """Add interpretation function argument parser
-    """
-    argparser_interpret = subparsers.add_parser("interpret2", help="Interpret a TRoNN model using wkm")
+# def add_interpret_parser_2(subparsers):
+#     """Add interpretation function argument parser
+#     """
+#     argparser_interpret = subparsers.add_parser("interpret2", help="Interpret a TRoNN model using wkm")
 
-    # group for input files
-    group_input = argparser_interpret.add_argument_group("Input files and folders")
-    group_input.add_argument('--data_dir', help='hdf5 file directory')
-    group_input.add_argument('--model_dir', help='trained model for interpretation')
-    group_input.add_argument('--tasks', nargs='+', default=[], type=int,
-                             help='tasks over which to train multitask model on')
+#     # group for input files
+#     group_input = argparser_interpret.add_argument_group("Input files and folders")
+#     group_input.add_argument('--data_dir', help='hdf5 file directory')
+#     group_input.add_argument('--model_dir', help='trained model for interpretation')
+#     group_input.add_argument('--tasks', nargs='+', default=[], type=int,
+#                              help='tasks over which to train multitask model on')
 
-    # group for model
-    group_model = argparser_interpret.add_argument_group("Model definition")
-    group_model.add_argument('--model', nargs='+', help='choose model and provide configs')
+#     # group for model
+#     group_model = argparser_interpret.add_argument_group("Model definition")
+#     group_model.add_argument('--model', nargs='+', help='choose model and provide configs')
 
-    # group for parameters
-    group_params = argparser_interpret.add_argument_group("Interpretation hyperparameters")
-    group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
-    group_params.add_argument('--sample_size', default=220000, type=int,
-                              help='number of regions to get importance scores')
+#     # group for parameters
+#     group_params = argparser_interpret.add_argument_group("Interpretation hyperparameters")
+#     group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
+#     group_params.add_argument('--sample_size', default=220000, type=int,
+#                               help='number of regions to get importance scores')
 
-    # group for annotation files
-    group_data = argparser_interpret.add_argument_group("External data files")
-    group_data.add_argument('--annotations', help='json file of external data files')
-    group_data.add_argument('--preprocess_annotations', help='json file of preprocess annotations')
+#     # group for annotation files
+#     group_data = argparser_interpret.add_argument_group("External data files")
+#     group_data.add_argument('--annotations', help='json file of external data files')
+#     group_data.add_argument('--preprocess_annotations', help='json file of preprocess annotations')
 
-    # group for output files
-    group_output = argparser_interpret.add_argument_group("Output files and folders")
-    add_out_dir_option(group_output)
-    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
-    group_output.add_argument('--scratch_dir', help='temporary scratch directory')
-    group_output.add_argument('--plot_importances', action='store_true',
-                              help='plot some sample sequences weighted by importance scores')
+#     # group for output files
+#     group_output = argparser_interpret.add_argument_group("Output files and folders")
+#     add_out_dir_option(group_output)
+#     group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
+#     group_output.add_argument('--scratch_dir', help='temporary scratch directory')
+#     group_output.add_argument('--plot_importances', action='store_true',
+#                               help='plot some sample sequences weighted by importance scores')
     
-    return
+#     return
 
 
-def add_scan_grammars_parser(subparsers):
-    """Add grammar scanning function argument parser
-    """
-    argparser_scan = subparsers.add_parser("scangrammars", help="Scan genomic regions for grammars")
+# def add_scan_grammars_parser(subparsers):
+#     """Add grammar scanning function argument parser
+#     """
+#     argparser_scan = subparsers.add_parser("scangrammars", help="Scan genomic regions for grammars")
 
-    # group for input files
-    group_input = argparser_scan.add_argument_group("Input files and folders")
-    group_input.add_argument('--regions', help='input BED file')
-    group_input.add_argument('--motifs', help='PWM file')
-    group_input.add_argument('--grammars', help='Grammar file (must use names that match PWM file')
-    group_input.add_argument('--labels', help='subset of --regions. Used to calculate metrics for you')
-    group_input.add_argument("--annotations_json", help='json of support files')
+#     # group for input files
+#     group_input = argparser_scan.add_argument_group("Input files and folders")
+#     group_input.add_argument('--regions', help='input BED file')
+#     group_input.add_argument('--motifs', help='PWM file')
+#     group_input.add_argument('--grammars', help='Grammar file (must use names that match PWM file')
+#     group_input.add_argument('--labels', help='subset of --regions. Used to calculate metrics for you')
+#     group_input.add_argument("--annotations_json", help='json of support files')
     
-    # group for options
-    group_opts = argparser_scan.add_argument_group("Scanning options")
-    group_opts.add_argument('--batch_size', default=128, type=int, help='batch size')
-    group_opts.add_argument("--rc", action='store_true', help='Reverse complement')
-    group_opts.add_argument("--univ_neg_num", default=0, help='number of universal negatives to grab from univ DHS regions')
-    group_opts.add_argument("--parallel", default=24, type=int,
-                            help='Number of parallel threads to use')
+#     # group for options
+#     group_opts = argparser_scan.add_argument_group("Scanning options")
+#     group_opts.add_argument('--batch_size', default=128, type=int, help='batch size')
+#     group_opts.add_argument("--rc", action='store_true', help='Reverse complement')
+#     group_opts.add_argument("--univ_neg_num", default=0, help='number of universal negatives to grab from univ DHS regions')
+#     group_opts.add_argument("--parallel", default=24, type=int,
+#                             help='Number of parallel threads to use')
 
-    # group for output files
-    group_output = argparser_scan.add_argument_group("Output files and folders")
-    add_out_dir_option(group_output)
-    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
-    group_output.add_argument('--scratch_dir', help='temporary scratch directory')
+#     # group for output files
+#     group_output = argparser_scan.add_argument_group("Output files and folders")
+#     add_out_dir_option(group_output)
+#     group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
+#     group_output.add_argument('--scratch_dir', help='temporary scratch directory')
 
-    return
+#     return
 
 
 def add_baseline_parser(subparsers):
@@ -665,26 +685,30 @@ def main():
     elif subcommand == "bagmotifs":
     	from tronn.run_bagmotifs import run
     	run(args)
+    elif subcommand == "ism":
+    	add_model_config(args)
+    	from tronn.run_ism import run
+    	run(args)
 
 
 
 
-    elif subcommand == 'interpret':
-        add_model_config(args)
-        print 'model args: %s' % args.model
-        from tronn.interpretation.interpret import run
-        run(args)
-    elif subcommand == 'interpret2':
-        add_model_config(args)
-        print 'model args: %s' % args.model
-        from tronn.interpretation.wkm import run
-        run(args)
-    elif subcommand == 'scangrammars':
-        from tronn.interpretation.grammars import run
-        run(args)
-    elif subcommand == "baseline":
-        from tronn.baselines import run
-        run(args)
+    # elif subcommand == 'interpret':
+    #     add_model_config(args)
+    #     print 'model args: %s' % args.model
+    #     from tronn.interpretation.interpret import run
+    #     run(args)
+    # elif subcommand == 'interpret2':
+    #     add_model_config(args)
+    #     print 'model args: %s' % args.model
+    #     from tronn.interpretation.wkm import run
+    #     run(args)
+    # elif subcommand == 'scangrammars':
+    #     from tronn.interpretation.grammars import run
+    #     run(args)
+    # elif subcommand == "baseline":
+    #     from tronn.baselines import run
+    #     run(args)
         
     return None
 

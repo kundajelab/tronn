@@ -31,7 +31,8 @@ def run(args):
     
     # find data_files
     data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
-    
+
+    # TODO: allow other network graphs (such as motifs or grammars)
     # set up neural network graph
     tronn_graph = TronnNeuralNetGraph(
         {'data': data_files},
@@ -49,7 +50,8 @@ def run(args):
         args.batch_size,
         num_evals=args.num_evals)
 
-    # per task
+    # per output node (label output)
+    # TODO: also allow splitting by predictions (pheno cluster)
     for task_idx in range(labels.shape[1]):
         task_key = "task_{}".format(task_idx)
         logging.info("Predicting on {}...".format(task_key))
@@ -79,6 +81,11 @@ def run(args):
 
         out_bed_file = "{0}/{1}/{2}.predictions.bed".format(
             args.out_dir, args.prefix, task_key)
-        task_df.to_csv(out_bed_file, columns=['chr', 'start', 'stop', 'joint'], sep='\t', header=False, index=False)
+        task_df.to_csv(
+            out_bed_file,
+            columns=['chr', 'start', 'stop', 'joint'],
+            sep='\t',
+            header=False,
+            index=False)
 
     return None

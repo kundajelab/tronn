@@ -378,6 +378,7 @@ def extract_importances(
 
 def call_importance_peaks_v2(
         importance_h5,
+        feature_key,
         callpeak_graph,
         out_h5):
     """Calls peaks on importance scores
@@ -390,8 +391,8 @@ def call_importance_peaks_v2(
 
     # determine some characteristics of data
     with h5py.File(importance_h5, 'r') as hf:
-        num_examples = hf[importance_key].shape[0]
-        seq_length = hf[importance_key].shape[2]
+        num_examples = hf[feature_key].shape[0]
+        seq_length = hf[feature_key].shape[2]
         num_tasks = hf['labels'].shape[1]
 
     # start the graph
@@ -407,7 +408,7 @@ def call_importance_peaks_v2(
 
             # initialize datasets
             importance_mat = out_hf.create_dataset(
-                importance_key, [num_examples, 4, seq_length])
+                feature_key, [num_examples, 4, seq_length])
             labels_mat = out_hf.create_dataset(
                 'labels', [num_examples, num_tasks])
             regions_mat = out_hf.create_dataset(

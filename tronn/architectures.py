@@ -762,8 +762,9 @@ def generate_paired_mutant_batch(features, max_idx1, max_idx2, num_mutations):
 def ism_for_grammar_dependencies(
         features,
         labels,
-        model_params, 
-        num_mutations=6,
+        model_params,
+        is_training=False, # not used but necessary for model pattern
+        num_mutations=6, # TODO (fix all these)
         num_tasks=43,
         current_task=0):
     """Run a form of in silico mutagenesis to get dependencies between motifs
@@ -831,7 +832,7 @@ def ism_for_grammar_dependencies(
     # pass through model
     logits_alltasks = model(all_mutants_batch,
                         labels_extended,
-                        model_config,
+                        model_params,
                         is_training=False)
 
     # Now need to select the correct logit position

@@ -11,19 +11,23 @@ from tronn.util.tf_utils import setup_tensorflow_session, close_tensorflow_sessi
 
 
 
-def run_ism_for_motif_pairwise_dependency(ism_graph, num_evals=100):
+def run_ism_for_motif_pairwise_dependency(ism_graph, model_dir, batch_size, num_evals=100):
     """ISM here
     """
+    total_example_num = batch_size * num_evals
     
     with tf.Graph().as_default() as g:
 
         # setup graph
-        synergy_score = ism_graph.build_graph()
+        synergy_score_tensor = ism_graph.build_graph()
 
         # setup session
-        setup_tensorflow_session()
+        sess, coord, threads = setup_tensorflow_session()
 
         # restore the basset part of the model
+
+        # TODO(dk) get checkpoint for model
+        checkpoint_path = tf.train.latest_checkpoint(model_dir)
         variables_to_restore = slim.get_model_variables()
         variables_to_restore_tmp = [ var for var in variables_to_restore if ('mutate' not in var.name) ]
         variables_to_restore = variables_to_restore_tmp
@@ -39,7 +43,6 @@ def run_ism_for_motif_pairwise_dependency(ism_graph, num_evals=100):
         motif2_scores = np.zeros((total_example_num))
         for i in range(num_evals):
             # TODO(dk) only keep if the prediction was correct
-            # TODO(dk) also track individual motif scores
             
             [synergy_score, motif1_score, motif2_score] = sess.run(synergy_score_tensor)
             synergy_scores[i] = synergy_score
@@ -62,38 +65,6 @@ def run_ism_for_motif_pairwise_dependency(ism_graph, num_evals=100):
 
         
     return np.mean(synergy_scores), np.mean(motif1_scores), np.mean(motif2_scores)
-
-
-
-def scan_motif_group(mutate=False):
-    """Scans to get sequences that have all motifs in group
-    and saves them out to new file for further analysis
-    Save out: sequence, motif locations (can calculate distances)
-
-    """
-
-    
-    return None
-
-
-
-
-def ism_for_synergistic_distance():
-    """Do in silico mutagenesis to get synergistic distances between
-    pairs of motifs
-    """
-
-    # for every pair of motifs (that are not the same):
-
-
-    # for each sequence:
-    # for each spot in motif 1:
-    # mutate position (just drop out, or try other three base pairs)
-    # 
-
-    
-
-    return None
 
 
 

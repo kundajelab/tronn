@@ -39,7 +39,8 @@ def run(args):
         models[args.model['name']],
         args.model,
         tf.nn.sigmoid,
-        importances_fn=layerwise_relevance_propagation)
+        importances_fn=layerwise_relevance_propagation,
+        shuffle_data=False)
 
     # checkpoint file
     checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
@@ -69,7 +70,8 @@ def run(args):
     for task_num_idx in range(len(task_nums)):
 
         task_num = task_nums[task_num_idx]
-
+        feature_key = "importances_task{}".format(task_num)
+        
         # set up graph
         callpeak_graph = TronnGraph(
             {"data": [importances_mat_h5]},
@@ -78,13 +80,13 @@ def run(args):
             stdev_cutoff,
             {"pval": 0.05},
             args.batch_size * 4,
-            feature_key="importances_task{}".format(task_num))
+            feature_key=feature_key)
 
         # Get thresholded importances
         thresholded_importances_mat_h5 = '{0}/{1}.task_{2}/{1}.task_{2}.importances.thresholded.h5'.format(
             args.out_dir, args.prefix, task_num)
         if not os.path.isfile(thresholded_importances_mat_h5):
-            call_importance_peaks_v2(importances_mat_h5, callpeak_graph, thresholded_importances_mat_h5)
+            call_importance_peaks_v2(importances_mat_h5, feature_key, callpeak_graph, thresholded_importances_mat_h5)
 
         # plot as needed
         if args.plot_samples:

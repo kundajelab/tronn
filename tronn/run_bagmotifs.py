@@ -9,14 +9,18 @@ from tronn.datalayer import load_data_from_filename_list
 from tronn.datalayer import get_total_num_examples
 from tronn.architectures import pwm_convolve_v2
 from tronn.learn.learning import predict
+from tronn.interpretation.wkm import get_sequence_communities
 from tronn.interpretation.motifs import get_encode_pwms
 from tronn.interpretation.motifs import extract_positives_from_motif_mat
+
 
 
 def bag_motifs(
         motifs_graph,
         batch_size,
+        task_num,
         pwm_list,
+        prefix,
         motif_scores_h5,
         pos_motif_mat,
         seq_communities_file,
@@ -58,13 +62,9 @@ def bag_motifs(
                 labels_mat[batch_start:batch_stop,:] = labels[batch_start:batch_stop, :]
                 regions_mat[batch_start:batch_stop,0] = metadata[batch_start:batch_stop]
             else:
-                try:
-                    motif_mat[batch_start:num_examples,:] = motif_scores[batch_start:num_examples-batch_start,:]
-                    labels_mat[batch_start:num_examples,:] = labels[batch_start:num_examples-batch_start]
-                    regions_mat[batch_start:num_examples,0] = metadata[batch_start:num_examples-batch_start]
-                except:
-                    import ipdb
-                    ipdb.set_trace()
+                motif_mat[batch_start:num_examples,:] = motif_scores[batch_start:num_examples,:]
+                labels_mat[batch_start:num_examples,:] = labels[batch_start:num_examples]
+                regions_mat[batch_start:num_examples,0] = metadata[batch_start:num_examples]
                     
     # extract the positives to cluster
     if not os.path.isfile(pos_motif_mat):
@@ -73,7 +73,7 @@ def bag_motifs(
     # use phenograph, find sequence communities
     if not os.path.isfile(seq_communities_file):
         grammar_file, seq_communities_file, communities = get_sequence_communities(
-            pos_motif_mat, '{0}/task_{1}'.format(test_dir, task_num))
+            pos_motif_mat, prefix)
 
     return None
 
@@ -110,7 +110,9 @@ def run(args):
     bag_motifs(
         motifs_graph,
         args.batch_size,
+        args.task_num,
         pwm_list,
+        full_prefix,
         motif_scores_h5,
         pos_motif_mat,
         seq_communities_file,

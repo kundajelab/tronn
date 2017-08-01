@@ -7,37 +7,20 @@ import glob
 import h5py
 import json
 import math
-import numpy as np
-import pandas as pd
-
-import tensorflow as tf
-
-from tronn.datalayer import load_data_from_filename_list, get_total_num_examples
-from tronn.interpretation.importances import visualize_sample_sequences
-from tronn.architectures import stdev_cutoff
-from tronn.architectures import models
-
-
-from tronn.preprocess import one_hot_encode
-from scipy.signal import correlate2d
-
-from tronn.visualization import plot_weights
-
-from tronn.interpretation.motifs import run_pwm_convolution
-from tronn.interpretation.motifs import extract_positives_from_motif_mat
-
-from tronn.util.parallelize import *
-
+import scipy.stats
 
 import phenograph
 
-import scipy.stats
+import numpy as np
+import pandas as pd
+import tensorflow as tf
 
-# keep below
-
+from tronn.preprocess import one_hot_encode
+from tronn.visualization import plot_weights
 from tronn.interpretation.kmers import kmer_array_to_hash
 from tronn.interpretation.kmers import kmer_hash_to_string
 from tronn.interpretation.kmers import kmer_array_to_string
+from tronn.interpretation.motifs import extract_positives_from_motif_mat
 
 
 def kmerize(importances_h5, importances_key, task_num, kmer_lens=[6, 8, 10], num_bases=5):
@@ -319,223 +302,223 @@ def get_sequence_communities(text_mat_file, prefix):
     return grammar_file, seq_communities_file, communities
 
 
-def interpret_wkm(
-        args,
-        data_loader,
-        data_files,
-        model,
-        loss_fn,
-        prefix,
-        out_dir, 
-        task_nums, # manual
-        dendro_cutoffs, # manual
-        motif_file,
-        motif_sim_file,
-        motif_offsets_file,
-        rna_file,
-        rna_conversion_file,
-        checkpoint_path,
-        scratch_dir='./',
-        sample_size=220000,
-        pval=0.05):
-    """placeholder for now"""
+# def interpret_wkm(
+#         args,
+#         data_loader,
+#         data_files,
+#         model,
+#         loss_fn,
+#         prefix,
+#         out_dir, 
+#         task_nums, # manual
+#         dendro_cutoffs, # manual
+#         motif_file,
+#         motif_sim_file,
+#         motif_offsets_file,
+#         rna_file,
+#         rna_conversion_file,
+#         checkpoint_path,
+#         scratch_dir='./',
+#         sample_size=220000,
+#         pval=0.05):
+#     """placeholder for now"""
 
-    # ---------------------------------------------------
-    # for each task, do the following:
-    # ---------------------------------------------------
+#     # ---------------------------------------------------
+#     # for each task, do the following:
+#     # ---------------------------------------------------
 
-    for task_num_idx in range(len(task_nums)):
+#     for task_num_idx in range(len(task_nums)):
 
-        task_num = task_nums[task_num_idx]
-        print "Working on task {}".format(task_num)
+#         task_num = task_nums[task_num_idx]
+#         print "Working on task {}".format(task_num)
 
-	# ---------------------------------------------------
-        # Convert into weighted kmers
-        # IN: sequences x importance scores
-        # OUT: sequences x importance scores
-        # ---------------------------------------------------
-        wkm_h5 = 'task_{}.wkm.h5'.format(task_num)
-        if not os.path.isfile(wkm_h5):
-            # first convert to wkm
+# 	# ---------------------------------------------------
+#         # Convert into weighted kmers
+#         # IN: sequences x importance scores
+#         # OUT: sequences x importance scores
+#         # ---------------------------------------------------
+#         wkm_h5 = 'task_{}.wkm.h5'.format(task_num)
+#         if not os.path.isfile(wkm_h5):
+#             # first convert to wkm
                 
-            # and here also make some educated guesses for what PWM this matches (tomtom?)
-            # TODO convert PWM to meme format (see basset code)
-            # also convert HOCOMOCO to meme format
+#             # and here also make some educated guesses for what PWM this matches (tomtom?)
+#             # TODO convert PWM to meme format (see basset code)
+#             # also convert HOCOMOCO to meme format
             
-            motif_mat_h5 = 'task_{}.wkm.motif_mat.h5'.format(task_num)
-            if not os.path.isfile(motif_mat_h5):
-                run_pwm_convolution(
-                    data_loader,
-                    importances_mat_h5,
-                    motif_mat_h5,
-                    args.batch_size * 4,
-                    'task_{}.motif_file.txt'.format(task_num),
-                    task_num)
+#             motif_mat_h5 = 'task_{}.wkm.motif_mat.h5'.format(task_num)
+#             if not os.path.isfile(motif_mat_h5):
+#                 run_pwm_convolution(
+#                     data_loader,
+#                     importances_mat_h5,
+#                     motif_mat_h5,
+#                     args.batch_size * 4,
+#                     'task_{}.motif_file.txt'.format(task_num),
+#                     task_num)
 
-            # ---------------------------------------------------
-            # extract the positives to cluster in R and visualize
-            # IN: sequences x motifs
-            # OUT: positive sequences x motifs
-            # ---------------------------------------------------
-            pos_motif_mat = 'task_{}.wkm_mat.positives.txt.gz'.format(task_num)
-            if not os.path.isfile(pos_motif_mat):
-                extract_positives_from_motif_mat(motif_mat_h5, pos_motif_mat, task_num)
+#             # ---------------------------------------------------
+#             # extract the positives to cluster in R and visualize
+#             # IN: sequences x motifs
+#             # OUT: positive sequences x motifs
+#             # ---------------------------------------------------
+#             pos_motif_mat = 'task_{}.wkm_mat.positives.txt.gz'.format(task_num)
+#             if not os.path.isfile(pos_motif_mat):
+#                 extract_positives_from_motif_mat(motif_mat_h5, pos_motif_mat, task_num)
 
-            # TODO isolate this bit here for now
-            test_dir = 'testing_ism_task0'
-            os.system('mkdir -p {}'.format(test_dir))
+#             # TODO isolate this bit here for now
+#             test_dir = 'testing_ism_task0'
+#             os.system('mkdir -p {}'.format(test_dir))
                 
-            #  phenograph here again for the clustering
-            seq_communities_file = '{0}/task_{1}.seq_communities.txt'.format(test_dir, task_num)
-            grammar_file = '{0}/task_{1}.grammars.txt'.format(test_dir, task_num)
-            if not os.path.isfile(seq_communities_file):
-                grammar_file, seq_communities_file, communities = get_sequence_communities(pos_motif_mat,
-                                                                                           '{0}/task_{1}'.format(test_dir, task_num))
+#             #  phenograph here again for the clustering
+#             seq_communities_file = '{0}/task_{1}.seq_communities.txt'.format(test_dir, task_num)
+#             grammar_file = '{0}/task_{1}.grammars.txt'.format(test_dir, task_num)
+#             if not os.path.isfile(seq_communities_file):
+#                 grammar_file, seq_communities_file, communities = get_sequence_communities(pos_motif_mat,
+#                                                                                            '{0}/task_{1}'.format(test_dir, task_num))
 
-            # generate new datasets to run ISM
-            # glob the BED files, generate with preprocess code
-            task_grammars = read_grammar_file(grammar_file)
-            pwms = PWM.get_encode_pwms('task_0.motif_file.txt')
-            pwm_dict = {}
-            for pwm in pwms:
-                pwm_dict[pwm.name] = pwm
-            community_bed_sets = glob.glob('{}/*.bed.gz'.format(test_dir))
-            for community in range(13): # TODO change this!
-                community_bed = '{0}/task_{1}.community_{2}.bed.gz'.format(test_dir, task_num, community)
-                # TODO preprocess data
-                with open(args.preprocess_annotations, 'r') as fp:
-                    annotation_files = json.load(fp)
+#             # generate new datasets to run ISM
+#             # glob the BED files, generate with preprocess code
+#             task_grammars = read_grammar_file(grammar_file)
+#             pwms = PWM.get_encode_pwms('task_0.motif_file.txt')
+#             pwm_dict = {}
+#             for pwm in pwms:
+#                 pwm_dict[pwm.name] = pwm
+#             community_bed_sets = glob.glob('{}/*.bed.gz'.format(test_dir))
+#             for community in range(13): # TODO change this!
+#                 community_bed = '{0}/task_{1}.community_{2}.bed.gz'.format(test_dir, task_num, community)
+#                 # TODO preprocess data
+#                 with open(args.preprocess_annotations, 'r') as fp:
+#                     annotation_files = json.load(fp)
 
-                community_data_dir = '{}/data'.format(test_dir)
-                if not os.path.isdir(community_data_dir):
-                    generate_nn_dataset(community_bed,
-                                        annotation_files['univ_dhs'],
-                                        annotation_files['ref_fasta'],
-                                        [community_bed],
-                                        community_data_dir,
-                                        'task_0.community_{}'.format(community),
-                                        parallel=12,
-                                        neg_region_num=0)
-                data_files = glob.glob('{}/h5/*.h5'.format(community_data_dir))
+#                 community_data_dir = '{}/data'.format(test_dir)
+#                 if not os.path.isdir(community_data_dir):
+#                     generate_nn_dataset(community_bed,
+#                                         annotation_files['univ_dhs'],
+#                                         annotation_files['ref_fasta'],
+#                                         [community_bed],
+#                                         community_data_dir,
+#                                         'task_0.community_{}'.format(community),
+#                                         parallel=12,
+#                                         neg_region_num=0)
+#                 data_files = glob.glob('{}/h5/*.h5'.format(community_data_dir))
                 
                 
-                # read in grammar sets
-                grammar = task_grammars[int(community)]
-                print grammar
-                num_motifs = len(grammar)
-                # for each pair of motifs, read in and run model
-                synergies = np.zeros((num_motifs, num_motifs))
-                indiv_motif_coeffs = np.zeros((num_motifs, num_motifs))
-                for motif1_idx in range(num_motifs):
-                    for motif2_idx in range(num_motifs):
-                        if motif1_idx >= motif2_idx:
-                            continue
-                        # here, run ISM tests
-                        print motif1_idx, motif2_idx
-                        pwm1 = pwm_dict[grammar[motif1_idx]]
-                        pwm2 = pwm_dict[grammar[motif2_idx]]
+#                 # read in grammar sets
+#                 grammar = task_grammars[int(community)]
+#                 print grammar
+#                 num_motifs = len(grammar)
+#                 # for each pair of motifs, read in and run model
+#                 synergies = np.zeros((num_motifs, num_motifs))
+#                 indiv_motif_coeffs = np.zeros((num_motifs, num_motifs))
+#                 for motif1_idx in range(num_motifs):
+#                     for motif2_idx in range(num_motifs):
+#                         if motif1_idx >= motif2_idx:
+#                             continue
+#                         # here, run ISM tests
+#                         print motif1_idx, motif2_idx
+#                         pwm1 = pwm_dict[grammar[motif1_idx]]
+#                         pwm2 = pwm_dict[grammar[motif2_idx]]
 
-                        # here run ISM and get out multiplier info
-                        synergy_score, pwm1_score, pwm2_score = run_ism_for_motif_pairwise_dependency(data_files,
-                                                                                                      model,
-                                                                                                      args.model,
-                                                                                                      checkpoint_path,
-                                                                                                      pwm1,
-                                                                                                      pwm2) 
-                        indiv_motif_coeffs[motif1_idx, motif2_idx] = pwm1_score
-                        indiv_motif_coeffs[motif2_idx, motif1_idx] = pwm2_score
-                        synergies[motif1_idx, motif2_idx] = synergy_score
+#                         # here run ISM and get out multiplier info
+#                         synergy_score, pwm1_score, pwm2_score = run_ism_for_motif_pairwise_dependency(data_files,
+#                                                                                                       model,
+#                                                                                                       args.model,
+#                                                                                                       checkpoint_path,
+#                                                                                                       pwm1,
+#                                                                                                       pwm2) 
+#                         indiv_motif_coeffs[motif1_idx, motif2_idx] = pwm1_score
+#                         indiv_motif_coeffs[motif2_idx, motif1_idx] = pwm2_score
+#                         synergies[motif1_idx, motif2_idx] = synergy_score
 
 
-                # TODO(dk) get average by ROWs for the individual motif coeffs, write out to file
-                indiv_avg_scores = np.zeros((1, num_motifs))
-                for i in range(num_motifs):
-                    indiv_avg_scores[0,i] = np.mean(indiv_motif_coeffs[i,:])
+#                 # TODO(dk) get average by ROWs for the individual motif coeffs, write out to file
+#                 indiv_avg_scores = np.zeros((1, num_motifs))
+#                 for i in range(num_motifs):
+#                     indiv_avg_scores[0,i] = np.mean(indiv_motif_coeffs[i,:])
                 
-                with open('{}/task_0.grammar.linear.txt'.format(test_dir), 'w') as fp:
+#                 with open('{}/task_0.grammar.linear.txt'.format(test_dir), 'w') as fp:
 
-                    header='# Grammar model: Linear w pairwise interactions\n\n'
-                    fp.write(header)
+#                     header='# Grammar model: Linear w pairwise interactions\n\n'
+#                     fp.write(header)
                     
-                    indiv_motif_coeff_header = 'Non_interacting_coefficients\n'
-                    fp.write(indiv_motif_coeff_header)
+#                     indiv_motif_coeff_header = 'Non_interacting_coefficients\n'
+#                     fp.write(indiv_motif_coeff_header)
 
-                    indiv_df = pd.DataFrame(data=indiv_avg_scores, columns=grammar)
-                    indiv_df.to_csv(fp, sep='\t')
+#                     indiv_df = pd.DataFrame(data=indiv_avg_scores, columns=grammar)
+#                     indiv_df.to_csv(fp, sep='\t')
 
-                    fp.write("\n")
+#                     fp.write("\n")
                     
-                    synergy_motif_coeff_header = 'Pairwise_interacting_coefficients\n'
-                    fp.write(synergy_motif_coeff_header)
+#                     synergy_motif_coeff_header = 'Pairwise_interacting_coefficients\n'
+#                     fp.write(synergy_motif_coeff_header)
 
-                    synergy_df = pd.DataFrame(data=synergies, index=grammar, columns=grammar)
-                    synergy_df.to_csv(fp, sep='\t')
+#                     synergy_df = pd.DataFrame(data=synergies, index=grammar, columns=grammar)
+#                     synergy_df.to_csv(fp, sep='\t')
 
                     
-                quit()
+#                 quit()
 
-            quit()
+#             quit()
             
-            continue
+#             continue
             
             
                 
-            # ---------------------------------------------------
-            # Cluster positives in R and output subgroups
-            # IN: positive sequences x motifs
-            # OUT: subgroups of sequences
-            # ---------------------------------------------------
-            cluster_dir = 'task_{}.positives.wkm.clustered'.format(task_num)
-            if not os.path.isdir(cluster_dir):
-                os.system('mkdir -p {}'.format(cluster_dir))
-                prefix = 'task_{}'.format(task_num)
-                os.system('run_region_clustering.R {0} 50 {1} {2}/{3}'.format(pos_motif_mat,
-                                                                              dendro_cutoffs[task_num_idx],
-                                                                              cluster_dir,
-                                                                              prefix))
+#             # ---------------------------------------------------
+#             # Cluster positives in R and output subgroups
+#             # IN: positive sequences x motifs
+#             # OUT: subgroups of sequences
+#             # ---------------------------------------------------
+#             cluster_dir = 'task_{}.positives.wkm.clustered'.format(task_num)
+#             if not os.path.isdir(cluster_dir):
+#                 os.system('mkdir -p {}'.format(cluster_dir))
+#                 prefix = 'task_{}'.format(task_num)
+#                 os.system('run_region_clustering.R {0} 50 {1} {2}/{3}'.format(pos_motif_mat,
+#                                                                               dendro_cutoffs[task_num_idx],
+#                                                                               cluster_dir,
+#                                                                               prefix))
 
-    return None
+#     return None
 
 
-def run(args):
-    """Run all functions to go from importance scores to de novo motifs
-    """
+# def run(args):
+#     """Run all functions to go from importance scores to de novo motifs
+#     """
 
-    # find data files
-    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
-    print 'Found {} chrom files'.format(len(data_files))
+#     # find data files
+#     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
+#     print 'Found {} chrom files'.format(len(data_files))
 
-    # checkpoint file
-    checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.model_dir))
-    print checkpoint_path
+#     # checkpoint file
+#     checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.model_dir))
+#     print checkpoint_path
 
-    # set up scratch_dir
-    os.system('mkdir -p {}'.format(args.scratch_dir))
+#     # set up scratch_dir
+#     os.system('mkdir -p {}'.format(args.scratch_dir))
 
-    # load external data files
-    with open(args.annotations, 'r') as fp:
-        annotation_files = json.load(fp)
+#     # load external data files
+#     with open(args.annotations, 'r') as fp:
+#         annotation_files = json.load(fp)
 
-    # current manual choices
-    task_nums = [0, 9, 10, 14]
-    dendro_cutoffs = [7, 6, 7, 7]
+#     # current manual choices
+#     task_nums = [0, 9, 10, 14]
+#     dendro_cutoffs = [7, 6, 7, 7]
     
-    interpret_wkm(args,
-              load_data_from_filename_list,
-              data_files,
-              models[args.model['name']],
-              tf.losses.sigmoid_cross_entropy,
-              args.prefix,
-              args.out_dir,
-              task_nums, 
-              dendro_cutoffs, 
-              annotation_files["motif_file"],
-              annotation_files["motif_sim_file"],
-              annotation_files["motif_offsets_file"],
-              annotation_files["rna_file"],
-              annotation_files["rna_conversion_file"],
-              checkpoint_path,
-              scratch_dir=args.scratch_dir,
-              sample_size=args.sample_size)
+#     interpret_wkm(args,
+#               load_data_from_filename_list,
+#               data_files,
+#               models[args.model['name']],
+#               tf.losses.sigmoid_cross_entropy,
+#               args.prefix,
+#               args.out_dir,
+#               task_nums, 
+#               dendro_cutoffs, 
+#               annotation_files["motif_file"],
+#               annotation_files["motif_sim_file"],
+#               annotation_files["motif_offsets_file"],
+#               annotation_files["rna_file"],
+#               annotation_files["rna_conversion_file"],
+#               checkpoint_path,
+#               scratch_dir=args.scratch_dir,
+#               sample_size=args.sample_size)
     
-    return None
+#     return None

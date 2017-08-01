@@ -12,7 +12,7 @@ import tensorflow as tf
 
 from tronn.preprocess import generate_nn_dataset
 from tronn.datalayer import load_data_from_filename_list, get_total_num_examples
-from tronn.models import grammar_scanner
+from tronn.architectures import grammar_scanner
 from tronn.interpretation.motifs import PWM
 from tronn.util.bioinformatics import run_great
 

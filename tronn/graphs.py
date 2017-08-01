@@ -19,7 +19,8 @@ class TronnGraph(object):
                  model_fn,
                  model_params,
                  batch_size,
-                 feature_key="features"):
+                 feature_key="features",
+                 shuffle_data=True):
         logging.info("Initialized TronnGraph")
         self.data_files = data_files # data files is a dict of lists
         self.tasks = tasks
@@ -28,6 +29,7 @@ class TronnGraph(object):
         self.model_params = model_params
         self.batch_size = batch_size
         self.feature_key = feature_key
+        self.shuffle_data = shuffle_data
         
     def build_graph(self, data_key="data", is_training=False):
         """Main function of graph: puts together the pieces
@@ -40,7 +42,8 @@ class TronnGraph(object):
             self.data_files[data_key],
             self.batch_size,
             self.tasks,
-            features_key=self.feature_key)
+            features_key=self.feature_key,
+            shuffle=self.shuffle_data)
 
         # adjust tasks
         if self.tasks == []:
@@ -69,10 +72,13 @@ class TronnNeuralNetGraph(TronnGraph):
                  optimizer_params=None,
                  metrics_fn=None,
                  importances_fn=None,
+                 feature_key="features",
+                 shuffle_data=True,
                  weighted_cross_entropy=False):
         super(TronnNeuralNetGraph, self).__init__(
             data_files, tasks, data_loader,
-            model_fn, model_params, batch_size)
+            model_fn, model_params, batch_size,
+            feature_key=feature_key, shuffle_data=shuffle_data)
         self.final_activation_fn = final_activation_fn
         self.loss_fn = loss_fn
         self.optimizer_fn = optimizer_fn
