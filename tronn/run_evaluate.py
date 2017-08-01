@@ -19,6 +19,8 @@ from tronn.datalayer import load_data_from_filename_list
 from tronn.architectures import models
 from tronn.learn.learning import predict
 
+from tronn.run_predict import setup_model_params
+
 
 def run_sklearn_metric_fn(metrics_fn, labels, probs):
     """Wrapper around sklearn metrics functions to allow code to proceed
@@ -142,6 +144,9 @@ def run(args):
     
     # find data files
     data_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
+
+    # set up model params
+    model_params = setup_model_params(args)
     
     # set up neural network graph
     tronn_graph = TronnNeuralNetGraph(
@@ -150,7 +155,7 @@ def run(args):
         load_data_from_filename_list,
         args.batch_size,
         models[args.model['name']],
-        args.model,
+        model_params,
         tf.nn.sigmoid)
 
     # predict

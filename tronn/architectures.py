@@ -10,6 +10,7 @@ Currently implemented:
 
 import math
 import numpy as np
+import pandas as pd
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -580,6 +581,67 @@ def stdev_cutoff(signal, num_stdev=3):
 # ===============================
 # grammars
 # ===============================
+
+
+
+def single_grammar(features, labels, model_params, is_training=False):
+    """Sets up a linear grammar
+    """
+
+    # get tables of weights
+    df = pd.read_table(model_params["grammar_file"], header=None, names=range(len(model_params["pwms"])))
+    table_names = ["Non_interacting_coefficients", "Pairwise_interacting_coefficients"]
+    groups = df[0].isin(table_names).cumsum()
+    tables = {g.iloc[0,0]: g.iloc[1:] for k,g in df.groupby(groups)}
+
+    # set up motif out vector
+    num_filters = len(model_params["pwms"])
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope([slim.conv2d],
+                        padding='VALID',
+                        activation_fn=None,
+                        weights_initializer=pwm_initializer(conv1_filter_size, model_params["pwms"], get_fan_in(features), num_filters),
+                        biases_initializer=None,
+                        scope="motif_scan"):
+        net = slim.conv2d(features, num_filters, conv1_filter_size)
+
+        # get max motif val
+        width = net.get_shape()[2]
+        net = slim.max_pool2d(net, [1, width], stride=[1, 1])
+
+        print net.get_shape()
+
+    # get linear coefficients and multiply
+    independent_vals = tf.multiply(net, tables["Non_interacting_coefficients"])
+
+    # get pairwise coefficients and multiply
+    pairwise_multiply = tf.multiply(
+        tf.stack([net for i in range(num_filters)], axis=0),
+        tf.stack([net for i in range(num_filters)], axis=1))
+    pairwise_vals = tf.multiply(pairwise_multiply, tables["Pairwise_interacting_coefficients"])
+
+    final_score = tf.add(tf.reduce_mean(independent_vals), tf.reduce_mean(pairwise_vals))
+
+    # TODO run an activation function and train it?
+    
+    return final_score
+
+
+def multiple_grammars(features, labels, model_params, is_training=False):
+    """ Run multiple linear grammars
+    """
+
+    grammar_param_sets = model_params["grammars"]
+
+    # set up multiple grammars
+    scores = [single_grammar(features, labels, grammar_param_set, is_training=False)
+              for grammar_param_set in grammar_param_sets]
+    
+    # run a max
+    final_score = tf.reduce_max(scores)
+    
+    return final_score
+
 
 
 
