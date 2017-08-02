@@ -8,13 +8,8 @@ import scipy.stats
 
 import tensorflow as tf
 
-from scipy.signal import fftconvolve
-from scipy.signal import convolve2d
-
-from tronn.architectures import pwm_convolve
+from tronn.nets.nets import model_fn
 from tronn.visualization import plot_weights
-
-
 
 
 def get_encode_pwms(motif_file, as_dict=False):
@@ -250,94 +245,94 @@ class PWM(object):
 
     
 
-def run_pwm_convolution(data_loader,
-                        importance_h5,
-                        out_h5,
-                        batch_size,
-                        pwm_file,
-                        task_num):
-    '''
-    Wrapper function where, given an importance matrix, can convert everything
-    into a motif matrix
-    '''
+# def run_pwm_convolution(data_loader,
+#                         importance_h5,
+#                         out_h5,
+#                         batch_size,
+#                         pwm_file,
+#                         task_num):
+#     '''
+#     Wrapper function where, given an importance matrix, can convert everything
+#     into a motif matrix
+#     '''
 
-    importance_key = 'importances_task{}'.format(task_num)
+#     importance_key = 'importances_task{}'.format(task_num)
     
-    # get basic key stats (to set up output h5 file)
-    pwm_list = PWM.get_encode_pwms(pwm_file)
-    num_pwms = len(pwm_list)
-    with h5py.File(importance_h5, 'r') as hf:
-        num_examples = hf[importance_key].shape[0]
-        num_tasks = hf['labels'].shape[1]
+#     # get basic key stats (to set up output h5 file)
+#     pwm_list = PWM.get_encode_pwms(pwm_file)
+#     num_pwms = len(pwm_list)
+#     with h5py.File(importance_h5, 'r') as hf:
+#         num_examples = hf[importance_key].shape[0]
+#         num_tasks = hf['labels'].shape[1]
 
-    # First set up graph and convolutions model
-    with tf.Graph().as_default() as g:
+#     # First set up graph and convolutions model
+#     with tf.Graph().as_default() as g:
 
-        # data loader
-        features, labels, metadata = data_loader([importance_h5],
-                                                 batch_size,
-                                                 features_key=importance_key)
+#         # data loader
+#         features, labels, metadata = data_loader([importance_h5],
+#                                                  batch_size,
+#                                                  features_key=importance_key)
 
-        # load the model
-        motif_tensor, load_pwm_update = pwm_convolve(features, pwm_list)
+#         # load the model
+#         motif_tensor, load_pwm_update = pwm_convolve(features, pwm_list)
 
-        # run the model (set up sessions, etc)
-        sess = tf.Session()
+#         # run the model (set up sessions, etc)
+#         sess = tf.Session()
 
-        sess.run(tf.global_variables_initializer())
-        sess.run(tf.local_variables_initializer())
+#         sess.run(tf.global_variables_initializer())
+#         sess.run(tf.local_variables_initializer())
 
-        # start queue runners
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+#         # start queue runners
+#         coord = tf.train.Coordinator()
+#         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-        # Run update to load the PWMs
-        _ = sess.run(load_pwm_update)
+#         # Run update to load the PWMs
+#         _ = sess.run(load_pwm_update)
 
-        # set up hdf5 file for saving sequences
-        with h5py.File(out_h5, 'w') as out_hf:
-            motif_mat = out_hf.create_dataset('motif_scores',
-                                              [num_examples, num_pwms])
-            labels_mat = out_hf.create_dataset('labels',
-                                               [num_examples, num_tasks])
-            regions_mat = out_hf.create_dataset('regions',
-                                                [num_examples, 1],
-                                                dtype='S100')
-            motif_names_mat = out_hf.create_dataset('motif_names',
-                                                    [num_pwms, 1],
-                                                    dtype='S100')
+#         # set up hdf5 file for saving sequences
+#         with h5py.File(out_h5, 'w') as out_hf:
+#             motif_mat = out_hf.create_dataset('motif_scores',
+#                                               [num_examples, num_pwms])
+#             labels_mat = out_hf.create_dataset('labels',
+#                                                [num_examples, num_tasks])
+#             regions_mat = out_hf.create_dataset('regions',
+#                                                 [num_examples, 1],
+#                                                 dtype='S100')
+#             motif_names_mat = out_hf.create_dataset('motif_names',
+#                                                     [num_pwms, 1],
+#                                                     dtype='S100')
 
-            # save out the motif names
-            for i in range(len(pwm_list)):
-                motif_names_mat[i] = pwm_list[i].name
+#             # save out the motif names
+#             for i in range(len(pwm_list)):
+#                 motif_names_mat[i] = pwm_list[i].name
 
 
-            # run through batches worth of sequence
-            for batch_idx in range(num_examples / batch_size + 1):
+#             # run through batches worth of sequence
+#             for batch_idx in range(num_examples / batch_size + 1):
 
-                print batch_idx * batch_size
+#                 print batch_idx * batch_size
 
-                batch_motif_mat, batch_regions, batch_labels = sess.run([motif_tensor,
-                                                                         metadata,
-                                                                         labels])
+#                 batch_motif_mat, batch_regions, batch_labels = sess.run([motif_tensor,
+#                                                                          metadata,
+#                                                                          labels])
 
-                batch_start = batch_idx * batch_size
-                batch_stop = batch_start + batch_size
+#                 batch_start = batch_idx * batch_size
+#                 batch_stop = batch_start + batch_size
 
-                # TODO save out to hdf5 file
-                if batch_stop < num_examples:
-                    motif_mat[batch_start:batch_stop,:] = batch_motif_mat
-                    labels_mat[batch_start:batch_stop,:] = batch_labels
-                    regions_mat[batch_start:batch_stop] = batch_regions.astype('S100')
-                else:
-                    motif_mat[batch_start:num_examples,:] = batch_motif_mat[0:num_examples-batch_start,:]
-                    labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start]
-                    regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
+#                 # TODO save out to hdf5 file
+#                 if batch_stop < num_examples:
+#                     motif_mat[batch_start:batch_stop,:] = batch_motif_mat
+#                     labels_mat[batch_start:batch_stop,:] = batch_labels
+#                     regions_mat[batch_start:batch_stop] = batch_regions.astype('S100')
+#                 else:
+#                     motif_mat[batch_start:num_examples,:] = batch_motif_mat[0:num_examples-batch_start,:]
+#                     labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start]
+#                     regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
 
-        coord.request_stop()
-        coord.join(threads)
+#         coord.request_stop()
+#         coord.join(threads)
 
-    return None
+#     return None
 
 def run_pwm_convolution_multiple(data_loader,
                         importance_h5,

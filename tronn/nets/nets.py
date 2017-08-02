@@ -16,7 +16,7 @@ from tronn.grammar_nets import single_grammar
 from tronn.grammar_nets import multiple_grammars
 
 
-nets = {
+model_fns = {
     "basset": basset,
     "danq": danq,
     "resnet": resnet,

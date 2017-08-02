@@ -8,7 +8,6 @@ import sys
 import gzip
 import glob
 import subprocess
-import json
 import h5py
 import time
 import logging
@@ -18,7 +17,8 @@ import pandas as pd
 
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
-from tronn.util.parallelize import *
+from tronn.util.parallelize import setup_multiprocessing_queue
+from tronn.util.parallelize import run_in_parallel
 
 
 

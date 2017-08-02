@@ -7,7 +7,7 @@ import h5py
 from tronn.graphs import TronnGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.datalayer import get_total_num_examples
-from tronn.architectures import pwm_convolve_v2
+from tronn.nets.nets import model_fns
 from tronn.learn.learning import predict
 from tronn.interpretation.wkm import get_sequence_communities
 from tronn.interpretation.motifs import get_encode_pwms
@@ -91,7 +91,7 @@ def run(args):
         {"data": [args.importance_file]}, # TODO right now, run on importances file
         [],
         load_data_from_filename_list,
-        pwm_convolve_v2,
+        model_fns["pwm_convolve"],
         {"pwms": pwm_list},
         args.batch_size,
         feature_key=feature_key)

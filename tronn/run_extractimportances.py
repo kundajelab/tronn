@@ -10,8 +10,7 @@ import tensorflow as tf
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
-from tronn.architectures import models
-from tronn.architectures import stdev_cutoff
+from tronn.nets.nets import model_fns
 from tronn.interpretation.importances import extract_importances
 from tronn.interpretation.importances import layerwise_relevance_propagation
 from tronn.interpretation.importances import call_importance_peaks_v2
@@ -36,7 +35,7 @@ def run(args):
         args.tasks,
         load_data_from_filename_list,
         args.batch_size / 2,
-        models[args.model['name']],
+        model_fns[args.model['name']],
         args.model,
         tf.nn.sigmoid,
         importances_fn=layerwise_relevance_propagation,
@@ -77,7 +76,7 @@ def run(args):
             {"data": [importances_mat_h5]},
             [task_num],
             load_data_from_filename_list,
-            stdev_cutoff,
+            model_fns["stdev_cutoff"],
             {"pval": 0.05},
             args.batch_size * 4,
             feature_key=feature_key)

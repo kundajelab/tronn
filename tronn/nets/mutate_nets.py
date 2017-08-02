@@ -1,6 +1,9 @@
 """contains code for ism nets
 """
 
+import tensorflow as tf
+import tensorflow.contrib.slim as slim
+
 def _mutate(feature_tensor, position_tensor, zero_out_ref=False):
     """Small module to perform 3 mutations from reference base pair
     Input goes from

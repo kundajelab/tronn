@@ -1,6 +1,9 @@
 """Contains nets to help run grammars
 """
 
+import tensorflow as tf
+import tensorflow.contrib.slim as slim
+
 
 def single_grammar(features, labels, model_params, is_training=False):
     """Sets up a linear grammar

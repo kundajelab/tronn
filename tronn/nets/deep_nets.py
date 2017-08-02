@@ -6,9 +6,6 @@ import tensorflow.contrib.slim as slim
 import tensorflow.contrib.layers as layers
 
 from tronn.util.tf_ops import maxnorm
-from tronn.util.initializers import pwm_initializer
-from tronn.util.initializers import pwm_simple_initializer
-
 
 
 def final_pool(net, pool):

@@ -1,6 +1,8 @@
 """Contains nets for quick thresholding
 """
 
+import tensorflow as tf
+
 
 def pois_cutoff(signal, pval):
     """Given importance scores, calculates poisson pval

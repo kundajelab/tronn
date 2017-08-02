@@ -1,6 +1,8 @@
 """Kmer utils
 """
 
+import h5py
+import numpy as np
 
 def kmer_array_to_hash(kmer_array, num_bases=5):
     """Get unique identifying position of kmer

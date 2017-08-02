@@ -1,6 +1,9 @@
 """Contains nets that perform PWM convolutions
 """
 
+import tensorflow as tf
+import tensorflow.contrib.slim as slim
+
 
 def pwm_convolve_v2(features, labels, model_params, is_training=False):
     '''

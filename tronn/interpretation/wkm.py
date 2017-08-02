@@ -6,7 +6,6 @@ import os
 import glob
 import h5py
 import json
-import math
 import scipy.stats
 
 import phenograph

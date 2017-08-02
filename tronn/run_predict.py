@@ -11,7 +11,7 @@ import tensorflow as tf
 
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
-from tronn.architectures import models
+from tronn.nets.nets import model_fns
 from tronn.learn.learning import predict
 
 
@@ -159,7 +159,7 @@ def run(args):
         args.tasks,
         load_data_from_filename_list,
         args.batch_size,
-        models[args.model['name']],
+        model_fns[args.model['name']],
         model_params,
         tf.nn.sigmoid)
         

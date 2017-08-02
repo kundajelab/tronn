@@ -1,7 +1,4 @@
-"""Description: Contains functions for I/O to tensorflow graphs
-
-Currently hdf5 is supported as an important standardized filetype
-used frequently in genomics datasets.
+"""Contains functions for I/O to tensorflow graphs
 """
 
 import h5py

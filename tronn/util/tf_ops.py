@@ -11,7 +11,6 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import math_ops
 
 from tronn.datalayer import get_positive_weights_per_task
 

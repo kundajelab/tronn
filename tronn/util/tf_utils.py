@@ -2,7 +2,6 @@
 """
 
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
 
 def get_fan_in(tensor, type='NHWC'):

@@ -4,8 +4,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import os, sys
-import glob
 import numpy as np
 
 

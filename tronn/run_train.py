@@ -8,7 +8,7 @@ import tensorflow as tf
 
 from tronn.datalayer import get_total_num_examples
 from tronn.datalayer import load_data_from_filename_list
-from tronn.architectures import models
+from tronn.nets.nets import model_fns
 from tronn.graphs import TronnNeuralNetGraph
 
 from tronn.learn.learning import train_and_evaluate
@@ -44,7 +44,7 @@ def run(args):
         args.tasks,
         load_data_from_filename_list,
         args.batch_size,
-        models[args.model['name']],
+        model_fns[args.model['name']],
         args.model,
         tf.nn.sigmoid,
         loss_fn=tf.losses.sigmoid_cross_entropy,

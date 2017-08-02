@@ -7,8 +7,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-from tronn.util.tf_utils import setup_tensorflow_session, close_tensorflow_session
-
+from tronn.util.tf_utils import setup_tensorflow_session
+from tronn.util.tf_utils import close_tensorflow_session
 
 
 def run_ism_for_motif_pairwise_dependency(ism_graph, model_dir, batch_size, num_evals=100):

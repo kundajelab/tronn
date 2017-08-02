@@ -10,10 +10,9 @@ import pandas as pd
 
 from tronn.preprocess import generate_nn_dataset
 
-from tronn.datalayer import load_data_from_filename_list, get_total_num_examples
+from tronn.datalayer import load_data_from_filename_list
 from tronn.graphs import TronnGraph
-from tronn.architectures import ism_for_grammar_dependencies
-from tronn.architectures import models
+from tronn.nets.nets import model_fns
 
 from tronn.interpretation.motifs import PWM
 from tronn.interpretation.motifs import get_encode_pwms
@@ -130,7 +129,7 @@ def ism_pipeline(
                     {"data": data_files},
                     tasks,
                     load_data_from_filename_list,
-                    ism_for_grammar_dependencies,
+                    model_fn["ism"],
                     model_params,
                     batch_size)
 
@@ -164,7 +163,7 @@ def run(args):
         motif_sets,
         pwms,
         args.bed_dir,
-        models[args.model['name']],
+        model_fn[args.model['name']],
         args.model_dir,
         args.tasks,
         args.out_dir, 
