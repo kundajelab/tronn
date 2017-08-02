@@ -21,10 +21,11 @@ from tensorflow.contrib.distributions import Poisson
 from tronn.util.tf_ops import maxnorm
 from tronn.util.sample_stats import percentile
 
-from tronn.initializers import pwm_initializer
-from tronn.initializers import pwm_simple_initializer
-
 from tronn.util.tf_utils import get_fan_in
+from tronn.util.initializers import pwm_initializer
+from tronn.util.initializers import pwm_simple_initializer
+
+
 
 
 
