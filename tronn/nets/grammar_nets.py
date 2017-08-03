@@ -5,11 +5,14 @@ import pandas as pd
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+from tronn.util.tf_utils import get_fan_in
+from tronn.util.initializers import pwm_simple_initializer
 
 def _load_grammar_file(grammar_file):
     """Load a grammar file in a specific format
     """
-    
+
+    # TODO(dk) organize code below into this function
 
     
     
@@ -20,80 +23,82 @@ def _load_grammar_file(grammar_file):
 def single_grammar(features, labels, model_params, is_training=False):
     """Sets up a linear grammar
     """
-
     # look in grammar file to get number of motifs
     num_motifs = 0
     with open(model_params["grammar_file"], 'r') as fp:
         for line in fp:
             if "num_motifs" in line:
-                num_motifs = int(line.strip().split()[-1]) + 1
+                num_motifs = int(line.strip().split()[-1])
                 break
     assert num_motifs != 0, "Grammar file is missing num_motifs"
             
-    print model_params
-    
-    # get tables of weights
+    # get tables of weights from grammar file
     df = pd.read_table(model_params["grammar_file"], header=None, names=range(num_motifs), comment="#")
-
-
-
-    
-
-
-    table_names = ["Non_interacting_coefficients", "Pairwise_interacting_coefficients"]
+    table_names = ["motif_names", "non_interacting_coefficients", "pairwise_interacting_coefficients"]
     groups = df[0].isin(table_names).cumsum()
     tables = {g.iloc[0,0]: g.iloc[1:] for k,g in df.groupby(groups)}
 
     # adjust names etc
-    indiv_coeff_df = tables["Non_interacting_coefficients"]
+    motif_names_list = tables["motif_names"].iloc[0,:].values.tolist()
+    tables["non_interacting_coefficients"].columns = motif_names_list
+    tables["pairwise_interacting_coefficients"].columns = motif_names_list
+    tables["pairwise_interacting_coefficients"].index = motif_names_list
 
-    import ipdb
-    ipdb.set_trace()
-    
-    indiv_coeff_df.columns = indiv_coeff_df.iloc[0]
-    indiv_coeff_df.reindex(indiv_coeff_df.index.drop(1))
-
-
-    
-    indiv_coeff_df.index = indiv_coeff_df.iloc[0]
-
-
-    print indiv_coeff_df
     # select which PWMs you actually want from file
-    
-    print tables
-    
-    quit()
+    # they MUST be ordered correctly
+    # also get max length of motif
+    pwm_list = []
+    max_size = 0
+    for pwm_name in motif_names_list:
+        pwm = model_params["pwms"][pwm_name]
+        pwm_list.append(pwm)
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
     
     # set up motif out vector
-    num_filters = len(model_params["pwms"])
+    num_filters = len(pwm_list)
     conv1_filter_size = [1, max_size]
-    with slim.arg_scope([slim.conv2d],
-                        padding='VALID',
-                        activation_fn=None,
-                        weights_initializer=pwm_initializer(conv1_filter_size, model_params["pwms"], get_fan_in(features), num_filters),
-                        biases_initializer=None,
-                        scope="motif_scan"):
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size,
+                pwm_list,
+                get_fan_in(features),
+                num_filters),
+            biases_initializer=None,
+            scope="motif_scan"):
         net = slim.conv2d(features, num_filters, conv1_filter_size)
-
-        # get max motif val
+        print net.get_shape()
+        
+        # get max motif val for each motif
         width = net.get_shape()[2]
         net = slim.max_pool2d(net, [1, width], stride=[1, 1])
 
+        # and squeeze out other dimensions
+        net = tf.squeeze(net)
         print net.get_shape()
 
     # get linear coefficients and multiply
-    independent_vals = tf.multiply(net, tables["Non_interacting_coefficients"])
+    independent_vals = tf.multiply(
+        net, tables["non_interacting_coefficients"].values)
+    print independent_vals.get_shape()
 
     # get pairwise coefficients and multiply
     pairwise_multiply = tf.multiply(
-        tf.stack([net for i in range(num_filters)], axis=0),
-        tf.stack([net for i in range(num_filters)], axis=1))
-    pairwise_vals = tf.multiply(pairwise_multiply, tables["Pairwise_interacting_coefficients"])
-
-    final_score = tf.add(tf.reduce_mean(independent_vals), tf.reduce_mean(pairwise_vals))
-
-    # TODO run an activation function and train it?
+        tf.stack([net for i in range(num_filters)], axis=1),
+        tf.stack([net for i in range(num_filters)], axis=2))
+    pairwise_vals = tf.multiply(
+        pairwise_multiply, tables["pairwise_interacting_coefficients"].values)
+    print pairwise_vals.get_shape()
+    
+    final_score = tf.add(
+        tf.reduce_sum(independent_vals, axis=1),
+        tf.reduce_sum(pairwise_vals, axis=[1, 2]))
+    print final_score.get_shape()
+    
+    # TODO(dk) run an activation function and train it?
     
     return final_score
 
@@ -101,20 +106,26 @@ def single_grammar(features, labels, model_params, is_training=False):
 def multiple_grammars(features, labels, model_params, is_training=False):
     """ Run multiple linear grammars
     """
-
     grammar_param_sets = model_params["grammars"]
-    # TODO read in ALL PWMs
     
     # set up multiple grammars
-    scores = [single_grammar(features, labels, {"pwms": model_params["pwms"], "grammar_file": grammar_param_set}, is_training=False)
+    scores = [single_grammar(
+        features,
+        labels,
+        {"pwms": model_params["pwms"],
+         "grammar_file": grammar_param_set},
+        is_training=False)
               for grammar_param_set in grammar_param_sets]
-    
-    # run a max
-    final_score = tf.reduce_max(scores)
-    
-    return final_score
 
+    # add in a max score
+    max_score = tf.reduce_max(tf.stack(scores, axis=1), axis=1)
+    print max_score.get_shape()
+    scores.append(max_score)
 
+    score_tensor = tf.stack(scores, axis=1)
+    print score_tensor.get_shape()
+    
+    return score_tensor
 
 
 def _grammar_module(features, grammar, threshold=False, nonlinear=False):

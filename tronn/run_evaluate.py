@@ -19,7 +19,9 @@ from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import model_fns
 from tronn.learn.learning import predict
 
-from tronn.run_predict import setup_model_params
+from tronn.run_predict import setup_model
+from tronn.run_predict import scores_to_probs
+
 
 
 def run_sklearn_metric_fn(metrics_fn, labels, probs):
@@ -99,7 +101,30 @@ def run_sklearn_curve_fn(curve_fn, labels, probs):
     return x, y, thresh
 
 
-def save_plotting_data(labels, probs, out_file, curve="ROC"):
+def run_metrics_functions(labels, probs, metrics_functions, metrics_array, row_idx):
+    """Run a series of metrics functions on the labels and probs
+
+    Args:
+      labels: 1D vector of labels
+      probs: 1D vector of probabilities
+      metrics_functions: dict of metric functions
+      metrics_array: numpy array to store results
+
+    Returns:
+      metrics_array
+    """
+    for metric_idx in range(len(metrics_functions)):
+        try:
+            metrics_array[row_idx, metric_idx] = run_sklearn_metric_fn(
+                metrics_functions[metric_idx],
+                labels, probs)
+        except:
+            metrics_array[0, metric_idx] = 0.
+            
+    return metrics_array
+
+
+def save_plotting_data(labels, probs, out_file, curve="auprc"):
     """Runs ROC or PR and writes out curve data to text file
     in standardized way
     
@@ -112,12 +137,12 @@ def save_plotting_data(labels, probs, out_file, curve="ROC"):
     Returns:
       None
     """
-    if curve == "ROC":
+    if curve == "auroc":
         fpr, tpr, _ = run_sklearn_curve_fn(roc_curve, labels, probs)
         plotting_df = pd.DataFrame(
             data=np.stack([fpr, tpr], axis=1),
             columns=["x", "y"])
-    elif curve == "PR":
+    elif curve == "auprc":
         precision, recall, _ = run_sklearn_curve_fn(
             precision_recall_curve, labels, probs)
         plotting_df = pd.DataFrame(
@@ -129,6 +154,52 @@ def save_plotting_data(labels, probs, out_file, curve="ROC"):
         
     plotting_df.to_csv(out_file, sep='\t', index=False)
     return None
+
+
+def run_and_plot_metrics(
+        labels,
+        probs,
+        metrics_functions,
+        metrics_array,
+        metrics_row_idx,
+        plot_fn_names,
+        plot_folder,
+        prefix):
+    """Wrapper to run all possible metrics types on a set of labels and probs
+    """
+    # run metrics for table
+    run_metrics_functions(
+        labels,
+        probs,
+        metrics_functions,
+        metrics_array,
+        metrics_row_idx)
+    
+    # run metrics for plotting
+    for plot_fn_name in plot_fn_names:
+        os.system("mkdir -p {0}/{1}".format(
+            plot_folder, plot_fn_name))
+        plot_file = "{0}/{1}/{2}.{1}.tmp.txt".format(
+            plot_folder, plot_fn_name, prefix)
+        save_plotting_data(
+            labels, probs,
+            plot_file,
+            curve=plot_fn_name)
+    
+    return
+
+
+def plot_all(plot_folder, prefix, param_sets):
+    """Use R to make pretty plots, uses all files in a folder
+    """
+    for param_key in param_sets.keys():
+        plot_file = "{0}/{1}/{2}.{1}.all.plot.png".format(plot_folder, param_key, prefix)
+        plot_cmd = ("plot_metrics_curves.R {0} {1} {2}/{3}/*.txt").format(
+            param_sets[param_key], plot_file, plot_folder, param_key)
+        print plot_cmd
+        os.system(plot_cmd)
+
+    return
 
 
 def run(args):
@@ -146,7 +217,7 @@ def run(args):
     data_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
 
     # set up model params
-    model_params = setup_model_params(args)
+    model_fn, model_params = setup_model(args)
     
     # set up neural network graph
     tronn_graph = TronnNeuralNetGraph(
@@ -154,7 +225,7 @@ def run(args):
         args.tasks,
         load_data_from_filename_list,
         args.batch_size,
-        model_fns[args.model['name']],
+        model_fn,
         model_params,
         tf.nn.sigmoid)
 
@@ -165,7 +236,10 @@ def run(args):
         args.batch_size,
         num_evals=args.num_evals)
 
-    # setup metrics functions
+    if args.model_type != "nn":
+        probs = scores_to_probs(predictions)
+
+    # setup metrics functions and plot file folders
     precision_thresholds = [0.5, 0.75, 0.9, 0.95]
     metrics_functions = [roc_auc_score, auprc] + [
         make_recall_at_fdr(fdr)
@@ -175,89 +249,109 @@ def run(args):
             str(int(round(100.*(1. - fdr)))))
         for fdr in precision_thresholds]
 
-    
-    metrics_array = np.zeros(
-        (labels.shape[1]+1, len(metrics_functions))
-    )
-    index_list = []
-    
-    # sklearn metrics global
-    index_list.append("global")
-    for metric_idx in range(len(metrics_functions)):
-        try:
-            metrics_array[0, metric_idx] = run_sklearn_metric_fn(
-                metrics_functions[metric_idx],
-                labels.flatten(), probs.flatten())
-        except:
-            metrics_array[0, metric_idx] = 0.
-
-        # plotting: grab AUROC and AUPRC curves
-        global_auroc_plot_file = "{0}/{1}/auroc.global.tmp.txt".format(
-            args.out_dir, args.prefix)
-        save_plotting_data(
-            labels.flatten(), probs.flatten(),
-            global_auroc_plot_file, curve="ROC")
-        global_auprc_plot_file = "{0}/{1}/auprc.global.tmp.txt".format(
-            args.out_dir, args.prefix)
-        save_plotting_data(
-            labels.flatten(), probs.flatten(),
-            global_auprc_plot_file, curve="PR")
+    # setup plotting functions
+    plot_fn_names = ["auroc", "auprc"]
+    plot_param_sets = {
+        "auroc": "AUROC FPR TPR",
+        "auprc": "AUPRC Recall Precision"}
         
-    # sklearn metrics per task
-    for task_idx in range(labels.shape[1]):
-        task_key = "task_{}".format(task_idx)
-        index_list.append(task_key)
+    # if NOT single task, run all tasks on all predictions
+    # labels and predictions must match in shape
+    if args.single_task is None:
+        assert labels.shape[1] == probs.shape[1]
 
-        task_labels = labels[:,task_idx]
-        task_probs = probs[:,task_idx]
+        # set up arrays to keep results
+        metrics_array = np.zeros(
+            (labels.shape[1]+1, len(metrics_functions)))
+        index_list = []
+        index_list.append("global")
+
+        # run global metrics
+        run_and_plot_metrics(
+            labels.flatten(),
+            probs.flatten(),
+            metrics_functions,
+            metrics_array,
+            0,
+            plot_fn_names,
+            "{0}/{1}/by_task".format(
+                args.out_dir, args.prefix),
+            "global")
         
-        for metric_idx in range(len(metrics_functions)):
-            try:
-                metrics_array[1 + task_idx, metric_idx] = run_sklearn_metric_fn(
-                    metrics_functions[metric_idx],
-                    task_labels, task_probs)
-            except:
-                metrics_array[1 + task_idx, metric_idx] = 0.
+        # sklearn metrics per task
+        # TODO convert this to task or to prediction set (which requires specific task to look at)
+        for task_idx in range(labels.shape[1]):
+            task_key = "task_{}".format(task_idx)
+            index_list.append(task_key)
+            
+            task_labels = labels[:,task_idx]
+            task_probs = probs[:,task_idx]
 
-        # plotting: grab AUROC and AUPRC curves
-        task_auroc_plot_file = "{0}/{1}/auroc.{2}.tmp.txt".format(
-            args.out_dir, args.prefix, task_key)
-        save_plotting_data(
-            task_labels, task_probs,
-            task_auroc_plot_file, curve="ROC")
-        task_auprc_plot_file = "{0}/{1}/auprc.{2}.tmp.txt".format(
-            args.out_dir, args.prefix, task_key)
-        save_plotting_data(
-            task_labels, task_probs,
-            task_auprc_plot_file, curve="PR")
+            # run metrics
+            run_and_plot_metrics(
+                task_labels,
+                task_probs,
+                metrics_functions,
+                metrics_array,
+                task_idx + 1,
+                plot_fn_names,
+                "{0}/{1}/by_task".format(
+                    args.out_dir, args.prefix),
+                task_key)
 
-    metrics_df = pd.DataFrame(
-        data=metrics_array,
-        index=index_list,
-        columns=metrics_functions_names)
-    metrics_cleaned_df = metrics_df.fillna(value=0)
+        # and plot
+        plot_all("{0}/{1}/by_task".format(args.out_dir, args.prefix),
+                 args.prefix, plot_param_sets)
 
-    # save out file
-    out_table_file = "{0}/{1}/{1}.metrics_summary.txt".format(
-        args.out_dir, args.prefix)
-    metrics_cleaned_df.to_csv(out_table_file, sep='\t')
+        # convert to df, clean and save out
+        metrics_df = pd.DataFrame(
+            data=metrics_array,
+            index=index_list,
+            columns=metrics_functions_names)
+        metrics_cleaned_df = metrics_df.fillna(value=0)
+        out_table_file = "{0}/{1}/by_task/{1}.metrics_summary.txt".format(
+            args.out_dir, args.prefix)
+        metrics_cleaned_df.to_csv(out_table_file, sep='\t')
+        
+    else:
+        # if single task, compare single task to all predictions
+        metrics_array = np.zeros(
+            (predictions.shape[1], len(metrics_functions)))
+        index_list = []
+        
+        task_labels = labels[:, args.single_task]
+        
+        for prediction_idx in range(predictions.shape[1]):
+            prediction_key = "prediction_{}".format(prediction_idx)
+            index_list.append(prediction_key)
 
-    # call R function to plot AUROC
-    auroc_plot = "{0}/{1}/auroc.all.plot.png".format(
-        args.out_dir, args.prefix)
-    plot_auroc = ("plot_metrics_curves.R AUROC FPR TPR {0} "
-                  "{1}/{2}/auroc.*.txt").format(
-                      auroc_plot, args.out_dir, args.prefix)
-    print plot_auroc
-    os.system(plot_auroc)
+            prediction_probs = probs[:, prediction_idx]
 
-    # call R function to plot AUPRC
-    auprc_plot = "{0}/{1}/auprc.all.plot.png".format(
-        args.out_dir, args.prefix)
-    plot_auprc = ("plot_metrics_curves.R AUPRC Recall Precision {0} "
-                  "{1}/{2}/auprc.*.txt").format(
-                      auprc_plot, args.out_dir, args.prefix)
-    print plot_auprc
-    os.system(plot_auprc)
+            # run metrics
+            run_and_plot_metrics(
+                task_labels,
+                prediction_probs,
+                metrics_functions,
+                metrics_array,
+                prediction_idx,
+                plot_fn_names,
+                "{0}/{1}/by_prediction".format(
+                    args.out_dir, args.prefix),
+                prediction_key)
+
+        # and plot
+        plot_all("{0}/{1}/by_prediction".format(args.out_dir, args.prefix),
+                 args.prefix, plot_param_sets)
+
+        # convert to df, clean and save out
+        metrics_df = pd.DataFrame(
+            data=metrics_array,
+            index=index_list,
+            columns=metrics_functions_names)
+        metrics_cleaned_df = metrics_df.fillna(value=0)
+        out_table_file = "{0}/{1}/by_prediction/{1}.metrics_summary.txt".format(
+            args.out_dir, args.prefix)
+        metrics_cleaned_df.to_csv(out_table_file, sep='\t')
+
 
     return None

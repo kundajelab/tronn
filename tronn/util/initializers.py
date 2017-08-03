@@ -50,7 +50,13 @@ def pwm_simple_initializer(filter_shape, pwm_list, fan_in, dtype=dtypes.float32)
         
         if extend_length >= 0:
             # centered weight
-            padded_weights = np.concatenate((np.zeros((4, extend_length)), pwm.weights, np.zeros((4, 19-extend_length-pwm.weights.shape[1]))), axis=1)
+            padded_weights = np.concatenate(
+                (np.zeros(
+                    (4, extend_length)),
+                 pwm.weights,
+                 np.zeros(
+                     (4, 19-extend_length-pwm.weights.shape[1]))),
+                axis=1)
         else:
             pwm_center = pwm.weights.shape[1] / 2
             padded_weights = pwm.weights[:,pwm_center-10:pwm_center+9]

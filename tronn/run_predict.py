@@ -9,11 +9,24 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+from scipy.stats import zscore
+from scipy.special import expit
+
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import model_fns
 from tronn.learn.learning import predict
+from tronn.interpretation.motifs import get_encode_pwms
 
+def load_pwms(pwm_file_list):
+    """Load pwm files from list of filenames into one dict
+    """
+    pwms = {}
+    for pwm_file in pwm_file_list:
+        pwms_tmp = get_encode_pwms(pwm_file, as_dict=True)
+        pwms.update(pwms_tmp)
+        
+    return pwms
 
 
 def setup_model(args):
@@ -26,17 +39,27 @@ def setup_model(args):
         
     elif args.model_type == "motif":
         assert args.pwm_files is not None
-        model_params = {"pwms": args.pwm_files}
+        model_params = {"pwms": load_pwms(args.pwm_files)}
         model_fn = model_fns["pwm_convolve"]
         
     elif args.model_type == "grammar":
         assert (args.pwm_files is not None) and (args.grammar_files is not None)
         model_params = {
-            "pwms": args.pwm_files,
+            "pwms": load_pwms(args.pwm_files),
             "grammars": args.grammar_files}
         model_fn = model_fns["grammars"]
         
     return model_fn, model_params
+
+
+def scores_to_probs(np_array):
+    """In a case where prediction scores are in a numpy matrix,
+    zscore and push through sigmoid
+    """
+    zscore_array = zscore(np_array, axis=0)
+    probs = expit(zscore_array)
+
+    return probs
 
 
 def split_by_label(metadata, labels, predictions):
