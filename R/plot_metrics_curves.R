@@ -7,6 +7,9 @@
 library(ggplot2)
 library(RColorBrewer)
 
+# reminders
+print("Remember that the first piece of the filename (before a '.') is the task name")
+
 args <- commandArgs(trailingOnly=TRUE)
 plot_title <- args[1]
 x_lab <- args[2]
@@ -21,7 +24,7 @@ for (i in 1:length(data_files)) {
 
     # for each data file, get out x and y and also set up with distinguishing factor name
     data <- read.table(data_files[i], header=TRUE, sep='\t')
-    data$task <- sapply(strsplit(rep(basename(data_files[i]), nrow(data)), "\\."), "[", 2)
+    data$task <- sapply(strsplit(rep(basename(data_files[i]), nrow(data)), "\\."), "[", 1)
     all_data <- rbind(all_data, data)
 
 }
