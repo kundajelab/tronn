@@ -1,8 +1,13 @@
 """contains code for ism nets
 """
 
+import numpy as np
+
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+
+from tronn.util.initializers import pwm_simple_initializer
+from tronn.util.tf_utils import get_fan_in
 
 def _mutate(feature_tensor, position_tensor, zero_out_ref=False):
     """Small module to perform 3 mutations from reference base pair
