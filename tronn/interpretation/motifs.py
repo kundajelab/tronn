@@ -8,7 +8,7 @@ import scipy.stats
 
 import tensorflow as tf
 
-from tronn.nets.nets import model_fn
+from tronn.nets.nets import model_fns
 from tronn.visualization import plot_weights
 
 

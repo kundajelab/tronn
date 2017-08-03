@@ -16,24 +16,27 @@ from tronn.learn.learning import predict
 
 
 
-def setup_model_params(args):
+def setup_model(args):
     """setup model params for various types of nets
     """
     if args.model_type == "nn":
         assert(args.model is not None) and (args.model_dir is not None)
         model_params = args.model
+        model_fn = model_fns[args.model['name']]
         
     elif args.model_type == "motif":
         assert args.pwm_files is not None
         model_params = {"pwms": args.pwm_files}
-
+        model_fn = model_fns["pwm_convolve"]
+        
     elif args.model_type == "grammar":
         assert (args.pwm_files is not None) and (args.grammar_files is not None)
         model_params = {
             "pwms": args.pwm_files,
-            "grammar_files": args.grammar_files}
-
-    return model_params
+            "grammars": args.grammar_files}
+        model_fn = model_fns["grammars"]
+        
+    return model_fn, model_params
 
 
 def split_by_label(metadata, labels, predictions):
@@ -151,7 +154,7 @@ def run(args):
     data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
 
     # set up model params
-    model_params = setup_model_params(args)
+    model_fn, model_params = setup_model(args)
 
     # set up network graph and outputs
     tronn_graph = TronnNeuralNetGraph(
@@ -159,7 +162,7 @@ def run(args):
         args.tasks,
         load_data_from_filename_list,
         args.batch_size,
-        model_fns[args.model['name']],
+        model_fn,
         model_params,
         tf.nn.sigmoid)
         

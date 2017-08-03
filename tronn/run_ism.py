@@ -29,19 +29,32 @@ def grammar_to_file(
     """Write out grammar to file
     """
     with open(out_file, 'w') as fp:
-        header='# Grammar model: Linear w pairwise interactions\n\n'
+        # file header
+        header=(
+            "# Grammar model: Linear w pairwise interactions\n"
+            "# The matrices are ordered in the same order as the motif names\n"
+            "# num_motifs: {}\n\n").format(len(grammar_names))
         fp.write(header)
-        indiv_motif_coeff_header = 'Non_interacting_coefficients\n'
+
+        # motif names - must match PWM file
+        motif_header = "motif_names"
+        motif_names = "\t".join(grammar_names)
+        fp.write("{0}\n{1}\n\n".format(motif_header, motif_names))
+
+        # individual coefficients
+        indiv_motif_coeff_header = 'non_interacting_coefficients\n'
         fp.write(indiv_motif_coeff_header)
         indiv_df = pd.DataFrame(
             data=indiv_scores_array, columns=grammar_names)
-        indiv_df.to_csv(fp, sep='\t')
+        indiv_df.to_csv(fp, sep='\t', header=False, index=False)
         fp.write("\n")
-        synergy_motif_coeff_header = 'Pairwise_interacting_coefficients\n'
+
+        # pairwise coefficients
+        synergy_motif_coeff_header = 'pairwise_interacting_coefficients\n'
         fp.write(synergy_motif_coeff_header)
         synergy_df = pd.DataFrame(
             data=pairwise_scores_array, index=grammar_names, columns=grammar_names)
-        synergy_df.to_csv(fp, sep='\t')
+        synergy_df.to_csv(fp, sep='\t', header=False, index=False)
 
     return None
 
@@ -129,7 +142,7 @@ def ism_pipeline(
                     {"data": data_files},
                     tasks,
                     load_data_from_filename_list,
-                    model_fn["ism"],
+                    model_fns["ism"],
                     model_params,
                     batch_size)
 
@@ -163,7 +176,7 @@ def run(args):
         motif_sets,
         pwms,
         args.bed_dir,
-        model_fn[args.model['name']],
+        model_fns[args.model['name']],
         args.model_dir,
         args.tasks,
         args.out_dir, 

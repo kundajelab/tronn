@@ -1,20 +1,70 @@
 """Contains nets to help run grammars
 """
 
+import pandas as pd
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+
+
+def _load_grammar_file(grammar_file):
+    """Load a grammar file in a specific format
+    """
+    
+
+    
+    
+    return
+
 
 
 def single_grammar(features, labels, model_params, is_training=False):
     """Sets up a linear grammar
     """
 
+    # look in grammar file to get number of motifs
+    num_motifs = 0
+    with open(model_params["grammar_file"], 'r') as fp:
+        for line in fp:
+            if "num_motifs" in line:
+                num_motifs = int(line.strip().split()[-1]) + 1
+                break
+    assert num_motifs != 0, "Grammar file is missing num_motifs"
+            
+    print model_params
+    
     # get tables of weights
-    df = pd.read_table(model_params["grammar_file"], header=None, names=range(len(model_params["pwms"])))
+    df = pd.read_table(model_params["grammar_file"], header=None, names=range(num_motifs), comment="#")
+
+
+
+    
+
+
     table_names = ["Non_interacting_coefficients", "Pairwise_interacting_coefficients"]
     groups = df[0].isin(table_names).cumsum()
     tables = {g.iloc[0,0]: g.iloc[1:] for k,g in df.groupby(groups)}
 
+    # adjust names etc
+    indiv_coeff_df = tables["Non_interacting_coefficients"]
+
+    import ipdb
+    ipdb.set_trace()
+    
+    indiv_coeff_df.columns = indiv_coeff_df.iloc[0]
+    indiv_coeff_df.reindex(indiv_coeff_df.index.drop(1))
+
+
+    
+    indiv_coeff_df.index = indiv_coeff_df.iloc[0]
+
+
+    print indiv_coeff_df
+    # select which PWMs you actually want from file
+    
+    print tables
+    
+    quit()
+    
     # set up motif out vector
     num_filters = len(model_params["pwms"])
     conv1_filter_size = [1, max_size]
@@ -53,9 +103,10 @@ def multiple_grammars(features, labels, model_params, is_training=False):
     """
 
     grammar_param_sets = model_params["grammars"]
-
+    # TODO read in ALL PWMs
+    
     # set up multiple grammars
-    scores = [single_grammar(features, labels, grammar_param_set, is_training=False)
+    scores = [single_grammar(features, labels, {"pwms": model_params["pwms"], "grammar_file": grammar_param_set}, is_training=False)
               for grammar_param_set in grammar_param_sets]
     
     # run a max

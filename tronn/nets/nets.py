@@ -12,8 +12,8 @@ from tronn.nets.motif_nets import pwm_convolve_v2
 
 from tronn.nets.mutate_nets import ism_for_grammar_dependencies
 
-from tronn.grammar_nets import single_grammar
-from tronn.grammar_nets import multiple_grammars
+from tronn.nets.grammar_nets import single_grammar
+from tronn.nets.grammar_nets import multiple_grammars
 
 
 model_fns = {

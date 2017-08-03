@@ -91,12 +91,12 @@ def add_model_config(args):
     return 
 
 
-def add_output_options(parser, default="./"):
+def add_output_options(parser, out_dir="./"):
     """Add an output directory and prefix if desired
     """
     parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
-        default=default,
+        default=out_dir,
         help = "Output directory (default: current)")
     parser.add_argument(
         '--prefix', required=True,
@@ -152,7 +152,7 @@ def add_preprocess_parser(subparsers):
     # group for output files
     group_output = argparser_preprocess.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output)
+    add_output_options(group_output, out_dir="dataset")
 
     return
 
@@ -201,19 +201,19 @@ def add_train_parser(subparsers):
     # group for output files
     group_output = argparser_train.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, default='training')
+    add_output_options(group_output, out_dir='model')
 
     return
 
 
-def add_trained_nn_model_options(parser):
+def add_trained_nn_model_options(parser, required=True):
     """Set up standard necessary args for a trained NN model
     """
     parser.add_argument(
-        '--model', nargs='+', required=True,
+        '--model', nargs='+', required=required,
         help='choose model and provide configs')
     parser.add_argument(
-        '--model_dir', required=True,
+        '--model_dir', required=required,
         help='restore from last checkpoint')
     
     return
@@ -229,7 +229,7 @@ def add_model_picker(parser):
         help="what kind of model: nn, motif, grammar")
     
     # arguments for nn model
-    add_trained_nn_model_options(parser)
+    add_trained_nn_model_options(parser, required=False)
     
     # arguments for motif model
     parser.add_argument(
@@ -277,7 +277,7 @@ def add_evaluate_parser(subparsers):
     # group for output files
     group_output = argparser_test.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, default='evaluation')
+    add_output_options(group_output, out_dir='evaluation')
     
     return
 
@@ -315,7 +315,7 @@ def add_predict_parser(subparsers):
     # group for output files
     group_output = argparser_predict.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, default='predictions')
+    add_output_options(group_output, out_dir='prediction')
     
     return
 
@@ -350,7 +350,7 @@ def add_importances_parser(subparsers):
     # group for output files
     group_output = argparser_importances.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output)
+    add_output_options(group_output, out_dir="importances")
     group_output.add_argument(
         '--tmp_dir', default='importances_tmp',
         help='temporary scratch directory')
@@ -377,7 +377,7 @@ def add_wkm_parser(subparsers):
     # group for output files
     group_output = argparser_wkm.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output)
+    add_output_options(group_output, out_dir="motifs")
     
     return
 
@@ -412,7 +412,7 @@ def add_bagmotifs_parser(subparsers):
     # group for output files
     group_output = argparser_bagmotifs.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output)
+    add_output_options(group_output, out_dir="motifclusters")
     
     return
 
@@ -457,7 +457,7 @@ def add_ism_parser(subparsers):
     # group for output files
     group_output = argparser_ism.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output)
+    add_output_options(group_output, out_dir="ism")
 
     return
 
@@ -542,8 +542,9 @@ def main():
         from tronn.run_evaluate import run
         run(args)
     elif subcommand == "predict":
-        add_model_config(args)
-        print "model args: %s" % args.model
+    	if args.model_type == "nn":
+        	add_model_config(args)
+        	print "model args: %s" % args.model
         from tronn.run_predict import run
         run(args)
     elif subcommand == "extractimportances":
