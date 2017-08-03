@@ -47,7 +47,7 @@ def parse_args():
     # all grammar work (group motifs, ISM)
     
     # load data jsons
-    load_data_files(parser)
+    #load_data_files(parser)
 
     # parse args
     args = parser.parse_args()
@@ -131,6 +131,7 @@ def add_preprocess_parser(subparsers):
     group_input.add_argument(
         "--labels", nargs='+', required=True,
         help='list of label file peak sets (BED/narrowPeak)')
+    load_data_files(group_input)
 
     # group for options
     group_opts = argparser_preprocess.add_argument_group(
@@ -439,6 +440,7 @@ def add_ism_parser(subparsers):
     group_input.add_argument(
         '--tasks', nargs='+', default=[], type=int,
         help='tasks over which to get importances')
+    load_data_files(group_input)
 
     # group for model
     group_model = argparser_ism.add_argument_group(
