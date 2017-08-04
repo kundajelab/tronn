@@ -70,20 +70,17 @@ def single_grammar(features, labels, model_params, is_training=False):
             biases_initializer=None,
             scope="motif_scan"):
         net = slim.conv2d(features, num_filters, conv1_filter_size)
-        print net.get_shape()
-        
+
         # get max motif val for each motif
         width = net.get_shape()[2]
         net = slim.max_pool2d(net, [1, width], stride=[1, 1])
 
         # and squeeze out other dimensions
         net = tf.squeeze(net)
-        print net.get_shape()
 
     # get linear coefficients and multiply
     independent_vals = tf.multiply(
         net, tables["non_interacting_coefficients"].values)
-    print independent_vals.get_shape()
 
     # get pairwise coefficients and multiply
     pairwise_multiply = tf.multiply(
@@ -91,14 +88,10 @@ def single_grammar(features, labels, model_params, is_training=False):
         tf.stack([net for i in range(num_filters)], axis=2))
     pairwise_vals = tf.multiply(
         pairwise_multiply, tables["pairwise_interacting_coefficients"].values)
-    print pairwise_vals.get_shape()
     
     final_score = tf.add(
         tf.reduce_sum(independent_vals, axis=1),
         tf.reduce_sum(pairwise_vals, axis=[1, 2]))
-    print final_score.get_shape()
-    
-    # TODO(dk) run an activation function and train it?
     
     return final_score
 

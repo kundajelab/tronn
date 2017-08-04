@@ -12,6 +12,8 @@ import tensorflow as tf
 from scipy.stats import zscore
 from scipy.special import expit
 
+from sklearn.metrics import precision_recall_curve
+
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import model_fns
@@ -62,7 +64,7 @@ def scores_to_probs(np_array):
     return probs
 
 
-def split_by_label(metadata, labels, predictions):
+def split_by_label(metadata, labels, predictions, probs, out_dir, prefix):
     """Splits output by label set to have mat and BED (just positives) outputs
     """
     for task_idx in range(labels.shape[1]):
@@ -78,7 +80,7 @@ def split_by_label(metadata, labels, predictions):
             index=metadata)
         
         out_table_file = "{0}/{1}/{2}.predictions.txt".format(
-            args.out_dir, args.prefix, task_key)
+            out_dir, prefix, task_key)
         task_df.to_csv(out_table_file, sep='\t')
         
         # and convert to BED format too
@@ -89,7 +91,7 @@ def split_by_label(metadata, labels, predictions):
         task_df['joint'] = task_df['labels'].map(str) + ";" + task_df['probabilities'].map(str) + ";" + task_df['logits'].map(str)
 
         out_bed_file = "{0}/{1}/{2}.predictions.bed".format(
-            args.out_dir, args.prefix, task_key)
+            out_dir, prefix, task_key)
         task_df.to_csv(
             out_bed_file,
             columns=['chr', 'start', 'stop', 'joint'],
@@ -100,40 +102,50 @@ def split_by_label(metadata, labels, predictions):
     return None
 
 
-def split_by_prediction(metadata, labels, predictions, prefix, fdr=0.05):
+def split_single_label_set_by_prediction(
+        metadata,
+        labels,
+        predictions,
+        probs,
+        out_dir,
+        prefix,
+        fdr=0.05):
     """For each prediction set, threshold and output mat and BED (just positives) after thresholds
-    """
 
-    # TODO: also allow splitting by predictions (pheno cluster)
+    Args:
+      Note that labels is 1D here
+
+    """
     # to split by predictions, set cutoff to be 0.05 FDR (ie, 5% false pos allowed), relative to a label set.
     # ie, given a grammar set, the cutoff for that grammar should be such that in the appropriate task, 5% above the cutoff are false positives.
     # Then use this to generate BED files for each grammar.
 
     for prediction_set_idx in range(predictions.shape[1]):
-        set_labels = labels[:, prediction_set_idx]
         set_predictions = predictions[:, prediction_set_idx]
+        set_probs = probs[:, prediction_set_idx]
 
         # set up initial data frame to hold data
         prediction_set_df = pd.DataFrame(
-            data=np.stack([set_labels, set_predictions], axis=1),
-            columns=["labels", "predictions"],
+            data=np.stack([labels, set_probs, set_predictions], axis=1),
+            columns=["labels", "probabilities", "logits"],
             index=metadata)
         
         # calculate precision and recall
+        precision, recall, thresholds = precision_recall_curve(labels, set_probs)
         try:
-            precision, recall, thresholds = precision_recall_curve(set_labels, set_predictions)
+            precision, recall, thresholds = precision_recall_curve(labels, set_probs)
         except:
             # TODO fix this
-            return
-            
+            continue
+
         # using FDR on precision, get a threshold
-        threshold = thresholds[np.searchsorted(precision - fdr, 0)]
+        threshold = thresholds[np.searchsorted(precision - (1-fdr), 0)-1] # hack here, make sure this is right
         
         # filter on that threshold val
-        prediction_set_filt_df = prediction_set_df.loc[prediction_set_df["predictions"] >= threshold]
+        prediction_set_filt_df = pd.DataFrame(prediction_set_df[prediction_set_df["probabilities"] >= threshold])
 
         # and save that out to text
-        prediction_set_filt_df.to_csv("{}.prediction_set{}.txt".format(prefix, prediction_set_idx), sep='\t')
+        prediction_set_filt_df.to_csv("{0}/{1}.prediction_set{2}.txt".format(out_dir, prefix, prediction_set_idx), sep='\t')
         
         # and convert to BED and save out
         task_df = prediction_set_filt_df
@@ -142,8 +154,8 @@ def split_by_prediction(metadata, labels, predictions, prefix, fdr=0.05):
         task_df['start'], task_df['stop'] = task_df['start-stop'].str.split('-', 1).str
         task_df['joint'] = task_df['labels'].map(str) + ";" + task_df['probabilities'].map(str) + ";" + task_df['logits'].map(str)
 
-        out_bed_file = "{0}.prediction_set{1}.bed".format(
-            prefix, prediction_set_idx)
+        out_bed_file = "{0}/{1}.prediction_set{2}.bed".format(
+            out_dir, prefix, prediction_set_idx)
         task_df.to_csv(
             out_bed_file,
             columns=['chr', 'start', 'stop', 'joint'],
@@ -167,7 +179,6 @@ def run(args):
     """
     logging.info("Running predict...")
     os.system("mkdir -p {}".format(args.out_dir))
-    os.system("mkdir -p {0}/{1}".format(args.out_dir, args.prefix))
 
     assert ((args.model_type == "nn") or
             (args.model_type == "motif") or
@@ -196,10 +207,29 @@ def run(args):
         args.batch_size,
         num_evals=args.num_evals)
 
-    # TODO: save out overall large matrix file
-    split_by_label(metadata, labels, probs)
+    # push predictions through activation to get probs
+    if args.model_type != "nn":
+        probs = scores_to_probs(predictions)
 
-    if False:
-        split_by_prediction(metadata, labels, probs)
+    if args.single_task is None:
+        assert labels.shape[1] == predictions.shape[1]
+        
+        # prediction column matches label column
+        split_by_label(
+            metadata,
+            labels,
+            predictions,
+            probs,
+            args.out_dir,
+            args.prefix)
+    else:
+        # take single task and split into probs
+        split_single_label_set_by_prediction(
+            metadata,
+            labels[:,args.single_task],
+            predictions,
+            probs,
+            args.out_dir,
+            args.prefix)
 
     return None

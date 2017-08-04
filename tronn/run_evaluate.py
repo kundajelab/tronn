@@ -236,6 +236,7 @@ def run(args):
         args.batch_size,
         num_evals=args.num_evals)
 
+    # push predictions through activation to get probs
     if args.model_type != "nn":
         probs = scores_to_probs(predictions)
 

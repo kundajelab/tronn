@@ -273,8 +273,6 @@ def add_evaluate_parser(subparsers):
     group_params.add_argument(
         '--batch_size', default=128, type=int,
         help='batch size')
-
-    # TODO(dk) add in by task or by prediction
     group_params.add_argument(
         "--single_task", default=None, type=int,
         help="Evaluate ALL predictions on ONE task (give idx here)")
@@ -316,6 +314,9 @@ def add_predict_parser(subparsers):
     group_params.add_argument(
         '--batch_size', default=128, type=int,
         help='batch size')
+    group_params.add_argument(
+        "--single_task", default=None, type=int,
+        help="Get ALL predictions on ONE task (give idx here)")
 
     # group for output files
     group_output = argparser_predict.add_argument_group(
