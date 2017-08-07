@@ -83,7 +83,7 @@ def train(
             summary_op=summary_op,
             save_summaries_secs=60,
             saver=tf.train.Saver(max_to_keep=None),
-            save_interval_secs=3600)
+            save_interval_secs=0) # change this?
 
     return
 
