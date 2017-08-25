@@ -211,7 +211,6 @@ def run(args):
     """
     logging.info("Running evaluation...")
     os.system("mkdir -p {}".format(args.out_dir))
-    os.system("mkdir -p {0}/{1}".format(args.out_dir, args.prefix))
     
     # find data files
     data_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
@@ -275,8 +274,8 @@ def run(args):
             metrics_array,
             0,
             plot_fn_names,
-            "{0}/{1}/by_task".format(
-                args.out_dir, args.prefix),
+            "{}/by_task".format(
+                args.out_dir),
             "global")
         
         # sklearn metrics per task
@@ -296,12 +295,12 @@ def run(args):
                 metrics_array,
                 task_idx + 1,
                 plot_fn_names,
-                "{0}/{1}/by_task".format(
-                    args.out_dir, args.prefix),
+                "{}/by_task".format(
+                    args.out_dir),
                 task_key)
 
         # and plot
-        plot_all("{0}/{1}/by_task".format(args.out_dir, args.prefix),
+        plot_all("{}/by_task".format(args.out_dir),
                  args.prefix, plot_param_sets)
 
         # convert to df, clean and save out
@@ -310,7 +309,7 @@ def run(args):
             index=index_list,
             columns=metrics_functions_names)
         metrics_cleaned_df = metrics_df.fillna(value=0)
-        out_table_file = "{0}/{1}/by_task/{1}.metrics_summary.txt".format(
+        out_table_file = "{0}/by_task/{1}.metrics_summary.txt".format(
             args.out_dir, args.prefix)
         metrics_cleaned_df.to_csv(out_table_file, sep='\t')
         
@@ -336,12 +335,12 @@ def run(args):
                 metrics_array,
                 prediction_idx,
                 plot_fn_names,
-                "{0}/{1}/by_prediction".format(
-                    args.out_dir, args.prefix),
+                "{}/by_prediction".format(
+                    args.out_dir),
                 prediction_key)
 
         # and plot
-        plot_all("{0}/{1}/by_prediction".format(args.out_dir, args.prefix),
+        plot_all("{}/by_prediction".format(args.out_dir),
                  args.prefix, plot_param_sets)
 
         # convert to df, clean and save out
@@ -350,7 +349,7 @@ def run(args):
             index=index_list,
             columns=metrics_functions_names)
         metrics_cleaned_df = metrics_df.fillna(value=0)
-        out_table_file = "{0}/{1}/by_prediction/{1}.metrics_summary.txt".format(
+        out_table_file = "{0}/by_prediction/{1}.metrics_summary.txt".format(
             args.out_dir, args.prefix)
         metrics_cleaned_df.to_csv(out_table_file, sep='\t')
 

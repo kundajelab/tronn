@@ -545,14 +545,13 @@ def main():
     elif subcommand == "evaluate":
         if args.model_type == "nn":
             add_model_config(args)
-            print "model args: %s" % args.model
         print "model args: %s" % args.model
         from tronn.run_evaluate import run
         run(args)
     elif subcommand == "predict":
     	if args.model_type == "nn":
-        	add_model_config(args)
-        	print "model args: %s" % args.model
+            add_model_config(args)
+            print "model args: %s" % args.model
         from tronn.run_predict import run
         run(args)
     elif subcommand == "extractimportances":
