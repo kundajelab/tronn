@@ -25,7 +25,7 @@ def get_total_num_examples(hdf5_filename_list, feature_key="features"):
     return num_examples
 
 
-def get_positive_weights_per_task(hdf5_filename_list):
+def get_positive_weights_per_task_old(hdf5_filename_list):
     """Calculates positive weights to be used in weighted cross entropy
     
     Args:
@@ -47,6 +47,31 @@ def get_positive_weights_per_task(hdf5_filename_list):
                 total_examples += file_tot
 
     return np.divide(total_examples - total_pos, total_pos)
+
+
+def get_task_and_class_weights(hdf5_filename_list):
+    """Calculates task and class weights to be used in positives focused loss
+    
+    Args:
+      hdf_filename_list: a list of hdf5 filenames.
+
+    Returns:
+      List of task weights (pos/negs) and class weights (negs/pos)
+    """
+    for filename_idx in range(len(hdf5_filename_list)):
+        with h5py.File(hdf5_filename_list[filename_idx], 'r') as hf:
+            file_pos = np.sum(hf['labels'], axis=0)
+            file_tot = np.repeat(hf['labels'].shape[0], hf['labels'].shape[1])
+
+            if filename_idx == 0:
+                total_pos = file_pos
+                total_examples = file_tot
+            else:
+                total_pos += file_pos
+                total_examples += file_tot
+
+    return np.divide(total_pos, total_examples - total_pos), np.divide(total_examples - total_pos, total_pos)
+
 
 
 def get_positives(h5_in_file, task_num, h5_out_file, region_set=None):

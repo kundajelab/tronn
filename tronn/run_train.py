@@ -47,7 +47,9 @@ def run(args):
         model_fns[args.model['name']],
         args.model,
         tf.nn.sigmoid,
-        loss_fn=tf.losses.sigmoid_cross_entropy,
+        #loss_fn=tf.losses.sigmoid_cross_entropy,
+        loss_fn=tf.nn.weighted_cross_entropy_with_logits,
+        positives_focused_loss=True,
         optimizer_fn=tf.train.RMSPropOptimizer,
         optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
         metrics_fn=get_global_avg_metrics)

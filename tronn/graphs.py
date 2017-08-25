@@ -6,7 +6,8 @@ import logging
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-from tronn.util.tf_ops import task_weighted_loss_fn
+from tronn.util.tf_ops import class_weighted_loss_fn
+from tronn.util.tf_ops import positives_focused_loss_fn
 
 
 class TronnGraph(object):
@@ -74,7 +75,8 @@ class TronnNeuralNetGraph(TronnGraph):
                  importances_fn=None,
                  feature_key="features",
                  shuffle_data=True,
-                 weighted_cross_entropy=False):
+                 class_weighted_loss=False,
+                 positives_focused_loss=False):
         super(TronnNeuralNetGraph, self).__init__(
             data_files, tasks, data_loader,
             model_fn, model_params, batch_size,
@@ -85,7 +87,8 @@ class TronnNeuralNetGraph(TronnGraph):
         self.optimizer_params = optimizer_params
         self.metrics_fn = metrics_fn
         self.importances_fn = importances_fn
-        self.weighted_cross_entropy = weighted_cross_entropy
+        self.class_weighted_loss = class_weighted_loss
+        self.positives_focused_loss = positives_focused_loss
 
         
     def build_graph(self, data_key="data", is_training=False):
@@ -110,7 +113,7 @@ class TronnNeuralNetGraph(TronnGraph):
         
         # add a loss
         if self.loss_fn is not None:
-            self._add_loss()
+            self._add_loss(data_key)
 
         # add metrics
         if self.metrics_fn is not None:
@@ -128,7 +131,7 @@ class TronnNeuralNetGraph(TronnGraph):
         self.build_graph(data_key, is_training=True)
 
         # add a loss
-        self._add_loss()
+        self._add_loss(data_key)
 
         # add metrics
         if self.metrics_fn is not None:
@@ -163,15 +166,20 @@ class TronnNeuralNetGraph(TronnGraph):
         return self.importances
 
 
-    def _add_loss(self):
+    def _add_loss(self, data_key):
         """set up loss function
         """
-        # check if weighted or not
-        if not self.weighted_cross_entropy:
-            self.loss = self.loss_fn(self.labels, self.logits)
+        assert not (self.class_weighted_loss and self.positives_focused_loss)
+        
+        if self.class_weighted_loss:
+            self.loss = class_weighted_loss_fn(
+                self.data_files[data_key], self.loss_fn, self.labels, self.logits)
+        elif self.positives_focused_loss:
+            self.loss = positives_focused_loss_fn(
+                self.data_files[data_key], self.loss_fn, self.labels, self.logits)
         else:
-            self.loss = task_weighted_loss_fn(
-                data_files, loss_fn, labels, logits)
+            self.loss = self.loss_fn(self.labels, self.logits)
+
         self.total_loss = tf.losses.get_total_loss()
 
         return
