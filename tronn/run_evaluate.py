@@ -299,10 +299,6 @@ def run(args):
                     args.out_dir),
                 task_key)
 
-        # and plot
-        plot_all("{}/by_task".format(args.out_dir),
-                 args.prefix, plot_param_sets)
-
         # convert to df, clean and save out
         metrics_df = pd.DataFrame(
             data=metrics_array,
@@ -312,6 +308,10 @@ def run(args):
         out_table_file = "{0}/by_task/{1}.metrics_summary.txt".format(
             args.out_dir, args.prefix)
         metrics_cleaned_df.to_csv(out_table_file, sep='\t')
+            
+        # and plot
+        plot_all("{}/by_task".format(args.out_dir),
+                 args.prefix, plot_param_sets)
         
     else:
         # if single task, compare single task to all predictions
@@ -339,10 +339,6 @@ def run(args):
                     args.out_dir),
                 prediction_key)
 
-        # and plot
-        plot_all("{}/by_prediction".format(args.out_dir),
-                 args.prefix, plot_param_sets)
-
         # convert to df, clean and save out
         metrics_df = pd.DataFrame(
             data=metrics_array,
@@ -353,5 +349,8 @@ def run(args):
             args.out_dir, args.prefix)
         metrics_cleaned_df.to_csv(out_table_file, sep='\t')
 
+        # and plot
+        plot_all("{}/by_prediction".format(args.out_dir),
+                 args.prefix, plot_param_sets)
 
     return None

@@ -25,6 +25,14 @@ for (i in 1:length(data_files)) {
     # for each data file, get out x and y and also set up with distinguishing factor name
     data <- read.table(data_files[i], header=TRUE, sep='\t')
     data$task <- sapply(strsplit(rep(basename(data_files[i]), nrow(data)), "\\."), "[", 1)
+
+    # subsample?
+    if (nrow(data) > 1000) {
+        subsample_factor <- as.integer(nrow(data) / 1000.)
+        data_subsample <- data[seq(1, nrow(data), 20),]
+        data <- data_subsample
+    }
+        
     all_data <- rbind(all_data, data)
 
 }
@@ -39,7 +47,8 @@ ggplot(data=all_data, aes(x=x, y=y, group=task)) +
     theme_bw() + coord_fixed() +
     theme(
         panel.grid.major=element_blank(),
-        panel.grid.minor=element_blank()
+        panel.grid.minor=element_blank(),
+        legend.position="none"
         ) + 
     scale_colour_manual(values=my_palette)
 ggsave(out_file)

@@ -13,6 +13,7 @@ import tensorflow.contrib.slim as slim
 from tensorflow.python.framework import ops
 
 from tronn.datalayer import get_task_and_class_weights
+from tronn.datalayer import get_positive_weights_per_task
 
 
 def maxnorm(norm_val=7):
@@ -135,11 +136,10 @@ def class_weighted_loss_fn(data_files, loss_fn, labels, logits):
     pos_weights = get_positive_weights_per_task(data_files)
     task_losses = []
     for task_num in range(labels.get_shape()[1]):
-        # somehow need to calculate task imbalance...
-        task_losses.append(loss_fn(labels[:,task_num],
-                                   logits[:,task_num],
-                                   pos_weights[task_num],
-                                   loss_collection=None))
+        task_losses.append(
+            loss_fn(labels[:,task_num],
+                    logits[:,task_num],
+                    pos_weights[task_num]))
     task_loss_tensor = tf.stack(task_losses, axis=1)
     loss = tf.reduce_sum(task_loss_tensor)
     # to later get total_loss

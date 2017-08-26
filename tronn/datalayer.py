@@ -25,7 +25,7 @@ def get_total_num_examples(hdf5_filename_list, feature_key="features"):
     return num_examples
 
 
-def get_positive_weights_per_task_old(hdf5_filename_list):
+def get_positive_weights_per_task(hdf5_filename_list):
     """Calculates positive weights to be used in weighted cross entropy
     
     Args:
