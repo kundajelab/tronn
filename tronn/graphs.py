@@ -154,7 +154,7 @@ class TronnNeuralNetGraph(TronnGraph):
         self.build_graph(data_key, is_training=False)
 
         # split logits into task level
-        task_logits = tf.unstack(self.logits)
+        task_logits = tf.unstack(self.logits, axis=1)
         
         # add in importance score calculations
         self.importances = {}

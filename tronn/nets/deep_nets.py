@@ -131,7 +131,11 @@ def basset(features, labels, config, is_training=True):
     config['fc_dim'] = config.get('fc_dim', 1000)
     config['drop'] = config.get('drop', 0.3)
 
-    net = basset_conv_module(features, is_training)
+    if not config.get("finetune"):
+        net = basset_conv_module(features, is_training)
+    else:
+        net = basset_conv_module(features, False)
+        
     net = final_pool(net, config['final_pool'])
     if config['temporal']:
         logits = temporal_pred_module(
@@ -151,7 +155,16 @@ def basset(features, labels, config, is_training=True):
     # Torch7 style maxnorm
     maxnorm(norm_val=7)
 
-    return logits
+    # mask logits for fine tuning specific tasks at logit level
+    if not config.get("finetune"):
+        return logits
+    else:
+        task_logits = tf.unstack(logits, axis=1)
+
+        # TODO(dk) note that this would be where to add a task specific layer
+        # either in general training or fine tuning, as needed
+        
+        return task_logits[config.get("finetune")]
 
 
 def danq(features, labels, config, is_training=True):

@@ -148,7 +148,7 @@ def class_weighted_loss_fn(data_files, loss_fn, labels, logits):
     return loss
 
 
-def positives_focused_loss_fn(data_files, loss_fn, labels, logits):
+def positives_focused_loss_fn_old(data_files, loss_fn, labels, logits):
     """Reweight both tasks and classes such that a positive is basically
     equal weight across all tasks
 
@@ -171,6 +171,37 @@ def positives_focused_loss_fn(data_files, loss_fn, labels, logits):
     loss = tf.reduce_sum(task_loss_tensor)
     # later put this in training op using get_total_loss
     tf.add_to_collection(ops.GraphKeys.LOSSES, loss)
+
+    return loss
+
+def positives_focused_loss_fn(data_files, loss_fn, labels, logits):
+    """Reweight both tasks and classes such that a positive is basically
+    equal weight across all tasks
+
+    To do so, for each task use weighted cross entropy
+    Then, weight the tasks when you sum them up
+
+    """
+    logging.info("NOTE: using positives focused loss!")
+    task_weights, class_weights = get_task_and_class_weights(data_files)
+    task_losses = []
+    for task_num in range(labels.get_shape()[1]):
+        task_losses.append(
+            loss_fn(
+                labels[:,task_num],
+                logits[:,task_num],
+                class_weights[task_num]))
+    task_loss_tensor = tf.stack(task_losses, axis=1)
+    
+    task_weights_list = []
+    for i in range(labels.get_shape()[0]):
+        task_weights_list.append(task_weights)
+    task_weights_tensor = tf.stack(task_weights_list, axis=0)
+    
+    loss = tf.losses.compute_weighted_loss(
+        task_loss_tensor,
+        weights=task_weights_tensor,
+        scope="loss")
 
     return loss
 

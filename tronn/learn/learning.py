@@ -180,7 +180,7 @@ def train_and_evaluate(
         train_steps,
         stop_metric,
         patience,
-        epoch_limit,
+        epoch_limit=10,
         restore_model_dir=None,
         transfer_model_dir=None):
     """Runs training and evaluation for {epoch_limit} epochs
@@ -225,7 +225,6 @@ def train_and_evaluate(
         else:
             stop_step = train_steps
             
-            
         # train and evaluate one epoch
         eval_metrics = train_and_evaluate_once(
             tronn_graph,
@@ -250,8 +249,8 @@ def train_and_evaluate(
                 print "early stopping triggered"
                 logging.info("early stopping triggered")
                 break
-    
-    return None
+
+    return restore_model_dir
 
 
 def predict(

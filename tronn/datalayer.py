@@ -226,7 +226,7 @@ def hdf5_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shu
     return features_tensor, labels_tensor, metadata_tensor
 
 
-def hdf5_list_to_slices(hdf5_files, batch_size, tasks=[], features_key='features', shuffle=False):
+def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='features', shuffle=False):
     """Extract batches from hdf5 file list. This is used to get ordered examples out 
     to re-merge back into regions.
 
@@ -360,7 +360,7 @@ def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key=
                                                                  name='batcher')
 
     elif shuffle == False:
-    	example_slices_list = hdf5_list_to_slices(hdf5_files, batch_size, tasks, features_key)
+    	example_slices_list = hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks, features_key)
     	features, labels, metadata = tf.train.batch(example_slices_list,
                                                                  batch_size,
                                                                  capacity=100000,

@@ -14,6 +14,32 @@ from tronn.graphs import TronnNeuralNetGraph
 from tronn.learn.learning import train_and_evaluate
 from tronn.learn.evaluation import get_global_avg_metrics
 
+def finetune_tasks(args, trained_model_dir):
+    """Allows fine tuning of individual tasks (just final layer)
+    """
+    args.model["finetune"] = True
+    finetune_dir = "{}/finetune".format(args.out_dir)
+    for i in range(len(args.finetune_tasks)):
+        task = args.finetune_tasks[i]
+        print task
+        if i == 0:
+            restore_dir = trained_model_dir
+        else:
+            restore_dir = finetune_dir
+        tronn_graph.tasks = [task]
+        tronn_graph.model_params = args.model
+        train_and_evaluate(
+            tronn_graph,
+            finetune_dir,
+            args.train_steps,
+            args.metric,
+            args.patience,
+            epoch_limit=5,
+            restore_model_dir=trained_model_dir)
+
+    return
+
+
 
 def run(args):
     """Runs training pipeline
@@ -49,19 +75,25 @@ def run(args):
         loss_fn=tf.losses.sigmoid_cross_entropy,
         #loss_fn=tf.nn.weighted_cross_entropy_with_logits,
         #positives_focused_loss=True,
+        #class_weighted_loss=True,
         optimizer_fn=tf.train.RMSPropOptimizer,
         optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
         metrics_fn=get_global_avg_metrics)
-    
-    # Train and evaluate for some number of epochs
-    train_and_evaluate(
-        tronn_graph,
-        args.out_dir,
-        args.train_steps,
-        args.metric,
-        args.patience,
-        args.epochs,
-        restore_model_dir=args.restore_model_dir,
-        transfer_model_dir=args.transfer_model_dir)
+
+    # make finetune training and training mutually exclusive for now
+    if len(args.finetune_tasks) == 0:
+        # Train and evaluate for some number of epochs
+        trained_model_dir = train_and_evaluate(
+            tronn_graph,
+            args.out_dir,
+            args.train_steps,
+            args.metric,
+            args.patience,
+            epoch_limit=args.epochs,
+            restore_model_dir=args.restore_model_dir,
+            transfer_model_dir=args.transfer_model_dir)
+    else:
+        # add in fine-tuning option on tasks
+        finetune_tasks(args, args.restore_model_dir)
 
     return None

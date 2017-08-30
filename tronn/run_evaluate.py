@@ -213,7 +213,8 @@ def run(args):
     os.system("mkdir -p {}".format(args.out_dir))
     
     # find data files
-    data_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
+    # NOTE right now this is technically validation set
+    data_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))[20:22]
 
     # set up model params
     model_fn, model_params = setup_model(args)

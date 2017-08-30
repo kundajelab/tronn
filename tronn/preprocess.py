@@ -400,6 +400,10 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
                     "bedtools intersect -f 0.5 -c -a <(zcat {0}) -b <(zcat {1}) | "
                     "gzip -c > "
                     "{2}").format(binned_file, peak_file, intersect_file_name)
+                
+            # TODO(dk) change the method to counts in region...
+
+                
             print '{0}: {1}'.format(prefix, intersect)
             os.system('GREPDB="{0}"; /bin/bash -c "$GREPDB"'.format(intersect))
             
