@@ -14,20 +14,25 @@ from tronn.graphs import TronnNeuralNetGraph
 from tronn.learn.learning import train_and_evaluate
 from tronn.learn.evaluation import get_global_avg_metrics
 
-def finetune_tasks(args, trained_model_dir):
+def finetune_tasks(args, tronn_graph, trained_model_dir):
     """Allows fine tuning of individual tasks (just final layer)
     """
-    args.model["finetune"] = True
     finetune_dir = "{}/finetune".format(args.out_dir)
     for i in range(len(args.finetune_tasks)):
-        task = args.finetune_tasks[i]
-        print task
+        task = int(args.finetune_tasks[i])
+        print "finetuning", task
         if i == 0:
             restore_dir = trained_model_dir
         else:
             restore_dir = finetune_dir
-        tronn_graph.tasks = [task]
-        tronn_graph.model_params = args.model
+
+        # adjust graph to finetune
+        tronn_graph.finetune = True
+        tronn_graph.finetune_tasks = [task]
+
+        # adjust model to freeze all params except last layer
+        tronn_graph.model_params["finetune"] = True
+        
         train_and_evaluate(
             tronn_graph,
             finetune_dir,
@@ -94,6 +99,6 @@ def run(args):
             transfer_model_dir=args.transfer_model_dir)
     else:
         # add in fine-tuning option on tasks
-        finetune_tasks(args, args.restore_model_dir)
+        finetune_tasks(args, tronn_graph, "{}/train".format(args.out_dir))
 
     return None

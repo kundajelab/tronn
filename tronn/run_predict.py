@@ -205,7 +205,8 @@ def run(args):
         tronn_graph,
         args.model_dir,
         args.batch_size,
-        num_evals=args.num_evals)
+        num_evals=args.num_evals,
+        merge_regions=args.merge_regions)
 
     # push predictions through activation to get probs
     if args.model_type != "nn":

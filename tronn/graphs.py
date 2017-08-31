@@ -76,7 +76,9 @@ class TronnNeuralNetGraph(TronnGraph):
                  feature_key="features",
                  shuffle_data=True,
                  class_weighted_loss=False,
-                 positives_focused_loss=False):
+                 positives_focused_loss=False,
+                 finetune=False,
+                 finetune_tasks=[]):
         super(TronnNeuralNetGraph, self).__init__(
             data_files, tasks, data_loader,
             model_fn, model_params, batch_size,
@@ -170,15 +172,25 @@ class TronnNeuralNetGraph(TronnGraph):
         """set up loss function
         """
         assert not (self.class_weighted_loss and self.positives_focused_loss)
+
+        if self.finetune:
+            # adjust which labels and logits go into loss if finetuning
+            labels_unstacked = tf.unstack(self.labels, axis=1)
+            labels = tf.stack([labels_unstacked[i] for i in self.finetune_tasks], axis=1)
+            logits_unstacked = tf.unstack(self.logits, axis=1)
+            logits = tf.stack([logits_unstacked[i] for i in self.finetune_tasks], axis=1)
+        else:
+            labels = self.labels
+            logits = self.logits
         
         if self.class_weighted_loss:
             self.loss = class_weighted_loss_fn(
-                self.data_files[data_key], self.loss_fn, self.labels, self.logits)
+                self.data_files[data_key], self.loss_fn, labels, logits)
         elif self.positives_focused_loss:
             self.loss = positives_focused_loss_fn(
-                self.data_files[data_key], self.loss_fn, self.labels, self.logits)
+                self.data_files[data_key], self.loss_fn, labels, logits)
         else:
-            self.loss = self.loss_fn(self.labels, self.logits)
+            self.loss = self.loss_fn(labels, logits)
 
         self.total_loss = tf.losses.get_total_loss()
 

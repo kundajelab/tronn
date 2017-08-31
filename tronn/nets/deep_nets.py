@@ -155,16 +155,18 @@ def basset(features, labels, config, is_training=True):
     # Torch7 style maxnorm
     maxnorm(norm_val=7)
 
+    return logits
+
     # mask logits for fine tuning specific tasks at logit level
-    if not config.get("finetune"):
-        return logits
-    else:
-        task_logits = tf.unstack(logits, axis=1)
+    #if not config.get("finetune"):
+    #    return logits
+    #else:
+    #    task_logits = tf.unstack(logits, axis=1)
 
         # TODO(dk) note that this would be where to add a task specific layer
         # either in general training or fine tuning, as needed
         
-        return task_logits[config.get("finetune")]
+  #      return tf.stack([task_logits[i] for i in config.get("finetune_tasks")], axis=1)
 
 
 def danq(features, labels, config, is_training=True):

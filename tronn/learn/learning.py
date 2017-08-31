@@ -257,7 +257,8 @@ def predict(
         tronn_graph,
         model_dir,
         batch_size,
-        num_evals=1000):
+        num_evals=1000,
+        merge_regions=False):
     """Prediction routine. When called, returns predictions 
     (with labels and metadata) as an array for downstream processing
 
