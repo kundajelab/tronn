@@ -9,6 +9,9 @@ import tensorflow.contrib.slim as slim
 from tronn.util.tf_ops import class_weighted_loss_fn
 from tronn.util.tf_ops import positives_focused_loss_fn
 
+from tronn.datalayer import get_task_and_class_weights
+from tronn.datalayer import get_positive_weights_per_task
+
 
 class TronnGraph(object):
     """Builds out a general purpose TRONN model graph"""
@@ -193,13 +196,23 @@ class TronnNeuralNetGraph(TronnGraph):
         else:
             labels = self.labels
             logits = self.logits
-        
+
+        # split out getting the positive weights so that only the right ones go into the loss function
+            
         if self.class_weighted_loss:
+            pos_weights = get_positive_weights_per_task(self.data_files[data_key])
+            if self.finetune:
+                pos_weights = [pos_weights[i] for i in self.finetune_tasks]
             self.loss = class_weighted_loss_fn(
-                self.data_files[data_key], self.loss_fn, labels, logits)
+                self.loss_fn, labels, logits, pos_weights)
         elif self.positives_focused_loss:
+            task_weights, class_weights = get_task_and_class_weights(self.data_files[data_key])
+            if self.finetune:
+                task_weights = [task_weights[i] for i in self.finetune_tasks]
+            if self.finetune:
+                class_weights = [class_weights[i] for i in self.finetune_tasks]
             self.loss = positives_focused_loss_fn(
-                self.data_files[data_key], self.loss_fn, labels, logits)
+                self.loss_fn, labels, logits, task_weights, class_weights)
         else:
             self.loss = self.loss_fn(labels, logits)
 

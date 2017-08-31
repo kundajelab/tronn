@@ -12,9 +12,6 @@ import tensorflow.contrib.slim as slim
 
 from tensorflow.python.framework import ops
 
-from tronn.datalayer import get_task_and_class_weights
-from tronn.datalayer import get_positive_weights_per_task
-
 
 def maxnorm(norm_val=7):
     """Torch7 style maxnorm. After gradients are applied in a training step,
@@ -129,11 +126,10 @@ def restore_variables_op(checkpoint_dir, skip=[]):
     return init_assign_op, init_feed_dict
 
 
-def class_weighted_loss_fn(data_files, loss_fn, labels, logits):
+def class_weighted_loss_fn(loss_fn, labels, logits, pos_weights):
     """Use task pos example imbalances to reweight the tasks
     """
     logging.info("NOTE: using weighted loss!")
-    pos_weights = get_positive_weights_per_task(data_files)
     task_losses = []
     for task_num in range(labels.get_shape()[1]):
         task_losses.append(
@@ -148,7 +144,7 @@ def class_weighted_loss_fn(data_files, loss_fn, labels, logits):
     return loss
 
 
-def positives_focused_loss_fn_old(data_files, loss_fn, labels, logits):
+def positives_focused_loss_fn_old(loss_fn, labels, logits, task_weights, class_weights):
     """Reweight both tasks and classes such that a positive is basically
     equal weight across all tasks
 
@@ -157,7 +153,6 @@ def positives_focused_loss_fn_old(data_files, loss_fn, labels, logits):
 
     """
     logging.info("NOTE: using positives focused loss!")
-    task_weights, class_weights = get_task_and_class_weights(data_files)
     task_losses = []
     for task_num in range(labels.get_shape()[1]):
         task_losses.append(
