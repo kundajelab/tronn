@@ -22,7 +22,7 @@ def finetune_tasks(args, tronn_graph, trained_model_dir):
         task = int(args.finetune_tasks[i])
         print "finetuning", task
         if i == 0:
-            restore_dir = trained_model_dir
+            restore_dir = args.restore_model_dir
         else:
             restore_dir = finetune_dir
 
@@ -30,9 +30,6 @@ def finetune_tasks(args, tronn_graph, trained_model_dir):
         tronn_graph.finetune = True
         tronn_graph.finetune_tasks = [task]
 
-        # adjust model to freeze all params except last layer
-        tronn_graph.model_params["finetune"] = True
-        
         train_and_evaluate(
             tronn_graph,
             finetune_dir,
@@ -99,6 +96,6 @@ def run(args):
             transfer_model_dir=args.transfer_model_dir)
     else:
         # add in fine-tuning option on tasks
-        finetune_tasks(args, tronn_graph, "{}/train".format(args.out_dir))
+        finetune_tasks(args, tronn_graph, args.restore_model_dir)
 
     return None

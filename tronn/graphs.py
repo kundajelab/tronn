@@ -140,9 +140,18 @@ class TronnNeuralNetGraph(TronnGraph):
             self._add_metrics()
         
         # add optimizer and get train op
+        if self.finetune:
+            variables_to_train = tf.get_collection(
+                tf.GraphKeys.TRAINABLE_VARIABLES, "logits")
+        else:
+            variables_to_train = None # slim will use all trainable in graphkeys
+                        
         self.optimizer = self.optimizer_fn(**self.optimizer_params)
         train_op = slim.learning.create_train_op(
-            self.total_loss, self.optimizer, summarize_gradients=True)
+            self.total_loss,
+            self.optimizer,
+            variables_to_train=variables_to_train,
+            summarize_gradients=True)
 
         return train_op
 
@@ -179,6 +188,8 @@ class TronnNeuralNetGraph(TronnGraph):
             labels = tf.stack([labels_unstacked[i] for i in self.finetune_tasks], axis=1)
             logits_unstacked = tf.unstack(self.logits, axis=1)
             logits = tf.stack([logits_unstacked[i] for i in self.finetune_tasks], axis=1)
+            print labels.get_shape()
+            print logits.get_shape()
         else:
             labels = self.labels
             logits = self.logits
