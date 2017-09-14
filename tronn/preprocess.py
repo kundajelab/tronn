@@ -4,6 +4,7 @@ files that are input to deep learning models
 """
 
 import os
+import re
 import sys
 import gzip
 import glob
@@ -90,18 +91,24 @@ def bin_regions(in_file, out_file,
                 if method == 'naive':
                     # Just go from start of region to end of region
                     mark = start
+                    adjusted_stop = stop
                 elif method == 'plus_flank_negs':
                     # Add 3 flanks to either side
-                    start -= 3 * stride
-                    stop += 3 * stride
-                    mark = start
+                    mark = max(start - 3 * stride, 0)
+                    adjusted_stop = stop + 3 * stride
                 # add other binning strategies as needed here
 
-                while mark < stop:
+                while mark < adjusted_stop:
                     # write out bins
-                    out.write('{0}\t{1}\t{2}\n'.format(chrom, 
-                                                       mark, 
-                                                       mark + bin_size))
+                    out.write((
+                        "{0}\t{1}\t{2}\t"
+                        "active={0}:{1}-{2};"
+                        "region={0}:{3}-{4}\n").format(
+                            chrom, 
+                            mark, 
+                            mark + bin_size,
+                            start,
+                            stop))
                     mark += stride
 
     return None
@@ -201,7 +208,7 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
     with gzip.open(binned_extended_file, 'w') as out:
         with gzip.open(binned_file, 'rb') as fp:
             for line in fp:
-                [chrom, start, stop] = line.strip().split('\t')
+                [chrom, start, stop, metadata] = line.strip().split('\t')
                 if int(start) - extend_length < 0:
                     new_start = 0
                     new_stop = final_length
@@ -217,11 +224,11 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
                                                                           new_start,
                                                                           new_stop))
                 else:
-                    out.write('{0}\t{1}\t{2}\n'.format(chrom, new_start, new_stop))
+                    out.write('{0}\t{1}\t{2}\tbin={0}:{1}-{2};{3}\n'.format(chrom, new_start, new_stop, metadata))
 
     # Then run get fasta to get sequences
     logging.info("getting fasta sequences...")
-    get_sequence = ("bedtools getfasta -s -fo {0} -tab "
+    get_sequence = ("bedtools getfasta -s -fo {0} -tab -name "
                     "-fi {1} "
                     "-bed {2}").format(fasta_sequences,
                                        ref_fasta_file,
@@ -235,10 +242,10 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
         ['wc','-l', fasta_sequences]).strip().split()[0])
     
     with h5py.File(examples_file, 'a') as hf:
-        all_examples = hf.create_dataset('features',
+        features_hf = hf.create_dataset('features',
                                          (num_bins, 1, final_length, 4))
-        region_info = hf.create_dataset('regions',
-                                        (num_bins,), dtype='S100')
+        metadata_hf = hf.create_dataset('example_metadata',
+                                        (num_bins,), dtype='S1000')
         
         counter = 0
         with open(fasta_sequences, 'rb') as fp:
@@ -248,15 +255,15 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
                     print counter
 
                 sequence = line.strip().split()[1].upper()
-                region = line.strip().split()[0]
+                metadata = line.strip().split()[0]
                 
                 # convert each sequence into one hot encoding
                 # and load into hdf5 file
-                all_examples[counter,:,:,:] = one_hot_encode(sequence)
+                features_hf[counter,:,:,:] = one_hot_encode(sequence)
 
                 # track the region name too.
-                region_info[counter] = region
-
+                metadata_hf[counter] = metadata
+                
                 counter += 1
 
     # TO DO now gzip the file
@@ -320,7 +327,8 @@ def generate_examples_chrom(bin_dir, bin_ext_dir, fasta_dir, out_dir, prefix,
 # =====================================================================
 
 def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
-                    h5_ml_file, bin_size, final_length, method='half_peak'):
+                    h5_ml_file, bin_size, final_length, method='half_peak',
+                    remove_substring_regex="ggr\.|ggr\.|GGR\.Stanford_.+\.|\.filt"): # TODO: remove bin size and final length?
     """Generate labels
     
     Args:
@@ -342,25 +350,32 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
     # Get relevant peak files of interest
     peak_list = label_files
     num_tasks = len(peak_list)
-    label_set_names = [ os.path.basename(file_name).split('.narrowPeak')[0].split('.bed')[0]
-                        for file_name in peak_list ]
+    label_set_names = [
+        "index={0};description={1}".format(
+            i, re.sub(
+                remove_substring_regex, "",
+                os.path.basename(peak_list[i]).split('.narrowPeak')[0].split('.bed')[0]))
+        for i in range(len(peak_list)) ]
     print "found {} peak sets for labels...".format(len(peak_list))
 
     # Then generate new short bins for labeling
     fasta_prefix = fasta_file.split('/')[-1].split('.fa')[0]
     binned_file = '{0}/{1}_activecenter.bed.gz'.format(bin_dir, fasta_prefix)
-    flank_length = (final_length - bin_size) / 2
     bin_count = 0
     with gzip.open(binned_file, 'w') as out:
         with gzip.open(fasta_file, 'r') as fp:
             for line in fp:
                 fields = line.strip().split()
-                chrom = fields[0].split(':')[0]
-                start = int(fields[0].split(':')[1].split('-')[0])
-                active_start = start + flank_length
-                stop = int(fields[0].split(':')[1].split('-')[1].split('(')[0])
-                active_stop = stop - flank_length
-                out.write('{}\t{}\t{}\n'.format(chrom, active_start, active_stop))
+
+                # extract bin only
+                metadata_fields = fields[0].split("::")[0].split(";")
+                region_bin = metadata_fields[1].split("=")[1] # active is field 1
+
+                chrom = region_bin.split(":")[0]
+                start = int(region_bin.split(':')[1].split('-')[0])
+                stop = int(region_bin.split(':')[1].split('-')[1].split('.')[0])
+                
+                out.write('{}\t{}\t{}\n'.format(chrom, start, stop))
                 bin_count += 1
     
     # then for each, generate labels
@@ -371,10 +386,11 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
         else:
             all_labels = hf['labels']
 
-        if not 'label_names' in hf:
-            label_names = hf.create_dataset('label_names', (num_tasks,),
+        if not 'label_metadata' in hf:
+            label_names = hf.create_dataset('label_metadata', (num_tasks,),
                                             dtype='S1000')
-        hf['label_names'][:,] = label_set_names
+
+        hf['label_metadata'][:,] = label_set_names
 
         # initialize in-memory tmp label array
         tmp_labels_all = np.zeros((bin_count, num_tasks))
@@ -391,17 +407,19 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
             if method == 'summit': # Must overlap with summit
                 intersect = (
                     "zcat {0} | "
-                    "awk -F '\t' '{{print $1\"\t\"$2+$10\"\t\"$2+$10+1}}' | "
+                    "awk -F '\\t' '{{print $1\\\"\\t\\\"$2+$10\\\"\\t\\\"$2+$10+1}}' | "
                     "bedtools intersect -c -a {1} -b stdin | "
                     "gzip -c > "
                     "{2}").format(peak_file, binned_file, intersect_file_name)
             elif method == 'half_peak': # Bin must be 50% positive
                 intersect = (
-                    "bedtools intersect -f 0.5 -c -a <(zcat {0}) -b <(zcat {1}) | "
+                    "bedtools intersect -f 0.5 -c "
+                    "-a <(zcat {0}) "
+                    "-b <(zcat {1} | awk -F '\\t' '{{ print $1\\\"\\t\\\"$2\\\"\\t\\\"$3 }}') | " # all this is to escape the double quotes in the single quotes for bash shell
                     "gzip -c > "
                     "{2}").format(binned_file, peak_file, intersect_file_name)
                 
-            # TODO(dk) change the method to counts in region...
+            # TODO(dk) do a counts version (for regression)
 
                 
             print '{0}: {1}'.format(prefix, intersect)
