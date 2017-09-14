@@ -205,7 +205,7 @@ def hdf5_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shu
         if features_key != 'features':# features are importance scores
             features = np.expand_dims(features.transpose(0, 2, 1), axis=1)
         labels = h5py_handle['labels'][batch_start:batch_end, tasks]
-        metadata = h5py_handle['regions'][batch_start:batch_end].reshape((batch_size, 1))
+        metadata = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_size, 1))
         return [features, labels, metadata]
 
     batch_id_tensor = batch_id_queue.dequeue()
@@ -306,7 +306,7 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
         if features_key != 'features':# features are importance scores
             features = np.expand_dims(features.transpose(0, 2, 1), axis=1)
         labels = h5py_handle['labels'][batch_start:batch_end, tasks]
-        metadata = h5py_handle['regions'][batch_start:batch_end].reshape((batch_size, 1))
+        metadata = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_size, 1))
         return [features, labels, metadata]
 
     batch_id_tensor = batch_id_queue.dequeue()
@@ -416,7 +416,7 @@ def hdf5_kmers_to_slices(hdf5_file, batch_size, tasks=[], features_key='features
         batch_end = batch_start + batch_size
         features = h5py_handle[features_key][batch_start:batch_end,:]
         labels = h5py_handle['labels'][batch_start:batch_end, tasks]
-        metadata = h5py_handle['regions'][batch_start:batch_end].reshape((batch_size, 1))
+        metadata = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_size, 1))
         return [features, labels, metadata]
 
     batch_id_tensor = batch_id_queue.dequeue()
