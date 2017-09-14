@@ -25,8 +25,8 @@ def train(
         tronn_graph,
         stop_step,
         out_dir,
-        restore_model_dir=None,
-        transfer_model_dir=None):
+        restore_model_checkpoint=None,
+        transfer_model_checkpoint=None):
     """Training routine utilizing tf-slim
 
     Args:
@@ -40,8 +40,8 @@ def train(
       None
     """
     logging.info("Training until {} steps".format(str(stop_step)))
-    assert not ((restore_model_dir is not None)
-                and (transfer_model_dir is not None))
+    assert not ((restore_model_checkpoint is not None)
+                and (transfer_model_checkpoint is not None))
     
     with tf.Graph().as_default():
 
@@ -56,19 +56,19 @@ def train(
                                      print_out=True)
         
         # print parameter count
-        if (restore_model_dir is None) and (transfer_model_dir is None):
+        if (restore_model_checkpoint is None) and (transfer_model_checkpoint is None):
             print 'Created new model:'
             print_param_count()
 
         # Generate an initial assign op if restoring/transferring
-        if restore_model_dir is not None:
+        if restore_model_checkpoint is not None:
             init_assign_op, init_feed_dict = restore_variables_op(
-                restore_model_dir)
+                restore_model_checkpoint)
             def restoreFn(sess):
                 sess.run(init_assign_op, init_feed_dict)
-        elif transfer_model_dir is not None:
+        elif transfer_model_checkpoint is not None:
             init_assign_op, init_feed_dict = restore_variables_op(
-                transfer_model_dir, skip=['logit','out'])
+                transfer_model_checkpoint, skip=['logit','out'])
             def restoreFn(sess):
                 sess.run(init_assign_op, init_feed_dict)
         else:
@@ -136,9 +136,9 @@ def train_and_evaluate_once(
         train_stop_step,
         train_dir,
         valid_dir,
-        restore_model_dir=None,
-        transfer_model_dir=None,
-        valid_stop_step=10000): # 10k
+        restore_model_checkpoint=None,
+        transfer_model_checkpoint=None,
+        valid_stop_step=100): # 10k
     """Routine to train and evaluate for some number of steps
     
     Args:
@@ -161,8 +161,8 @@ def train_and_evaluate_once(
         tronn_graph,
         train_stop_step,
         train_dir,
-        restore_model_dir=restore_model_dir,
-        transfer_model_dir=transfer_model_dir)
+        restore_model_checkpoint=restore_model_checkpoint,
+        transfer_model_checkpoint=transfer_model_checkpoint)
 
     # Evaluate after training (use for stopping criteria)
     eval_metrics = evaluate(
@@ -181,8 +181,8 @@ def train_and_evaluate(
         stop_metric,
         patience,
         epoch_limit=10,
-        restore_model_dir=None,
-        transfer_model_dir=None):
+        restore_model_checkpoint=None,
+        transfer_model_checkpoint=None):
     """Runs training and evaluation for {epoch_limit} epochs
 
     Args:
@@ -201,8 +201,8 @@ def train_and_evaluate(
     Returns:
       None
     """
-    assert not ((restore_model_dir is not None)
-                and (transfer_model_dir is not None))
+    assert not ((restore_model_checkpoint is not None)
+                and (transfer_model_checkpoint is not None))
     
     # track metric and bad epochs
     metric_best = None
@@ -214,14 +214,15 @@ def train_and_evaluate(
         if epoch > 0:
             # make sure that transfer_model_dir is None
             # and restore_model_dir is set correctly
-            transfer_model_dir = None
-            restore_model_dir = "{}/train".format(out_dir)
+            transfer_model_checkpoint = None
+            restore_model_checkpoint = tf.train.latest_checkpoint(
+                "{}/train".format(out_dir))
 
         # set up stop steps and adjust if coming from a transfer or restore
-        if transfer_model_dir is not None:
-            stop_step = get_checkpoint_steps(transfer_model_dir) + train_steps
-        elif restore_model_dir is not None:
-            stop_step = get_checkpoint_steps(restore_model_dir) + train_steps
+        if transfer_model_checkpoint is not None:
+            stop_step = get_checkpoint_steps(transfer_model_checkpoint) + train_steps
+        elif restore_model_checkpoint is not None:
+            stop_step = get_checkpoint_steps(restore_model_checkpoint) + train_steps
         else:
             stop_step = train_steps
             
@@ -231,8 +232,8 @@ def train_and_evaluate(
             stop_step,
             "{}/train".format(out_dir),
             "{}/valid".format(out_dir),
-            restore_model_dir=restore_model_dir,
-            transfer_model_dir=transfer_model_dir)
+            restore_model_checkpoint=restore_model_checkpoint,
+            transfer_model_checkpoint=transfer_model_checkpoint)
 
         # Early stopping and saving best model
         if metric_best is None or ('loss' in stop_metric) != (eval_metrics[stop_metric] > metric_best):

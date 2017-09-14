@@ -102,11 +102,9 @@ def order_preserving_k_max(input_tensor, k):
     return output
 
 
-def restore_variables_op(checkpoint_dir, skip=[]):
+def restore_variables_op(checkpoint, skip=[]):
     """Builds a function that can be run to restore from a checkpoint
     """
-    # get the checkpoint file and variables
-    checkpoint_path = tf.train.latest_checkpoint(checkpoint_dir)
     variables_to_restore = slim.get_model_variables()
     variables_to_restore.append(slim.get_global_step())
 
@@ -120,7 +118,7 @@ def restore_variables_op(checkpoint_dir, skip=[]):
 
     # create assign op
     init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
-        checkpoint_path,
+        checkpoint,
         variables_to_restore)
 
     return init_assign_op, init_feed_dict

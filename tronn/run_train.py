@@ -14,6 +14,7 @@ from tronn.graphs import TronnNeuralNetGraph
 from tronn.learn.learning import train_and_evaluate
 from tronn.learn.evaluation import get_global_avg_metrics
 
+
 def finetune_tasks(args, tronn_graph, trained_model_dir):
     """Allows fine tuning of individual tasks (just final layer)
     """
@@ -30,6 +31,10 @@ def finetune_tasks(args, tronn_graph, trained_model_dir):
         tronn_graph.finetune = True
         tronn_graph.finetune_tasks = [task]
 
+        # change loss to weighted loss
+        #tronn_graph.loss_fn = tf.nn.weighted_cross_entropy_with_logits
+        #tronn_graph.class_weighted_loss = True
+        
         train_and_evaluate(
             tronn_graph,
             finetune_dir,
@@ -40,7 +45,6 @@ def finetune_tasks(args, tronn_graph, trained_model_dir):
             restore_model_dir=trained_model_dir)
 
     return
-
 
 
 def run(args):
@@ -54,6 +58,7 @@ def run(args):
     train_files = data_files[0:20]
     valid_files = data_files[20:22]
     # TODO(dk) set up test set of files too
+    # TODO(dk) set up cross fold validation/ensembling?
 
     # Get number of train and validation steps
     args.num_train_examples = get_total_num_examples(train_files)
@@ -65,6 +70,22 @@ def run(args):
     logging.info("Num valid examples: %d" % args.num_valid_examples)
     logging.info("Train_steps/epoch: %d" % args.train_steps)
 
+    # extract checkpoint paths
+    restore_model_checkpoint = None
+    if args.restore_model_dir is not None:
+        restore_model_checkpoint = tf.train.latest_checkpoint(args.restore_model_dir)
+    if args.restore_model_checkpoint is not None:
+        restore_model_checkpoint = args.restore_model_checkpoint
+
+    transfer_model_checkpoint = None
+    if args.transfer_model_dir is not None:
+        transfer_model_checkpoint = tf.train.latest_checkpoint(args.transfer_model_dir)
+    if args.transfer_model_checkpoint is not None:
+        transfer_model_checkpoint = args.transfer_model_checkpoint
+
+    assert not ((restore_model_checkpoint is not None)
+                and (transfer_model_checkpoint is not None))
+    
     # Set up neural net graph
     tronn_graph = TronnNeuralNetGraph(
         {"train": train_files, "valid": valid_files},
@@ -92,8 +113,8 @@ def run(args):
             args.metric,
             args.patience,
             epoch_limit=args.epochs,
-            restore_model_dir=args.restore_model_dir,
-            transfer_model_dir=args.transfer_model_dir)
+            restore_model_checkpoint=restore_model_checkpoint,
+            transfer_model_checkpoint=transfer_model_checkpoint)
     else:
         # add in fine-tuning option on tasks
         finetune_tasks(args, tronn_graph, args.restore_model_dir)

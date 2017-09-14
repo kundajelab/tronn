@@ -112,10 +112,9 @@ def close_tensorflow_session(coord, threads):
     return None
 
 
-def get_checkpoint_steps(checkpoint_dir):
+def get_checkpoint_steps(checkpoint):
     """Add on steps in checkpoint to num steps to get final steps
     """
-    checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
     checkpoint_steps = int(checkpoint.split("-")[-1].split(".")[0])
     
     return checkpoint_steps

@@ -170,10 +170,16 @@ def add_train_parser(subparsers):
     add_hdf5_data_options(group_input)
     group_input.add_argument(
         '--restore_model_dir', default=None,
-        help='restore from last checkpoint')
+        help='restore from last checkpoint in dir')
+    group_input.add_argument(
+        '--restore_model_checkpoint', default=None,
+        help='restore from desired checkpoint')
     group_input.add_argument(
         '--transfer_model_dir', default=None,
-        help='directory with same model to transfer') 
+        help='transfer from last checkpoint in dir')
+    group_input.add_argument(
+        '--transfer_model_checkpoint', default=None,
+        help='transfer from desired checkpoint') 
     
     # group for model
     group_model = argparser_train.add_argument_group(
@@ -535,7 +541,7 @@ def main():
     #logging.basicConfig(filename=logging_file, level=logging.INFO)
 
     # get subcommand run function and run
-    subcommand  = args.subcommand_name
+    subcommand = args.subcommand_name
 
     if subcommand == "preprocess":
         from tronn.run_preprocess import run
