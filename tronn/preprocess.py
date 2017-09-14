@@ -47,7 +47,7 @@ def split_bed_to_chrom_bed(out_dir, peak_file, prefix):
         for line in fp:
             fields = line.strip().split('\t')
             chrom = fields[0]
-            chrom_file = '{0}/{1}_{2}.bed.gz'.format(out_dir, prefix, chrom)
+            chrom_file = '{0}/{1}.{2}.bed.gz'.format(out_dir, prefix, chrom)
             with gzip.open(chrom_file, 'a') as out_fp:
                 out_fp.write(line)
             
@@ -149,7 +149,7 @@ def bin_regions_chrom(
     for chrom_file in chrom_files:
         chrom_prefix = chrom_file.split('/')[-1].split('.bed.gz')[0]
         bin_args = [chrom_file,
-                    '{0}/{1}_binned.bed.gz'.format(out_dir, chrom_prefix),
+                    '{0}/{1}.binned.bed.gz'.format(out_dir, chrom_prefix),
                     bin_size,
                     stride,
                     bin_method]
@@ -237,7 +237,7 @@ def generate_examples(
                     out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t-\n'.format(
                         chrom, new_start, new_stop))
                 else:
-                    out.write('{0}\t{1}\t{2}\tbin={0}:{1}-{2};{3}\n'.format(
+                    out.write('{0}\t{1}\t{2}\tfeatures={0}:{1}-{2};{3}\n'.format(
                         chrom, new_start, new_stop, metadata))
 
     # Then run get fasta to get sequences
@@ -323,8 +323,8 @@ def generate_examples_chrom(
 
     # Then for each file, give the function and run
     for chrom_file in chrom_files:
-        chrom_prefix = chrom_file.split('/')[-1].split('_bin')[0]
-        ext_binned_file = '{0}/{1}_extbin.bed.gz'.format(bin_ext_dir,
+        chrom_prefix = chrom_file.split('/')[-1].split('.bin')[0]
+        ext_binned_file = '{0}/{1}.extbin.bed.gz'.format(bin_ext_dir,
                                                          chrom_prefix)
         regions_fasta_file = '{0}/{1}.fa'.format(fasta_dir,
                                                  chrom_prefix)
@@ -355,7 +355,7 @@ def generate_labels(
         fasta_file,
         h5_ml_file,
         method='half_peak',
-        remove_substring_regex="ggr\.|ggr\.|GGR\.Stanford_\w+\.|\.filt"): 
+        remove_substring_regex="ggr\.|GGR\.|\.filt"): 
     """Generate labels
     
     Args:
@@ -387,7 +387,7 @@ def generate_labels(
 
     # Then generate new short bins for labeling
     fasta_prefix = fasta_file.split('/')[-1].split('.fa')[0]
-    binned_file = '{0}/{1}_activecenter.bed.gz'.format(bin_dir, fasta_prefix)
+    binned_file = '{0}/{1}.activecenter.bed.gz'.format(bin_dir, fasta_prefix)
     bin_count = 0
     with gzip.open(binned_file, 'w') as out:
         with gzip.open(fasta_file, 'r') as fp:
@@ -579,14 +579,14 @@ def generate_nn_dataset(
 
     # split into chromosomes, everything below done by chromosome
     chrom_master_dir = '{}/master_by_chrom'.format(tmp_dir)
-    if not os.path.isfile('{0}/{1}_chrY.bed.gz'.format(chrom_master_dir, prefix)):
+    if not os.path.isfile('{0}/{1}.chrY.bed.gz'.format(chrom_master_dir, prefix)):
         os.system('mkdir -p {}'.format(chrom_master_dir))
         split_bed_to_chrom_bed(chrom_master_dir, final_master, prefix)
 
     # bin the files
     # NOTE: this does not check for chromosome lengths and WILL contain inappropriate regions
     bin_dir = '{}/binned'.format(tmp_dir)
-    if not os.path.isfile('{0}/{1}_chrY_binned.bed.gz'.format(bin_dir, prefix)):
+    if not os.path.isfile('{0}/{1}.chrY.binned.bed.gz'.format(bin_dir, prefix)):
         os.system('mkdir -p {}'.format(bin_dir))
         bin_regions_chrom(chrom_master_dir, bin_dir, prefix,
                           bin_size, stride, bin_method, parallel=parallel)
@@ -598,7 +598,7 @@ def generate_nn_dataset(
     chrom_hdf5_dir = '{}/h5'.format(work_dir)
 
     # now run example generation and label generation
-    if not os.path.isfile('{0}/{1}_chrY.h5'.format(chrom_hdf5_dir, prefix)):
+    if not os.path.isfile('{0}/{1}.chrY.h5'.format(chrom_hdf5_dir, prefix)):
         os.system('mkdir -p {}'.format(chrom_hdf5_dir))
         os.system('mkdir -p {}'.format(regions_fasta_dir))
         os.system('mkdir -p {}'.format(bin_ext_dir))

@@ -251,7 +251,7 @@ def train_and_evaluate(
                 logging.info("early stopping triggered")
                 break
 
-    return restore_model_dir
+    return restore_model_checkpoint
 
 
 def predict(
