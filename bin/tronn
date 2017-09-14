@@ -538,7 +538,7 @@ def main():
     subcommand  = args.subcommand_name
 
     if subcommand == "preprocess":
-        from tronn.preprocess import run
+        from tronn.run_preprocess import run
         run(args)
     elif subcommand == 'train':
         add_model_params(args)
