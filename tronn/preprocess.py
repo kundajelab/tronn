@@ -63,8 +63,12 @@ def split_bed_to_chrom_bed(out_dir, peak_file, prefix):
 # Binning
 # =====================================================================
 
-def bin_regions(in_file, out_file,
-                bin_size, stride, method='plus_flank_negs'):
+def bin_regions(
+        in_file,
+        out_file,
+        bin_size,
+        stride,
+        method='plus_flank_negs'):
     """Bin regions based on bin size and stride
 
     Args:
@@ -114,9 +118,14 @@ def bin_regions(in_file, out_file,
     return None
 
 
-def bin_regions_chrom(in_dir, out_dir, prefix,
-                      bin_size, stride, bin_method,
-                      parallel=12):
+def bin_regions_chrom(
+        in_dir,
+        out_dir,
+        prefix,
+        bin_size,
+        stride,
+        bin_method,
+        parallel=12):
     """Utilize func_workder to run on chromosomes
     
     Args:
@@ -183,9 +192,15 @@ def one_hot_encode(sequence):
         1, 1, sequence_length, 5)[:, :, :, [0, 1, 2, 4]]
 
 
-def generate_examples(binned_file, binned_extended_file, fasta_sequences,
-                      examples_file, bin_size, final_length, ref_fasta_file,
-                      reverse_complemented):
+def generate_examples(
+        binned_file,
+        binned_extended_file,
+        fasta_sequences,
+        examples_file,
+        bin_size,
+        final_length,
+        ref_fasta_file,
+        reverse_complemented):
     """Generate one hot encoded sequence examples from binned regions
 
     Args:
@@ -217,14 +232,13 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
                     new_stop = int(stop) + extend_length
 
                 if reverse_complemented:
-                    out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t+\n'.format(chrom,
-                                                                          new_start,
-                                                                          new_stop))
-                    out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t-\n'.format(chrom,
-                                                                          new_start,
-                                                                          new_stop))
+                    out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t+\n'.format(
+                        chrom, new_start, new_stop))
+                    out.write('{0}\t{1}\t{2}\t{0}:{1}-{2}\t1\t-\n'.format(
+                        chrom, new_start, new_stop))
                 else:
-                    out.write('{0}\t{1}\t{2}\tbin={0}:{1}-{2};{3}\n'.format(chrom, new_start, new_stop, metadata))
+                    out.write('{0}\t{1}\t{2}\tbin={0}:{1}-{2};{3}\n'.format(
+                        chrom, new_start, new_stop, metadata))
 
     # Then run get fasta to get sequences
     logging.info("getting fasta sequences...")
@@ -272,10 +286,17 @@ def generate_examples(binned_file, binned_extended_file, fasta_sequences,
     return None
 
 
-def generate_examples_chrom(bin_dir, bin_ext_dir, fasta_dir, out_dir, prefix,
-                            bin_size, final_length, ref_fasta_file,
-                            reverse_complemented,
-                            parallel=12):
+def generate_examples_chrom(
+        bin_dir,
+        bin_ext_dir,
+        fasta_dir,
+        out_dir,
+        prefix,
+        bin_size,
+        final_length,
+        ref_fasta_file,
+        reverse_complemented,
+        parallel=12):
     """Utilize func_workder to run on chromosomes
 
     Args:
@@ -326,9 +347,15 @@ def generate_examples_chrom(bin_dir, bin_ext_dir, fasta_dir, out_dir, prefix,
 # Label generation
 # =====================================================================
 
-def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
-                    h5_ml_file, bin_size, final_length, method='half_peak',
-                    remove_substring_regex="ggr\.|ggr\.|GGR\.Stanford_.+\.|\.filt"): # TODO: remove bin size and final length?
+def generate_labels(
+        bin_dir,
+        intersect_dir,
+        prefix,
+        label_files,
+        fasta_file,
+        h5_ml_file,
+        method='half_peak',
+        remove_substring_regex="ggr\.|ggr\.|GGR\.Stanford_\w+\.|\.filt"): 
     """Generate labels
     
     Args:
@@ -407,7 +434,7 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
             if method == 'summit': # Must overlap with summit
                 intersect = (
                     "zcat {0} | "
-                    "awk -F '\\t' '{{print $1\\\"\\t\\\"$2+$10\\\"\\t\\\"$2+$10+1}}' | "
+                    "awk -F '\t' '{{print $1\"\t\"$2+$10\"\t\"$2+$10+1}}' | "
                     "bedtools intersect -c -a {1} -b stdin | "
                     "gzip -c > "
                     "{2}").format(peak_file, binned_file, intersect_file_name)
@@ -415,7 +442,7 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
                 intersect = (
                     "bedtools intersect -f 0.5 -c "
                     "-a <(zcat {0}) "
-                    "-b <(zcat {1} | awk -F '\\t' '{{ print $1\\\"\\t\\\"$2\\\"\\t\\\"$3 }}') | " # all this is to escape the double quotes in the single quotes for bash shell
+                    "-b <(zcat {1}) | "
                     "gzip -c > "
                     "{2}").format(binned_file, peak_file, intersect_file_name)
                 
@@ -449,9 +476,14 @@ def generate_labels(bin_dir, intersect_dir, prefix, label_files, fasta_file,
     return None
 
 
-def generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
-                          fasta_dir, out_dir, bin_size, final_length,
-                          parallel=12):
+def generate_labels_chrom(
+        bin_ext_dir,
+        intersect_dir,
+        prefix,
+        label_files,
+        fasta_dir,
+        out_dir,
+        parallel=12):
     """Utilize func_worker to run on chromosomes
 
     Args:
@@ -485,7 +517,7 @@ def generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
                                             chrom_prefix)
 
         labels_args = [bin_ext_dir, intersect_dir, chrom_prefix, label_files, 
-                       regions_fasta_file, h5_ml_file, bin_size, final_length]
+                       regions_fasta_file, h5_ml_file]
 
         label_queue.put([generate_labels, labels_args])
 
@@ -570,15 +602,27 @@ def generate_nn_dataset(
         os.system('mkdir -p {}'.format(chrom_hdf5_dir))
         os.system('mkdir -p {}'.format(regions_fasta_dir))
         os.system('mkdir -p {}'.format(bin_ext_dir))
-        os.system('mkdir -p {}'.format(intersect_dir))
-        generate_examples_chrom(bin_dir, bin_ext_dir, regions_fasta_dir,
-                                chrom_hdf5_dir, prefix, bin_size,
-                                final_length, ref_fasta, reverse_complemented,
-                                parallel=parallel)
-        generate_labels_chrom(bin_ext_dir, intersect_dir, prefix, label_files,
-                              regions_fasta_dir, chrom_hdf5_dir, bin_size,
-                              final_length, parallel=parallel)
-        os.system("rm -r {}".format(intersect_dir))
+        generate_examples_chrom(
+            bin_dir,
+            bin_ext_dir,
+            regions_fasta_dir,
+            chrom_hdf5_dir,
+            prefix,
+            bin_size,
+            final_length,
+            ref_fasta,
+            reverse_complemented,
+            parallel=parallel)
+    os.system('mkdir -p {}'.format(intersect_dir))
+    generate_labels_chrom(
+            bin_ext_dir,
+            intersect_dir,
+            prefix,
+            label_files,
+            regions_fasta_dir,
+            chrom_hdf5_dir,
+            parallel=parallel)
+    os.system("rm -r {}".format(intersect_dir))
 
     return '{}/h5'.format(work_dir)
 
