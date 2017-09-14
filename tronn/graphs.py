@@ -94,6 +94,8 @@ class TronnNeuralNetGraph(TronnGraph):
         self.importances_fn = importances_fn
         self.class_weighted_loss = class_weighted_loss
         self.positives_focused_loss = positives_focused_loss
+        self.finetune = finetune
+        self.finetune_tasks = finetune_tasks
 
         
     def build_graph(self, data_key="data", is_training=False):
