@@ -20,6 +20,8 @@ from tronn.util.tf_utils import add_var_summaries
 from tronn.util.tf_utils import make_summary_op
 from tronn.util.tf_utils import print_param_count
 
+from tronn.interpretation.regions import ExampleGenerator
+
 
 def train(
         tronn_graph,
@@ -254,7 +256,7 @@ def train_and_evaluate(
     return restore_model_checkpoint
 
 
-def predict(
+def predict_old(
         tronn_graph,
         model_dir,
         batch_size,
@@ -326,3 +328,90 @@ def predict(
         close_tensorflow_session(coord, threads)
     
     return all_labels_array, all_logits_array, all_probs_array, all_metadata
+
+
+def predict(
+        tronn_graph,
+        model_dir,
+        batch_size,
+        num_evals=1000,
+        reconstruct_regions=False):
+    """Prediction routine. When called, returns predictions 
+    (with labels and metadata) as an array for downstream processing
+
+    Args:
+      tronn_graph: a TronnNeuralNetGraph instance
+      model_dir: folder containing trained model
+      batch_size: batch size
+      num_evals: number of examples to run
+
+    Returns:
+      label_array
+      logit_array
+      probs_array
+      metadata_array
+
+    """
+    # build graph and run
+    with tf.Graph().as_default():
+
+        # build graph
+        label_tensor, logit_tensor, probs_tensor = tronn_graph.build_graph()
+        metadata_tensor = tronn_graph.metadata
+        
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+        
+        # restore if given model (option to NOT restore because of models
+        # that do not use restore, like PWM convolutions)
+        if model_dir is not None:
+            checkpoint_path = tf.train.latest_checkpoint(model_dir)
+            saver = tf.train.Saver()
+            saver.restore(sess, checkpoint_path)
+        
+        # set up arrays to hold outputs
+        num_examples = num_evals
+        all_labels_array = np.zeros((num_examples, label_tensor.get_shape()[1]))
+        all_logits_array = np.zeros((num_examples, logit_tensor.get_shape()[1]))
+        all_probs_array = np.zeros((num_examples, probs_tensor.get_shape()[1]))
+        all_metadata = []
+        
+        batch_start = 0
+        batch_end = batch_size
+
+        tensor_dict = {
+            "labels": label_tensor,
+            "logits": logit_tensor,
+            "probs": probs_tensor,
+            "feature_metadata": metadata_tensor}
+        example_generator = ExampleGenerator(
+            sess,
+            tensor_dict,
+            batch_size,
+            reconstruct_regions=reconstruct_regions)
+
+        for i in range(num_evals):
+
+            region, region_arrays = example_generator.run()
+            labels = region_arrays["labels"]
+            logits = region_arrays["logits"]
+            probs = region_arrays["probs"]
+
+            # put into numpy arrays
+            all_labels_array[i,:] = labels
+            all_logits_array[i,:] = logits
+            all_probs_array[i,:] = probs
+
+            # metadata: convert to list and add
+            #metadata_list = [region]
+            #metadata_string_list = [metadata_piece[0].split('(')[0] for metadata_piece in metadata_list]
+            #all_metadata = all_metadata + metadata_string_list
+            all_metadata.append(region)
+
+        close_tensorflow_session(coord, threads)
+    
+    return all_labels_array, all_logits_array, all_probs_array, all_metadata
+
+
+
+

@@ -67,6 +67,7 @@ def scores_to_probs(np_array):
 def split_by_label(metadata, labels, predictions, probs, out_dir, prefix):
     """Splits output by label set to have mat and BED (just positives) outputs
     """
+    os.system("mkdir -p {}/by_label".format(out_dir))
     for task_idx in range(labels.shape[1]):
         task_key = "task_{}".format(task_idx)
         task_labels = labels[:, task_idx]
@@ -79,7 +80,7 @@ def split_by_label(metadata, labels, predictions, probs, out_dir, prefix):
             columns=["labels", "probabilities", "logits"],
             index=metadata)
         
-        out_table_file = "{0}/{1}/{2}.predictions.txt".format(
+        out_table_file = "{0}/by_label/{1}.{2}.predictions.txt".format(
             out_dir, prefix, task_key)
         task_df.to_csv(out_table_file, sep='\t')
         
@@ -90,7 +91,7 @@ def split_by_label(metadata, labels, predictions, probs, out_dir, prefix):
         task_df['start'], task_df['stop'] = task_df['start-stop'].str.split('-', 1).str
         task_df['joint'] = task_df['labels'].map(str) + ";" + task_df['probabilities'].map(str) + ";" + task_df['logits'].map(str)
 
-        out_bed_file = "{0}/{1}/{2}.predictions.bed".format(
+        out_bed_file = "{0}/by_label/{1}.{2}.predictions.bed".format(
             out_dir, prefix, task_key)
         task_df.to_csv(
             out_bed_file,
@@ -119,7 +120,8 @@ def split_single_label_set_by_prediction(
     # to split by predictions, set cutoff to be 0.05 FDR (ie, 5% false pos allowed), relative to a label set.
     # ie, given a grammar set, the cutoff for that grammar should be such that in the appropriate task, 5% above the cutoff are false positives.
     # Then use this to generate BED files for each grammar.
-
+    os.system("mkdir -p {}/by_prediction".format(out_dir))
+    
     for prediction_set_idx in range(predictions.shape[1]):
         set_predictions = predictions[:, prediction_set_idx]
         set_probs = probs[:, prediction_set_idx]
@@ -145,7 +147,7 @@ def split_single_label_set_by_prediction(
         prediction_set_filt_df = pd.DataFrame(prediction_set_df[prediction_set_df["probabilities"] >= threshold])
 
         # and save that out to text
-        prediction_set_filt_df.to_csv("{0}/{1}.prediction_set{2}.txt".format(out_dir, prefix, prediction_set_idx), sep='\t')
+        prediction_set_filt_df.to_csv("{0}/by_prediction/{1}.prediction_set{2}.txt".format(out_dir, prefix, prediction_set_idx), sep='\t')
         
         # and convert to BED and save out
         task_df = prediction_set_filt_df
@@ -154,7 +156,7 @@ def split_single_label_set_by_prediction(
         task_df['start'], task_df['stop'] = task_df['start-stop'].str.split('-', 1).str
         task_df['joint'] = task_df['labels'].map(str) + ";" + task_df['probabilities'].map(str) + ";" + task_df['logits'].map(str)
 
-        out_bed_file = "{0}/{1}.prediction_set{2}.bed".format(
+        out_bed_file = "{0}/by_prediction/{1}.prediction_set{2}.bed".format(
             out_dir, prefix, prediction_set_idx)
         task_df.to_csv(
             out_bed_file,
@@ -191,6 +193,11 @@ def run(args):
     model_fn, model_params = setup_model(args)
 
     # set up network graph and outputs
+    if args.reconstruct_regions:
+        shuffle_data = False
+    else:
+        shuffle_data = True
+        
     tronn_graph = TronnNeuralNetGraph(
         {'data': data_files},
         args.tasks,
@@ -198,28 +205,35 @@ def run(args):
         args.batch_size,
         model_fn,
         model_params,
-        tf.nn.sigmoid)
+        tf.nn.sigmoid,
+        shuffle_data=shuffle_data)
         
     # predict
-    labels, predictions, probs, metadata = predict(
+    labels, logits, probs, metadata = predict(
         tronn_graph,
         args.model_dir,
         args.batch_size,
         num_evals=args.num_evals,
-        merge_regions=args.merge_regions)
+        reconstruct_regions=args.reconstruct_regions)
 
+    # save out labels and logits
+    # TODO(dk) formalize this to save
+    np.savetxt("{}/labels.test.txt".format(args.out_dir), labels, delimiter="\t", fmt='%5.4f')
+    np.savetxt("{}/probs.test.txt".format(args.out_dir), probs, delimiter="\t", fmt='%5.4f')
+    
+    
     # push predictions through activation to get probs
     if args.model_type != "nn":
-        probs = scores_to_probs(predictions)
+        probs = scores_to_probs(logits)
 
     if args.single_task is None:
-        assert labels.shape[1] == predictions.shape[1]
+        assert labels.shape[1] == logits.shape[1]
         
         # prediction column matches label column
         split_by_label(
             metadata,
             labels,
-            predictions,
+            logits,
             probs,
             args.out_dir,
             args.prefix)
@@ -228,7 +242,7 @@ def run(args):
         split_single_label_set_by_prediction(
             metadata,
             labels[:,args.single_task],
-            predictions,
+            logits,
             probs,
             args.out_dir,
             args.prefix)

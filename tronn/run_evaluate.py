@@ -220,6 +220,11 @@ def run(args):
     model_fn, model_params = setup_model(args)
     
     # set up neural network graph
+    if args.reconstruct_regions:
+        shuffle_data = False
+    else:
+        shuffle_data = True
+    
     tronn_graph = TronnNeuralNetGraph(
         {"data": data_files},
         args.tasks,
@@ -227,14 +232,16 @@ def run(args):
         args.batch_size,
         model_fn,
         model_params,
-        tf.nn.sigmoid)
+        tf.nn.sigmoid,
+        shuffle_data=shuffle_data)
 
     # predict
     labels, predictions, probs, metadata = predict(
         tronn_graph,
         args.model_dir,
         args.batch_size,
-        num_evals=args.num_evals)
+        num_evals=args.num_evals,
+        reconstruct_regions=args.reconstruct_regions)
 
     # push predictions through activation to get probs
     if args.model_type != "nn":
