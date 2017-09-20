@@ -304,8 +304,22 @@ def add_predict_parser(subparsers):
     # group for input files
     group_input = argparser_predict.add_argument_group(
         "Input files and folders")
-    add_hdf5_data_options(group_input)
-    
+    #add_hdf5_data_options(group_input)
+    group_input.add_argument(
+        "--data_dir", required=False,
+        help="hdf5 file directory")
+    group_input.add_argument(
+        "--tasks", nargs="+", default=[], type=int,
+        help="tasks to train on (default is all)")
+
+    group_input.add_argument(
+        "--input_bed", default=None,
+        help="give an input BED file for prediction")
+    group_input.add_argument(
+        "--input_labels", nargs='+', default=[],
+        help='list of label file peak sets (BED/narrowPeak). MUST MATCH INITIAL LABEL SET')
+    load_data_files(group_input)
+
     # group for model
     group_model = argparser_predict.add_argument_group(
         "Model definition")

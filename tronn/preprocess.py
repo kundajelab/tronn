@@ -613,8 +613,8 @@ def generate_nn_dataset(
             ref_fasta,
             reverse_complemented,
             parallel=parallel)
-    os.system('mkdir -p {}'.format(intersect_dir))
-    generate_labels_chrom(
+        os.system('mkdir -p {}'.format(intersect_dir))
+        generate_labels_chrom(
             bin_ext_dir,
             intersect_dir,
             prefix,
@@ -622,7 +622,76 @@ def generate_nn_dataset(
             regions_fasta_dir,
             chrom_hdf5_dir,
             parallel=parallel)
-    os.system("rm -r {}".format(intersect_dir))
+        os.system("rm -r {}".format(intersect_dir))
+
+    return '{}/h5'.format(work_dir)
+
+
+def generate_ordered_single_file_nn_dataset(
+        celltype_master_regions,
+        ref_fasta,
+        label_files,
+        work_dir,
+        prefix,
+        bin_size=200,
+        bin_method='plus_flank_negs',
+        stride=50,
+        final_length=1000,
+        parallel=12,
+        reverse_complemented=False):
+    """Convenient wrapper to run all relevant functions
+    requires: ucsc_tools, bedtools
+    NOTE: this version is used to produce a single hdf5 file with all data
+    """
+    os.system('mkdir -p {}'.format(work_dir))
+    tmp_dir = "{}/tmp".format(work_dir)
+    os.system("mkdir -p {}".format(tmp_dir))
+
+    # bin the files
+    # NOTE: this does not check for chromosome lengths and WILL contain inappropriate regions
+    bin_dir = '{}/binned'.format(tmp_dir)
+    binned_file = "{0}/{1}.binned.bed.gz".format(bin_dir, prefix)
+    if not os.path.isfile(binned_file):
+        os.system('mkdir -p {}'.format(bin_dir))
+        bin_regions(celltype_master_regions, binned_file, bin_size, stride,
+            method='plus_flank_negs')
+
+    # generate one-hot encoding sequence files (examples) and then labels
+    regions_fasta_dir = '{}/regions_fasta'.format(tmp_dir)
+    bin_ext_dir = '{}/bin_ext'.format(tmp_dir)
+    intersect_dir = '{}/intersect'.format(tmp_dir)
+    chrom_hdf5_dir = '{}/h5'.format(work_dir)
+
+    # now run example generation and label generation
+    out_h5_file = "{0}/{1}.ordered.h5".format(chrom_hdf5_dir, prefix)
+    if not os.path.isfile(out_h5_file):
+        os.system('mkdir -p {}'.format(chrom_hdf5_dir))
+        os.system('mkdir -p {}'.format(regions_fasta_dir))
+        os.system('mkdir -p {}'.format(bin_ext_dir))
+        binned_extended_file = "{0}/{1}.extbin.bed.gz".format(
+            bin_ext_dir, os.path.basename(binned_file).split(".bed")[0])
+        fasta_sequences = "{0}/{1}.fa".format(
+            regions_fasta_dir,
+            "{}.ordered".format(os.path.basename(binned_file).split(".binned")[0]))
+        generate_examples(
+            binned_file,
+            binned_extended_file,
+            fasta_sequences,
+            out_h5_file,
+            bin_size,
+            final_length,
+            ref_fasta,
+            reverse_complemented)
+        os.system('mkdir -p {}'.format(intersect_dir))
+        generate_labels_chrom(
+            bin_ext_dir,
+            intersect_dir,
+            prefix,
+            label_files,
+            regions_fasta_dir,
+            chrom_hdf5_dir,
+            parallel=parallel)
+        os.system("rm -r {}".format(intersect_dir))
 
     return '{}/h5'.format(work_dir)
 

@@ -134,7 +134,7 @@ class ExampleGenerator(object):
         for key in self.batch_region_arrays.keys():
             if key == "feature_metadata":
                 region = self.batch_region_arrays[key][self.batch_pointer,0]
-                region_name = region.split(";")[self.name_idx].split("=")[1]
+                region_name = region.split(";")[self.name_idx].split("=")[1].split("::")[0]
             elif "importance" in key:
                 region_arrays[key] = (
                     np.squeeze(

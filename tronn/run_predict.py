@@ -14,6 +14,8 @@ from scipy.special import expit
 
 from sklearn.metrics import precision_recall_curve
 
+from tronn.preprocess import generate_ordered_single_file_nn_dataset
+
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import model_fns
@@ -187,7 +189,20 @@ def run(args):
             (args.model_type == "grammar"))
 
     # find data files
-    data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
+    # TODO(dk) set up data files here
+    if args.input_bed is not None:
+        assert (args.input_bed is not None) and (len(args.input_labels) > 0)
+        data_processing_dir = "{}/data".format(args.out_dir)
+        os.system("mkdir -p {}".format(data_processing_dir))
+        generate_ordered_single_file_nn_dataset(
+            args.input_bed,
+            args.annotations["ref_fasta"],
+            args.input_labels,
+            data_processing_dir,
+            args.prefix)
+        data_files = glob.glob("{}/h5/*h5".format(data_processing_dir))
+    else:
+        data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
 
     # set up model params
     model_fn, model_params = setup_model(args)
@@ -218,9 +233,11 @@ def run(args):
 
     # save out labels and logits
     # TODO(dk) formalize this to save
-    np.savetxt("{}/labels.test.txt".format(args.out_dir), labels, delimiter="\t", fmt='%5.4f')
-    np.savetxt("{}/probs.test.txt".format(args.out_dir), probs, delimiter="\t", fmt='%5.4f')
-    
+    labels_df = pd.DataFrame(data=labels, index=metadata)
+    labels_df.to_csv("{}/labels.test.txt".format(args.out_dir), sep='\t', header=False)
+    probs_df = pd.DataFrame(data=probs, index=metadata)
+    probs_df.to_csv("{}/probs.test.txt".format(args.out_dir), sep='\t', header=False)
+
     
     # push predictions through activation to get probs
     if args.model_type != "nn":
