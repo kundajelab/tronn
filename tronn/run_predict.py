@@ -37,7 +37,7 @@ def setup_model(args):
     """setup model params for various types of nets
     """
     if args.model_type == "nn":
-        assert(args.model is not None) and (args.model_dir is not None)
+        assert(args.model is not None) and ((args.model_dir is not None) or (args.model_checkpoint is not None))
         model_params = args.model
         model_fn = model_fns[args.model['name']]
         

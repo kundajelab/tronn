@@ -334,6 +334,7 @@ def predict(
         tronn_graph,
         model_dir,
         batch_size,
+        model_checkpoint=None,
         num_evals=1000,
         reconstruct_regions=False):
     """Prediction routine. When called, returns predictions 
@@ -364,11 +365,14 @@ def predict(
         
         # restore if given model (option to NOT restore because of models
         # that do not use restore, like PWM convolutions)
-        if model_dir is not None:
+        if model_checkpoint is not None:
+            saver = tf.train.Saver()
+            saver.restore(sess, model_checkpoint)
+        elif model_dir is not None:
             checkpoint_path = tf.train.latest_checkpoint(model_dir)
             saver = tf.train.Saver()
             saver.restore(sess, checkpoint_path)
-        
+            
         # set up arrays to hold outputs
         num_examples = num_evals
         all_labels_array = np.zeros((num_examples, label_tensor.get_shape()[1]))

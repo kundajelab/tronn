@@ -240,6 +240,7 @@ def run(args):
         tronn_graph,
         args.model_dir,
         args.batch_size,
+        model_checkpoint=args.model_checkpoint,
         num_evals=args.num_evals,
         reconstruct_regions=args.reconstruct_regions)
 

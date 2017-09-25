@@ -222,8 +222,11 @@ def add_trained_nn_model_options(parser, required=True):
         '--model', nargs='+', required=required,
         help='choose model and provide configs')
     parser.add_argument(
-        '--model_dir', required=required,
+        '--model_dir', default=None,
         help='restore from last checkpoint')
+    parser.add_argument(
+        "--model_checkpoint", default=None,
+        help="restore from specific checkpoint")
     
     return
 
