@@ -43,6 +43,9 @@ def parse_args():
     # command for in silico mutagenesis
     add_ism_parser(subparsers)
 
+    # command for testing multitask interpretation
+    add_multitask_interpretation_parser(subparsers)
+    
     # TODO(dk) add in a function to do
     # all grammar work (group motifs, ISM)
     
@@ -494,6 +497,53 @@ def add_ism_parser(subparsers):
     return
 
 
+def add_multitask_interpretation_parser(subparsers):
+    """Testing multitask interpretation
+    """
+    argparser_multitask = subparsers.add_parser(
+        "interpret_multitask",
+        help="Run multitask interpretation")
+
+    # group for input files
+    group_input = argparser_multitask.add_argument_group(
+    	"Input files and folders")
+    add_hdf5_data_options(group_input)
+    group_input.add_argument(
+        "--importances_tasks", nargs="+", required=True, type=int,
+        help="tasks to interpret on")
+    group_input.add_argument(
+        "--interpretation_tasks", nargs="+", required=True, type=int,
+        help="tasks to interpret on")
+
+    # group for model
+    group_model = argparser_multitask.add_argument_group(
+        "Model definition")
+    add_trained_nn_model_options(group_model)
+
+    # group for parameters
+    group_params = argparser_multitask.add_argument_group(
+        "Interpretation hyperparameters")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
+    group_params.add_argument(
+        '--sample_size', default=220000, type=int,
+        help='number of regions to get importance scores')
+
+    # group for output files
+    group_output = argparser_multitask.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="importances")
+    group_output.add_argument(
+        '--tmp_dir', default='importances_tmp',
+        help='temporary scratch directory')
+    group_output.add_argument(
+        '--plot_samples', action='store_true',
+        help='plot some sample sequences weighted by importance scores')
+
+    return
+
+
 def add_makegrammar_parser(subparsers):
     """
     """
@@ -595,6 +645,10 @@ def main():
     	add_model_params(args)
     	from tronn.run_ism import run
     	run(args)
+    elif subcommand == "interpret_multitask":
+        add_model_params(args)
+        from tronn.run_multitask_interpretation import run
+        run(args)
         
     return None
 
