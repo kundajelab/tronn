@@ -2,6 +2,7 @@
 """
 
 import h5py
+import math
 import logging
 
 import numpy as np
@@ -230,6 +231,8 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
     """Extract batches from hdf5 file list. This is used to get ordered examples out 
     to re-merge back into regions.
 
+    TODO(dk) pad the last batch with null so that you can see everything
+
     Args:
       hdf5_files: list of hdf5 files with input data 
       batch_size: desired batch size to return to tensor
@@ -245,35 +248,30 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
     #print "Data layer: loading {}".format(hdf5_files)
     h5py_handles = [h5py.File(hdf5_file) for hdf5_file in hdf5_files]
     num_examples_per_file = [get_total_num_examples([hdf5_file]) for hdf5_file in hdf5_files]
-    total_num_examples = get_total_num_examples(hdf5_files)
-    max_batches = total_num_examples / batch_size - 10
-
+    total_batches_per_file = [int(math.ceil(num_examples) / float(batch_size))
+                              for num_examples in num_examples_per_file ]
+    
+    max_batches = sum(total_batches_per_file)
+    print max_batches
     batch_id_queue = tf.train.range_input_producer(max_batches, shuffle=shuffle)
 
     # generate a batch_to_file dictionary so it's easy to get the file
     global_batch_to_file_idx = {}
     local_batch = 0
     current_file_idx = 0
-    current_file_example_total = num_examples_per_file[current_file_idx] / batch_size
     for global_batch in xrange(max_batches):
-        if local_batch < current_file_example_total:
+        if local_batch <= total_batches_per_file[current_file_idx]:
             global_batch_to_file_idx[global_batch] = (current_file_idx, local_batch)
             local_batch += 1
         else:
             local_batch = 0
 
-            while True:
-                # go to next file index
-                if (current_file_idx + 1) == len(h5py_handles):
-                    current_file_idx = 0
-                else:
-                    current_file_idx += 1
-                
-                current_file_example_total = num_examples_per_file[current_file_idx] / batch_size
-                if local_batch < current_file_example_total:
-                    break
-            
-            #current_file_example_total = num_examples_per_file[current_file_idx] / batch_size
+            # go to next file idx
+            if (current_file_idx + 1) == len(h5py_handles):
+                current_file_idx = 0
+            else:
+                current_file_idx += 1
+
             global_batch_to_file_idx[global_batch] = (current_file_idx, local_batch)
             local_batch += 1
     
@@ -302,11 +300,35 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
         batch_start = local_batch*batch_size
         batch_end = batch_start + batch_size
 
-        features = h5py_handle[features_key][batch_start:batch_end]
-        if features_key != 'features':# features are importance scores
-            features = np.expand_dims(features.transpose(0, 2, 1), axis=1)
-        labels = h5py_handle['labels'][batch_start:batch_end, tasks]
-        metadata = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_size, 1))
+        if batch_end < h5py_handle["features"].shape[0]:
+            features = h5py_handle[features_key][batch_start:batch_end]
+            if features_key != 'features':# features are importance scores
+                features = np.expand_dims(features.transpose(0, 2, 1), axis=1)
+                print features.shape
+            labels = h5py_handle['labels'][batch_start:batch_end, tasks]
+            metadata = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_size, 1))
+        else:
+            # TODO figure out how to make this code nicer...
+            print "here"
+            batch_end = h5py_handle["features"].shape[0] - 1
+            batch_padding_num = batch_size - (batch_end - batch_start)
+            features_tmp = h5py_handle[features_key][batch_start:batch_end]
+            features_padding_shape = [batch_padding_num] + features_tmp.shape[1:]
+            features_padding = np.zeros(features_padding_shape)
+            features = np.concatenate((features_tmp, features_padding), axis=0)
+            
+            if features_key != 'features':# features are importance scores
+                features = np.expand_dims(features.transpose(0, 2, 1), axis=1)
+            labels_tmp = h5py_handle['labels'][batch_start:batch_end, tasks]
+            labels_padding_shape = [batch_padding_num, tasks]
+            labels_padding = np.zeros(labels_padding_shape)
+            labels = np.concatenate((labels_tmp, labels_padding), axis=0)
+            
+            metadata_tmp = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_end - batch_start, 1))
+            metadata_padding = np.array(["chrX:0-0" for i in xrange(batch_padding_num)]).reshape((batch_padding_num, 1))
+            metadata = np.concatenate((metadata_tmp, metadata_padding), axis=0)
+            print "good"
+            
         return [features, labels, metadata]
 
     batch_id_tensor = batch_id_queue.dequeue()

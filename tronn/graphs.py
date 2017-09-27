@@ -76,6 +76,7 @@ class TronnNeuralNetGraph(TronnGraph):
                  optimizer_params=None,
                  metrics_fn=None,
                  importances_fn=None,
+                 importances_tasks=None,
                  feature_key="features",
                  shuffle_data=True,
                  class_weighted_loss=False,
@@ -92,6 +93,7 @@ class TronnNeuralNetGraph(TronnGraph):
         self.optimizer_params = optimizer_params
         self.metrics_fn = metrics_fn
         self.importances_fn = importances_fn
+        self.importances_tasks = importances_tasks
         self.class_weighted_loss = class_weighted_loss
         self.positives_focused_loss = positives_focused_loss
         self.finetune = finetune
@@ -166,6 +168,10 @@ class TronnNeuralNetGraph(TronnGraph):
         importance scores
         """
         assert self.importances_fn is not None
+
+        # set up importance tasks
+        if self.importances_tasks is None:
+            self.importances_tasks = self.tasks
         
         self.build_graph(data_key, is_training=False)
 
@@ -174,11 +180,18 @@ class TronnNeuralNetGraph(TronnGraph):
         
         # add in importance score calculations
         self.importances = {}
-        for task_idx in range(len(self.tasks)):
+        for task_idx in range(len(self.importances_tasks)):
             importance_key = "importances_task{}".format(self.tasks[task_idx])
             self.importances[importance_key] = self.importances_fn(
                 task_logits[task_idx], self.features)
 
+        # add in other essential metadata: labels, feature metadata, label metadata
+        self.importances["labels"] = self.labels
+        self.importances["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
+        self.importances["probs"] = self.probs
+        self.importances["subset_accuracy"] = self._add_task_subset_accuracy()
+        self.importances["feature_metadata"] = self.metadata
+        
         return self.importances
 
 
@@ -243,6 +256,14 @@ class TronnNeuralNetGraph(TronnGraph):
 
         return
 
+
+    def _add_task_subset_accuracy(self):
+        """Given task subset, get subset accuracy
+        """
+        correctly_predicted = tf.logical_not(tf.logical_xor(tf.cast(self.labels, tf.bool), tf.greater_equal(self.probs, 0.5)))
+        accuracy = tf.reduce_sum(tf.cast(correctly_predicted, tf.int32), 1, keep_dims=True)
+
+        return accuracy
         
 
     

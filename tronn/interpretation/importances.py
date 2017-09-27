@@ -14,6 +14,9 @@ from tronn.util.tf_utils import close_tensorflow_session
 from tronn.visualization import plot_weights
 from tronn.interpretation.regions import RegionImportanceTracker
 
+from tronn.outlayer import ExampleGenerator
+
+
 
 @ops.RegisterGradient("GuidedRelu")
 def _GuidedReluGrad(op, grad):
@@ -47,8 +50,9 @@ def layerwise_relevance_propagation(tensor, features):
     """
     [feature_grad] = tf.gradients(tensor, [features])
     importances = tf.multiply(features, feature_grad, 'input_mul_grad')
+    importances_squeezed = tf.transpose(tf.squeeze(importances), perm=[0, 2, 1])
     
-    return importances
+    return importances_squeezed
 
 
 def region_generator_v2(sess, tronn_graph, stop_idx):
@@ -116,9 +120,9 @@ def region_generator_v2(sess, tronn_graph, stop_idx):
     return
 
 
-def extract_importances(
+def extract_importances_old(
         tronn_graph,
-        model_dir,
+        model_checkpoint,
         out_file,
         sample_size,
         method="guided_backprop",
@@ -151,9 +155,9 @@ def extract_importances(
         sess, coord, threads = setup_tensorflow_session()
 
         # restore
-        checkpoint_path = tf.train.latest_checkpoint(model_dir)
+        #checkpoint_path = tf.train.latest_checkpoint(model_dir)
         saver = tf.train.Saver()
-        saver.restore(sess, checkpoint_path)
+        saver.restore(sess, model_checkpoint)
 
         # set up hdf5 file to store outputs
         with h5py.File(out_file, 'w') as hf:
@@ -189,6 +193,132 @@ def extract_importances(
                 regions_hf[idx,] = name
                 labels_hf[idx,] = labels_np
                 # TODO(dk) save out predictions too
+
+        close_tensorflow_session(coord, threads)
+
+    return None
+
+
+def extract_importances(
+        tronn_graph,
+        model_checkpoint,
+        out_file,
+        sample_size,
+        method="guided_backprop",
+        width=4096,
+        pos_only=False,
+        h5_batch_size=128):
+    """Set up a graph and then run importance score extractor
+    and save out to file.
+
+    Args:
+      tronn_graph: a TronnNeuralNetGraph instance
+      model_dir: directory with trained model
+      out_file: hdf5 file to store importances
+      method: importance method to use
+      sample_size: number of regions to run
+      pos_only: only keep positive sequences
+
+    Returns:
+      None
+    """
+    with tf.Graph().as_default() as g:
+
+        # build graph
+        if method == "guided_backprop":
+            with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+                importances = tronn_graph.build_inference_graph()
+        elif method == "simple_gradients":
+            importances = tronn_graph.build_inference_graph()
+
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+
+        # restore
+        saver = tf.train.Saver()
+        saver.restore(sess, model_checkpoint)
+
+        # set up hdf5 file to store outputs
+        with h5py.File(out_file, 'w') as hf:
+
+            # set up datasets (use names to set up shapes?)
+            for key in importances.keys():
+                dataset_shape = [sample_size] + [int(i) for i in importances[key].get_shape()][1:]
+                if "feature_metadata" in key:
+                    hf.create_dataset(key, dataset_shape, maxshape=dataset_shape, dtype="S100")
+                else:
+                    hf.create_dataset(key, dataset_shape, maxshape=dataset_shape)
+                    
+            # set up outlayer
+            example_generator = ExampleGenerator(
+                sess,
+                importances,
+                64, # Fix this later
+                reconstruct_regions=False,
+                keep_negatives=False,
+                filter_by_prediction=True,
+                filter_tasks=tronn_graph.importances_tasks)
+
+            try:
+                total_examples = 0
+                h5_batch_start = 0
+                h5_batch_end = h5_batch_start + h5_batch_size
+                while not coord.should_stop():
+
+                    # set up batch numpy arrays
+                    batched_region_arrays = {}
+                    for key in importances.keys():
+                        dataset_shape = [h5_batch_size] + [int(i) for i in importances[key].get_shape()][1:]
+                        if "feature_metadata" in key:
+                            batched_region_arrays[key] = np.array(["chrY:0-0" for i in xrange(h5_batch_size)], dtype="S100")
+                        else:
+                            batched_region_arrays[key] = np.zeros(dataset_shape)
+                    
+                    # grab a batch of regions
+                    for region_idx in xrange(h5_batch_size):
+                        region, region_arrays = example_generator.run()
+                        total_examples += 1
+                        batched_region_arrays["feature_metadata"][region_idx] = region
+                        for key in region_arrays.keys():
+                            if "importance" in key:
+                                batched_region_arrays[key][region_idx,:,:] = region_arrays[key]
+                            else:
+                                batched_region_arrays[key][region_idx,:] = region_arrays[key]
+                    
+                    # put into h5 datasets
+                    hf["feature_metadata"][h5_batch_start:h5_batch_end] = batched_region_arrays["feature_metadata"].reshape((h5_batch_size, 1))
+                    for key in batched_region_arrays.keys():
+                        if "importance" in key:
+                            hf[key][h5_batch_start:h5_batch_end,:,:] = batched_region_arrays[key]
+                        elif "feature_metadata" in key:
+                            continue
+                        else:
+                            hf[key][h5_batch_start:h5_batch_end,:] = batched_region_arrays[key]
+
+                    h5_batch_start = h5_batch_end
+                    h5_batch_end = h5_batch_start + h5_batch_size
+                    
+
+            except tf.errors.OutOfRangeError:
+
+                # TODO(dk) add in last of the examples
+                hf["feature_metadata"][h5_batch_start:h5_batch_end] = batched_region_arrays["feature_metadata"].reshape((h5_batch_size, 1))
+                for key in batched_region_arrays.keys():
+                    if "importance" in key:
+                        hf[key][h5_batch_start:h5_batch_end,:,:] = batched_region_arrays[key]
+                    elif "feature_metadata" in key:
+                        continue
+                    else:
+                        hf[key][h5_batch_start:h5_batch_end,:] = batched_region_arrays[key]
+
+                # and then reshape
+                metadata_shape = hf["feature_metadata"].shape
+                metadata_shape[0] = total_examples
+                hf["feature_metadata"].resize(metadata_shape)
+                for key in region_arrays.keys():
+                    shape = hf[key].shape
+                    shape[0] = total_examples
+                    hf[key].reshape(shape)
 
         close_tensorflow_session(coord, threads)
 
