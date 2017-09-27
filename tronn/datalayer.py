@@ -309,24 +309,23 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
             metadata = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_size, 1))
         else:
             # TODO figure out how to make this code nicer...
-            print "here"
             batch_end = h5py_handle["features"].shape[0] - 1
             batch_padding_num = batch_size - (batch_end - batch_start)
             features_tmp = h5py_handle[features_key][batch_start:batch_end]
-            features_padding_shape = [batch_padding_num] + features_tmp.shape[1:]
+            features_padding_shape = [batch_padding_num] + list(features_tmp.shape[1:])
             features_padding = np.zeros(features_padding_shape)
-            features = np.concatenate((features_tmp, features_padding), axis=0)
+            features = np.concatenate([features_tmp, features_padding], axis=0)
             
             if features_key != 'features':# features are importance scores
                 features = np.expand_dims(features.transpose(0, 2, 1), axis=1)
             labels_tmp = h5py_handle['labels'][batch_start:batch_end, tasks]
             labels_padding_shape = [batch_padding_num, tasks]
             labels_padding = np.zeros(labels_padding_shape)
-            labels = np.concatenate((labels_tmp, labels_padding), axis=0)
+            labels = np.concatenate([labels_tmp, labels_padding], axis=0)
             
             metadata_tmp = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_end - batch_start, 1))
-            metadata_padding = np.array(["chrX:0-0" for i in xrange(batch_padding_num)]).reshape((batch_padding_num, 1))
-            metadata = np.concatenate((metadata_tmp, metadata_padding), axis=0)
+            metadata_padding = np.array(["chrY:0-0" for i in xrange(batch_padding_num)]).reshape((batch_padding_num, 1))
+            metadata = np.concatenate([metadata_tmp, metadata_padding], axis=0)
             print "good"
             
         return [features, labels, metadata]

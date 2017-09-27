@@ -47,10 +47,6 @@ def run(args):
     else:
         checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
     logging.info("Checkpoint: {}".format(checkpoint_path))
-
-
-    # get total examples?
-    # TODO(dk) actually need to get total positive examples across tasks of interest
     
     # get importances
     importances_mat_h5 = '{0}/{1}.importances.h5'.format(args.tmp_dir, args.prefix)
@@ -73,7 +69,10 @@ def run(args):
     # get all examples belonging to that task (go through file once and distribute out)
     # here, can cull for correctly predicted (write separate function for this)
     # output: (example, task, 4, 1000)
+    
 
+
+    
     # here, figure out how to extract important seqlets
     # likely can just threshold and keep big ones
     # and normalize here
