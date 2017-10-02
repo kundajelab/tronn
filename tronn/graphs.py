@@ -163,7 +163,7 @@ class TronnNeuralNetGraph(TronnGraph):
         return train_op
 
     
-    def build_inference_graph(self, data_key="data"):
+    def build_inference_graph(self, data_key="data", normalize=False):
         """Build a graph with back prop ties to be able to get 
         importance scores
         """
@@ -177,13 +177,18 @@ class TronnNeuralNetGraph(TronnGraph):
 
         # split logits into task level
         task_logits = tf.unstack(self.logits, axis=1)
+        task_probs = tf.unstack(self.probs, axis=1)
         
         # add in importance score calculations
         self.importances = {}
         for task_idx in range(len(self.importances_tasks)):
             importance_key = "importances_task{}".format(self.tasks[task_idx])
-            self.importances[importance_key] = self.importances_fn(
-                task_logits[task_idx], self.features)
+            if normalize:
+                self.importances[importance_key] = self.importances_fn(
+                    task_logits[task_idx], self.features, probs=task_probs[task_idx], normalize=True)
+            else:
+                self.importances[importance_key] = self.importances_fn(
+                    task_logits[task_idx], self.features, normalize=False)
 
         # add in other essential metadata: labels, feature metadata, label metadata
         self.importances["labels"] = self.labels
@@ -260,8 +265,18 @@ class TronnNeuralNetGraph(TronnGraph):
     def _add_task_subset_accuracy(self):
         """Given task subset, get subset accuracy
         """
-        correctly_predicted = tf.logical_not(tf.logical_xor(tf.cast(self.labels, tf.bool), tf.greater_equal(self.probs, 0.5)))
-        accuracy = tf.reduce_sum(tf.cast(correctly_predicted, tf.int32), 1, keep_dims=True)
+        assert self.importances_tasks is not None
+        
+        # split and get subset
+        labels_unstacked = tf.unstack(self.labels, axis=1)
+        labels_subset = tf.stack([labels_unstacked[i] for i in self.importances_tasks], axis=1)
+
+        probs_unstacked = tf.unstack(self.probs, axis=1)
+        probs_subset = tf.stack([probs_unstacked[i] for i in self.importances_tasks], axis=1)
+
+        # compare labels to predictions
+        correctly_predicted = tf.logical_not(tf.logical_xor(tf.cast(labels_subset, tf.bool), tf.greater_equal(probs_subset, 0.5)))
+        accuracy = tf.reduce_mean(tf.cast(correctly_predicted, tf.float32), 1, keep_dims=True)
 
         return accuracy
         

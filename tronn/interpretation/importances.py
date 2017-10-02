@@ -17,6 +17,8 @@ from tronn.interpretation.regions import RegionImportanceTracker
 from tronn.outlayer import ExampleGenerator
 from tronn.outlayer import H5Handler
 
+from tronn.nets.importance_nets import importances_stdev_cutoff
+from tronn.nets.importance_nets import normalize_to_probs
 
 
 @ops.RegisterGradient("GuidedRelu")
@@ -37,7 +39,7 @@ def _GuidedReluGrad(op, grad):
                     tf.zeros(grad.get_shape()))
 
 
-def layerwise_relevance_propagation(tensor, features):
+def layerwise_relevance_propagation(tensor, features, probs=None, normalize=False):
     """Layer-wise Relevance Propagation (Batch et al), implemented
     as input * gradient (equivalence is demonstrated in deepLIFT paper,
     Shrikumar et al). Generally center the tensor on the logits.
@@ -50,75 +52,16 @@ def layerwise_relevance_propagation(tensor, features):
       Input tensor weighted by gradient backpropagation.
     """
     [feature_grad] = tf.gradients(tensor, [features])
-    importances = tf.multiply(features, feature_grad, 'input_mul_grad')
-    importances_squeezed = tf.transpose(tf.squeeze(importances), perm=[0, 2, 1])
+    importances_raw = tf.multiply(features, feature_grad, 'input_mul_grad')
+    importances_squeezed = tf.transpose(tf.squeeze(importances_raw), perm=[0, 2, 1])
+
+    if normalize:
+        thresholded = importances_stdev_cutoff(importances_squeezed)
+        importances = normalize_to_probs(thresholded, probs)
+    else:
+        importances = importances_squeezed
     
-    return importances_squeezed
-
-
-def region_generator_v2(sess, tronn_graph, stop_idx):
-    """Uses new regions class
-    """
-    # TODO(dk) eventually rewrite as a function of TronnGraph and also
-    # make it work with variable keys, so that it's more extensible
-    
-    region_tracker = RegionImportanceTracker(tronn_graph.importances,
-                                             tronn_graph.labels,
-                                             tronn_graph.probs)
-    region_idx = 0
-    
-    while region_idx < stop_idx:
-
-        # run session to get batched results
-        regions_array, importances_arrays, labels_array, probs_array = sess.run([
-            tronn_graph.metadata,
-            tronn_graph.importances,
-            tronn_graph.labels,
-            tronn_graph.probs])
-
-        # Go through each example in batch
-        for i in range(regions_array.shape[0]):
-
-            # ignore univ region negs
-            if np.sum(labels_array[i,:]) == 0:
-                continue
-
-            # extract example data
-            example_region = regions_array[i,0]
-            example_labels = labels_array[i,:]
-            example_probs = probs_array[i,:]
-
-            # extract example importances
-            example_importances = {}
-            for importance_key in importances_arrays.keys():
-                example_importances[importance_key] = np.squeeze(
-                    importances_arrays[importance_key][i,:,:,:]).transpose(1, 0)
-                
-            # check if overlap
-            if region_tracker.check_downstream_overlap(example_region):
-                # if so, merge
-                region_tracker.merge(
-                    example_region,
-                    example_importances,
-                    example_labels,
-                    example_probs)
-            else:
-                # yield out the current sequence info if NOT the original fake init.
-                if region_tracker.chrom is not None:
-                    region_name, importances, labels, probs = region_tracker.get_region()
-                    yield importances, region_name, region_idx, labels
-                    region_idx += 1
-                    if region_idx == stop_idx:
-                        break
-                    
-                # reset with new info
-                region_tracker.reset(
-                    example_region,
-                    example_importances,
-                    example_labels,
-                    example_probs)
-    
-    return
+    return importances
 
 
 def extract_importances(
@@ -149,9 +92,9 @@ def extract_importances(
         # build graph
         if method == "guided_backprop":
             with g.gradient_override_map({'Relu': 'GuidedRelu'}):
-                importances = tronn_graph.build_inference_graph()
+                importances = tronn_graph.build_inference_graph(normalize=True)
         elif method == "simple_gradients":
-            importances = tronn_graph.build_inference_graph()
+            importances = tronn_graph.build_inference_graph(normalize=True)
 
         # set up session
         sess, coord, threads = setup_tensorflow_session()
@@ -164,7 +107,7 @@ def extract_importances(
         with h5py.File(out_file, 'w') as hf:
 
             h5_handler = H5Handler(
-                hf, importances, sample_size, resizable=True)
+                hf, importances, sample_size, resizable=True, batch_size=4096)
 
             # set up outlayer
             example_generator = ExampleGenerator(
@@ -184,11 +127,12 @@ def extract_importances(
                     region_arrays["feature_metadata"] = region
 
                     h5_handler.store_example(region_arrays)
+                    total_examples += 1
 
             except tf.errors.OutOfRangeError:
 
-                # TODO(dk) add in last of the examples
-                h5_handler.push_batch()
+                # add in last of the examples
+                h5_handler.flush()
 
                 # and then reshape
                 metadata_shape = hf["feature_metadata"].shape
@@ -202,6 +146,71 @@ def extract_importances(
         close_tensorflow_session(coord, threads)
 
     return None
+
+
+def split_importances_by_task_positives(importances_main_file, tasks, prefix):
+    """Given an importance score file and given specific tasks,
+    generate separated importance files for tasks
+    """
+    # keep a list of hdf5 files
+    task_h5_files = []
+    task_h5_handles = []
+    task_h5_handlers = []
+    for i in range(len(tasks)):
+        task_h5_files.append("{}.task_{}.h5".format(prefix, tasks[i]))
+        task_h5_handles.append(h5py.File(task_h5_files[i]))
+        
+    # for each file, open and create relevant datasets. keep the handle
+    with h5py.File(importances_main_file, "r") as hf:
+        
+        for i in xrange(len(tasks)):
+
+            # get positives
+            positives = np.sum(hf["labels"][:,tasks[i]])
+
+            # make the datasets
+            array_dict = {}
+            for key in hf.keys():
+                array_dict[key] = hf[key]
+            task_h5_handlers.append(
+                H5Handler(
+                    task_h5_handles[i], array_dict, positives, resizable=False, is_tensor_input=False))
+
+        # then go through batches of importances
+        for example_idx in xrange(hf["feature_metadata"].shape[0]):
+
+            if example_idx % 1000 == 0:
+                print example_idx
+            
+            # first check if it belongs to a certain task
+            task_handle_indices = []
+            for i in xrange(len(tasks)):
+                if hf["labels"][example_idx, tasks[i]] == 1:
+                    task_handle_indices.append(i)
+
+            if len(task_handle_indices) > 0:
+                # make into an example array
+                example_array = {}
+                for key in hf.keys():
+                    if "feature_metadata" in key:
+                        example_array[key] = hf[key][example_idx, 0]
+                    elif "importance" in key:
+                        example_array[key] = hf[key][example_idx,:,:]
+                    else:
+                        example_array[key] = hf[key][example_idx,:]
+
+                for task_idx in task_handle_indices:
+                    task_h5_handlers[task_idx].store_example(example_array)
+                    
+
+        # at very end, push all last batches
+        for i in xrange(len(tasks)):
+            task_h5_handlers[i].flush()
+
+    for i in xrange(len(tasks)):
+        task_h5_handles[i].close()
+            
+    return task_h5_files
 
 
 def call_importance_peaks_v2(

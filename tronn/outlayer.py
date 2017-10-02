@@ -137,6 +137,7 @@ class ExampleGenerator(object):
         self.tensor_dict = tensor_dict
         self.batch_size = batch_size
         self.batch_pointer = 0
+        self.all_examples = 0
         self.valid_examples = 0
         self.reconstruct_regions = reconstruct_regions
         self.keep_negatives = keep_negatives
@@ -157,19 +158,38 @@ class ExampleGenerator(object):
             
         # initialize region tracker with first region in batch
         self.batch_region_arrays = self.sess.run(self.tensor_dict)
-        region, region_arrays = self.get_filtered_example()
+        region, region_arrays = self.build_example_dict_arrays()
         self.region_tracker = RegionTracker(region, region_arrays)
         self.region_tracker.merge(region, region_arrays)
 
         
-    def build_example_dict_arrays(self):
+    def build_example_dict_arrays(self, accuracy_cutoff=0.7):
         """Build dictionary of arrays for 1 example
         """
-        # if necessary, get a new batch
-        if self.batch_pointer == self.batch_size:
-            self.batch_pointer = 0
-            self.batch_region_arrays = self.sess.run(self.tensor_dict)
 
+        while True:
+            # debug check
+            if self.all_examples % 1000 == 0:
+                print "all examples: {}".format(self.all_examples)
+            
+            # if necessary, get a new batch
+            if self.batch_pointer == self.batch_size:
+                self.batch_pointer = 0
+                self.batch_region_arrays = self.sess.run(self.tensor_dict)
+
+            # filtering should happen here
+            if not self.keep_negatives and self.batch_region_arrays["negative"][self.batch_pointer] == 1:
+                self.batch_pointer += 1
+                self.all_examples += 1
+                continue
+
+            if self.filter_by_prediction and self.batch_region_arrays["subset_accuracy"][self.batch_pointer] < accuracy_cutoff:
+                self.batch_pointer += 1
+                self.all_examples += 1
+                continue
+
+            break # if all filtering conditions were met
+            
         # extract data and construct into region array dict
         region_arrays = {}
         for key in self.batch_region_arrays.keys():
@@ -180,14 +200,12 @@ class ExampleGenerator(object):
                 region_arrays[key] = (
                     self.batch_region_arrays[key][self.batch_pointer,:,:],
                     "offset")
-                    #np.squeeze(
-                    #    self.batch_region_arrays[key][self.batch_pointer,:,:,:]).transpose(1,0),
-                    #"offset")
             else:
                 region_arrays[key] = (
                     self.batch_region_arrays[key][self.batch_pointer,:],
                     "max")
         self.batch_pointer += 1
+        self.all_examples += 1
 
         return region_name, region_arrays
 
@@ -204,7 +222,7 @@ class ExampleGenerator(object):
                 continue
 
             # check correctly predicted
-            # compare label vector to probs vector (NOT XOR gate) and then mask by tasks that we care about.
+            # compare label vector to probs vector (NOT + XOR gate) and then mask by tasks that we care about.
             if self.filter_by_prediction and region_arrays["subset_accuracy"][0] < accuracy_cutoff:
                 continue
 
@@ -221,7 +239,7 @@ class ExampleGenerator(object):
             while True:
                 
                 # go through an example
-                region, region_arrays = self.get_filtered_example()
+                region, region_arrays = self.build_example_dict_arrays()
 
                 # merge if same
                 if self.region_tracker.is_same_region(region):
@@ -234,14 +252,14 @@ class ExampleGenerator(object):
                     break
             self.valid_examples += 1
             if self.valid_examples % 100 == 0:
-                print self.valid_examples
+                print "valid examples: {}".format(self.valid_examples)
             
             return out_region, out_region_arrays
         
         else:
 
             # go through an example
-            region, region_arrays = self.get_filtered_example()
+            region, region_arrays = self.build_example_dict_arrays()
                 
             # push out old example and load in next one
             out_region, out_region_arrays = self.region_tracker.get_region()
@@ -250,20 +268,26 @@ class ExampleGenerator(object):
 
             self.valid_examples += 1
             if self.valid_examples % 1000 == 0:
-                print self.valid_examples
+                print "valid examples: {}".format(self.valid_examples)
             return out_region, out_region_arrays
 
 
 class H5Handler(object):
 
-    def __init__(self, h5_handle, tensor_dict, sample_size, batch_size=512, resizable=True):
+    def __init__(self, h5_handle, tensor_dict, sample_size, batch_size=512, resizable=True, is_tensor_input=True, skip=[]):
         """Keep h5 handle and other relevant storing mechanisms
         """
         self.h5_handle = h5_handle
         self.tensor_dict = tensor_dict
         self.sample_size = sample_size
+        self.is_tensor_input = is_tensor_input
         for key in tensor_dict.keys():
-            dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
+            if key in skip:
+                continue
+            if is_tensor_input:
+                dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
+            else:
+                dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape[1:]]
             maxshape = dataset_shape if resizable else None
             if "feature_metadata" in key:
                 self.h5_handle.create_dataset(key, dataset_shape, maxshape=maxshape, dtype="S100")
@@ -281,9 +305,12 @@ class H5Handler(object):
         """
         tmp_arrays = {}
         for key in self.tensor_dict.keys():
-            dataset_shape = [self.batch_size] + [int(i) for i in self.tensor_dict[key].get_shape()[1:]]
+            if self.is_tensor_input:
+                dataset_shape = [self.batch_size] + [int(i) for i in self.tensor_dict[key].get_shape()[1:]]
+            else:
+                dataset_shape = [self.batch_size] + [int(i) for i in self.tensor_dict[key].shape[1:]]
             if "feature_metadata" in key:
-                tmp_arrays[key] = np.array(["chrY:0-0" for i in xrange(self.batch_size)], dtype="S100")
+                tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype="S100")
             else:
                 tmp_arrays[key] = np.zeros(dataset_shape)
         self.tmp_arrays = tmp_arrays
@@ -291,7 +318,7 @@ class H5Handler(object):
         
         return
 
-        
+    
     def store_example(self, example_arrays):
         """Store an example into the tmp numpy arrays, push batch out if done with batch
         """
@@ -306,12 +333,12 @@ class H5Handler(object):
 
         # now if at end of batch, push out and reset tmp
         if self.tmp_arrays_idx == self.batch_size:
-            self.push_batch()
+            self._push_batch()
 
         return
         
         
-    def push_batch(self):
+    def _push_batch(self):
         """Go from the tmp array to the h5 file
         """
         for key in self.tmp_arrays.keys():
@@ -328,5 +355,25 @@ class H5Handler(object):
         self.batch_end += self.batch_size
         self.setup_tmp_arrays()
         self.tmp_arrays_idx = 0
+
+        return
+
+
+    def flush(self):
+        """Check to see how many are real examples and push the last batch gracefully in
+        """
+        for batch_end in xrange(self.tmp_arrays["feature_metadata"].shape[0]):
+            if self.tmp_arrays["feature_metadata"][batch_end].rstrip("\0") == "false=chrY:0-0":
+                break
+        self.batch_end = self.batch_start + batch_end
+        
+        for key in self.tmp_arrays.keys():
+            if "feature_metadata" in key:
+                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape((self.batch_end, 1))
+            elif "importance" in key:
+                self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key][0:batch_end,:,:]
+
+            else:
+                self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key][0:batch_end,:]
 
         return

@@ -15,6 +15,8 @@ from tronn.interpretation.importances import layerwise_relevance_propagation
 from tronn.interpretation.importances import call_importance_peaks_v2
 from tronn.interpretation.importances import visualize_sample_sequences
 
+from tronn.interpretation.importances import split_importances_by_task_positives
+
 from tronn.datalayer import get_total_num_examples
 
 def run(args):
@@ -58,20 +60,19 @@ def run(args):
             args.sample_size,
             method="guided_backprop")
 
-    print "DONE FOR NOW"
-    quit()
-    
-
     # from there divide up into tasks you care about
     # per task:
+    prefix = "{0}/{1}.importances".format(args.tmp_dir, args.prefix)
 
+    # TODO do the normalization and cutoffs here, since it can all happen on 1 gpu
+    task_importance_files = split_importances_by_task_positives(
+        importances_mat_h5, args.interpretation_tasks, prefix)
 
-    # get all examples belonging to that task (go through file once and distribute out)
-    # here, can cull for correctly predicted (write separate function for this)
-    # output: (example, task, 4, 1000)
-    
+    quit()
 
-
+    # per task file (use parallel processing):
+    # extract the seqlets into other files with timepoints (seqlet x task)
+    # AND keep track of seqlet size
     
     # here, figure out how to extract important seqlets
     # likely can just threshold and keep big ones
