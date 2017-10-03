@@ -16,6 +16,8 @@ from tronn.interpretation.importances import call_importance_peaks_v2
 from tronn.interpretation.importances import visualize_sample_sequences
 
 from tronn.interpretation.importances import split_importances_by_task_positives
+from tronn.interpretation.seqlets import extract_seqlets
+from tronn.interpretation.seqlets import reduce_seqlets
 
 from tronn.datalayer import get_total_num_examples
 
@@ -64,28 +66,37 @@ def run(args):
     # per task:
     prefix = "{0}/{1}.importances".format(args.tmp_dir, args.prefix)
 
-    # TODO do the normalization and cutoffs here, since it can all happen on 1 gpu
-    task_importance_files = split_importances_by_task_positives(
-        importances_mat_h5, args.interpretation_tasks, prefix)
-
-    quit()
+    # split into task files
+    task_importance_files = glob.glob("{}.task*".format(task_importance_files))
+    if len(task_importance_files) == 0:
+        task_importance_files = split_importances_by_task_positives(
+            importances_mat_h5, args.interpretation_tasks, prefix)
 
     # per task file (use parallel processing):
     # extract the seqlets into other files with timepoints (seqlet x task)
     # AND keep track of seqlet size
-    
-    # here, figure out how to extract important seqlets
-    # likely can just threshold and keep big ones
-    # and normalize here
-    # output: (seqlet, task)
+    for task in args.interpretation_tasks:
+        
+        task_importance_file = "{}.task_{}.h5".format(prefix, task)
+        task_seqlets_file = "{}.task_{}.seqlets.h5".format(prefix, task)
 
+        if not os.path.isfile(task_seqlets_file):
+            extract_seqlets(task_importance_file, args.importances_tasks, task_seqlets_file)
 
-    # then cluster seqlets - phenograph
-    # output: (seqlet, task) but clustered
+        # TODO filter seqlets
+        task_seqlets_filt_file = "{}.task_{}.seqlets.filt.h5".format(prefix, task)
 
+        if not os.path.isfile(task_seqlets_file_file):
+            reduce_seqlets(task_seqlets_file, task_seqlets_filt_file)
+        
+        # then cluster seqlets - phenograph
+        # output: (seqlet, task) but clustered
+        #cluster_seqlets("{}.task_{}.seqlets.h5".format(prefix, task))
+        
+        
 
-    # then hAgglom the seqlets
-    # output: motifs
+        # then hAgglom the seqlets
+        # output: motifs
     
     
 

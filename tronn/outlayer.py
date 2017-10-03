@@ -154,7 +154,6 @@ class ExampleGenerator(object):
         filter_tasks_mask_tmp[0, filter_tasks] = 1
         self.filter_tasks_mask = filter_tasks_mask_tmp
 
-
             
         # initialize region tracker with first region in batch
         self.batch_region_arrays = self.sess.run(self.tensor_dict)
@@ -281,8 +280,9 @@ class H5Handler(object):
         self.tensor_dict = tensor_dict
         self.sample_size = sample_size
         self.is_tensor_input = is_tensor_input
+        self.skip = skip
         for key in tensor_dict.keys():
-            if key in skip:
+            if key in self.skip:
                 continue
             if is_tensor_input:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
@@ -304,17 +304,26 @@ class H5Handler(object):
         """Setup numpy arrays as tmp storage before batch storage into h5
         """
         tmp_arrays = {}
-        for key in self.tensor_dict.keys():
-            if self.is_tensor_input:
-                dataset_shape = [self.batch_size] + [int(i) for i in self.tensor_dict[key].get_shape()[1:]]
-            else:
-                dataset_shape = [self.batch_size] + [int(i) for i in self.tensor_dict[key].shape[1:]]
+        for key in self.h5_handle.keys():
+            dataset_shape = [self.batch_size] + [int(i) for i in self.h5_handle[key].shape[1:]]
+                
             if "feature_metadata" in key:
                 tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype="S100")
             else:
                 tmp_arrays[key] = np.zeros(dataset_shape)
         self.tmp_arrays = tmp_arrays
         self.tmp_arrays_idx = 0
+
+        return
+
+    
+    def add_dataset(self, key, shape, maxshape=None):
+        """Add dataset and update numpy array
+        """
+        self.h5_handle.create_dataset(key, shape, maxshape=maxshape)
+
+        tmp_shape = [self.batch_size] + [int(i) for i in shape[1:]]
+        self.tmp_arrays[key] = np.zeros(tmp_shape)
         
         return
 
@@ -326,6 +335,8 @@ class H5Handler(object):
             if "feature_metadata" in key:
                 self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
             elif "importance" in key:
+                self.tmp_arrays[key][self.tmp_arrays_idx,:,:] = example_arrays[key]
+            elif "seqlets" in key:
                 self.tmp_arrays[key][self.tmp_arrays_idx,:,:] = example_arrays[key]
             else:
                 self.tmp_arrays[key][self.tmp_arrays_idx,:] = example_arrays[key]
@@ -346,7 +357,6 @@ class H5Handler(object):
                 self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key].reshape((self.batch_size, 1))
             elif "importance" in key:
                 self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key]
-
             else:
                 self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key]
 
@@ -355,7 +365,7 @@ class H5Handler(object):
         self.batch_end += self.batch_size
         self.setup_tmp_arrays()
         self.tmp_arrays_idx = 0
-
+        
         return
 
 
@@ -369,11 +379,24 @@ class H5Handler(object):
         
         for key in self.tmp_arrays.keys():
             if "feature_metadata" in key:
-                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape((self.batch_end, 1))
+                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape((batch_end, 1))
             elif "importance" in key:
                 self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key][0:batch_end,:,:]
 
             else:
                 self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key][0:batch_end,:]
 
+
+        return
+
+    
+    def chomp_datasets(self):
+        """Once done adding things, if can resize then resize datasets
+        """
+        assert self.resizable == True
+
+        for key in self.h5_handle.keys():
+            dataset_final_shape = [self.batch_end] + [int(i) for i in self.h5_handle[key].shape[1:]]
+            self.h5_handle[key].resize(dataset_final_shape)
+            
         return

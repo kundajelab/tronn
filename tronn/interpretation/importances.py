@@ -3,6 +3,7 @@
 
 import h5py
 import logging
+import math
 import numpy as np
 
 import tensorflow as tf
@@ -133,15 +134,7 @@ def extract_importances(
 
                 # add in last of the examples
                 h5_handler.flush()
-
-                # and then reshape
-                metadata_shape = hf["feature_metadata"].shape
-                metadata_shape[0] = total_examples
-                hf["feature_metadata"].resize(metadata_shape)
-                for key in region_arrays.keys():
-                    shape = hf[key].shape
-                    shape[0] = total_examples
-                    hf[key].reshape(shape)
+                h5_handler.chomp_datasets()
 
         close_tensorflow_session(coord, threads)
 
@@ -177,31 +170,57 @@ def split_importances_by_task_positives(importances_main_file, tasks, prefix):
                     task_h5_handles[i], array_dict, positives, resizable=False, is_tensor_input=False))
 
         # then go through batches of importances
-        for example_idx in xrange(hf["feature_metadata"].shape[0]):
+        # batch it because it's faster to pull from hdf5 in batches
+        example_idx = 0
+        batch_size = 4096
+        num_batches = int(math.ceil(hf["feature_metadata"].shape[0] / float(batch_size)))
 
-            if example_idx % 1000 == 0:
-                print example_idx
-            
-            # first check if it belongs to a certain task
-            task_handle_indices = []
-            for i in xrange(len(tasks)):
-                if hf["labels"][example_idx, tasks[i]] == 1:
-                    task_handle_indices.append(i)
+        for batch_idx in xrange(num_batches):
 
-            if len(task_handle_indices) > 0:
-                # make into an example array
-                example_array = {}
-                for key in hf.keys():
-                    if "feature_metadata" in key:
-                        example_array[key] = hf[key][example_idx, 0]
-                    elif "importance" in key:
-                        example_array[key] = hf[key][example_idx,:,:]
-                    else:
-                        example_array[key] = hf[key][example_idx,:]
+            if example_idx + batch_size > hf["feature_metadata"].shape[0]:
+                batch_end = hf["feature_metadata"].shape[0]
+                batch_example_num = batch_end - example_idx
+            else:
+                batch_end = example_idx + batch_size
+                batch_example_num = batch_size
 
-                for task_idx in task_handle_indices:
-                    task_h5_handlers[task_idx].store_example(example_array)
-                    
+            # get batch of examples
+            tmp_batch_arrays = {}
+            for key in hf.keys():
+                if "feature_metadata" in key:
+                    tmp_batch_arrays[key] = hf[key][example_idx:batch_end, 0]
+                elif "importance" in key:
+                    tmp_batch_arrays[key] = hf[key][example_idx:batch_end,:,:]
+                else:
+                    tmp_batch_arrays[key] = hf[key][example_idx:batch_end,:]
+
+            # then go through examples
+            for batch_idx in xrange(batch_example_num):
+
+                if example_idx % 1000 == 0:
+                    print example_idx
+
+                # first check if it belongs to a certain task
+                task_handle_indices = []
+                for i in xrange(len(tasks)):
+                    if tmp_batch_arrays["labels"][batch_idx, tasks[i]] == 1:
+                        task_handle_indices.append(i)
+
+                if len(task_handle_indices) > 0:
+                    # make into an example array
+                    example_array = {}
+                    for key in tmp_batch_arrays.keys():
+                        if "feature_metadata" in key:
+                            example_array[key] = tmp_batch_arrays[key][batch_idx]
+                        elif "importance" in key:
+                            example_array[key] = tmp_batch_arrays[key][batch_idx,:,:]
+                        else:
+                            example_array[key] = tmp_batch_arrays[key][batch_idx,:]
+
+                    for task_idx in task_handle_indices:
+                        task_h5_handlers[task_idx].store_example(example_array)
+
+                example_idx += 1
 
         # at very end, push all last batches
         for i in xrange(len(tasks)):
@@ -211,73 +230,6 @@ def split_importances_by_task_positives(importances_main_file, tasks, prefix):
         task_h5_handles[i].close()
             
     return task_h5_files
-
-
-def call_importance_peaks_v2(
-        importance_h5,
-        feature_key,
-        callpeak_graph,
-        out_h5):
-    """Calls peaks on importance scores
-    
-    Currently assumes a normal distribution of scores. Calculates
-    mean and std and uses them to get a pval threshold.
-
-    """
-    logging.info("Calling importance peaks...")
-
-    # determine some characteristics of data
-    with h5py.File(importance_h5, 'r') as hf:
-        num_examples = hf[feature_key].shape[0]
-        seq_length = hf[feature_key].shape[2]
-        num_tasks = hf['labels'].shape[1]
-
-    # start the graph
-    with tf.Graph().as_default() as g:
-
-        # build graph
-        thresholded_importances = callpeak_graph.build_graph()
-
-        # setup session
-        sess, coord, threads = setup_tensorflow_session()
-
-        with h5py.File(out_h5, 'w') as out_hf:
-
-            # initialize datasets
-            importance_mat = out_hf.create_dataset(
-                feature_key, [num_examples, 4, seq_length])
-            labels_mat = out_hf.create_dataset(
-                'labels', [num_examples, num_tasks])
-            regions_mat = out_hf.create_dataset(
-                'regions', [num_examples, 1], dtype='S100')
-
-            # run through batches of sequence
-            for batch_idx in range(num_examples / batch_size + 1):
-
-                print batch_idx * batch_size
-
-                batch_importances, batch_regions, batch_labels = sess.run([thresholded_tensor,
-                                                                           metadata,
-                                                                           labels])
-
-                batch_start = batch_idx * batch_size
-                batch_stop = batch_start + batch_size
-
-                # TODO save out to hdf5 file
-                if batch_stop < num_examples:
-                    importance_mat[batch_start:batch_stop,:] = batch_importances
-                    labels_mat[batch_start:batch_stop,:] = batch_labels
-                    regions_mat[batch_start:batch_stop] = batch_regions.astype('S100')
-                else:
-                    importance_mat[batch_start:num_examples,:] = batch_importances[0:num_examples-batch_start,:]
-                    labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start]
-                    regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
-        
-        # close session
-        close_tensorflow_session(coord, threads)
-
-    return None
-
 
 
 def visualize_sample_sequences(h5_file, num_task, out_dir, sample_size=10):

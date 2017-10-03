@@ -181,8 +181,9 @@ class TronnNeuralNetGraph(TronnGraph):
         
         # add in importance score calculations
         self.importances = {}
-        for task_idx in range(len(self.importances_tasks)):
-            importance_key = "importances_task{}".format(self.tasks[task_idx])
+        for task_idx in self.importances_tasks:
+            importance_key = "importances_task{}".format(task_idx)
+            print "importance scores will be calculated for: ", importance_key
             if normalize:
                 self.importances[importance_key] = self.importances_fn(
                     task_logits[task_idx], self.features, probs=task_probs[task_idx], normalize=True)
