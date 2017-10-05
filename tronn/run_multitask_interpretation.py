@@ -17,6 +17,8 @@ from tronn.interpretation.importances import visualize_sample_sequences
 from tronn.interpretation.importances import split_importances_by_task_positives
 from tronn.interpretation.seqlets import extract_seqlets
 from tronn.interpretation.seqlets import reduce_seqlets
+from tronn.interpretation.seqlets import cluster_seqlets
+from tronn.interpretation.seqlets import make_motif_sets
 
 from tronn.datalayer import get_total_num_examples
 
@@ -91,12 +93,30 @@ def run(args):
         # then cluster seqlets - phenograph
         # output: (seqlet, task) but clustered
         #cluster_seqlets("{}.task_{}.seqlets.h5".format(prefix, task))
-        
-        
+        seqlets_w_communities_file = "{}.task_{}.seqlets.filt.communities.h5".format(prefix, task)
+
+        if not os.path.isfile(seqlets_w_communities_file):
+            cluster_seqlets(task_seqlets_filt_file, seqlets_w_communities_file)
 
         # then hAgglom the seqlets
         # output: motifs
-    
-    
+        motif_dir = "{}/{}.motifs.task_{}".format(args.tmp_dir, args.prefix, task)
+        motif_prefix = "{}/{}.task_{}".format(motif_dir, args.prefix, task)
+        if not os.path.isdir(motif_dir):
+            os.system("mkdir -p {}".format(motif_dir))
+            make_motif_sets(seqlets_w_communities_file, motif_prefix)
 
+        # and generate quick plots
+        trajectories_txt = "{}.master.community_trajectories.txt".format(motif_prefix)
+        communities_txt = "{}.master.community_to_motif.txt".format(motif_prefix)
+        trajectories_png = "{}.master.community_trajectories.hclust.png".format(motif_prefix)
+        communities_png = "{}.master.community_to_motif.hclust.png".format(motif_prefix)
+        communities_corr_png = "{}.master.community_to_motif.corr.png".format(motif_prefix)
+        os.system("Rscript make_motif_maps.R {} {} {} {} {}".format(
+            communities_txt,
+            trajectories_txt,
+            trajectories_png,
+            communities_png,
+            communities_corr_png))
+        
     return

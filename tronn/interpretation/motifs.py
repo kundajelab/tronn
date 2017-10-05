@@ -2,11 +2,14 @@
 """
 
 import h5py
+import math
 import numpy as np
 import pandas as pd
 import scipy.stats
 
 import tensorflow as tf
+
+from scipy.signal import correlate2d
 
 from tronn.nets.nets import model_fns
 from tronn.visualization import plot_weights
@@ -111,7 +114,7 @@ class PWM(object):
             std = np.std(self.weights)
             normalized_weights = (self.weights - mean) / std
         elif style == "probabilities":
-            col_sums = pwm.sum(axis=0)
+            col_sums = self.weights.sum(axis=0)
             normalized_pwm_tmp = self.weights / np.amax(col_sums[np.newaxis,:])
             normalized_weights = np.nan_to_num(normalized_pwm_tmp)
         elif style == "log_odds":
@@ -131,17 +134,17 @@ class PWM(object):
         """Compute xcor score with other motif, return score and offset relative to first pwm
         """
         if normalize:
-            pwm1_norm = normalize_pwm2(pwm1, in_place=False)
-            pwm2_norm = normalize_pwm2(pwm2, in_place=False)
+            pwm1_norm = self.normalize(in_place=False)
+            pwm2_norm = pwm.normalize(in_place=False)
         else:
             pwm1_norm = pwm1
             pwm2_norm = pwm2
 
         # calculate xcor
         xcor_vals = correlate2d(pwm1_norm.weights, pwm2_norm.weights, mode='same')
-        xcor_norm = xcor_vals / (pwm1_norm.shape[0]*pwm1_norm.shape[1])
+        xcor_norm = xcor_vals / (pwm1_norm.weights.shape[0]*pwm1_norm.weights.shape[1])
         score = np.max(xcor_norm[1,:])
-        offset = np.argmax(xcor_norm[1,:]) - int(math.ceil(pwm2_norm.shape[1] / 2.) - 1)
+        offset = np.argmax(xcor_norm[1,:]) - int(math.ceil(pwm2_norm.weights.shape[1] / 2.) - 1)
 
         return score, offset
 
@@ -149,14 +152,14 @@ class PWM(object):
     def chomp(self):
         """Remove leading/trailing Ns. In place.
         """
-        chomped_weights = pwm[:,~np.all(pwm == 0, axis=0)]
+        chomped_weights = self.weights[:,~np.all(self.weights == 0, axis=0)]
         self.weights = chomped_weights
         assert(self.weights.shape[0] == 4)
         
-        return chomped_weights
+        return self
     
 
-    def merge(self, pwm, offset, new_name=None, normalize=True):
+    def merge(self, pwm, offset, new_name=None, normalize=False):
         """Merge in another PWM and output a new PWM
         """
         weights1_padded, weights2_padded = generate_offsets(self.weights, pwm.weights, offset)

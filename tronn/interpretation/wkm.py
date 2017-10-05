@@ -112,7 +112,7 @@ def select_kmers(wkm_mat, kmer_len, prefix, top_k=200):
     return wkm_df
 
 
-def agglom_motifs(pwm_list, cut_fract):
+def agglom_motifs(pwm_list, cut_fract, debug=False):
     """go through hierarchical until no more combinations
     also set up score tracking to choose when to stop merging
     """
@@ -121,12 +121,14 @@ def agglom_motifs(pwm_list, cut_fract):
     all_motif_lists = []
     scores = np.zeros((len(motif_list)))
     score_idx = 0
-    
+
+    print "agglomerating..."
     while True:
 
         motif_list = [motif.chomp() for motif in motif_list]
 
-        print [kmer_array_to_string(motif.normalize(in_place=False).weights) for motif in motif_list]
+        if debug:
+            print [kmer_array_to_string(motif.normalize(in_place=False).weights) for motif in motif_list]
 
         # end if agglomerated all motifs
         if len(motif_list) == 1:
@@ -145,10 +147,12 @@ def agglom_motifs(pwm_list, cut_fract):
         # take the best xcor (above cutoff) and merge
         np.fill_diagonal(xcor_mat, 0)
         pwm1_idx, pwm2_idx = np.unravel_index(np.argmax(xcor_mat), dims=xcor_mat.shape)
-        score, offset = xcor_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx])
+        #score, offset = xcor_pwms(motif_list[pwm1_idx], motif_list[pwm2_idx])
         
-        print "chose", kmer_to_string(motif_list[pwm1_idx].weights), kmer_to_string(motif_list[pwm2_idx].weights)
-        print score, offset
+        score, offset = motif_list[pwm1_idx].xcor(motif_list[pwm2_idx])
+        
+        #print "chose", kmer_array_to_string(motif_list[pwm1_idx].weights), kmer_array_to_string(motif_list[pwm2_idx].weights)
+        #print score, offset
         merged_pwm = motif_list[pwm1_idx].merge(motif_list[pwm2_idx], offset)
         
         # add new merged pwm, remove old non-merged pwms
