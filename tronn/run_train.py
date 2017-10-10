@@ -58,12 +58,6 @@ def run(args):
     logging.info('Finding data: found {} chrom files'.format(len(data_files)))
     train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
-    print train_files
-    print valid_files
-    print test_files
-    
-    quit()
-    
     # Get number of train and validation steps
     args.num_train_examples = get_total_num_examples(train_files)
     args.train_steps = args.num_train_examples / args.batch_size - 100

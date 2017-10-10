@@ -212,6 +212,7 @@ def train_and_evaluate(
 
     for epoch in xrange(epoch_limit):
         logging.info("CURRENT EPOCH:", str(epoch))
+        print "CURRENT EPOCH:", epoch
 
         if epoch > 0:
             # make sure that transfer_model_dir is None
