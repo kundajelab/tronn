@@ -273,7 +273,16 @@ class ExampleGenerator(object):
 
 class H5Handler(object):
 
-    def __init__(self, h5_handle, tensor_dict, sample_size, batch_size=512, resizable=True, is_tensor_input=True, skip=[]):
+    def __init__(
+            self,
+            h5_handle,
+            tensor_dict,
+            sample_size,
+            batch_size=512,
+            resizable=True,
+            is_tensor_input=True,
+            skip=[],
+            direct_transfer=["label_metadata"]):
         """Keep h5 handle and other relevant storing mechanisms
         """
         self.h5_handle = h5_handle
@@ -281,18 +290,24 @@ class H5Handler(object):
         self.sample_size = sample_size
         self.is_tensor_input = is_tensor_input
         self.skip = skip
+        self.direct_transfer = direct_transfer
+        self.example_keys = []
         for key in tensor_dict.keys():
             if key in self.skip:
+                continue
+            if key in self.direct_transfer:
+                self.h5_handle.create_dataset(key, data=tensor_dict[key])
                 continue
             if is_tensor_input:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
             else:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape[1:]]
             maxshape = dataset_shape if resizable else None
-            if "feature_metadata" in key:
+            if "example_metadata" in key:
                 self.h5_handle.create_dataset(key, dataset_shape, maxshape=maxshape, dtype="S100")
             else:
                 self.h5_handle.create_dataset(key, dataset_shape, maxshape=maxshape)
+            self.example_keys.append(key)
         self.resizable = resizable
         self.batch_size = batch_size
         self.batch_start = 0
@@ -304,11 +319,12 @@ class H5Handler(object):
         """Setup numpy arrays as tmp storage before batch storage into h5
         """
         tmp_arrays = {}
-        for key in self.h5_handle.keys():
+        for key in self.example_keys:
+            
             dataset_shape = [self.batch_size] + [int(i) for i in self.h5_handle[key].shape[1:]]
                 
-            if "feature_metadata" in key:
-                tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype="S100")
+            if "example_metadata" in key:
+                tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype="S100") # .reshape(self.batch_size, 1)
             else:
                 tmp_arrays[key] = np.zeros(dataset_shape)
         self.tmp_arrays = tmp_arrays
@@ -321,7 +337,8 @@ class H5Handler(object):
         """Add dataset and update numpy array
         """
         self.h5_handle.create_dataset(key, shape, maxshape=maxshape)
-
+        self.example_keys.append(key)
+        
         tmp_shape = [self.batch_size] + [int(i) for i in shape[1:]]
         self.tmp_arrays[key] = np.zeros(tmp_shape)
         
@@ -331,35 +348,52 @@ class H5Handler(object):
     def store_example(self, example_arrays):
         """Store an example into the tmp numpy arrays, push batch out if done with batch
         """
-        for key in example_arrays.keys():
-            if "feature_metadata" in key:
-                self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
-            elif "importance" in key:
-                self.tmp_arrays[key][self.tmp_arrays_idx,:,:] = example_arrays[key]
-            elif "seqlets" in key:
-                self.tmp_arrays[key][self.tmp_arrays_idx,:,:] = example_arrays[key]
-            else:
-                self.tmp_arrays[key][self.tmp_arrays_idx,:] = example_arrays[key]
+        for key in self.example_keys:
+            
+            self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
+                
+            #if "example_metadata" in key:
+            #    self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
+            #elif "importance" in key:
+            #    self.tmp_arrays[key][self.tmp_arrays_idx,:,:] = example_arrays[key]
+            #elif "seqlets" in key:
+            #    self.tmp_arrays[key][self.tmp_arrays_idx,:,:] = example_arrays[key]
+            #else:
+            #    self.tmp_arrays[key][self.tmp_arrays_idx,:] = example_arrays[key]
         self.tmp_arrays_idx += 1
-
+        
         # now if at end of batch, push out and reset tmp
         if self.tmp_arrays_idx == self.batch_size:
-            self._push_batch()
+            self.push_batch()
 
         return
+
+    
+    def store_batch(self, batch):
+        """Coming from batch input
+        """
+        self.tmp_arrays = batch
+        self.tmp_arrays["example_metadata"] = batch["example_metadata"].astype("S100")
+
+        # todo maybe just call push batch?
         
-        
-    def _push_batch(self):
+        return
+
+    
+    def push_batch(self):
         """Go from the tmp array to the h5 file
         """
-        for key in self.tmp_arrays.keys():
-            if "feature_metadata" in key:
-                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key].reshape((self.batch_size, 1))
-            elif "importance" in key:
-                self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key]
-            else:
-                self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key]
-
+        for key in self.example_keys:
+            self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
+                
+                
+                #if "example_metadata" in key:
+                #    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key] #.reshape((self.batch_size, 1))
+                #elif "importance" in key:
+                #    self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key]
+                #else:
+                #    self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key]
+            
         # set new point in batch
         self.batch_start = self.batch_end
         self.batch_end += self.batch_size
@@ -369,22 +403,29 @@ class H5Handler(object):
         return
 
 
-    def flush(self):
+    def flush(self, defined_batch_end=None):
         """Check to see how many are real examples and push the last batch gracefully in
         """
-        for batch_end in xrange(self.tmp_arrays["feature_metadata"].shape[0]):
-            if self.tmp_arrays["feature_metadata"][batch_end].rstrip("\0") == "false=chrY:0-0":
-                break
+        if defined_batch_end is not None:
+            batch_end = defined_batch_end
+        else:
+            for batch_end in xrange(self.tmp_arrays["feature_metadata"].shape[0]):
+                if self.tmp_arrays["feature_metadata"][batch_end].rstrip("\0") == "false=chrY:0-0":
+                    break
         self.batch_end = self.batch_start + batch_end
-        
-        for key in self.tmp_arrays.keys():
-            if "feature_metadata" in key:
-                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape((batch_end, 1))
-            elif "importance" in key:
-                self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key][0:batch_end,:,:]
 
-            else:
-                self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key][0:batch_end,:]
+
+        
+        for key in self.example_keys:
+            self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
+            
+            #if "example_metadata" in key:
+            #    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape((batch_end, 1))
+            #elif "importance" in key:
+            #    self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key][0:batch_end,:,:]
+
+            #else:
+            #    self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key][0:batch_end,:]
 
 
         return
@@ -395,8 +436,74 @@ class H5Handler(object):
         """
         assert self.resizable == True
 
-        for key in self.h5_handle.keys():
+        for key in self.example_keys:
             dataset_final_shape = [self.batch_end] + [int(i) for i in self.h5_handle[key].shape[1:]]
             self.h5_handle[key].resize(dataset_final_shape)
             
         return
+
+
+class H5InputHandler(object):
+
+    def __init__(self, h5_handle, batch_size=512, flatten=False, skip=["label_metadata"]):
+        self.h5_handle = h5_handle
+        self.example_idx = 0
+        self.batch_end = batch_size
+        self.batch_size = batch_size
+        self.batch_idx = 0
+        self.total_examples = self.h5_handle["example_metadata"].shape[0]
+        self.skip = skip
+        self.flatten = flatten
+        self.pull_batch()
+        
+
+    def pull_batch(self):
+        """Pull out a batch of examples
+        """
+        if self.example_idx + self.batch_size > self.total_examples:
+            self.batch_end = self.total_examples
+        
+        batch_arrays = {}
+        for key in self.h5_handle.keys():
+            if key in self.skip:
+                continue
+
+            if self.flatten and key == "features":
+                batch_arrays[key] = np.squeeze(self.h5_handle[key][self.example_idx:self.batch_end]).transpose(0, 2, 1)
+            else:
+                batch_arrays[key] = self.h5_handle[key][self.example_idx:self.batch_end]
+            
+            #if "example_metadata" in key:
+            #    batch_arrays[key] = self.h5_handle[key][self.example_idx:self.batch_end]
+            #elif "feature" in key:
+            #    batch_arrays[key] = self.h5_handle[key][self.example_idx:self.batch_end,:,:,:]
+            #else:
+            #    batch_arrays[key] = self.h5_handle[key][self.example_idx:self.batch_end,:]
+            
+        self.batch_arrays = batch_arrays
+        self.batch_idx = 0
+        self.example_idx = self.batch_end
+        self.batch_end += self.batch_size
+                
+        return
+
+
+    def get_example_array(self):
+        """Pull out one example
+        """
+        example_array = {}
+        for key in self.batch_arrays.keys():
+            example_array[key] = self.batch_arrays[key][self.batch_idx]
+            
+            #if "example_metadata" in key:
+            #    example_array[key] = self.batch_arrays[key][self.batch_idx,0]
+            #elif "feature" in key:
+            #    example_array[key] = self.batch_arrays[key][self.batch_idx,:,:,:]
+            #else:
+            #    example_array[key] = self.batch_arrays[key][self.batch_idx,:]
+        self.batch_idx += 1
+                
+        if self.batch_idx == self.batch_size:
+            self.pull_batch()
+
+        return example_array

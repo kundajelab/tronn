@@ -1,8 +1,22 @@
 """Kmer utils
 """
 
+import os
 import h5py
+import math
+import glob
 import numpy as np
+
+import tensorflow as tf
+
+from tronn.util.parallelize import setup_multiprocessing_queue
+from tronn.util.parallelize import run_in_parallel
+
+from tronn.util.tf_utils import setup_tensorflow_session
+from tronn.util.tf_utils import close_tensorflow_session
+
+from tronn.outlayer import H5Handler
+from tronn.outlayer import H5InputHandler
 
 def kmer_array_to_hash(kmer_array, num_bases=5):
     """Get unique identifying position of kmer
@@ -46,27 +60,21 @@ def kmer_hash_to_string(idx, kmer_len=7, num_bases=5):
     return ''.join(kmer_string)
 
 
-def kmer_array_to_string_old(kmer_array, num_bases=5):
-    """Get string representation of kmer
+def kmer_hash_to_array(idx, kmer_len=7, num_bases=5):
+    """From unique index val, get kmer string back
     """
-    kmer_idx = 0
-    base_list = []
-    # TODO check reversal
-    for i in range(kmer_array.shape[1]):
+    num_to_base = {0: "N", 1:"A", 2:"C", 3:"G", 4:"T"}
 
-        if kmer_array[0,i] > 0:
-            num = 'A'
-        elif kmer_array[1,i] > 0:
-            num = 'C'
-        elif kmer_array[2,i] > 0:
-            num = 'G'
-        elif kmer_array[3,i] > 0:
-            num = 'T'
-        else:
-            num = 'N'
-        base_list.append(num)
-        
-    return ''.join(base_list)
+    kmer_array = np.zeros((num_bases-1, kmer_len))
+    
+    idx_tmp = idx
+    for pos in reversed(range(kmer_len)):
+        num = int(idx_tmp / num_bases**pos)
+        if num != 0:
+            kmer_array[num-1,pos] = 1
+        idx_tmp -= num * (num_bases**pos)
+    
+    return kmer_array
 
 
 def kmer_array_to_string(kmer_array, num_bases=5):
@@ -96,15 +104,103 @@ def kmer_array_to_string(kmer_array, num_bases=5):
     return ''.join(base_list)
 
 
-
-def kmerize():
+def kmerize_gpu(tronn_graph, out_h5_file, total_examples, batch_size=128):
+    """Utilize tensorflow to featurize as gapped kmers
     """
-    """
+    with tf.Graph().as_default() as g:
 
-    # TODO rewrite kmerize function so that it works both for onehot sequence and for importance scores
-    
+        # build graph
+        # need to keep: example_metadata, features, labels
+        kmer_features = tronn_graph.build_graph()
+
+        
+        tensor_dict = {
+            "example_metadata": tronn_graph.metadata,
+            "features": kmer_features,
+            "labels": tronn_graph.labels
+        }
+        
+        # setup session
+        sess, coord, threads = setup_tensorflow_session()
+
+        # setup output file
+        with h5py.File(out_h5_file, "w") as out:
+
+            h5_handler = H5Handler(out, tensor_dict, total_examples, resizable=False, batch_size=batch_size)
+
+            batch_num = int(math.ceil(total_examples / float(batch_size)))
+            print batch_num
+            
+            for batch_idx in xrange(batch_num):
+
+                if batch_idx % 10 == 0:
+                    print batch_idx
+
+                # run session
+                outputs = sess.run(tensor_dict)
+            
+                # store batch
+                h5_handler.store_batch(outputs)
+
+                # push
+                if batch_idx < (batch_num-1):
+                    h5_handler.push_batch()
+                else:
+                    h5_handler.flush(
+                        defined_batch_end=total_examples)
+                    
+        close_tensorflow_session(coord, threads)
+        
+    return
+
+
+def kmerize(
+        sequence_h5_file,
+        out_h5_file,
+        kmer_len=6,
+        num_bases=5):
+    """Kmerize sequence file
+    """
+    with h5py.File(sequence_h5_file, "r") as hf:
+
+        total_examples = hf["example_metadata"].shape[0]
+        print "total:", total_examples
+        total_columns = num_bases**kmer_len
+        # set up h5 input handler
+        in_h5_handler = H5InputHandler(hf, flatten=True)
+        
+        with h5py.File(out_h5_file, "w") as out:
+            # set up h5_handler
+            out_h5_handler = H5Handler(
+                out, hf, total_examples, resizable=False, is_tensor_input=False, skip=["features"])
+        
+            out_h5_handler.add_dataset("features", (total_examples, total_columns))
+
+            # and now get batches and kmerize and store
+            for example_idx in xrange(total_examples):
+
+                if example_idx % 1000 == 0:
+                    print example_idx
+
+                example_array = in_h5_handler.get_example_array()
+
+                # kmerize
+                #sequence = np.squeeze(example_array["features"]).transpose(1, 0)
+                sequence = example_array["features"]
+                kmer_counts = np.zeros((1, total_columns))
+                for i in range(sequence.shape[1] - kmer_len):
+                    kmer = sequence[:,i:(i+kmer_len)]
+                    kmer_idx = kmer_array_to_hash(kmer)
+                    kmer_counts[0, kmer_idx] += 1
+                # don't keep counts of NNNN kmers
+                kmer_counts[0, 0] = 0
+                example_array["features"] = kmer_counts
+                
+                # and store
+                out_h5_handler.store_example(example_array)
 
     return
+
 
 
 def kmerize2(
@@ -236,12 +332,13 @@ def kmerize_parallel(in_dir, out_dir, parallel=24):
     print "Found {} h5 files".format(len(h5_files))
 
     for h5_file in h5_files:
-        out_file = '{0}/{1}.kmers.h5'.format(out_dir,
-                                             os.path.basename(h5_file).split('.h5')[0])
-        kmerize_args = [h5_file, [6], 5, False, 0, True, out_file]
+        out_file = '{0}/{1}.kmers.h5'.format(
+            out_dir,
+            os.path.basename(h5_file).split('.h5')[0])
+        kmerize_args = [h5_file, out_file]
 
         if not os.path.isfile(out_file):
-            kmerize_queue.put([kmerize2, kmerize_args])
+            kmerize_queue.put([kmerize, kmerize_args])
 
     run_in_parallel(kmerize_queue, parallel=parallel, wait=True)
 

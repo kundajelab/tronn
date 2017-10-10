@@ -24,7 +24,8 @@ class TronnGraph(object):
                  model_params,
                  batch_size,
                  feature_key="features",
-                 shuffle_data=True):
+                 shuffle_data=True,
+                 ordered_num_epochs=1):
         logging.info("Initialized TronnGraph")
         self.data_files = data_files # data files is a dict of lists
         self.tasks = tasks
@@ -34,6 +35,7 @@ class TronnGraph(object):
         self.batch_size = batch_size
         self.feature_key = feature_key
         self.shuffle_data = shuffle_data
+        self.ordered_num_epochs = ordered_num_epochs
         
     def build_graph(self, data_key="data", is_training=False):
         """Main function of graph: puts together the pieces
@@ -47,7 +49,8 @@ class TronnGraph(object):
             self.batch_size,
             self.tasks,
             features_key=self.feature_key,
-            shuffle=self.shuffle_data)
+            shuffle=self.shuffle_data,
+            ordered_num_epochs=self.ordered_num_epochs)
 
         # adjust tasks
         if self.tasks == []:

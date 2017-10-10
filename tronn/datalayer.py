@@ -348,7 +348,7 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
     return features_tensor, labels_tensor, metadata_tensor
 
 
-def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key='features', shuffle=True, shuffle_seed=0):
+def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key='features', shuffle=True, shuffle_seed=0, ordered_num_epochs=1):
     """Load data into queues from a filename list of hdf5 files
 
     Args:
@@ -381,7 +381,7 @@ def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key=
                                                                  name='batcher')
 
     elif shuffle == False:
-    	example_slices_list = hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks, features_key)
+    	example_slices_list = hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks, features_key, num_epochs=ordered_num_epochs)
     	features, labels, metadata = tf.train.batch(example_slices_list,
                                                                  batch_size,
                                                                  capacity=100000,
@@ -477,3 +477,5 @@ def tflearn_input_fn(hdf5_files, batch_size, tasks=[], features_key='features', 
         return features, labels
 
     return load_kmer_data_from_filename_list
+
+

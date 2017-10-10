@@ -11,6 +11,7 @@ from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import model_fns
 from tronn.graphs import TronnNeuralNetGraph
 
+from tronn.learn.cross_validation import setup_cv
 from tronn.learn.learning import train_and_evaluate
 from tronn.learn.evaluation import get_global_avg_metrics
 
@@ -55,11 +56,14 @@ def run(args):
     # find data files
     data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
     logging.info('Finding data: found {} chrom files'.format(len(data_files)))
-    train_files = data_files[0:20]
-    valid_files = data_files[20:22]
-    # TODO(dk) set up test set of files too
-    # TODO(dk) set up cross fold validation/ensembling?
+    train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
+    print train_files
+    print valid_files
+    print test_files
+    
+    quit()
+    
     # Get number of train and validation steps
     args.num_train_examples = get_total_num_examples(train_files)
     args.train_steps = args.num_train_examples / args.batch_size - 100

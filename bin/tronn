@@ -52,6 +52,8 @@ def parse_args():
     # load data jsons
     #load_data_files(parser)
 
+    add_baseline_parser(subparsers)
+    
     # parse args
     args = parser.parse_args()
 
@@ -171,6 +173,9 @@ def add_train_parser(subparsers):
     group_input = argparser_train.add_argument_group(
         "Input files and folders")
     add_hdf5_data_options(group_input)
+    group_input.add_argument(
+        "--cvfold", default=0, type=int,
+        help="which files to train on [0, 1, 2]")
     group_input.add_argument(
         '--restore_model_dir', default=None,
         help='restore from last checkpoint in dir')
@@ -565,6 +570,9 @@ def add_baseline_parser(subparsers):
     # group for input files
     group_input = argparser_baseline.add_argument_group("Input files and folders")
     group_input.add_argument('--data_dir', help='Data directory of kmer hdf5 files')
+    group_input.add_argument(
+        "--tasks", nargs="+", default=[], type=int,
+        help="tasks to train on (default is all)")
 
     # group for parameters
     group_params = argparser_baseline.add_argument_group("Training hyperparameters")
@@ -572,8 +580,7 @@ def add_baseline_parser(subparsers):
 
     # group for output files
     group_output = argparser_baseline.add_argument_group("Output files and folders")
-    add_out_dir_option(group_output, default='log_rf')
-    group_output.add_argument('--prefix', default='tronn', help='prefix to attach onto file names')
+    add_output_options(group_output, out_dir='baseline')
 
     return
 
@@ -648,6 +655,9 @@ def main():
     elif subcommand == "interpret_multitask":
         add_model_params(args)
         from tronn.run_multitask_interpretation import run
+        run(args)
+    elif subcommand == "baseline":
+        from tronn.learn.baselines_v2 import run
         run(args)
         
     return None

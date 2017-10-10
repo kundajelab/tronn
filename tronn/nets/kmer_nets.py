@@ -1,0 +1,53 @@
+# Description: use graphs to quickly scan for kmers and sum up
+
+
+import numpy as np
+
+import tensorflow as tf
+import tensorflow.contrib.slim as slim
+
+from tronn.util.initializers import pwm_simple_initializer
+from tronn.util.tf_utils import get_fan_in
+from tronn.interpretation.kmers import kmer_hash_to_array
+from tronn.interpretation.motifs import PWM
+
+def gkmerize(features, labels, model_params, is_training=False):
+    """Given a (batch, 1, seq_len, 4) sequence, kmerize it
+    Allow gapped kmers
+    
+    INCOMPLETE: stopped because I realized that it's faster
+    to parallely process kmers on CPUs instead of 1 GPU... ha
+
+    """
+    kmer_len = model_params["kmer_len"]
+    base_pairs = 5
+    # set up kmers to scan
+    kmer_pwm_list = []
+    kmer_match_totals = []
+    total_kmers = base_pairs**kmer_len
+    for kmer_hash in xrange(total_kmers):
+        kmer_array = kmer_hash_to_array(kmer_hash)
+        kmer_pwm_list.append(PWM(kmer_array))
+        kmer_match_totals.append(np.sum(kmer_array))
+
+    kmer_match_tensor = tf.cast(tf.convert_to_tensor(np.array(kmer_match_totals)), tf.float32)
+        
+    # make the conv filter layer
+    kmer_filter_size = [1, kmer_len]
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding="VALID",
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                kmer_filter_size, kmer_pwm_list, get_fan_in(features)),
+            biases_initializer=None,
+            trainable=False):
+        net = slim.conv2d(
+            features, total_kmers, kmer_filter_size,
+            scope="conv1/conv")
+
+    # then need to only keep those that fully match
+    kmer_matches = tf.cast(tf.equal(net, kmer_match_tensor), tf.int32)
+    kmer_vector = tf.squeeze(tf.reduce_sum(kmer_matches, axis=2))
+
+    return kmer_vector

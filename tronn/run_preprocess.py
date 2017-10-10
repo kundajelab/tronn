@@ -4,11 +4,20 @@ files that are input to deep learning models
 """
 
 import os
+import glob
 import time
+import h5py
+
+from tronn.graphs import TronnGraph
+from tronn.datalayer import load_data_from_filename_list
 
 from tronn.preprocess import generate_master_regions
 from tronn.preprocess import generate_nn_dataset
 
+from tronn.interpretation.kmers import kmerize_parallel
+from tronn.interpretation.kmers import kmerize_gpu
+
+from tronn.nets.kmer_nets import gkmerize
 
 def run(args):
     """Main function to generate dataset
@@ -33,15 +42,59 @@ def run(args):
                         neg_region_num=args.univ_neg_num,
                         reverse_complemented=args.rc)
 
-    # TODO utilize the kmerize function from wkm
     if args.kmerize:
         # run kmerize function and save to hdf5 files
         print "kmerize!"
-        from tronn.interpretation.wkm import kmerize_parallel
-        os.system('mkdir -p {}/data/h5_kmer'.format(args.out_dir))
-        kmerize_parallel('{}/data/h5'.format(args.out_dir),
-                         '{}/data/h5_kmer'.format(args.out_dir))
+        os.system('mkdir -p {}/h5_kmer'.format(args.out_dir))
+        kmerize_parallel('{}/h5'.format(args.out_dir),
+                         '{}/h5_kmer'.format(args.out_dir),
+                         parallel=args.parallel)
+
+
+
+    quit()
+    # TODO utilize the kmerize function from wkm
+    if args.kmerize:
+        h5_files = glob.glob("{}/h5/*".format(args.out_dir))
+        os.system('mkdir -p {}/h5_kmer'.format(args.out_dir))
+        batch_size = 64
         
+        for h5_file in h5_files:
+
+            h5_kmer_file = "{}/h5_kmer/{}.kmer.h5".format(
+                args.out_dir, os.path.basename(h5_file).split(".h5")[0])
+            print "generating:", h5_kmer_file
+            
+            with h5py.File(h5_file, "r") as hf:
+                total_examples = hf["example_metadata"].shape[0]
+            
+            kmerize_graph = TronnGraph(
+                {"data":[h5_file]},
+                [],
+                load_data_from_filename_list,
+                gkmerize,
+                {"kmer_len":6},
+                batch_size,
+                shuffle_data=False,
+                ordered_num_epochs=2) # this last bit is to make sure we get the last batch
+
+            kmerize_gpu(kmerize_graph, h5_kmer_file, total_examples, batch_size=batch_size)
+
+            quit()
+            
+
+    if False:
+    #if args.kmerize:
+        # run kmerize function and save to hdf5 files
+        print "kmerize!"
+        os.system('mkdir -p {}/h5_kmer'.format(args.out_dir))
+        kmerize_parallel('{}/h5'.format(args.out_dir),
+                         '{}/h5_kmer'.format(args.out_dir))
+
+        
+    # and here also utilize motif info as input if desired
+    
+    
 
     end = time.time()
     print "Execution time: {}".format(end - start)
