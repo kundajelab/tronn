@@ -23,11 +23,21 @@ from tronn.learn import random_forest
 #from tensorflow.contrib.tensor_forest.python import tensor_forest
 #from tensorflow.contrib.tensor_forest.client import random_forest
 
+from tronn.nets.kmer_nets import featurize_kmers
+from tronn.nets.motif_nets import featurize_motifs
+from tronn.learn.cross_validation import setup_cv
+
+from tronn.interpretation.motifs import get_encode_pwms
+
+
 def build_estimator(model_dir, num_classes=3):
     """Build an estimator."""
     params = tensor_forest.ForestHParams(
-        num_classes=num_classes, num_features=15625, # num classes = 2
-        num_trees=100, max_nodes=10000, regression=True) # make this bigger later 500, max nodes 3000
+        num_classes=num_classes,
+        num_features=15625, # num classes = 2
+        num_trees=100,
+        max_nodes=10000,
+        regression=True if num_classes > 2 else False) # make this bigger later 500, max nodes 3000
     graph_builder_class = tensor_forest.RandomForestGraphs
     
     if num_classes > 2:
@@ -97,12 +107,6 @@ def train_and_eval_tensorforest(
         auprc,
         prediction_key='logits')
 
-    # code to check the key names
-    from tensorflow.contrib.learn.python.learn.estimators import prediction_key
-    print prediction_key.PredictionKey.PROBABILITIES
-    print prediction_key.PredictionKey.CLASSES # TODO need to fix this?
-    #variable_names = est.get_variable_names()
-
     est.fit(input_fn=data_loader_train, max_steps=5000) # steps=5000
 
     if True:
@@ -134,20 +138,48 @@ def train_and_eval_tensorforest(
 def run(args):
     """Run command
     """
-
     data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
-    #train_files = data_files
-    #test_files = data_files
-    train_files = data_files[0:20]
-    test_files = data_files[20:22]
+    train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
+    tf.logging.set_verbosity(tf.logging.INFO)
     
     # TODO run through at least 1 epoch and at least until loss drops more
-    tf.logging.set_verbosity(tf.logging.INFO)
-    train_and_eval_tensorforest(tflearn_input_fn(train_files, args.batch_size, tasks=args.tasks),
-                                tflearn_input_fn(test_files, args.batch_size, tasks=args.tasks),
-                                args.batch_size,
-                                args.out_dir,
-                                num_classes=3 if len(args.tasks) == 0 else 2)
+    if args.kmers:
+        train_and_eval_tensorforest(
+            tflearn_input_fn(
+                train_files,
+                args.batch_size,
+                tasks=args.tasks,
+                featurize_fn=featurize_kmers,
+                featurize_params={"kmer_len": args.kmer_len}),
+            tflearn_input_fn(
+                test_files,
+                args.batch_size,
+                tasks=args.tasks,
+                featurize_fn=featurize_kmers,
+                featurize_params={"kmer_len": args.kmer_len}),
+            args.batch_size,
+            args.out_dir,
+            num_classes=args.num_classes)
+
+    elif args.motifs:
+        train_and_eval_tensorforest(
+            tflearn_input_fn(
+                train_files,
+                args.batch_size,
+                tasks=args.tasks,
+                featurize_fn=featurize_motifs,
+                featurize_params={"pwm_list": get_encode_pwms(args.pwm_file)}),
+            tflearn_input_fn(
+                test_files,
+                args.batch_size,
+                tasks=args.tasks,
+                featurize_fn=featurize_motifs,
+                featurize_params={"pwm_list": get_encode_pwms(args.pwm_file)}),
+            args.batch_size,
+            args.out_dir,
+            num_classes=args.num_classes)
+    
+
     
     return None
 

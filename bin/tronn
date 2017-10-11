@@ -145,6 +145,12 @@ def add_preprocess_parser(subparsers):
         "--rc",
         help='Reverse complement')
     group_opts.add_argument(
+        "--no_flank_negs", default="store_true",
+        help="turn off flank negatives")
+    group_opts.add_argument(
+        "--other_negs", default="dhs",
+        help="what other negative sets to use [dhs, random]")
+    group_opts.add_argument(
         "--univ_neg_num", default=200000,
         help='number of universal negatives to grab from univ DHS regions')
     group_opts.add_argument(
@@ -571,12 +577,32 @@ def add_baseline_parser(subparsers):
     group_input = argparser_baseline.add_argument_group("Input files and folders")
     group_input.add_argument('--data_dir', help='Data directory of kmer hdf5 files')
     group_input.add_argument(
+        "--cvfold", default=0, type=int,
+        help="which files to train on [0, 1, 2]")
+    group_input.add_argument(
+        "--num_classes", default=2, type=int,
+        help="how many classes")
+    group_input.add_argument(
+        "--kmers", action="store_true",
+        help="featurize as kmers")
+    group_input.add_argument(
+        "--kmer_len", default=6, type=int,
+        help="what kmer len to featurize with")
+    group_input.add_argument(
+        "--motifs", action="store_true",
+        help="featurize as kmers")
+    group_input.add_argument(
+        "--pwm_file",
+        help="motif_file")
+    group_input.add_argument(
         "--tasks", nargs="+", default=[], type=int,
         help="tasks to train on (default is all)")
 
     # group for parameters
     group_params = argparser_baseline.add_argument_group("Training hyperparameters")
     group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
+    group_params.add_argument('--num_trees', default=100, type=int, help='how many trees')
+    group_params.add_argument('--max_nodes', default=10000, type=int, help='max nodes per tree')
 
     # group for output files
     group_output = argparser_baseline.add_argument_group("Output files and folders")
@@ -657,7 +683,7 @@ def main():
         from tronn.run_multitask_interpretation import run
         run(args)
     elif subcommand == "baseline":
-        from tronn.learn.baselines_v2 import run
+        from tronn.run_tensorforest import run
         run(args)
         
     return None

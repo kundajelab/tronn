@@ -55,7 +55,7 @@ def pwm_simple_initializer(filter_shape, pwm_list, fan_in, dtype=dtypes.float32)
                     (4, extend_length)),
                  pwm.weights,
                  np.zeros(
-                     (4, 19-extend_length-pwm.weights.shape[1]))),
+                     (4, filter_length-extend_length-pwm.weights.shape[1]))),
                 axis=1)
         else:
             pwm_center = pwm.weights.shape[1] / 2

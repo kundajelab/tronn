@@ -455,7 +455,15 @@ def hdf5_kmers_to_slices(hdf5_file, batch_size, tasks=[], features_key='features
     return features_tensor, labels_tensor, metadata_tensor
 
 
-def tflearn_input_fn(hdf5_files, batch_size, tasks=[], features_key='features', shuffle=True, shuffle_seed=0): # CHANGE THIS LATER
+def tflearn_kmer_input_fn(
+        hdf5_files,
+        batch_size,
+        tasks=[],
+        features_key='features',
+        shuffle=True,
+        shuffle_seed=0,
+        featurize_fn=None,
+        featurize_params={}): 
     """Wrapper to make input function work in TFLearn
     """
 
@@ -473,9 +481,57 @@ def tflearn_input_fn(hdf5_files, batch_size, tasks=[], features_key='features', 
                                                                  seed=shuffle_seed,
                                                                  enqueue_many=True,
                                                                  name='batcher')
-        
+
+        # TODO(dk) put in a featurization layer here?
+        if featurize_fn is not None:
+            features = featurize_fn(features, **featurize_params)
+
+            print features.get_shape()
+
+            quit()
+
+            
         return features, labels
 
     return load_kmer_data_from_filename_list
+
+
+def tflearn_input_fn(
+        hdf5_files,
+        batch_size,
+        tasks=[],
+        features_key='features',
+        shuffle=True,
+        shuffle_seed=0,
+        featurize_fn=None,
+        featurize_params={}): 
+    """Wrapper to make input function work in TFLearn
+    """
+    
+    def load_onehot_sequences_from_filename_list():
+        """Function to put into tflearn
+        """
+        example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=True) for hdf5_file in hdf5_files]
+        min_after_dequeue = 10000
+        capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
+        features, labels, metadata = tf.train.shuffle_batch_join(example_slices_list,
+                                                                 batch_size,
+                                                                 capacity=capacity,
+                                                                 min_after_dequeue=min_after_dequeue,
+                                                                 seed=shuffle_seed,
+                                                                 enqueue_many=True,
+                                                                 name='batcher')
+        
+        if featurize_fn is not None:
+            #with tf.device("/cpu:0"):
+            features = featurize_fn(features, **featurize_params)
+
+        return features, labels
+
+    return load_onehot_sequences_from_filename_list
+
+
+
+
 
 

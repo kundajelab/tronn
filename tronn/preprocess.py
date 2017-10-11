@@ -537,6 +537,8 @@ def generate_nn_dataset(
         work_dir,
         prefix,
         neg_region_num=200000,
+        neg_region_selection="dhs", # TO ADD chromsizes
+        chrom_sizes=None,
         bin_size=200,
         bin_method='plus_flank_negs',
         stride=50,
@@ -550,19 +552,39 @@ def generate_nn_dataset(
     os.system('mkdir -p {}'.format(work_dir))
     tmp_dir = "{}/tmp".format(work_dir)
     os.system("mkdir -p {}".format(tmp_dir))
-    
+
     # Select random set of negatives from univ master regions
     completely_neg_file = '{0}/{1}.negatives.bed.gz'.format(tmp_dir, prefix)
-    select_negs = ("bedtools intersect -v -a {0} -b {1} | "
-                   "shuf -n {2} | "
-                   "awk '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
-                   "gzip -c > {3}").format(univ_master_regions,
-                                           celltype_master_regions,
-                                           neg_region_num,
-                                           completely_neg_file)
+    if neg_region_selection == "dhs":
+        select_negs = ("bedtools intersect -v -a {0} -b {1} | "
+                       "shuf -n {2} | "
+                       "awk '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
+                       "gzip -c > {3}").format(univ_master_regions,
+                                               celltype_master_regions,
+                                               neg_region_num,
+                                               completely_neg_file)
+    elif neg_region_selection == "random":
+        assert chrom_sizes is not None
+        tmp_chrom_sizes = "{0}/{1}.tmp".format(tmp_dir, os.path.basename(chrom_sizes))
+        setup_chrom_sizes = (
+            "cat {0} | grep -v '_' | grep -v 'chrM' > "
+            "{1}").format(chrom_sizes, tmp_chrom_sizes)
+        print setup_chrom_sizes
+        os.system(setup_chrom_sizes)
+        select_negs = (
+            "bedtools shuffle -i {0} -excl {0} -g {1} | "
+            "gzip -c > {2}").format(
+                celltype_master_regions,
+                tmp_chrom_sizes,
+                completely_neg_file)
+    else:
+        print "Method for negs does not exist!"
+        return
+        
     if not os.path.isfile(completely_neg_file):
         print select_negs
-        os.system(select_negs)
+        os.system(select_negs)        
+        
 
     # merge in to have a file of positive and negative regions
     final_master = '{0}/{1}.master.ml.bed.gz'.format(tmp_dir, prefix)
