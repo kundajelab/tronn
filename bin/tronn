@@ -145,7 +145,7 @@ def add_preprocess_parser(subparsers):
         "--rc",
         help='Reverse complement')
     group_opts.add_argument(
-        "--no_flank_negs", default="store_true",
+        "--no_flank_negs", action="store_true",
         help="turn off flank negatives")
     group_opts.add_argument(
         "--other_negs", default="dhs",
