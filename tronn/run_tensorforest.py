@@ -32,7 +32,10 @@ def build_tensorforest_estimator(
     
     The num_trees and max_nodes are from Google recommendations
     Note that I increased early stopping rounds because biology
-    data is super noisy
+    data is super noisy. These presets seem pretty good - even
+    if I run the model longer, the numbers stabilize out pretty
+    quickly (open question of the fact that the RF is not seeing
+    or really able to use all the data at the moment...)
     """
     params = tensor_forest.ForestHParams(
         num_classes=num_classes,
