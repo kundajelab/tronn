@@ -40,7 +40,8 @@ def run(args):
                         args.prefix,
                         parallel=args.parallel,
                         neg_region_num=args.univ_neg_num,
-                        neg_region_selection=args.other_negs,
+                        use_dhs=not args.no_dhs_negs,
+                        use_random=args.random_negs,
                         chrom_sizes=args.annotations["chrom_sizes"],
                         bin_method="naive" if args.no_flank_negs else "plus_flank_negs",
                         reverse_complemented=args.rc)

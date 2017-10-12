@@ -120,9 +120,7 @@ def add_hdf5_data_options(parser):
         "--tasks", nargs="+", default=[], type=int,
         help="tasks to train on (default is all)")
     
-    return
-
-
+    
 def add_preprocess_parser(subparsers):
     """Add data generation function argument parser
     """
@@ -148,10 +146,13 @@ def add_preprocess_parser(subparsers):
         "--no_flank_negs", action="store_true",
         help="turn off flank negatives")
     group_opts.add_argument(
-        "--other_negs", default="dhs",
-        help="what other negative sets to use [dhs, random]")
+        "--no_dhs_negs", action="store_true",
+        help="turn off flank negatives")
     group_opts.add_argument(
-        "--univ_neg_num", default=200000,
+        "--random_negs", action="store_true",
+        help="add random negatives")
+    group_opts.add_argument(
+        "--univ_neg_num",
         help='number of universal negatives to grab from univ DHS regions')
     group_opts.add_argument(
         "--parallel", default=12, type=int,
