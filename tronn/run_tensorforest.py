@@ -27,7 +27,7 @@ def build_tensorforest_estimator(
         num_classes,
         num_trees=100,
         max_nodes=10000,
-        early_stopping_rounds=2000):
+        early_stopping_rounds=300):
     """Build an estimator for tensorforest
     
     The num_trees and max_nodes are from Google recommendations
