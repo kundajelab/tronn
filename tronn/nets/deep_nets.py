@@ -95,7 +95,7 @@ def temporal_pred_module(
     return logits
 
 
-def basset_conv_module(features, is_training=True):
+def basset_conv_module(features, is_training=True, width_factor=1):
     with slim.arg_scope(
             [slim.batch_norm],
             center=True,
@@ -107,15 +107,15 @@ def basset_conv_module(features, is_training=True):
                 activation_fn=None,
                 weights_initializer=layers.variance_scaling_initializer(),
                 biases_initializer=None):
-            net = slim.conv2d(features, 300, [1, 19])
+            net = slim.conv2d(features, width_factor*300, [1, 19])
             net = slim.batch_norm(net)
             net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
 
-            net = slim.conv2d(net, 200, [1, 11])
+            net = slim.conv2d(net, width_factor*200, [1, 11])
             net = slim.batch_norm(net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
 
-            net = slim.conv2d(net, 200, [1, 7])
+            net = slim.conv2d(net, width_factor*200, [1, 7])
             net = slim.batch_norm(net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
     return net
@@ -125,13 +125,14 @@ def basset(features, labels, config, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
     '''
+    config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
     config['temporal'] = config.get('temporal', False)
     config['final_pool'] = config.get('final_pool', 'flatten')
     config['fc_layers'] = config.get('fc_layers', 2)
-    config['fc_dim'] = config.get('fc_dim', 1000)
+    config['fc_dim'] = config.get('fc_dim', config['width_factor']*1000)
     config['drop'] = config.get('drop', 0.3)
 
-    net = basset_conv_module(features, is_training)
+    net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
     net = final_pool(net, config['final_pool'])
     if config['temporal']:
         logits = temporal_pred_module(

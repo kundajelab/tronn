@@ -281,6 +281,9 @@ def add_evaluate_parser(subparsers):
     group_input = argparser_test.add_argument_group(
         "Input files and folders")
     add_hdf5_data_options(group_input)
+    group_input.add_argument(
+        "--cvfold", default=0, type=int,
+        help="which files to train on [0, 1, 2]")
 
     # group for model
     group_model = argparser_test.add_argument_group(

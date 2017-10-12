@@ -26,8 +26,13 @@ def build_tensorforest_estimator(
         num_features,
         num_classes,
         num_trees=100,
-        max_nodes=10000):
+        max_nodes=10000,
+        early_stopping_rounds=2000):
     """Build an estimator for tensorforest
+    
+    The num_trees and max_nodes are from Google recommendations
+    Note that I increased early stopping rounds because biology
+    data is super noisy
     """
     params = tensor_forest.ForestHParams(
         num_classes=num_classes,
@@ -46,7 +51,7 @@ def build_tensorforest_estimator(
     return random_forest.TensorForestEstimator(
         params,
         graph_builder_class=tensor_forest.RandomForestGraphs,
-        early_stopping_rounds=100000000,
+        early_stopping_rounds=early_stopping_rounds,
         head=head,
         model_dir=model_dir)
 
