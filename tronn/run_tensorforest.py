@@ -6,7 +6,11 @@ import numpy as np
 
 import tensorflow as tf
 
+from tensorflow.contrib.learn.python.learn import metric_spec
+from tensorflow.contrib.tensor_forest.client import eval_metrics
+
 from tensorflow.contrib.learn.python.learn.estimators import head as head_lib
+from tensorflow.contrib.learn.python.learn.estimators import prediction_key
 #from tensorflow.contrib.tensor_forest.python import tensor_forest
 #from tensorflow.contrib.tensor_forest.client import random_forest
 
@@ -19,6 +23,8 @@ from tronn.nets.kmer_nets import featurize_kmers
 from tronn.nets.motif_nets import featurize_motifs
 
 from tronn.interpretation.motifs import get_encode_pwms
+
+from sklearn.metrics import precision_recall_curve
 
 
 def build_tensorforest_estimator(
@@ -58,6 +64,12 @@ def build_tensorforest_estimator(
         head=head,
         model_dir=model_dir)
 
+def recall_at_fdr_tflearn(recall_at_thresholds, precision_at_thresholds, fdr):
+    """Function to take in recall at thresholds and predictions at thresholds
+    and an FDR to get the recall at a specified FDR
+    """
+    return recall_at_thresholds[np.searchsorted(precision_at_thresholds - fdr, 0)]
+
 
 def train_and_evaluate_tensorforest(
         train_input_fn,
@@ -75,30 +87,61 @@ def train_and_evaluate_tensorforest(
     estimator = build_tensorforest_estimator(out_dir, num_features, num_classes)
 
     # fit
-    estimator.fit(input_fn=train_input_fn) # steps=5000
+    #estimator.fit(input_fn=train_input_fn)
 
     # evaluation
+    # to do: generate recalls at FDR
+    if num_classes == 2:
+        metric_names = ["recall_at_thresholds", "precision_at_thresholds"]
+        metrics = {}
+        for metric_name in metric_names:
+            metrics[metric_name] = metric_spec.MetricSpec(
+                eval_metrics.get_metric(metric_name),
+                prediction_key=eval_metrics.get_prediction_key(metric_name))
+    else:
+        metrics = None    
+        
     results = estimator.evaluate(
         input_fn=test_input_fn,
+        metrics=metrics,
         steps=num_evals)
-    
-    eval_file = "{}.tflearn.eval.txt".format(eval_prefix)
+
+    eval_file = "{}.tflearn.eval.new.txt".format(eval_prefix)
     with open(eval_file, 'w') as out:
         for key in sorted(results):
             print('%s: %s' % (key, results[key]))
             out.write("{}: {}\n".format(key, results[key]))
+        # also recall at fdr
+        fdrs = [0.5, 0.75, 0.9, 0.95]
+        for fdr in fdrs:
+            try:
+                recall_at_fdr = recall_at_fdr_tflearn(
+                    results["recall_at_thresholds"],
+                    results["precision_at_thresholds"],
+                    fdr)
+            except:
+                recall_at_fdr = 0
+            print("recall at fdr {}: {}".format(fdr, recall_at_fdr))
+            out.write("recall at fdr {}: {}\n".format(fdr, recall_at_fdr))
+    
+    return estimator
 
+
+def predict_tensorforest(estimator, test_input_fn):
+    """Take in an estimator (tflearn) and run predictions
+    """
     # TODO(dk) are predictions needed?
-    if False:
-        predict_total = 50
-        prediction_generator = estimator.predict(
-            input_fn=data_loader_test)
+    predict_total = 50
+    prediction_generator = estimator.predict(
+        input_fn=test_input_fn)
     
-        for i in xrange(predict_total):
-            blah = prediction_generator.next()
-            print blah
+    for i in xrange(predict_total):
+        blah = prediction_generator.next()
+
+        import ipdb
+        ipdb.set_trace()
     
-    return None
+    return
 
 
 def run(args):
@@ -107,7 +150,7 @@ def run(args):
     data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
     train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
     tf.logging.set_verbosity(tf.logging.INFO)
-
+    
     # set up featurization layers
     if args.kmers:
         featurize_fn = featurize_kmers
@@ -134,14 +177,15 @@ def run(args):
         featurize_params=featurize_params)
             
     # train and evaluate
-    train_and_evaluate_tensorforest(
+    estimator = train_and_evaluate_tensorforest(
         train_input_fn,
         test_input_fn,
         num_features,
         args.batch_size,
         args.out_dir,
         args.num_classes,
-        "{}/{}".format(args.out_dir, args.prefix))
+        "{}/{}".format(args.out_dir, args.prefix),
+        num_evals=args.num_evals)
     
     return None
 

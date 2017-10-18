@@ -1,9 +1,17 @@
 """contains nets for training
 """
 
+import math
+
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import tensorflow.contrib.layers as layers
+
+#from tensorflow.contrib.slim.python.slim.nets import inception_v3
+#from tensorflow.contrib.slim.python.slim.nets import resnet_v2
+
+from tronn.nets.tfslim import inception_v3
+from tronn.nets.tfslim import resnet_v2
 
 from tronn.util.tf_ops import maxnorm
 
@@ -107,15 +115,15 @@ def basset_conv_module(features, is_training=True, width_factor=1):
                 activation_fn=None,
                 weights_initializer=layers.variance_scaling_initializer(),
                 biases_initializer=None):
-            net = slim.conv2d(features, width_factor*300, [1, 19])
+            net = slim.conv2d(features, int(width_factor*300), [1, 19])
             net = slim.batch_norm(net)
             net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
 
-            net = slim.conv2d(net, width_factor*200, [1, 11])
+            net = slim.conv2d(net, int(width_factor*200), [1, 11])
             net = slim.batch_norm(net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
 
-            net = slim.conv2d(net, width_factor*200, [1, 7])
+            net = slim.conv2d(net, int(width_factor*200), [1, 7])
             net = slim.batch_norm(net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
     return net
@@ -129,7 +137,7 @@ def basset(features, labels, config, is_training=True):
     config['temporal'] = config.get('temporal', False)
     config['final_pool'] = config.get('final_pool', 'flatten')
     config['fc_layers'] = config.get('fc_layers', 2)
-    config['fc_dim'] = config.get('fc_dim', config['width_factor']*1000)
+    config['fc_dim'] = config.get('fc_dim', int(config['width_factor']*1000))
     config['drop'] = config.get('drop', 0.3)
 
     net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
@@ -172,7 +180,7 @@ def danq(features, labels, config, is_training=True):
         net,
         keep_prob=0.8,
         is_training=is_training)
-
+    
     net = tf.squeeze(net, axis=1)#remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
     rnn_inputs = tf.unstack(net, axis=1, name='unpack_time_dim')
 
@@ -186,6 +194,7 @@ def danq(features, labels, config, is_training=True):
     logits = slim.fully_connected(
         net, int(labels.get_shape()[-1]), activation_fn=None)
     return logits
+
 
 
 def _residual_block(net_in, depth, pooling_info=(None, None), first=False):
@@ -312,4 +321,69 @@ def resnet(features, labels, config, is_training=True):
         drop,
         l2,
         is_training)
+    return logits
+
+
+# DK tests
+
+def rbasset(features, labels, config, is_training=True):
+    """Take basset conv module and attach LSTM on top of that, then FC layers
+    """
+    config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
+    config['temporal'] = config.get('temporal', False)
+    config['final_pool'] = config.get('final_pool', 'flatten')
+    config['fc_layers'] = config.get('fc_layers', 2)
+    config['fc_dim'] = config.get('fc_dim', int(config['width_factor']*1000))
+    config['drop'] = config.get('drop', 0.3)
+
+    # basset conv module
+    net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
+    
+    # lstm
+    net = tf.squeeze(net, axis=1) #remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
+    rnn_inputs = tf.unstack(net, axis=1, name='unpack_time_dim')
+    
+    cell_fw = tf.contrib.rnn.LSTMBlockCell(320)
+    cell_bw = tf.contrib.rnn.LSTMBlockCell(320)
+    outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(
+        cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
+    net = tf.concat([state_fw[1], state_bw[1]], axis=1)
+    net = slim.dropout(net, keep_prob=0.5, is_training=is_training)
+
+    # mlp
+    logits = mlp_module(
+        net, 
+        num_tasks = int(labels.get_shape()[-1]), 
+        fc_dim = config['fc_dim'], 
+        fc_layers = config['fc_layers'],
+        dropout=config['drop'],
+        is_training=is_training)
+        
+    # Torch7 style maxnorm
+    maxnorm(norm_val=7)
+    
+    return logits
+
+def tfslim_inception(features, labels, config, is_training=True):
+    """Wrapper around inception v3 from tf slim
+    """
+    num_classes = labels.get_shape()[1]
+    logits, end_points = inception_v3.inception_v3(
+        features,
+        num_classes=num_classes,
+        is_training=is_training) # note that prediction fn is technically softmax but unused
+    
+    return logits
+
+def tfslim_resnet(features, labels, config, is_training=True):
+    """Wrapper around resnet
+    """
+    num_classes = labels.get_shape()[1]
+    logits, end_points = resnet_v2.resnet_v2_50(
+        features,
+        num_classes=num_classes,
+        is_training=is_training)
+
+    logits = tf.squeeze(logits, [1, 2])
+    
     return logits

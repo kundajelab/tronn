@@ -94,6 +94,7 @@ def run(args):
         args.model,
         tf.nn.sigmoid,
         loss_fn=tf.losses.sigmoid_cross_entropy,
+        #loss_fn=tf.losses.hinge_loss,
         #loss_fn=tf.nn.weighted_cross_entropy_with_logits,
         #positives_focused_loss=True,
         #class_weighted_loss=True,

@@ -140,7 +140,7 @@ def add_preprocess_parser(subparsers):
     group_opts = argparser_preprocess.add_argument_group(
         "Data generation options")
     group_opts.add_argument(
-        "--rc",
+        "--rc", action="store_true",
         help='Reverse complement')
     group_opts.add_argument(
         "--no_flank_negs", action="store_true",
@@ -295,7 +295,7 @@ def add_evaluate_parser(subparsers):
     group_params = argparser_test.add_argument_group(
         "Parameters")
     group_params.add_argument(
-    	"--num_evals", default=1000, type=int,
+    	"--num_evals", default=512000, type=int,
     	help="Number of steps to run for prediction")
     group_params.add_argument(
     	"--reconstruct_regions", action="store_true",
@@ -607,6 +607,7 @@ def add_baseline_parser(subparsers):
     group_params.add_argument('--batch_size', default=128, type=int, help='batch size')
     group_params.add_argument('--num_trees', default=100, type=int, help='how many trees')
     group_params.add_argument('--max_nodes', default=10000, type=int, help='max nodes per tree')
+    group_params.add_argument('--num_evals', default=1000, type=int, help='num evaluation batches')
 
     # group for output files
     group_output = argparser_baseline.add_argument_group("Output files and folders")
