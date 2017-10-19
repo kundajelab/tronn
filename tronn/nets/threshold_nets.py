@@ -43,7 +43,7 @@ def pois_cutoff(signal, pval):
 
 
 def stdev_cutoff(signal, num_stdev=3):
-    """Given importance scores, calculates poisson pval
+    """Given importance scores, calculates stdev cutoff
     and thresholds at that pval
 
     Args:
@@ -72,6 +72,6 @@ def stdev_cutoff(signal, num_stdev=3):
     greaterthan_tensor = tf.cast(tf.greater(signal, thresholds), tf.float32)
     thresholded_tensor = signal * greaterthan_tensor
 
-    out_tensor = tf.transpose(tf.squeeze(thresholded_tensor), [0, 2, 1])
+    #out_tensor = tf.transpose(tf.squeeze(thresholded_tensor), [0, 2, 1])
 
     return out_tensor

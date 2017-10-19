@@ -19,7 +19,10 @@ from tronn.outlayer import ExampleGenerator
 from tronn.outlayer import H5Handler
 
 from tronn.nets.importance_nets import importances_stdev_cutoff
+from tronn.nets.importance_nets import stdev_cutoff
 from tronn.nets.importance_nets import normalize_to_probs
+
+from tronn.util.tf_ops import restore_variables_op
 
 
 @ops.RegisterGradient("GuidedRelu")
@@ -54,10 +57,10 @@ def layerwise_relevance_propagation(tensor, features, probs=None, normalize=Fals
     """
     [feature_grad] = tf.gradients(tensor, [features])
     importances_raw = tf.multiply(features, feature_grad, 'input_mul_grad')
-    importances_squeezed = tf.transpose(tf.squeeze(importances_raw), perm=[0, 2, 1])
+    #importances_squeezed = tf.transpose(tf.squeeze(importances_raw), perm=[0, 2, 1])
 
     if normalize:
-        thresholded = importances_stdev_cutoff(importances_squeezed)
+        thresholded = stdev_cutoff(importances_raw)
         importances = normalize_to_probs(thresholded, probs)
     else:
         importances = importances_squeezed
@@ -103,7 +106,7 @@ def extract_importances(
         # restore
         saver = tf.train.Saver()
         saver.restore(sess, model_checkpoint)
-
+        
         # set up hdf5 file to store outputs
         with h5py.File(out_file, 'w') as hf:
 
@@ -139,6 +142,87 @@ def extract_importances(
         close_tensorflow_session(coord, threads)
 
     return None
+
+def extract_importances_and_motif_hits(
+        tronn_graph,
+        model_checkpoint,
+        out_file,
+        sample_size,
+        pwm_list,
+        method="guided_backprop",
+        width=4096,
+        pos_only=False,
+        h5_batch_size=128):
+    """Set up a graph and then run importance score extractor
+    and save out to file.
+
+    Args:
+      tronn_graph: a TronnNeuralNetGraph instance
+      model_dir: directory with trained model
+      out_file: hdf5 file to store importances
+      method: importance method to use
+      sample_size: number of regions to run
+      pos_only: only keep positive sequences
+
+    Returns:
+      None
+    """
+    with tf.Graph().as_default() as g:
+
+        # build graph
+        if method == "guided_backprop":
+            with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+                outputs = tronn_graph.build_inference_graph_v2(pwm_list=pwm_list, normalize=True)
+        elif method == "simple_gradients":
+            outputs = tronn_graph.build_inference_graph_v2(normalize=True)
+            
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+
+        # restore
+        #saver = tf.train.Saver()
+        #saver.restore(sess, model_checkpoint)
+        init_assign_op, init_feed_dict = restore_variables_op(
+            model_checkpoint, skip=["pwm"])
+        sess.run(init_assign_op, init_feed_dict)
+        
+        
+        # set up hdf5 file to store outputs
+        with h5py.File(out_file, 'w') as hf:
+
+            h5_handler = H5Handler(
+                hf, outputs, sample_size, resizable=True, batch_size=4096)
+
+            # set up outlayer
+            example_generator = ExampleGenerator(
+                sess,
+                outputs,
+                64, # Fix this later
+                reconstruct_regions=False,
+                keep_negatives=False,
+                filter_by_prediction=True,
+                filter_tasks=tronn_graph.importances_tasks)
+
+            try:
+                total_examples = 0
+                while not coord.should_stop():
+
+                    region, region_arrays = example_generator.run()
+                    region_arrays["example_metadata"] = region
+
+                    h5_handler.store_example(region_arrays)
+                    total_examples += 1
+
+            except tf.errors.OutOfRangeError:
+
+                # add in last of the examples
+                h5_handler.flush()
+                h5_handler.chomp_datasets()
+
+        close_tensorflow_session(coord, threads)
+
+    return None
+
 
 
 def split_importances_by_task_positives(importances_main_file, tasks, prefix):

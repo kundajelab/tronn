@@ -106,8 +106,9 @@ def restore_variables_op(checkpoint, skip=[]):
     """Builds a function that can be run to restore from a checkpoint
     """
     variables_to_restore = slim.get_model_variables()
-    variables_to_restore.append(slim.get_global_step())
-
+    variables_to_restore.append(slim.get_global_step()) # TODO is global step not being saved??
+    variables_to_restore.remove(None)
+    
     # remove variables as needed
     for skip_string in skip:
         variables_to_restore_tmp = [var for var in variables_to_restore

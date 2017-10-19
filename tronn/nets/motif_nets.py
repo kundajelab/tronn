@@ -45,7 +45,47 @@ def pwm_convolve_v2(features, labels, model_params, is_training=False):
     # Do a summation
     motif_tensor = tf.squeeze(tf.reduce_sum(top_k_val, 3)) # 3 is the axis
 
-    return labels, motif_tensor, motif_tensor
+    return motif_tensor
+
+
+def pwm_convolve_v3(features, labels, model_params, is_training=False):
+    '''
+    All this model does is convolve with PWMs and get top k pooling to output
+    a example by motif matrix.
+    '''
+    # TODO(dk) vector projection
+    pwm_list = model_params["pwms"]
+
+    # get various sizes needed to instantiate motif matrix
+    num_filters = len(pwm_list)
+
+    max_size = 0
+    for pwm in pwm_list:
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+
+    # make the convolution net
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features)),
+            biases_initializer=None,
+            trainable=False):
+        net = slim.conv2d(
+            features, num_filters, conv1_filter_size,
+            scope='pwm/conv')
+
+    # Then get top k values across the correct axis
+    #net = tf.transpose(net, perm=[0, 1, 3, 2])
+    #top_k_val, top_k_indices = tf.nn.top_k(net, k=3)
+
+    # Do a summation
+    #motif_tensor = tf.squeeze(tf.reduce_sum(top_k_val, 3)) # 3 is the axis
+
+    return net
 
 
 

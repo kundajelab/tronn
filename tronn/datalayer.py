@@ -348,7 +348,15 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
     return features_tensor, labels_tensor, metadata_tensor
 
 
-def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key='features', shuffle=True, shuffle_seed=0, ordered_num_epochs=1):
+def load_data_from_filename_list(
+        hdf5_files,
+        batch_size,
+        tasks=[],
+        features_key='features',
+        shuffle=True,
+        shuffle_seed=0,
+        ordered_num_epochs=1,
+        filter_tasks=[]):
     """Load data into queues from a filename list of hdf5 files
 
     Args:
@@ -369,27 +377,56 @@ def load_data_from_filename_list(hdf5_files, batch_size, tasks=[], features_key=
     # with the ordered filename ids, make a py_func that takes in the hdf5_to_slices function, and input is the filename,
     # to output tensors
     if shuffle:
-        example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=True) for hdf5_file in hdf5_files]
+        example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=True)
+                               for hdf5_file in hdf5_files]
         min_after_dequeue = 10000
         capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
-        features, labels, metadata = tf.train.shuffle_batch_join(example_slices_list,
-                                                                 batch_size,
-                                                                 capacity=capacity,
-                                                                 min_after_dequeue=min_after_dequeue,
-                                                                 seed=shuffle_seed,
-                                                                 enqueue_many=True,
-                                                                 name='batcher')
+        features, labels, metadata = tf.train.shuffle_batch_join(
+            example_slices_list,
+            batch_size,
+            capacity=capacity,
+            min_after_dequeue=min_after_dequeue,
+            seed=shuffle_seed,
+            enqueue_many=True,
+            name='batcher')
 
     elif shuffle == False:
-    	example_slices_list = hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks, features_key, num_epochs=ordered_num_epochs)
-    	features, labels, metadata = tf.train.batch(example_slices_list,
-                                                                 batch_size,
-                                                                 capacity=100000,
-                                                                 enqueue_many=True,
-                                                                 name='batcher')
+    	example_slices_list = hdf5_list_to_ordered_slices(
+            hdf5_files, batch_size, tasks, features_key, num_epochs=ordered_num_epochs)
+    	features, labels, metadata = tf.train.batch(
+            example_slices_list,
+            batch_size,
+            capacity=100000,
+            enqueue_many=True,
+            name='batcher')
 
 
+    # filtering as desired (on the labels)
+    if len(filter_tasks) > 0:
+        labels_mask_np = np.zeros((labels.get_shape()[1]))
+        for task_idx in filter_tasks:
+            labels_mask_np[task_idx] = 1
+        labels_mask = tf.cast(
+            tf.stack([tf.constant(labels_mask_np) for i in xrange(batch_size)], axis=0),
+            tf.float32)
+        
+        # run a conditional on the labels and get indices
+        pos_labels = tf.multiply(labels, labels_mask)
+        matches = tf.greater(tf.reduce_sum(pos_labels, axis=1), [0])
+        selected_items = tf.reshape(tf.where(matches), [-1])
 
+        # gather
+        features_filtered = tf.gather(features, selected_items)
+        labels_filtered = tf.gather(labels, selected_items)
+        metadata_filtered = tf.gather(metadata, selected_items)
+        
+        # set up a second queue
+        features, labels, metadata = tf.train.batch(
+            [features_filtered, labels_filtered, metadata_filtered],
+            batch_size,
+            capacity=100000,
+            enqueue_many=True,
+            name="filter_batcher")
         
     return features, labels, metadata
 

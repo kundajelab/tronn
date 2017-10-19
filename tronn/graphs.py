@@ -12,6 +12,9 @@ from tronn.util.tf_ops import positives_focused_loss_fn
 from tronn.datalayer import get_task_and_class_weights
 from tronn.datalayer import get_positive_weights_per_task
 
+# move this later
+from tronn.nets.inference_nets import get_motif_hits
+
 
 class TronnGraph(object):
     """Builds out a general purpose TRONN model graph"""
@@ -25,6 +28,7 @@ class TronnGraph(object):
                  batch_size,
                  feature_key="features",
                  shuffle_data=True,
+                 filter_tasks=[],
                  ordered_num_epochs=1):
         logging.info("Initialized TronnGraph")
         self.data_files = data_files # data files is a dict of lists
@@ -35,6 +39,7 @@ class TronnGraph(object):
         self.batch_size = batch_size
         self.feature_key = feature_key
         self.shuffle_data = shuffle_data
+        self.filter_tasks = filter_tasks
         self.ordered_num_epochs = ordered_num_epochs
         
     def build_graph(self, data_key="data", is_training=False):
@@ -50,7 +55,8 @@ class TronnGraph(object):
             self.tasks,
             features_key=self.feature_key,
             shuffle=self.shuffle_data,
-            ordered_num_epochs=self.ordered_num_epochs)
+            ordered_num_epochs=self.ordered_num_epochs,
+            filter_tasks=self.filter_tasks)
 
         # adjust tasks
         if self.tasks == []:
@@ -82,6 +88,7 @@ class TronnNeuralNetGraph(TronnGraph):
                  importances_tasks=None,
                  feature_key="features",
                  shuffle_data=True,
+                 filter_tasks=[],
                  class_weighted_loss=False,
                  positives_focused_loss=False,
                  finetune=False,
@@ -89,7 +96,8 @@ class TronnNeuralNetGraph(TronnGraph):
         super(TronnNeuralNetGraph, self).__init__(
             data_files, tasks, data_loader,
             model_fn, model_params, batch_size,
-            feature_key=feature_key, shuffle_data=shuffle_data)
+            feature_key=feature_key, shuffle_data=shuffle_data,
+            filter_tasks=filter_tasks)
         self.final_activation_fn = final_activation_fn
         self.loss_fn = loss_fn
         self.optimizer_fn = optimizer_fn
@@ -199,9 +207,56 @@ class TronnNeuralNetGraph(TronnGraph):
         self.importances["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
         self.importances["probs"] = self.probs
         self.importances["subset_accuracy"] = self._add_task_subset_accuracy()
-        self.importances["feature_metadata"] = self.metadata
+        self.importances["example_metadata"] = self.metadata
         
         return self.importances
+
+    
+    def build_inference_graph_v2(self, data_key="data", pwm_list=None, normalize=True):
+        """Build a graph with back prop ties to be able to get 
+        importance scores
+        """
+        assert pwm_list is not None
+        assert self.importances_fn is not None
+
+        # set up importance tasks
+        if self.importances_tasks is None:
+            self.importances_tasks = self.tasks
+
+        self.build_graph(data_key, is_training=False)
+
+        # split logits into task level and only keep those that will be used
+        task_logits = tf.unstack(self.logits, axis=1)
+        task_probs = tf.unstack(self.probs, axis=1)
+
+        importance_logits = []
+        importance_probs = []
+        for task_idx in self.importances_tasks:
+            importance_logits.append(task_logits[task_idx])
+            importance_probs.append(task_probs[task_idx])
+
+        # set up inference transforms to get motif hits
+        model_params = {
+            "pwm_list": pwm_list,
+            "importances_fn": self.importances_fn,
+            "logits": importance_logits,
+            "probs": importance_probs,
+            "normalize": True}
+
+        # and set up outputs
+        self.out_tensors = {}
+        out = get_motif_hits(self.features, self.labels, model_params)
+        for key in out.keys():
+            self.out_tensors[key] = out[key]
+
+        # add in other essential metadata: labels, feature metadata, label metadata
+        self.out_tensors["labels"] = self.labels
+        self.out_tensors["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
+        self.out_tensors["probs"] = self.probs
+        self.out_tensors["subset_accuracy"] = self._add_task_subset_accuracy()
+        self.out_tensors["example_metadata"] = self.metadata
+        
+        return self.out_tensors
 
 
     def _add_loss(self, data_key):

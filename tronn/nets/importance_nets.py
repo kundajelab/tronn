@@ -34,9 +34,9 @@ def stdev_cutoff(signal, num_stdev=3):
     greaterthan_tensor = tf.cast(tf.greater(signal, thresholds), tf.float32)
     thresholded_tensor = signal * greaterthan_tensor
 
-    out_tensor = tf.transpose(tf.squeeze(thresholded_tensor), [0, 2, 1])
+    #out_tensor = tf.transpose(tf.squeeze(thresholded_tensor), [0, 2, 1])
 
-    return out_tensor
+    return thresholded_tensor
 
 def importances_stdev_cutoff(signal, num_stdev=3):
     """Given importance scores, calculates poisson pval
@@ -112,7 +112,8 @@ def normalize_to_probs(input_tensors, final_probs):
     of 1, how should it be spread, and then weight that by the final
     probability value)
     """
-    weight_sums = tf.reduce_sum(input_tensors, axis=[1, 2], keep_dims=True)
+    #weight_sums = tf.reduce_sum(input_tensors, axis=[1, 2], keep_dims=True)
+    weight_sums = tf.reduce_sum(input_tensors, axis=[1, 2, 3], keep_dims=True)
     out_tensor = tf.multiply(
         tf.divide(input_tensors, weight_sums),
         tf.reshape(final_probs, weight_sums.get_shape()))

@@ -29,22 +29,27 @@ class RegionObject(object):
         """
         # merge by offset
         if self.merge_type == "offset":
+            basepair_dimension_idx = 1
             # note that sequence len should be dim 1
+            # TODO(dk) clean this up
             # deal with overhangs and clip
             left_clip_idx = abs(min(0, offset))
-            right_clip_idx = new_array.shape[1] - abs(
-                min(0, self.array.shape[1] - (new_array.shape[1] + offset)))
-            new_array_clipped = new_array[:,left_clip_idx:right_clip_idx]
+            right_clip_idx = new_array.shape[basepair_dimension_idx] - abs(
+                min(0, self.array.shape[basepair_dimension_idx] - (new_array.shape[basepair_dimension_idx] + offset)))
+            new_array_clipped = new_array[:,left_clip_idx:right_clip_idx,:]
 
             if offset < 0:
                 adjusted_offset = 0
             else:
                 adjusted_offset = offset
-                
+
             left_zero_padding = np.zeros(
-                (4, adjusted_offset))
+                (new_array.shape[0], adjusted_offset, 4))
             right_zero_padding = np.zeros(
-                (4, self.array.shape[1] - adjusted_offset - new_array_clipped.shape[1]))
+                (new_array.shape[0],
+                 self.array.shape[basepair_dimension_idx] - adjusted_offset - new_array_clipped.shape[basepair_dimension_idx],
+                 4))
+
             self.array += np.concatenate(
                 (left_zero_padding, new_array_clipped, right_zero_padding),
                 axis=1)
@@ -80,7 +85,7 @@ class RegionTracker(object):
         for key in region_data.keys():
             if region_data[key][1] == "offset":
                 self.region_data[key] = RegionObject(
-                    (4, self.stop - self.start), "offset")
+                    (region_data[key][0].shape[0], self.stop - self.start, 4), "offset")
             else:
                 self.region_data[key] = RegionObject(
                     region_data[key][0].shape,
@@ -192,7 +197,7 @@ class ExampleGenerator(object):
         # extract data and construct into region array dict
         region_arrays = {}
         for key in self.batch_region_arrays.keys():
-            if key == "feature_metadata":
+            if key == "example_metadata":
                 region = self.batch_region_arrays[key][self.batch_pointer,0]
                 region_name = region.split(";")[self.name_idx].split("=")[1].split("::")[0]
             elif "importance" in key:
@@ -349,7 +354,6 @@ class H5Handler(object):
         """Store an example into the tmp numpy arrays, push batch out if done with batch
         """
         for key in self.example_keys:
-            
             self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
                 
             #if "example_metadata" in key:
@@ -384,7 +388,12 @@ class H5Handler(object):
         """Go from the tmp array to the h5 file
         """
         for key in self.example_keys:
-            self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
+            if len(self.tmp_arrays[key].shape) == 1:
+                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key].reshape(
+                    self.tmp_arrays[key].shape[0], 1)
+            else:
+                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
+            
                 
                 
                 #if "example_metadata" in key:
@@ -409,8 +418,8 @@ class H5Handler(object):
         if defined_batch_end is not None:
             batch_end = defined_batch_end
         else:
-            for batch_end in xrange(self.tmp_arrays["feature_metadata"].shape[0]):
-                if self.tmp_arrays["feature_metadata"][batch_end].rstrip("\0") == "false=chrY:0-0":
+            for batch_end in xrange(self.tmp_arrays["example_metadata"].shape[0]):
+                if self.tmp_arrays["example_metadata"][batch_end].rstrip("\0") == "false=chrY:0-0":
                     break
         self.batch_end = self.batch_start + batch_end
 
