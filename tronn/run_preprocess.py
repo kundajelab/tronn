@@ -8,16 +8,8 @@ import glob
 import time
 import h5py
 
-from tronn.graphs import TronnGraph
-from tronn.datalayer import load_data_from_filename_list
-
 from tronn.preprocess import generate_master_regions
 from tronn.preprocess import generate_nn_dataset
-
-from tronn.interpretation.kmers import kmerize_parallel
-from tronn.interpretation.kmers import kmerize_gpu
-
-from tronn.nets.kmer_nets import gkmerize
 
 def run(args):
     """Main function to generate dataset
@@ -47,6 +39,14 @@ def run(args):
                         reverse_complemented=args.rc)
 
     if args.kmerize:
+        from tronn.graphs import TronnGraph
+        from tronn.datalayer import load_data_from_filename_list
+        
+        from tronn.interpretation.kmers import kmerize_parallel
+        from tronn.interpretation.kmers import kmerize_gpu
+        
+        from tronn.nets.kmer_nets import gkmerize
+
         # run kmerize function and save to hdf5 files
         print "kmerize!"
         os.system('mkdir -p {}/h5_kmer'.format(args.out_dir))
