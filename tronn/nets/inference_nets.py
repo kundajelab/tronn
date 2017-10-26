@@ -49,7 +49,9 @@ def get_motif_hits(
     global_importances = tf.reduce_max(importances, axis=1, keep_dims=True) # out: (example, 1, bp_pos, bp/channel)
     
     # then convolve with PWMs
-    pwm_scores = pwm_convolve_v3(features, labels, {"pwms": pwm_list[0:3]}) # out: (example, 1, bp_pos, motif)
+    pwm_scores = pwm_convolve_v3(features, labels, {"pwms": pwm_list}) # out: (example, 1, bp_pos, motif)
+
+    # TODO(dk) maybe just do the MAX instead...
     
     # grab the top k hits (across ALL motifs) and threshold out the rest
     pwm_scores_shape = pwm_scores.get_shape().as_list()

@@ -36,10 +36,12 @@ def torch_fullyconnected_initializer(fan_in, dtype=dtypes.float32):
     return torch_initializer(stdv)
 
 
-def pwm_simple_initializer(filter_shape, pwm_list, fan_in, dtype=dtypes.float32):
+def pwm_simple_initializer(filter_shape, pwm_list, fan_in, squared=False, dtype=dtypes.float32):
     """Load just PWMs into layer
     """
     filter_length = filter_shape[1]
+    left_pad = math.ceil(filter_length / 2.)
+    right_pad = math.floor(filter_length / 2.)
     num_pwms = len(pwm_list)
 
     # for each PWM
@@ -59,7 +61,12 @@ def pwm_simple_initializer(filter_shape, pwm_list, fan_in, dtype=dtypes.float32)
                 axis=1)
         else:
             pwm_center = pwm.weights.shape[1] / 2
-            padded_weights = pwm.weights[:,pwm_center-10:pwm_center+9]
+            padded_weights = pwm.weights[:,pwm_center-left_pad:pwm_center+right_pad]
+
+        # This bit is used for vector projection - mostly keep FALSE
+        if squared:
+            padded_weights = np.square(padded_weights)
+            
         weights_list.append(padded_weights)
 
     # stack into weights tensor and assign to subset

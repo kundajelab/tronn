@@ -1,10 +1,14 @@
 # description: test function for a multitask interpretation pipeline
 
 import os
+import h5py
 import glob
 import logging
 
+import numpy as np
 import tensorflow as tf
+
+from collections import Counter
 
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
@@ -48,7 +52,8 @@ def run(args):
         importances_fn=layerwise_relevance_propagation,
         importances_tasks=args.importances_tasks,
         shuffle_data=False,
-        filter_tasks=args.interpretation_tasks)
+        filter_tasks=[args.interpretation_tasks[6]]) # TODO(dk) put this into a loop
+    #filter_tasks=args.interpretation_tasks)
 
     # checkpoint file
     if args.model_checkpoint is not None:
@@ -58,8 +63,49 @@ def run(args):
     logging.info("Checkpoint: {}".format(checkpoint_path))
 
     # with inference this produces the importances and motif hits.
-    # save all out
     pwm_list = get_encode_pwms(args.pwm_file)
+
+    # testing, factor this out later
+    # early
+    keep_pwms = [
+        "ETS",        
+        "FOSL",
+        "NFKB1",
+        "RUNX",
+        "SOX3"]
+
+    # mid
+    keep_pwms = [
+        "CEBPA",
+        "KLF4",
+        "NFY",
+        "TEAD",
+        "TP63",        
+        "ZNF750"]
+
+    # late
+    keep_pwms = [
+        "CEBPA",
+        "GRHL",
+        "KLF4",
+        "TP63",        
+        "ZNF750"]
+
+    # cluster 7
+    keep_pwms = [
+        "CEBPA",
+        "GRHL",
+        "KLF4",
+        "TP63",        
+        "ZNF750"]
+
+    pwm_list_filt = []
+    for pwm in pwm_list:
+        for pwm_name in keep_pwms:
+            if pwm_name in pwm.name:
+                pwm_list_filt.append(pwm)
+
+    print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
     
     # get importances
     importances_mat_h5 = '{0}/{1}.importances.h5'.format(args.tmp_dir, args.prefix)
@@ -69,22 +115,96 @@ def run(args):
             checkpoint_path,
             importances_mat_h5,
             args.sample_size,
-            pwm_list,
+            pwm_list_filt,
             method="guided_backprop")
 
-    quit()
+    # now in importances file, enumerate possible combinations
+    with h5py.File(importances_mat_h5, "r") as hf:
+        pwm_hits = hf["pwm_hits"][:]
+        pwm_presence = (pwm_hits > 0).astype(int)
+        pwm_hash = np.zeros((pwm_hits.shape[0]))
+        for i in xrange(pwm_hits.shape[1]):
+            pwm_hash = pwm_hash + pwm_presence[:,i] * (2**i)
 
+        hash_counts = Counter(pwm_hash.tolist())
+        hash_counts_ordered = hash_counts.most_common(10)
+        print hash_counts_ordered
         
+        count_threshold = 0.10 * pwm_hash.shape[0]
+        for hash_val, count in hash_counts_ordered:
+            print hash_val
+
+            if count < count_threshold:
+                continue
+
+            prefix = "hash-{}".format(hash_val)
+            
+            # get indices
+            hash_indices = np.where(pwm_hash == hash_val)[0]
+        
+            # and extract regions
+            matching_regions = hf["example_metadata"][:][hash_indices]
+
+            
+            # save out to file
+            with open("{0}/{1}.regions.txt".format(args.tmp_dir, prefix), "w") as fp:
+                for i in xrange(matching_regions.shape[0]):
+                    fp.write("{}\n".format(matching_regions[i,0]))
+
+            # convert to bed
+            to_bed = (
+                "cat {0}/{1}.regions.txt |"
+                "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
+                "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
+                "sort -k1,1 -k2,2n | "
+                "bedtools merge -i stdin > "
+                "{0}/{1}.regions.bed").format(args.tmp_dir, prefix)
+            os.system(to_bed)
+
+        # backcheck on full set
+        with open("{0}/regions.all.txt".format(args.tmp_dir), "w") as fp:
+            for i in xrange(hf["example_metadata"][:].shape[0]):
+                fp.write("{}\n".format(hf["example_metadata"][i,0]))
+
+        # convert to bed
+        to_bed = (
+            "cat {0}/regions.all.txt |"
+            "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
+            "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
+            "awk -F '\t' '{{ print $1\"\t\"$2+500\"\t\"$3+400 }}' | "
+            "sort -k1,1 -k2,2n | "
+            "bedtools merge -i stdin > "
+            "{0}/regions.all.bed").format(args.tmp_dir)
+        os.system(to_bed)
+
+        quit()
+
+            
+    # TODO
+    # choose combinations that exist in at least 10% of examples
+    # write out the co-occurence regions to BED files
+    # figure out synergies between them
+    
+
+    quit()
     # from there divide up into tasks you care about
     # per task:
     prefix = "{0}/{1}.importances".format(args.tmp_dir, args.prefix)
 
+    # get out positives and run phenograph clusters (or just enumerate?)
+    
+
+
+    
     # split into task files
     task_importance_files = glob.glob("{}.task*".format(prefix))
     if len(task_importance_files) == 0:
         split_importances_by_task_positives(
             importances_mat_h5, args.interpretation_tasks, prefix)
 
+    quit()
+
+        
     # per task file (use parallel processing):
     # extract the seqlets into other files with timepoints (seqlet x task)
     # AND keep track of seqlet size

@@ -17,7 +17,6 @@ def stdev_cutoff(signal, num_stdev=3):
     """
     #percentile_val = 1. - pval
     signal_shape = signal.get_shape()
-    print "feature shape", signal_shape
     
     # get mean and stdev
     signal_mean, signal_var = tf.nn.moments(signal, axes=[1, 2, 3])
@@ -28,8 +27,6 @@ def stdev_cutoff(signal, num_stdev=3):
         to_stack = [thresholds for i in range(signal_shape[dim_idx])] # here?
         thresholds = tf.stack(to_stack, dim_idx)
 
-    print "thresh full", thresholds.get_shape()
-        
     # and threshold
     greaterthan_tensor = tf.cast(tf.greater(signal, thresholds), tf.float32)
     thresholded_tensor = signal * greaterthan_tensor

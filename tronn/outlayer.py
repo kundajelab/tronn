@@ -422,20 +422,14 @@ class H5Handler(object):
                 if self.tmp_arrays["example_metadata"][batch_end].rstrip("\0") == "false=chrY:0-0":
                     break
         self.batch_end = self.batch_start + batch_end
-
-
         
         for key in self.example_keys:
-            self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
-            
-            #if "example_metadata" in key:
-            #    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape((batch_end, 1))
-            #elif "importance" in key:
-            #    self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key][0:batch_end,:,:]
-
-            #else:
-            #    self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key][0:batch_end,:]
-
+            #self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
+            if len(self.tmp_arrays[key].shape) == 1:
+                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape(
+                    batch_end, 1)
+            else:
+                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
 
         return
 
