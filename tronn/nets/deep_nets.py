@@ -47,7 +47,8 @@ def mlp_module(
         fc_layers,
         dropout=0.0,
         l2=0.0,
-        is_training=True):
+        is_training=True,
+        prefix="mlp"):
     """MLP
     """
     net = features
@@ -56,7 +57,7 @@ def mlp_module(
             activation_fn=None,
             weights_regularizer=slim.l2_regularizer(l2)):
         for i in xrange(fc_layers):
-            with tf.variable_scope('fc%d'%i):
+            with tf.variable_scope('{}-fc{}'.format(prefix, i)):
                 net = slim.fully_connected(
                     net,
                     fc_dim,
@@ -72,7 +73,7 @@ def mlp_module(
                     keep_prob=1.0-dropout,
                     is_training=is_training)
         logits = slim.fully_connected(
-            net, num_tasks, scope='logits')
+            net, num_tasks, scope='{}-logits'.format(prefix))
     return logits
 
 
@@ -161,6 +162,52 @@ def basset(features, labels, config, is_training=True):
     maxnorm(norm_val=7)
 
     return logits
+
+
+def splitbasset(features, labels, config, is_training=True):
+    '''
+    Basset - Kelley et al Genome Research 2016
+    but with task specific MLPs.
+    '''
+    config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
+    config['temporal'] = config.get('temporal', False)
+    config['final_pool'] = config.get('final_pool', 'flatten')
+    config['fc_layers'] = config.get('fc_layers', 2)
+    config['fc_dim'] = config.get('fc_dim', int(config['width_factor']*1000))
+    config['drop'] = config.get('drop', 0.3)
+
+    net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
+    net = final_pool(net, config['final_pool'])
+
+    # different MLP for each task
+    logits_list = []
+    for task_idx in xrange(int(labels.get_shape()[-1])):
+        if config['temporal']:
+            logits_list.append(
+                temporal_pred_module(
+                    net,
+                    1,
+                    share_logistic_weights=True,
+                    is_training=is_training))
+        else:
+            logits_list.append(
+                mlp_module(
+                    net, 
+                    num_tasks = 1, 
+                    fc_dim = config['fc_dim'], 
+                    fc_layers = config['fc_layers'],
+                    dropout=config['drop'],
+                    is_training=is_training,
+                    prefix="task{}".format(task_idx)))
+
+    # and concat
+    logits = tf.concat(logits_list, 1)
+    
+    # Torch7 style maxnorm
+    maxnorm(norm_val=7)
+
+    return logits
+
 
 
 def danq(features, labels, config, is_training=True):
