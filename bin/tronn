@@ -56,6 +56,8 @@ def parse_args():
     #load_data_files(parser)
 
     add_baseline_parser(subparsers)
+
+    add_extract_params_parser(subparsers)
     
     # parse args
     args = parser.parse_args()
@@ -657,6 +659,39 @@ def add_baseline_parser(subparsers):
     return
 
 
+def add_extract_params_parser(subparsers):
+    """Add argument parser for extracting trained params from a model
+    """
+    argparser_extractparams = subparsers.add_parser(
+        "extractparams",
+        help="extract_params")
+
+    # group for input files
+    group_input = argparser_extractparams.add_argument_group(
+        "Input files and folders")
+    add_hdf5_data_options(group_input)
+
+    # group for model
+    group_model = argparser_extractparams.add_argument_group(
+        "Model definition")
+    add_model_picker(group_model)
+    
+    # group for parameters
+    group_params = argparser_extractparams.add_argument_group(
+        "Parameters")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
+    
+    # group for output files
+    group_output = argparser_extractparams.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir='params')
+    
+    return
+
+
+
 def track_runs(args):
     """track command and github commit
     """
@@ -734,6 +769,10 @@ def main():
         run(args)
     elif subcommand == "baseline":
         from tronn.run_tensorforest import run
+        run(args)
+    elif subcommand == "extractparams":
+        add_model_params(args)
+        from tronn.util.extract_params import run
         run(args)
         
     return None
