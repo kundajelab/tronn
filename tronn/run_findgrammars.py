@@ -40,6 +40,8 @@ def run(args):
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     logging.info("Found {} chrom files".format(len(data_files)))
 
+    interpretation_task_idx = 4
+    
     # set up graph
     tronn_graph = TronnNeuralNetGraph(
         {'data': data_files},
@@ -52,7 +54,7 @@ def run(args):
         importances_fn=layerwise_relevance_propagation,
         importances_tasks=args.importances_tasks,
         shuffle_data=False,
-        filter_tasks=[args.interpretation_tasks[6]]) # TODO(dk) put this into a loop
+        filter_tasks=[args.interpretation_tasks[interpretation_task_idx]]) # TODO(dk) put this into a loop
     #filter_tasks=args.interpretation_tasks)
 
     # checkpoint file
@@ -65,43 +67,61 @@ def run(args):
     # with inference this produces the importances and motif hits.
     pwm_list = get_encode_pwms(args.pwm_file)
 
-    # testing, factor this out later
-    # early
-    keep_pwms = [
-        "ETS",        
-        "FOSL",
-        "NFKB1",
-        "RUNX",
-        "SOX3"]
-
-    # mid
-    keep_pwms = [
-        "CEBPA",
-        "KLF4",
-        "NFY",
-        "TEAD",
-        "TP63",        
-        "ZNF750"]
-
-    # late
-    keep_pwms = [
-        "CEBPA",
-        "GRHL",
-        "KLF4",
-        "TP63",        
-        "ZNF750"]
-
-    # cluster 7
-    keep_pwms = [
-        "CEBPA",
-        "GRHL",
-        "KLF4",
-        "TP63",        
-        "ZNF750"]
+    pwms_per_task = { # remember 0-indexed
+        0: [
+            "ETS",      
+            "FOSL",
+            "NFKB1",
+            "RUNX",
+            "SOX3"],
+        1: [
+            "FOSL",
+            "NFKB1",
+            "RUNX",
+            "SOX3"],
+        2: [
+            "FOSL",
+            "NFKB1",
+            "RUNX",
+            "TEAD",
+            "SOX3"],
+        4: [
+            "RUNX",
+            "TEAD",
+            "FOSL"],
+        5: [
+            "CEBPA",
+            "KLF4",
+            "NFY",
+            "TEAD",
+            "TP63",        
+            "ZNF750"],
+        6: [
+            "CEBPA",
+            "KLF4",
+            "TP63",        
+            "ZNF750"],
+        7: [
+            "CEBPA",
+            "GRHL",
+            "KLF4",
+            "ZNF750"],
+        8: [
+            "CEBPA",
+            "GRHL",
+            "KLF4",
+            "ZNF750"],
+        11: [ # extra task for stable openness, dynamic H3K27ac
+            "CEBPA",
+            "GRHL",
+            "KLF4",
+            "ZNF750",
+            "ETS"]
+    }
 
     pwm_list_filt = []
     for pwm in pwm_list:
-        for pwm_name in keep_pwms:
+        for pwm_name in pwms_per_task[interpretation_task_idx]:
             if pwm_name in pwm.name:
                 pwm_list_filt.append(pwm)
 
@@ -117,6 +137,8 @@ def run(args):
             args.sample_size,
             pwm_list_filt,
             method="guided_backprop")
+
+    print "done with importances"
 
     # now in importances file, enumerate possible combinations
     with h5py.File(importances_mat_h5, "r") as hf:

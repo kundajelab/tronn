@@ -48,7 +48,7 @@ def mlp_module(
         dropout=0.0,
         l2=0.0,
         is_training=True,
-        prefix="mlp"):
+        prefix=""):
     """MLP
     """
     net = features
@@ -57,7 +57,7 @@ def mlp_module(
             activation_fn=None,
             weights_regularizer=slim.l2_regularizer(l2)):
         for i in xrange(fc_layers):
-            with tf.variable_scope('{}-fc{}'.format(prefix, i)):
+            with tf.variable_scope('fc{}'.format(i)):
                 net = slim.fully_connected(
                     net,
                     fc_dim,
@@ -73,7 +73,7 @@ def mlp_module(
                     keep_prob=1.0-dropout,
                     is_training=is_training)
         logits = slim.fully_connected(
-            net, num_tasks, scope='{}-logits'.format(prefix))
+            net, num_tasks, scope='logits')
     return logits
 
 
