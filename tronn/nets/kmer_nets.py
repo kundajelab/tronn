@@ -93,6 +93,16 @@ def featurize_kmers(features, kmer_len=6, is_training=False):
     return kmer_vector
 
 
+def tensor_to_hash(kmer_tensor, base5_converter):
+    """Take in an array and convert to hash value
+    """
+    indices = tf.argmax(kmer_tensor, axis=3)
+
+    
+
+
+    return
+
 
 def featurize_kmers_v2(features, kmer_len=6, is_training=False):
     """Given a (batch, 1, seq_len, 4) sequence, kmerize it
@@ -101,6 +111,7 @@ def featurize_kmers_v2(features, kmer_len=6, is_training=False):
     Use this to featurize on the fly
     """
     base_pairs = 5
+    base5_converter = tf.constant([5**i for i in xrange(kmer_len)])
 
     # set up a sparse tensor representation
     seq_len = features.get_shape()[2]
@@ -108,6 +119,8 @@ def featurize_kmers_v2(features, kmer_len=6, is_training=False):
     indices = []
     for pos_idx in xrange(seq_len):
         # here, extract kmer, mutate, and add to list of indices
+        kmer_array = features[:, 1, pos_idx:pos_idx+kmer_len, :]
+
         
         pass
 
