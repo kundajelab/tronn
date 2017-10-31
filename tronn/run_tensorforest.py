@@ -20,6 +20,7 @@ from tronn.learn.tensor_forest import random_forest
 from tronn.learn.cross_validation import setup_cv
 
 from tronn.nets.kmer_nets import featurize_kmers
+from tronn.nets.kmer_nets import featurize_kmers_v2
 from tronn.nets.motif_nets import featurize_motifs
 
 from tronn.interpretation.motifs import get_encode_pwms
@@ -87,7 +88,7 @@ def train_and_evaluate_tensorforest(
     estimator = build_tensorforest_estimator(out_dir, num_features, num_classes)
 
     # fit
-    #estimator.fit(input_fn=train_input_fn)
+    estimator.fit(input_fn=train_input_fn)
 
     # evaluation
     # to do: generate recalls at FDR
@@ -153,7 +154,7 @@ def run(args):
     
     # set up featurization layers
     if args.kmers:
-        featurize_fn = featurize_kmers
+        featurize_fn = featurize_kmers_v2
         featurize_params = {"kmer_len": args.kmer_len}
         num_features = 5**args.kmer_len
     elif args.motifs:
