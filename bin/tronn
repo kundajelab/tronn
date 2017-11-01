@@ -157,7 +157,7 @@ def add_preprocess_parser(subparsers):
         "--random_negs", action="store_true",
         help="add random negatives")
     group_opts.add_argument(
-        "--univ_neg_num",
+        "--univ_neg_num", type=int,
         help='number of universal negatives to grab from univ DHS regions')
     group_opts.add_argument(
         "--parallel", default=12, type=int,

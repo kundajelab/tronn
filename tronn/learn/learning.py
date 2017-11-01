@@ -206,14 +206,17 @@ def train_and_evaluate(
     assert not ((restore_model_checkpoint is not None)
                 and (transfer_model_checkpoint is not None))
     
-    # track metric and bad epochs
+    # track metric and bad epochs and steps
     metric_best = None
     consecutive_bad_epochs = 0
+    step_log = "{}/train/step.log".format(out_dir)
+    stopping_log = "{}/train/stopping.log".format(out_dir)
 
     for epoch in xrange(epoch_limit):
         logging.info("CURRENT EPOCH:", str(epoch))
         print "CURRENT EPOCH:", epoch
 
+        # change model checkpoint as needed
         if epoch > 0:
             # make sure that transfer_model_dir is None
             # and restore_model_dir is set correctly
@@ -221,14 +224,26 @@ def train_and_evaluate(
             restore_model_checkpoint = tf.train.latest_checkpoint(
                 "{}/train".format(out_dir))
 
-        # set up stop steps and adjust if coming from a transfer or restore
-        if transfer_model_checkpoint is not None:
-            stop_step = get_checkpoint_steps(transfer_model_checkpoint) + train_steps
-        elif restore_model_checkpoint is not None:
-            stop_step = get_checkpoint_steps(restore_model_checkpoint) + train_steps
+        # if a log file does not exist, you're freshly in the folder! instantiate and set init_steps
+        if not os.path.isfile(step_log):
+            if transfer_model_checkpoint is not None:
+                init_steps = get_checkpoint_steps(transfer_model_checkpoint)
+            else:
+                init_steps = 0
+            with open(step_log, "w") as out:
+                out.write("{}\t{}".format(init_steps, init_steps)) # NOTE: may not need to write last step, may not be used
         else:
-            stop_step = train_steps
-            
+            with open(step_log, "r") as fp:
+                init_steps, last_steps = map(int, fp.readline().strip().split())
+            # also if there is a log file, check for a model checkpoint! if so, set and remove transfer
+            restore_model_checkpoint = tf.train.latest_checkpoint(
+                "{}/train".format(out_dir))
+            if restore_model_checkpoint is not None:
+                transfer_model_checkpoint = None
+
+        # set stop step for epoch
+        stop_step = init_steps + (epoch+1)*train_steps
+
         # train and evaluate one epoch
         eval_metrics = train_and_evaluate_once(
             tronn_graph,
@@ -237,6 +252,16 @@ def train_and_evaluate(
             "{}/valid".format(out_dir),
             restore_model_checkpoint=restore_model_checkpoint,
             transfer_model_checkpoint=transfer_model_checkpoint)
+        
+        # refresh log with latest step count (counting from start of folder, NOT including transfer)
+        with open(step_log, "w") as out:
+            out.write("{}\t{}".format(init_steps, stop_step)) # may not need to write stop step, may not be used
+
+        # check for stopping log details.
+        if os.path.isfile(stopping_log):
+            with open(stopping_log, "r") as fp:
+                best_epoch, metric_best = map(float, fp.readline().strip().split())
+            consecutive_bad_epochs = epoch - best_epoch
 
         # Early stopping and saving best model
         if metric_best is None or ('loss' in stop_metric) != (eval_metrics[stop_metric] > metric_best):
@@ -247,6 +272,8 @@ def train_and_evaluate(
                 fp.write('epoch %d\n'%epoch)
                 fp.write("checkpoint path: {}\n".format(checkpoint_path))
                 fp.write(str(eval_metrics))
+            with open(stopping_log, 'w') as out:
+                out.write("{}\t{}".format(epoch, metric_best))
         else:
             consecutive_bad_epochs += 1
             if consecutive_bad_epochs > patience:

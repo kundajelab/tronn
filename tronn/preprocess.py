@@ -557,14 +557,21 @@ def generate_nn_dataset(
     # set up negatives
     completely_neg_file = '{0}/{1}.negatives.bed.gz'.format(tmp_dir, prefix)
     if not os.path.isfile(completely_neg_file):
+
+        # count regions in master regions
+        total_master_regions = 0
+        with gzip.open(celltype_master_regions) as fp:
+            for line in fp:
+                total_master_regions += 1
+        
+        # count regions in dhs regions
+        total_dhs_regions = 0
+        with gzip.open(univ_master_regions) as fp:
+            for line in fp:
+                total_dhs_regions += 1
         
         # determine settings for negative region total
         if neg_region_num is None:
-            # count regions in master regions
-            total_master_regions = 0
-            with gzip.open(celltype_master_regions) as fp:
-                for line in fp:
-                    total_master_regions += 1
             neg_region_num = total_master_regions
 
         # determine division of negatives
@@ -595,16 +602,20 @@ def generate_nn_dataset(
                 "{1}").format(chrom_sizes, tmp_chrom_sizes)
             print setup_chrom_sizes
             os.system(setup_chrom_sizes)
-            select_negs = (
-                "bedtools shuffle -i {0} -excl {0} -g {1} | "
-                "head -n {2} | "
-                "gzip -c >> {3}").format(
-                    celltype_master_regions,
-                    tmp_chrom_sizes,
-                    neg_region_num,
-                    completely_neg_file)
-            print select_negs
-            os.system(select_negs)
+            random_neg_left = neg_region_num
+            while random_neg_left > 0:
+                random_negs_to_select = min(random_neg_left, total_master_regions)
+                select_negs = (
+                    "bedtools shuffle -i {0} -excl {0} -g {1} | "
+                    "head -n {2} | "
+                    "gzip -c >> {3}").format(
+                        celltype_master_regions,
+                        tmp_chrom_sizes,
+                        random_negs_to_select,
+                        completely_neg_file)
+                print select_negs
+                os.system(select_negs)
+                random_neg_left -= random_negs_to_select
 
     # merge in to have a file of positive and negative regions
     final_master = '{0}/{1}.master.ml.bed.gz'.format(tmp_dir, prefix)

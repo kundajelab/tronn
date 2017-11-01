@@ -38,7 +38,7 @@ def run(args):
                         bin_method="naive" if args.no_flank_negs else "plus_flank_negs",
                         reverse_complemented=args.rc)
 
-    if args.kmerize:
+    if False:
         from tronn.graphs import TronnGraph
         from tronn.datalayer import load_data_from_filename_list
         
@@ -54,11 +54,8 @@ def run(args):
                          '{}/h5_kmer'.format(args.out_dir),
                          parallel=args.parallel)
 
-
-
-    quit()
     # TODO utilize the kmerize function from wkm
-    if args.kmerize:
+    if False:
         h5_files = glob.glob("{}/h5/*".format(args.out_dir))
         os.system('mkdir -p {}/h5_kmer'.format(args.out_dir))
         batch_size = 64
@@ -84,9 +81,6 @@ def run(args):
 
             kmerize_gpu(kmerize_graph, h5_kmer_file, total_examples, batch_size=batch_size)
 
-            quit()
-            
-
     if False:
     #if args.kmerize:
         # run kmerize function and save to hdf5 files
@@ -95,12 +89,8 @@ def run(args):
         kmerize_parallel('{}/h5'.format(args.out_dir),
                          '{}/h5_kmer'.format(args.out_dir))
 
-        
-    # and here also utilize motif info as input if desired
-    
-    
-
     end = time.time()
     print "Execution time: {}".format(end - start)
+    print "DONE"
     
     return None
