@@ -28,6 +28,7 @@ class TronnGraph(object):
                  batch_size,
                  feature_key="features",
                  shuffle_data=True,
+                 fake_task_num=0,
                  filter_tasks=[],
                  ordered_num_epochs=1):
         logging.info("Initialized TronnGraph")
@@ -39,6 +40,7 @@ class TronnGraph(object):
         self.batch_size = batch_size
         self.feature_key = feature_key
         self.shuffle_data = shuffle_data
+        self.fake_task_num = fake_task_num
         self.filter_tasks = filter_tasks
         self.ordered_num_epochs = ordered_num_epochs
         
@@ -56,6 +58,7 @@ class TronnGraph(object):
             features_key=self.feature_key,
             shuffle=self.shuffle_data,
             ordered_num_epochs=self.ordered_num_epochs,
+            fake_task_num=self.fake_task_num,
             filter_tasks=self.filter_tasks)
 
         # adjust tasks
@@ -88,6 +91,7 @@ class TronnNeuralNetGraph(TronnGraph):
                  importances_tasks=None,
                  feature_key="features",
                  shuffle_data=True,
+                 fake_task_num=0,
                  filter_tasks=[],
                  class_weighted_loss=False,
                  positives_focused_loss=False,
@@ -97,6 +101,7 @@ class TronnNeuralNetGraph(TronnGraph):
             data_files, tasks, data_loader,
             model_fn, model_params, batch_size,
             feature_key=feature_key, shuffle_data=shuffle_data,
+            fake_task_num=fake_task_num,
             filter_tasks=filter_tasks)
         self.final_activation_fn = final_activation_fn
         self.loss_fn = loss_fn

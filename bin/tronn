@@ -288,6 +288,9 @@ def add_evaluate_parser(subparsers):
         "Input files and folders")
     add_hdf5_data_options(group_input)
     group_input.add_argument(
+        "--fake_task_num", default=0, type=int,
+        help="extra tasks to add (to match a smaller output dataset to larger model)")
+    group_input.add_argument(
         "--cvfold", default=0, type=int,
         help="which files to train on [0, 1, 2]")
 

@@ -161,7 +161,7 @@ def make_bed_from_h5(h5_file, bed_file):
                 out.write('{0}\t{1}\t{2}\n'.format(chrom, start, stop))
 
 
-def hdf5_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shuffle=False):
+def hdf5_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shuffle=False, fake_task_num=0):
     """Extract batches from hdf5 file
 
     Args:
@@ -224,6 +224,13 @@ def hdf5_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shu
     labels_tensor.set_shape([batch_size, len(tasks)])
     metadata_tensor.set_shape([batch_size, 1])
 
+    # fake tasks num: this is to be able to check a multitask model on a single output dataset
+    if fake_task_num > 0:
+        #extra_to_add_num = fake_task_num - len(tasks)
+        labels_list = tf.unstack(labels_tensor, axis=1)
+        labels_final = labels_list + [labels_list[-1] for i in xrange(fake_task_num)]
+        labels_tensor = tf.stack(labels_final, axis=1)
+    
     return features_tensor, labels_tensor, metadata_tensor
 
 
@@ -356,6 +363,7 @@ def load_data_from_filename_list(
         shuffle=True,
         shuffle_seed=0,
         ordered_num_epochs=1,
+        fake_task_num=0,
         filter_tasks=[]):
     """Load data into queues from a filename list of hdf5 files
 
@@ -372,12 +380,8 @@ def load_data_from_filename_list(
       metadata: metadata tensor
     """
     logging.info("loading data for tasks:%s from hdf5_files:%s" % (tasks, hdf5_files))
-    # TODO add in ordered loading (for importance scores)
-    # filename_id? dequeue in order?
-    # with the ordered filename ids, make a py_func that takes in the hdf5_to_slices function, and input is the filename,
-    # to output tensors
     if shuffle:
-        example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=True)
+        example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=True, fake_task_num=fake_task_num)
                                for hdf5_file in hdf5_files]
         min_after_dequeue = 10000
         capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size

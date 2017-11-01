@@ -235,7 +235,8 @@ def run(args):
         model_fn,
         model_params,
         tf.nn.sigmoid,
-        shuffle_data=shuffle_data)
+        shuffle_data=shuffle_data,
+        fake_task_num=args.fake_task_num)
 
     # predict
     labels, predictions, probs, metadata = predict(
