@@ -10,7 +10,7 @@ def setup_cv(data_files, cvfold=0):
     data_files = sorted([data_file for data_file in data_files if "chrY" not in data_file])
 
     # 1 for validation, 2 for test, never chrX
-    cv_start_indices = [1, 7, 16, 4, 19]
+    cv_start_indices = [19, 1, 7, 4, 16]
     cv_start_idx = cv_start_indices[cvfold]
 
     # set up splits
