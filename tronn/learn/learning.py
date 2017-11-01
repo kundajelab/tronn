@@ -230,6 +230,7 @@ def train_and_evaluate(
                 init_steps = get_checkpoint_steps(transfer_model_checkpoint)
             else:
                 init_steps = 0
+            os.system("mkdir -p {}/train".format(out_dir))
             with open(step_log, "w") as out:
                 out.write("{}\t{}".format(init_steps, init_steps)) # NOTE: may not need to write last step, may not be used
         else:
