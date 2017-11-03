@@ -3,6 +3,7 @@
 
 from tronn.nets.deep_nets import basset
 from tronn.nets.deep_nets import danq
+from tronn.nets.deep_nets import deepsea
 from tronn.nets.deep_nets import resnet
 from tronn.nets.deep_nets import rbasset
 from tronn.nets.deep_nets import splitbasset
@@ -23,7 +24,8 @@ from tronn.nets.grammar_nets import multiple_grammars
 model_fns = {
     "basset": basset,
     "danq": danq,
-    "resnet": resnet,
+    "deepsea": deepsea,
+    #"resnet": resnet,
     "rbasset": rbasset,
     "splitbasset": splitbasset,
     "inception": tfslim_inception,

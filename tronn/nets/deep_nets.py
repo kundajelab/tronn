@@ -5,10 +5,7 @@ import math
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-import tensorflow.contrib.layers as layers
-
-#from tensorflow.contrib.slim.python.slim.nets import inception_v3
-#from tensorflow.contrib.slim.python.slim.nets import resnet_v2
+import tensorflow.contrib.layers as layers # TODO(dk) at some point convert to tf.layers module
 
 from tronn.nets.tfslim import inception_v3
 from tronn.nets.tfslim import resnet_v2
@@ -17,9 +14,8 @@ from tronn.util.tf_ops import maxnorm
 
 
 def final_pool(net, pool):
-    """Pooling function
+    """Pooling function after convolutional layers
     """
-    
     if pool == 'flatten':
         net = slim.flatten(
             net, scope='flatten')
@@ -46,7 +42,8 @@ def mlp_module(
         fc_dim,
         fc_layers,
         dropout=0.0,
-        l2=0.0,
+        fc_l2=0.0,
+        logit_l1=0.0,
         is_training=True,
         prefix=""):
     """MLP
@@ -55,9 +52,9 @@ def mlp_module(
     with slim.arg_scope(
             [slim.fully_connected],
             activation_fn=None,
-            weights_regularizer=slim.l2_regularizer(l2)):
+            weights_regularizer=slim.l2_regularizer(fc_l2)):
         for i in xrange(fc_layers):
-            with tf.variable_scope('fc{}'.format(i)):
+            with tf.variable_scope('{}fc{}'.format(prefix, i)):
                 net = slim.fully_connected(
                     net,
                     fc_dim,
@@ -73,7 +70,9 @@ def mlp_module(
                     keep_prob=1.0-dropout,
                     is_training=is_training)
         logits = slim.fully_connected(
-            net, num_tasks, scope='logits')
+            net, num_tasks, 
+            weights_regularizer=slim.l1_regularizer(logit_l1),
+            scope='{}logits'.format(prefix))
     return logits
 
 
@@ -82,7 +81,7 @@ def temporal_pred_module(
         num_days,
         share_logistic_weights,
         is_training=True):
-    """Temporal module, use RNN
+    """Temporal module, use RNN. NOTE: specifically designed for timecourse, don't use otherwise for now
     """
     dim = features.shape.as_list()[1]
     day_nets = [slim.fully_connected(features, dim, activation_fn=tf.nn.relu)
@@ -105,6 +104,8 @@ def temporal_pred_module(
 
 
 def basset_conv_module(features, is_training=True, width_factor=1):
+    """basset convolutional layers
+    """
     with slim.arg_scope(
             [slim.batch_norm],
             center=True,
@@ -131,9 +132,8 @@ def basset_conv_module(features, is_training=True, width_factor=1):
 
 
 def basset(features, labels, config, is_training=True):
-    '''
-    Basset - Kelley et al Genome Research 2016
-    '''
+    """Basset - Kelley et al Genome Research 2016
+    """
     config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
     config['temporal'] = config.get('temporal', False)
     config['final_pool'] = config.get('final_pool', 'flatten')
@@ -165,10 +165,9 @@ def basset(features, labels, config, is_training=True):
 
 
 def splitbasset(features, labels, config, is_training=True):
-    '''
-    Basset - Kelley et al Genome Research 2016
+    """Basset - Kelley et al Genome Research 2016
     but with task specific MLPs.
-    '''
+    """
     config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
     config['temporal'] = config.get('temporal', False)
     config['final_pool'] = config.get('final_pool', 'flatten')
@@ -208,9 +207,52 @@ def splitbasset(features, labels, config, is_training=True):
 
     return logits
 
+def deepsea_conv_module(features, is_training, l2_weight=0.0000005):
+    """deepsea convolutional layers
+    """
+    with slim.arg_scope(
+            [slim.conv2d],
+            activation_fn=tf.relu,
+            weights_initializer=layers.variance_scaling_initializer(), # note that this is slim specific and needs to be updated for tf.layers
+            weights_regularizer=slim.l2_regularizer(l2_weight),
+            biases_regularizer=slim.l2_regularizer(l2_weight)):
+        net = slim.conv2d(features, 320, [1, 8])
+        net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
+        net = slim.dropout(net, keep_prob=0.8, is_training=is_training)
+
+        net = slim.conv2d(features, 480, [1, 8])
+        net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
+        net = slim.dropout(net, keep_prob=0.8, is_training=is_training)
+
+        net = slim.conv2d(features, 960, [1, 8])
+        net = slim.dropout(net, keep_prob=0.5, is_training=is_training)
+
+    return net
+
+
+def deepsea(features, labels, config, is_training=True):
+    """ DeepSEA - Zhou and Troyanskaya 2015
+    """
+    net = deepsea_conv_module(features, is_training)
+    net = final_pool(net, "flatten")
+
+    logits = mlp_module(
+        net,
+        num_tasks = int(labels.get_shape()[-1]),
+        fc_dim = 925,
+        fc_layers = 1,
+        dropout = 0.0,
+        logit_l1=0.00000001,
+        is_training=is_training)
+    
+    maxnorm(norm_val=0.9)
+
+    return logits
 
 
 def danq(features, labels, config, is_training=True):
+    """ DANQ - Quang et al 2016
+    """
     net = slim.conv2d(
         features,
         320,
@@ -240,8 +282,8 @@ def danq(features, labels, config, is_training=True):
     net = slim.fully_connected(net, 925, activation_fn=tf.nn.relu)
     logits = slim.fully_connected(
         net, int(labels.get_shape()[-1]), activation_fn=None)
-    return logits
 
+    return logits
 
 
 def _residual_block(net_in, depth, pooling_info=(None, None), first=False):
