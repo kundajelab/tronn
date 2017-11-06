@@ -407,6 +407,7 @@ def predict(
         all_labels_array = np.zeros((num_examples, label_tensor.get_shape()[1]))
         all_logits_array = np.zeros((num_examples, logit_tensor.get_shape()[1]))
         all_probs_array = np.zeros((num_examples, probs_tensor.get_shape()[1]))
+        regions = []
         all_metadata = []
         
         batch_start = 0
@@ -435,15 +436,12 @@ def predict(
             all_logits_array[i,:] = logits
             all_probs_array[i,:] = probs
 
-            # metadata: convert to list and add
-            #metadata_list = [region]
-            #metadata_string_list = [metadata_piece[0].split('(')[0] for metadata_piece in metadata_list]
-            #all_metadata = all_metadata + metadata_string_list
-            all_metadata.append(region)
+            all_metadata.append(str(region_arrays["feature_metadata"][0]))
+            regions.append(region)
 
         close_tensorflow_session(coord, threads)
     
-    return all_labels_array, all_logits_array, all_probs_array, all_metadata
+    return all_labels_array, all_logits_array, all_probs_array, regions, all_metadata
 
 
 

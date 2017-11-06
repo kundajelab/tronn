@@ -203,12 +203,14 @@ def run(args):
         data_files = glob.glob("{}/h5/*h5".format(data_processing_dir))
     else:
         data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
-
+        
     # set up model params
     model_fn, model_params = setup_model(args)
 
     # set up network graph and outputs
     if args.reconstruct_regions:
+        shuffle_data = False
+    elif args.variants:
         shuffle_data = False
     else:
         shuffle_data = True
@@ -224,7 +226,7 @@ def run(args):
         shuffle_data=shuffle_data)
         
     # predict
-    labels, logits, probs, metadata = predict(
+    labels, logits, probs, metadata, all_metadata = predict(
         tronn_graph,
         args.model_dir,
         args.batch_size,
@@ -235,9 +237,13 @@ def run(args):
     # TODO(dk) formalize this to save
     labels_df = pd.DataFrame(data=labels, index=metadata)
     labels_df.to_csv("{}/labels.test.txt".format(args.out_dir), sep='\t', header=False)
-    probs_df = pd.DataFrame(data=probs, index=metadata)
-    probs_df.to_csv("{}/probs.test.txt".format(args.out_dir), sep='\t', header=False)
 
+    if args.variants:
+        probs_df = pd.DataFrame(data=probs, index=all_metadata)
+        probs_df.to_csv("{}/probs.test.txt".format(args.out_dir), sep='\t', header=False)
+    else:
+        probs_df = pd.DataFrame(data=probs, index=metadata)
+        probs_df.to_csv("{}/probs.test.txt".format(args.out_dir), sep='\t', header=False)
     
     # push predictions through activation to get probs
     if args.model_type != "nn":

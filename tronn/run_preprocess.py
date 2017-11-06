@@ -11,6 +11,8 @@ import h5py
 from tronn.preprocess import generate_master_regions
 from tronn.preprocess import generate_nn_dataset
 
+from tronn.preprocess import generate_variant_datasets
+
 def run(args):
     """Main function to generate dataset
     """
@@ -92,5 +94,17 @@ def run(args):
     end = time.time()
     print "Execution time: {}".format(end - start)
     print "DONE"
+    
+    return None
+
+
+def run_variants(args):
+    """Run variants 
+    """
+    generate_variant_datasets(
+        args.variant_file,
+        args.annotations["ref_fasta"],
+        args.out_dir,
+        args.prefix)
     
     return None

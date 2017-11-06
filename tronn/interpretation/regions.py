@@ -54,7 +54,10 @@ class RegionObject(object):
         # merge by max
         elif self.merge_type == "max":
             self.array = np.maximum(self.array, new_array)
-
+        elif self.merge_type == "append":
+            self.array = new_array
+        
+            
         
     def get_array(self):
         """return array
@@ -135,6 +138,8 @@ class ExampleGenerator(object):
             if key == "feature_metadata":
                 region = self.batch_region_arrays[key][self.batch_pointer,0]
                 region_name = region.split(";")[self.name_idx].split("=")[1].split("::")[0]
+                region_arrays["feature_metadata"] = (
+                    self.batch_region_arrays[key][self.batch_pointer], "append")
             elif "importance" in key:
                 region_arrays[key] = (
                     np.squeeze(

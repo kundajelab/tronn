@@ -58,6 +58,8 @@ def parse_args():
     add_baseline_parser(subparsers)
 
     add_extract_params_parser(subparsers)
+
+    add_preprocess_variants_parser(subparsers)
     
     # parse args
     args = parser.parse_args()
@@ -165,6 +167,35 @@ def add_preprocess_parser(subparsers):
     group_opts.add_argument(
         "--kmerize", action='store_true',
         help="generate kmer datasets also")
+    
+    # group for output files
+    group_output = argparser_preprocess.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="dataset")
+
+    return
+
+
+def add_preprocess_variants_parser(subparsers):
+    """Specifically preprocess a variants file to generate examples for prediction
+    """
+    argparser_preprocess = subparsers.add_parser(
+        "preprocess_variants",
+        help="Preprocess data into TRONN formats")
+
+    # group for input files
+    group_input = argparser_preprocess.add_argument_group(
+        "Input files and folders")
+    group_input.add_argument(
+        "--variant_file", help="variant_file")
+    load_data_files(group_input)
+
+    # group for options
+    group_opts = argparser_preprocess.add_argument_group(
+        "Data generation options")
+    group_opts.add_argument(
+        "--parallel", default=12, type=int,
+        help='Number of parallel threads to use')
     
     # group for output files
     group_output = argparser_preprocess.add_argument_group(
@@ -363,6 +394,9 @@ def add_predict_parser(subparsers):
     group_params.add_argument(
     	"--reconstruct_regions", action="store_true",
     	help="Produce files where values are merged")
+    group_params.add_argument(
+    	"--variants", action="store_true",
+    	help="Inputs are variants")
     group_params.add_argument(
         '--batch_size', default=128, type=int,
         help='batch size')
@@ -730,6 +764,9 @@ def main():
     if subcommand == "preprocess":
         from tronn.run_preprocess import run
         run(args)
+    elif subcommand == "preprocess_variants":
+        from tronn.run_preprocess import run_variants
+        run_variants(args)
     elif subcommand == 'train':
         add_model_params(args)
         print 'model args: %s' % args.model

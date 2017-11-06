@@ -680,6 +680,155 @@ def generate_nn_dataset(
     return '{}/h5'.format(work_dir)
 
 
+def generate_variant_datasets(variant_file, ref_fasta_file, out_dir, prefix, seq_length=1000):
+    """Creates 2 hdf5 files, one that has allele1 and the other with allele2
+    Then, when prediction (in order), should produce two files that you can put
+    together to get the fold changes easily
+    """
+    snp_chr_column = 4
+    snp_pos_column = 5
+    snp_name_column = 6
+    snp_dist_column = 26
+    allele1_column = 7
+    allele2_column = 8
+
+    # set up folders
+    os.system("mkdir -p {0}/{1}.allele1 {0}/{1}.allele2".format(out_dir, prefix))
+    
+    # start from SNP file that has allele1 and allele2, as well as SNP distance from center of DHS peak
+    allele1_bed = "{0}/{1}.allele1/{1}.allele1.bed.gz".format(out_dir, prefix)
+    allele2_bed = "{0}/{1}.allele2/{1}.allele2.bed.gz".format(out_dir, prefix)
+    with gzip.open(allele1_bed, "w") as out1:
+        with gzip.open(allele2_bed, "w") as out2:
+    
+            with open(variant_file, "r") as fp:
+                for line in fp:
+                    if line.startswith("SNP"):
+                        continue
+                    
+                    fields = line.strip().split('\t')
+                    
+                    # make a bed file line
+                    if fields[snp_dist_column] == "NA":
+                        dist = 0
+                    else:
+                        dist = int(fields[snp_dist_column])
+
+                    chrom = fields[snp_chr_column]
+                    snp_coord = int(fields[snp_pos_column])
+                    center_coord = snp_coord + dist
+                    start_coord = center_coord - int(seq_length/2)
+                    stop_coord = center_coord + int(seq_length/2)
+                    snp_pos_from_start = snp_coord - start_coord
+
+                    # ignore any positions that are beyond 1000
+                    if snp_pos_from_start <= 10:
+                        continue
+                    if snp_pos_from_start > 990:
+                        continue
+
+                    out1_line = "{0}\t{1}\t{2}\tfeatures={0}:{1}-{2};snp_name={3};snp_pos={4};allele={5}\n".format(
+                        chrom,
+                        start_coord,
+                        stop_coord,
+                        fields[snp_name_column],
+                        snp_pos_from_start,
+                        fields[allele1_column])
+                    out1.write(out1_line)
+                    
+                    out2_line = "{0}\t{1}\t{2}\tfeatures={0}:{1}-{2};snp_name={3};snp_pos={4};allele={5}\n".format(
+                        chrom,
+                        start_coord,
+                        stop_coord,
+                        fields[snp_name_column],
+                        snp_pos_from_start,
+                        fields[allele2_column])
+                    out2.write(out2_line)
+
+    # now shift 5 bp on either side
+    new_allele_beds = []
+    for allele_bed in [allele1_bed, allele2_bed]:
+        new_bed = "{}.shifts.bed.gz".format(allele_bed.split(".bed")[0])
+        new_allele_beds.append(new_bed)
+        with gzip.open(new_bed, "w") as out:
+            with gzip.open(allele_bed) as fp:
+                for line in fp:
+                    fields = line.strip().split('\t')
+
+                    # shift up and down by 5
+                    for shift in xrange(-4,5):
+                        metadata_fields = fields[3].split(";")
+                        metadata_fields[2] = "snp_pos={}".format(int(metadata_fields[2].split("=")[1])-shift)
+                        out.write("{}\t{}\t{}\t{}\n".format(
+                            fields[0],
+                            int(fields[1])+shift,
+                            int(fields[2])+shift,
+                            ";".join(metadata_fields)))
+
+    # run getfasta
+    fasta_files = []
+    for allele_bed in new_allele_beds:
+        fasta_sequences = "{}.fasta".format(allele_bed.split(".bed")[0])
+        fasta_files.append(fasta_sequences)
+        get_sequence = ("bedtools getfasta -s -fo {0} -tab -name "
+                        "-fi {1} "
+                        "-bed {2}").format(fasta_sequences,
+                                           ref_fasta_file,
+                                           allele_bed)
+        print get_sequence
+        os.system(get_sequence)
+    
+    # onehot encode, throw into hdf5 file
+    h5_files = []
+    for fasta_file in fasta_files:
+        h5_file = "{}.h5".format(fasta_file.split(".fasta")[0])
+        h5_files.append(h5_file)
+        
+        num_bins = int(subprocess.check_output(
+            ['wc','-l', fasta_file]).strip().split()[0])
+        
+        with h5py.File(h5_file, "w") as hf:
+            features_hf = hf.create_dataset('features',
+                                            (num_bins, 1, seq_length, 4))
+            metadata_hf = hf.create_dataset('example_metadata',
+                                            (num_bins,), dtype='S1000')
+        
+            counter = 0
+            with open(fasta_file, 'rb') as fp:
+                for line in fp:
+                
+                    if counter % 50000 == 0:
+                        print counter
+
+                    sequence = line.strip().split()[1].upper()
+                    metadata = line.strip().split()[0]
+                    
+                    allele_pos = int(metadata.split(";")[2].split("=")[1]) - 1 # 0 index
+                    allele_basepair = metadata.split("::")[0].split(";")[3].split("=")[1]
+
+                    # sequence with new basepair
+                    sequence = sequence[:allele_pos] + allele_basepair + sequence[allele_pos+1:]
+
+                    # convert each sequence into one hot encoding
+                    # and load into hdf5 file
+                    try:
+                        features_hf[counter,:,:,:] = one_hot_encode(sequence)
+                    except:
+                        import ipdb
+                        ipdb.set_trace()
+
+                    # track the region name too.
+                    metadata_hf[counter] = metadata
+                
+                    counter += 1
+
+            # generate fake labels
+            labels_hf = hf.create_dataset("labels",
+                                          (num_bins, 1))
+            labels_hf[:] = np.ones((num_bins, 1))
+                    
+    return
+
 def generate_ordered_single_file_nn_dataset(
         celltype_master_regions,
         ref_fasta,
