@@ -76,6 +76,100 @@ def mlp_module(
     return logits
 
 
+def mlp_module_v2(
+        features,
+        num_tasks,
+        fc_dim,
+        fc_layers,
+        dropout=0.0,
+        fc_l2=0.0,
+        logit_l1=0.0,
+        logit_dropout=0.0,
+        split_before=None,
+        is_training=True,
+        prefix=""):
+    """MLP with options for task specific layers
+    
+    Args:
+      split_before: if None, no splitting. If index, before that index level, split layers.
+
+    """
+    # set up splits
+    if split_before is not None:
+        assert split_before >= 0
+        assert (fc_layers - split_before) >= 0
+        split_layers = fc_layers - split_before
+        fc_layers = split_before
+    else:
+        split_layers = 0
+
+    # set up a single FC layer
+    def mlp_fc(input_tensor, fc_dim, dropout, is_training, scope_name):
+        """Internal fc layer: fc, batch norm, dropout
+        """
+        with tf.variable_scope(scope_name):
+            net = slim.fully_connected(
+                input_tensor,
+                fc_dim,
+                biases_initializer=None)
+            net = slim.batch_norm(
+                net,
+                center=True,
+                scale=True,
+                activation_fn=tf.nn.relu,
+                is_training=is_training)
+            net = slim.dropout(
+                net,
+                keep_prob=1.0-dropout,
+                is_training=is_training)
+
+        return net
+
+    # stack layers
+    net = features
+    with slim.arg_scope(
+            [slim.fully_connected],
+            activation_fn=None,
+            weights_regularizer=slim.l2_regularizer(fc_l2)):
+
+        # first generate shared FC layers
+        for i in xrange(fc_layers):
+            net = mlp_fc(net, fc_dim, dropout, is_training, "{}fc{}".format(prefix, i))
+
+        # then generate split FC layers (if any). If none, continue to logits
+        task_specific_outputs = []
+        for i in xrange(num_tasks):
+            task_specific_net = net
+            for j in xrange(split_layers):
+                # same as above
+                task_specific_net = mlp_fc(task_specific_net, fc_dim, dropout, is_training, "{}task{}-fc{}".format(prefix, i, j+fc_layers))
+            task_specific_outputs.append(task_specific_net)
+
+        # adjust logits based on if any split layers
+        if split_layers > 0:
+            task_logits = [
+                slim.fully_connected(
+                    task_specific_outputs[i], 1, 
+                    weights_regularizer=slim.l1_regularizer(logit_l1),
+                    scope="{}task{}-logits".format(prefix, i))
+                for i in xrange(len(task_specific_outputs))]
+            logits = tf.concat(task_logits, 1)
+        else:
+            logits = slim.fully_connected(
+                net, num_tasks, 
+                weights_regularizer=slim.l1_regularizer(logit_l1),
+                scope='{}logits'.format(prefix))
+
+    # logit dropout
+    logits = slim.dropout(
+        logits,
+        keep_prob=1.0-logit_dropout,
+        is_training=is_training)
+
+    return logits
+
+
+
 def temporal_pred_module(
         features,
         num_days,
@@ -101,6 +195,23 @@ def temporal_pred_module(
                       for day_net in day_nets]
         logits = tf.concat(day_logits, 1)
     return logits
+
+
+def lstm_module(features, is_training):
+    """LSTM module, can pop on top of CNN
+    """
+    # lstm
+    net = tf.squeeze(features, axis=1) #remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
+    rnn_inputs = tf.unstack(net, axis=1, name='unpack_time_dim')
+    
+    cell_fw = tf.contrib.rnn.LSTMBlockCell(320)
+    cell_bw = tf.contrib.rnn.LSTMBlockCell(320)
+    outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(
+        cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
+    net = tf.concat([state_fw[1], state_bw[1]], axis=1)
+    net = slim.dropout(net, keep_prob=0.5, is_training=is_training)
+
+    return net
 
 
 def basset_conv_module(features, is_training=True, width_factor=1):
@@ -135,14 +246,25 @@ def basset(features, labels, config, is_training=True):
     """Basset - Kelley et al Genome Research 2016
     """
     config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
+    config["recurrent"] = config.get("recurrent", False)
     config['temporal'] = config.get('temporal', False)
     config['final_pool'] = config.get('final_pool', 'flatten')
     config['fc_layers'] = config.get('fc_layers', 2)
     config['fc_dim'] = config.get('fc_dim', int(config['width_factor']*1000))
     config['drop'] = config.get('drop', 0.3)
+    config["logit_drop"] = config.get("logit_drop", 0.0)
+    config["split_before"] = config.get("split_before", None)
 
+    # convolutional layers
     net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
-    net = final_pool(net, config['final_pool'])
+    
+    # recurrent layers (if any)
+    if config["recurrent"]:
+        net = lstm_module(net, is_training)
+    else:
+        net = final_pool(net, config['final_pool'])
+
+    # logits
     if config['temporal']:
         logits = temporal_pred_module(
             net,
@@ -150,12 +272,14 @@ def basset(features, labels, config, is_training=True):
             share_logistic_weights=True,
             is_training=is_training)
     else:
-        logits = mlp_module(
+        logits = mlp_module_v2(
             net, 
             num_tasks = int(labels.get_shape()[-1]), 
             fc_dim = config['fc_dim'], 
             fc_layers = config['fc_layers'],
             dropout=config['drop'],
+            logit_dropout=config["logit_drop"],
+            split_before=config["split_before"],
             is_training=is_training)
         
     # Torch7 style maxnorm
@@ -164,55 +288,12 @@ def basset(features, labels, config, is_training=True):
     return logits
 
 
-def splitbasset(features, labels, config, is_training=True):
-    """Basset - Kelley et al Genome Research 2016
-    but with task specific MLPs.
-    """
-    config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
-    config['temporal'] = config.get('temporal', False)
-    config['final_pool'] = config.get('final_pool', 'flatten')
-    config['fc_layers'] = config.get('fc_layers', 2)
-    config['fc_dim'] = config.get('fc_dim', int(config['width_factor']*1000))
-    config['drop'] = config.get('drop', 0.3)
-
-    net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
-    net = final_pool(net, config['final_pool'])
-
-    # different MLP for each task
-    logits_list = []
-    for task_idx in xrange(int(labels.get_shape()[-1])):
-        if config['temporal']:
-            logits_list.append(
-                temporal_pred_module(
-                    net,
-                    1,
-                    share_logistic_weights=True,
-                    is_training=is_training))
-        else:
-            logits_list.append(
-                mlp_module(
-                    net, 
-                    num_tasks = 1, 
-                    fc_dim = config['fc_dim'], 
-                    fc_layers = config['fc_layers'],
-                    dropout=config['drop'],
-                    is_training=is_training,
-                    prefix="task{}".format(task_idx)))
-
-    # and concat
-    logits = tf.concat(logits_list, 1)
-    
-    # Torch7 style maxnorm
-    maxnorm(norm_val=7)
-
-    return logits
-
 def deepsea_conv_module(features, is_training, l2_weight=0.0000005):
     """deepsea convolutional layers
     """
     with slim.arg_scope(
             [slim.conv2d],
-            activation_fn=tf.relu,
+            activation_fn=tf.nn.relu,
             weights_initializer=layers.variance_scaling_initializer(), # note that this is slim specific and needs to be updated for tf.layers
             weights_regularizer=slim.l2_regularizer(l2_weight),
             biases_regularizer=slim.l2_regularizer(l2_weight)):
@@ -412,46 +493,6 @@ def resnet(features, labels, config, is_training=True):
         is_training)
     return logits
 
-
-# DK tests
-
-def rbasset(features, labels, config, is_training=True):
-    """Take basset conv module and attach LSTM on top of that, then FC layers
-    """
-    config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
-    config['temporal'] = config.get('temporal', False)
-    config['final_pool'] = config.get('final_pool', 'flatten')
-    config['fc_layers'] = config.get('fc_layers', 2)
-    config['fc_dim'] = config.get('fc_dim', int(config['width_factor']*1000))
-    config['drop'] = config.get('drop', 0.3)
-
-    # basset conv module
-    net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
-    
-    # lstm
-    net = tf.squeeze(net, axis=1) #remove extra dim that was added so we could use conv2d. Results in batchXtimeXdepth
-    rnn_inputs = tf.unstack(net, axis=1, name='unpack_time_dim')
-    
-    cell_fw = tf.contrib.rnn.LSTMBlockCell(320)
-    cell_bw = tf.contrib.rnn.LSTMBlockCell(320)
-    outputs_fwbw_list, state_fw, state_bw = tf.contrib.rnn.static_bidirectional_rnn(
-        cell_fw, cell_bw, rnn_inputs, dtype=tf.float32)
-    net = tf.concat([state_fw[1], state_bw[1]], axis=1)
-    net = slim.dropout(net, keep_prob=0.5, is_training=is_training)
-
-    # mlp
-    logits = mlp_module(
-        net, 
-        num_tasks = int(labels.get_shape()[-1]), 
-        fc_dim = config['fc_dim'], 
-        fc_layers = config['fc_layers'],
-        dropout=config['drop'],
-        is_training=is_training)
-        
-    # Torch7 style maxnorm
-    maxnorm(norm_val=7)
-    
-    return logits
 
 def tfslim_inception(features, labels, config, is_training=True):
     """Wrapper around inception v3 from tf slim

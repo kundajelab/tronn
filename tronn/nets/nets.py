@@ -5,8 +5,6 @@ from tronn.nets.deep_nets import basset
 from tronn.nets.deep_nets import danq
 from tronn.nets.deep_nets import deepsea
 from tronn.nets.deep_nets import resnet
-from tronn.nets.deep_nets import rbasset
-from tronn.nets.deep_nets import splitbasset
 from tronn.nets.deep_nets import tfslim_inception
 from tronn.nets.deep_nets import tfslim_resnet
 
@@ -25,9 +23,6 @@ model_fns = {
     "basset": basset,
     "danq": danq,
     "deepsea": deepsea,
-    #"resnet": resnet,
-    "rbasset": rbasset,
-    "splitbasset": splitbasset,
     "inception": tfslim_inception,
     "resnet": tfslim_resnet,
     "pois_cutoff": pois_cutoff,
