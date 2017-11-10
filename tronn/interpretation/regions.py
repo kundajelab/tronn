@@ -39,7 +39,7 @@ class RegionObject(object):
             if offset < 0:
                 adjusted_offset = 0
             else:
-                ajusted_offset = offset
+                adjusted_offset = offset
                 
             left_zero_padding = np.zeros(
                 (4, adjusted_offset))
@@ -148,7 +148,7 @@ class ExampleGenerator(object):
             else:
                 region_arrays[key] = (
                     self.batch_region_arrays[key][self.batch_pointer,:],
-                    "max")
+                    "sum")
         self.batch_pointer += 1
         return region_name, region_arrays
     

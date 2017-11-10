@@ -445,4 +445,111 @@ def predict(
 
 
 
+def predict_variant_scores(
+        tronn_graph,
+        model_dir,
+        batch_size,
+        model_checkpoint=None,
+        num_evals=1000,
+        reconstruct_regions=False):
+    """Prediction routine. When called, returns predictions 
+    (with labels and metadata) as an array for downstream processing
+
+    Args:
+      tronn_graph: a TronnNeuralNetGraph instance
+      model_dir: folder containing trained model
+      batch_size: batch size
+      num_evals: number of examples to run
+
+    Returns:
+      label_array
+      logit_array
+      probs_array
+      metadata_array
+
+    """
+    # build graph and run
+    with tf.Graph().as_default() as g:
+
+        # build graph
+        #with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+        out_tensors = tronn_graph.build_inference_graph(zscore_vals=True)
+        label_tensor = out_tensors["labels"]
+        logit_tensor = tronn_graph.logits
+        probs_tensor = out_tensors["probs"]
+        metadata_tensor = out_tensors["example_metadata"]
+        importances_tensor = out_tensors["importances_task0"]
+        
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+        
+        # restore if given model (option to NOT restore because of models
+        # that do not use restore, like PWM convolutions)
+        if model_checkpoint is not None:
+            saver = tf.train.Saver()
+            saver.restore(sess, model_checkpoint)
+        elif model_dir is not None:
+            checkpoint_path = tf.train.latest_checkpoint(model_dir)
+            saver = tf.train.Saver()
+            saver.restore(sess, checkpoint_path)
+            
+        # set up arrays to hold outputs
+        num_examples = num_evals
+        all_labels_array = np.zeros((num_examples, label_tensor.get_shape()[1]))
+        all_logits_array = np.zeros((num_examples, logit_tensor.get_shape()[1]))
+        all_probs_array = np.zeros((num_examples, probs_tensor.get_shape()[1]))
+        all_importances_array = np.zeros((num_examples, probs_tensor.get_shape()[1]))
+        regions = []
+        all_metadata = []
+        
+        batch_start = 0
+        batch_end = batch_size
+
+        tensor_dict = {
+            "labels": label_tensor,
+            "logits": logit_tensor,
+            "probs": probs_tensor,
+            "importances": importances_tensor,
+            "feature_metadata": metadata_tensor}
+
+        example_generator = ExampleGenerator(
+            sess,
+            tensor_dict,
+            batch_size,
+            reconstruct_regions=reconstruct_regions)
+
+        for i in range(num_evals):
+
+            region, region_arrays = example_generator.run()
+            labels = region_arrays["labels"]
+            logits = region_arrays["logits"]
+            probs = region_arrays["probs"]
+
+            # extract score around main region
+            # get 10 bp window and sum?
+            pos = int(region_arrays["feature_metadata"][0].split(";")[2].split("=")[1]) - 1
+            start_pos = pos - 9 # first conv window is 19
+            stop_pos = pos + 9
+            #importance_sum = np.sum(region_arrays["importances"][:, start_pos:stop_pos])
+            importance_sum = np.sum(region_arrays["importances"][:, pos])
+
+
+            #import ipdb
+            #ipdb.set_trace()
+            
+            # put into numpy arrays
+            all_labels_array[i,:] = labels
+            all_logits_array[i,:] = logits
+            all_probs_array[i,:] = probs
+            all_importances_array[i,:] = importance_sum
+
+            all_metadata.append(str(region_arrays["feature_metadata"][0]))
+            regions.append(region)
+
+        close_tensorflow_session(coord, threads)
+    
+    return all_labels_array, all_logits_array, all_probs_array, regions, all_metadata, all_importances_array
+
+
+
 

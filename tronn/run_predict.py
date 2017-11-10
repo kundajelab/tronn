@@ -20,7 +20,10 @@ from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import model_fns
 from tronn.learn.learning import predict
+from tronn.learn.learning import predict_variant_scores
 from tronn.interpretation.motifs import get_encode_pwms
+
+from tronn.interpretation.importances import layerwise_relevance_propagation
 
 def load_pwms(pwm_file_list):
     """Load pwm files from list of filenames into one dict
@@ -223,15 +226,24 @@ def run(args):
         model_fn,
         model_params,
         tf.nn.sigmoid,
+        importances_fn=layerwise_relevance_propagation,
         shuffle_data=shuffle_data)
         
     # predict
-    labels, logits, probs, metadata, all_metadata = predict(
-        tronn_graph,
-        args.model_dir,
-        args.batch_size,
-        num_evals=args.num_evals,
-        reconstruct_regions=args.reconstruct_regions)
+    if not args.variants:
+        labels, logits, probs, metadata, all_metadata = predict(
+            tronn_graph,
+            args.model_dir,
+            args.batch_size,
+            num_evals=args.num_evals,
+            reconstruct_regions=args.reconstruct_regions)
+    else:
+        labels, logits, probs, metadata, all_metadata, all_importance_scores = predict_variant_scores(
+            tronn_graph,
+            args.model_dir,
+            args.batch_size,
+            num_evals=args.num_evals,
+            reconstruct_regions=args.reconstruct_regions)
 
     # save out labels and logits
     # TODO(dk) formalize this to save
@@ -239,8 +251,10 @@ def run(args):
     labels_df.to_csv("{}/labels.test.txt".format(args.out_dir), sep='\t', header=False)
 
     if args.variants:
-        probs_df = pd.DataFrame(data=probs, index=all_metadata)
+        probs_df = pd.DataFrame(data=logits, index=all_metadata) # change from logits to probs?
         probs_df.to_csv("{}/probs.test.txt".format(args.out_dir), sep='\t', header=False)
+        importances_df = pd.DataFrame(data=all_importance_scores, index=all_metadata) # change from logits to probs?
+        importances_df.to_csv("{}/importances.test.txt".format(args.out_dir), sep='\t', header=False)
     else:
         probs_df = pd.DataFrame(data=probs, index=metadata)
         probs_df.to_csv("{}/probs.test.txt".format(args.out_dir), sep='\t', header=False)

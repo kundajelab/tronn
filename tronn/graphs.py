@@ -30,7 +30,7 @@ class TronnGraph(object):
                  shuffle_data=True,
                  fake_task_num=0,
                  filter_tasks=[],
-                 ordered_num_epochs=1):
+                 ordered_num_epochs=2): # changed for prediction...
         logging.info("Initialized TronnGraph")
         self.data_files = data_files # data files is a dict of lists
         self.tasks = tasks
@@ -179,7 +179,7 @@ class TronnNeuralNetGraph(TronnGraph):
         return train_op
 
     
-    def build_inference_graph(self, data_key="data", normalize=False):
+    def build_inference_graph(self, data_key="data", normalize=False, zscore_vals=False):
         """Build a graph with back prop ties to be able to get 
         importance scores
         """
@@ -187,8 +187,9 @@ class TronnNeuralNetGraph(TronnGraph):
 
         # set up importance tasks
         if self.importances_tasks is None:
-            self.importances_tasks = self.tasks
-        
+            self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
+            
+        print self.importances_tasks
         self.build_graph(data_key, is_training=False)
 
         # split logits into task level
@@ -203,6 +204,9 @@ class TronnNeuralNetGraph(TronnGraph):
             if normalize:
                 self.importances[importance_key] = self.importances_fn(
                     task_logits[task_idx], self.features, probs=task_probs[task_idx], normalize=True)
+            elif zscore_vals:
+                self.importances[importance_key] = self.importances_fn(
+                    task_logits[task_idx], self.features, probs=task_probs[task_idx], zscore_vals=True)
             else:
                 self.importances[importance_key] = self.importances_fn(
                     task_logits[task_idx], self.features, normalize=False)

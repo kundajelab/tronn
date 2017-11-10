@@ -21,6 +21,7 @@ from tronn.outlayer import H5Handler
 from tronn.nets.importance_nets import importances_stdev_cutoff
 from tronn.nets.importance_nets import stdev_cutoff
 from tronn.nets.importance_nets import normalize_to_probs
+from tronn.nets.importance_nets import normalize_to_one
 
 from tronn.util.tf_ops import restore_variables_op
 
@@ -43,7 +44,7 @@ def _GuidedReluGrad(op, grad):
                     tf.zeros(grad.get_shape()))
 
 
-def layerwise_relevance_propagation(tensor, features, probs=None, normalize=False):
+def layerwise_relevance_propagation(tensor, features, probs=None, normalize=False, zscore_vals=False):
     """Layer-wise Relevance Propagation (Batch et al), implemented
     as input * gradient (equivalence is demonstrated in deepLIFT paper,
     Shrikumar et al). Generally center the tensor on the logits.
@@ -56,14 +57,20 @@ def layerwise_relevance_propagation(tensor, features, probs=None, normalize=Fals
       Input tensor weighted by gradient backpropagation.
     """
     [feature_grad] = tf.gradients(tensor, [features])
-    importances_raw = tf.multiply(features, feature_grad, 'input_mul_grad')
+    importances = tf.multiply(features, feature_grad, 'input_mul_grad')
     #importances_squeezed = tf.transpose(tf.squeeze(importances_raw), perm=[0, 2, 1])
 
     if normalize:
-        thresholded = stdev_cutoff(importances_raw)
-        importances = normalize_to_probs(thresholded, probs)
-    else:
-        importances = importances_squeezed
+        thresholded = stdev_cutoff(importances)
+        print "REMEMBER TO CHANGE IMPT NORMALIZATION BACK"
+        importances = normalize_to_one(thresholded, probs) # don't forget this is changed!
+
+    if zscore_vals:
+        signal_mean, signal_var = tf.nn.moments(importances, axes=[1, 2, 3])
+        signal_mean = tf.expand_dims(tf.expand_dims(tf.expand_dims(signal_mean, 1), 2), 3)
+        signal_stdev = tf.sqrt(signal_var)
+        signal_stdev = tf.expand_dims(tf.expand_dims(tf.expand_dims(signal_stdev, 1), 2), 3)
+        importances = (importances - signal_mean) / signal_stdev
     
     return importances
 

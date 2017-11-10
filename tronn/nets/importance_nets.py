@@ -4,7 +4,7 @@
 import tensorflow as tf
 
 
-def stdev_cutoff(signal, num_stdev=3):
+def stdev_cutoff(signal, num_stdev=1): # change this?
     """Given importance scores, calculates poisson pval
     and thresholds at that pval
 
@@ -114,5 +114,22 @@ def normalize_to_probs(input_tensors, final_probs):
     out_tensor = tf.multiply(
         tf.divide(input_tensors, weight_sums),
         tf.reshape(final_probs, weight_sums.get_shape()))
+    
+    return out_tensor
+
+
+def normalize_to_one(input_tensors, final_probs):
+    """Given importance scores, normalize such that total weight
+    is the final probability value (ie, think of if you had a total weight
+    of 1, how should it be spread, and then weight that by the final
+    probability value)
+    """
+    #weight_sums = tf.reduce_sum(input_tensors, axis=[1, 2], keep_dims=True)
+    weight_sums = tf.reduce_sum(input_tensors, axis=[1, 2, 3], keep_dims=True)
+    #out_tensor = tf.divide(
+    #    tf.divide(input_tensors, weight_sums),
+    #    tf.reshape(final_probs, weight_sums.get_shape()))
+
+    out_tensor = tf.divide(input_tensors, weight_sums)
     
     return out_tensor

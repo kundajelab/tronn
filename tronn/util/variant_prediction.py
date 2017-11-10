@@ -19,7 +19,14 @@ def main():
 
     joint = pd.concat([allele1, allele2], axis=1)
 
+    # need to normalize columns
+    #joint["allele1_norm"] = joint["allele1"] - joint["allele1"].mean()
+    #joint["allele2_norm"] = joint["allele2"] - joint["allele2"].mean()
+
+    #joint["delta"] = joint["allele2_norm"] - joint["allele1_norm"]
+
     joint["delta"] = joint["allele2"] - joint["allele1"]
+    
     
     # save out
     tmp_file = "{}.tmp".format(out_file)
@@ -27,6 +34,7 @@ def main():
 
     
     # and adjust
+    snp_effect_idx = 4
     with open(tmp_file, "r") as fp:
         with open(out_file, "w") as out:
             current_snp = ""
@@ -39,7 +47,7 @@ def main():
                 
                 # get the SNP
                 snp_id = fields[0].split(";")[1].split("=")[1]
-                snp_effect = float(fields[4])
+                snp_effect = float(fields[snp_effect_idx])
 
                 if snp_id == current_snp:
                     current_sum += snp_effect

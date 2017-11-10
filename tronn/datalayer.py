@@ -362,7 +362,7 @@ def load_data_from_filename_list(
         features_key='features',
         shuffle=True,
         shuffle_seed=0,
-        ordered_num_epochs=1,
+        ordered_num_epochs=2,
         fake_task_num=0,
         filter_tasks=[]):
     """Load data into queues from a filename list of hdf5 files
