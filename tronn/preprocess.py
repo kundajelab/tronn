@@ -616,6 +616,11 @@ def generate_nn_dataset(
                 print select_negs
                 os.system(select_negs)
                 random_neg_left -= random_negs_to_select
+        
+        # if still nothing, copy over cell type file
+        if not os.path.isfile(completely_neg_file):
+            os.system("cp {} {}".format(celltype_master_regions, completely_neg_file))
+
 
     # merge in to have a file of positive and negative regions
     final_master = '{0}/{1}.master.ml.bed.gz'.format(tmp_dir, prefix)

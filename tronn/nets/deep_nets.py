@@ -157,6 +157,7 @@ def mlp_module_v2(
         else:
             logits = slim.fully_connected(
                 net, num_tasks, 
+                normalizer_fn=None,
                 weights_regularizer=slim.l1_regularizer(logit_l1),
                 scope='{}logits'.format(prefix))
 

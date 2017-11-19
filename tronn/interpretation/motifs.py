@@ -189,153 +189,7 @@ class PWM(object):
         
         return None
 
-    
-    
-    
-    
 
-
-# class PWM(object):
-#     def __init__(self, weights, name=None, threshold=None):
-#         self.weights = weights
-#         self.name = name
-#         self.threshold = threshold
-
-#     @staticmethod
-#     def from_homer_motif(motif_file):
-#         with open(motif_file) as fp:
-#             header = fp.readline().strip().split('\t')
-#             name = header[1]
-#             threshold = float(header[2])
-#             weights = np.loadtxt(fp)
-
-#         return PWM(weights, name, threshold)
-
-#     @staticmethod
-#     def get_encode_pwms(motif_file):
-#         pwms = []
-
-#         with open(motif_file) as fp:
-#             line = fp.readline().strip()
-#             while True:
-#                 if line == '':
-#                     break
-
-#                 header = line.strip('>').strip()
-#                 weights = []
-#                 while True:
-#                     line = fp.readline()
-#                     if line == '' or line[0] == '>':
-#                         break
-#                     weights.append(map(float, line.split()))
-#                 pwms.append(PWM(np.array(weights).transpose(1,0), header))
-
-#         return pwms
-
-#     @staticmethod
-#     def from_cisbp_motif(motif_file):
-#         name = os.path.basename(motif_file)
-#         with open(motif_file) as fp:
-#             _ = fp.readline()
-#             weights = np.loadtxt(fp)[:, 1:]
-#         return PWM(weights, name)
-
-#     def get_weights(self):
-#         return self.weights
-
-
-    
-
-    
-
-# def run_pwm_convolution(data_loader,
-#                         importance_h5,
-#                         out_h5,
-#                         batch_size,
-#                         pwm_file,
-#                         task_num):
-#     '''
-#     Wrapper function where, given an importance matrix, can convert everything
-#     into a motif matrix
-#     '''
-
-#     importance_key = 'importances_task{}'.format(task_num)
-    
-#     # get basic key stats (to set up output h5 file)
-#     pwm_list = PWM.get_encode_pwms(pwm_file)
-#     num_pwms = len(pwm_list)
-#     with h5py.File(importance_h5, 'r') as hf:
-#         num_examples = hf[importance_key].shape[0]
-#         num_tasks = hf['labels'].shape[1]
-
-#     # First set up graph and convolutions model
-#     with tf.Graph().as_default() as g:
-
-#         # data loader
-#         features, labels, metadata = data_loader([importance_h5],
-#                                                  batch_size,
-#                                                  features_key=importance_key)
-
-#         # load the model
-#         motif_tensor, load_pwm_update = pwm_convolve(features, pwm_list)
-
-#         # run the model (set up sessions, etc)
-#         sess = tf.Session()
-
-#         sess.run(tf.global_variables_initializer())
-#         sess.run(tf.local_variables_initializer())
-
-#         # start queue runners
-#         coord = tf.train.Coordinator()
-#         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-#         # Run update to load the PWMs
-#         _ = sess.run(load_pwm_update)
-
-#         # set up hdf5 file for saving sequences
-#         with h5py.File(out_h5, 'w') as out_hf:
-#             motif_mat = out_hf.create_dataset('motif_scores',
-#                                               [num_examples, num_pwms])
-#             labels_mat = out_hf.create_dataset('labels',
-#                                                [num_examples, num_tasks])
-#             regions_mat = out_hf.create_dataset('regions',
-#                                                 [num_examples, 1],
-#                                                 dtype='S100')
-#             motif_names_mat = out_hf.create_dataset('motif_names',
-#                                                     [num_pwms, 1],
-#                                                     dtype='S100')
-
-#             # save out the motif names
-#             for i in range(len(pwm_list)):
-#                 motif_names_mat[i] = pwm_list[i].name
-
-
-#             # run through batches worth of sequence
-#             for batch_idx in range(num_examples / batch_size + 1):
-
-#                 print batch_idx * batch_size
-
-#                 batch_motif_mat, batch_regions, batch_labels = sess.run([motif_tensor,
-#                                                                          metadata,
-#                                                                          labels])
-
-#                 batch_start = batch_idx * batch_size
-#                 batch_stop = batch_start + batch_size
-
-#                 # TODO save out to hdf5 file
-#                 if batch_stop < num_examples:
-#                     motif_mat[batch_start:batch_stop,:] = batch_motif_mat
-#                     labels_mat[batch_start:batch_stop,:] = batch_labels
-#                     regions_mat[batch_start:batch_stop] = batch_regions.astype('S100')
-#                 else:
-#                     motif_mat[batch_start:num_examples,:] = batch_motif_mat[0:num_examples-batch_start,:]
-#                     labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start]
-#                     regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
-
-#         coord.request_stop()
-#         coord.join(threads)
-
-#     return None
 
 def run_pwm_convolution_multiple(data_loader,
                         importance_h5,
@@ -586,88 +440,124 @@ def extract_positives_from_motif_topk_mat(h5_file, out_file):
     return None
 
 
+def bootstrap_fdr_v2(
+        pwm_counts_mat_h5, 
+        pwm_names,
+        out_prefix, 
+        task_idx, # which labels to pull (by idx)
+        counts_key, # which pwm counts table to use
+        global_importances=False,
+        region_set=None,
+        bootstrap_num=99,
+        fdr=0.05):
+    """Given a motif matrix and labels, calculate a bootstrap FDR
+    """
+    with h5py.File(pwm_counts_mat_h5, 'r') as hf:
 
+        at_least_one_pos = (hf["negative"][:,0] == 0).astype(int)
 
-def bootstrap_fdr(motif_mat_h5, out_prefix, task_num, region_set=None,
-                  bootstrap_num=9999, fdr=0.005, zscore_cutoff=1.0):
-    '''
-    Given a motif matrix and labels, calculate a bootstrap FDR
-    '''
-
-    # set up numpy array
-    with h5py.File(motif_mat_h5, 'r') as hf:
-
-        # better to pull it all into memory to slice fast
-        labels = hf['labels'][:,task_num] 
-        motif_scores = hf['motif_scores'][:] # TODO only take sequences that are from skin sequences
-        motif_names = list(hf['motif_names'][:,0])
-
-        # first calculate the scores for positive set
-        if region_set != None:
-            # TODO allow passing in an index set which represents your subset of positives
-            pos_indices = np.loadtxt(region_set, dtype=int)
-            pos_indices_sorted = np.sort(pos_indices)
-            pos_array = motif_scores[pos_indices_sorted,:]
-            
+        # better to pull it all into memory to slice fast 
+        if global_importances:
+            labels = at_least_one_pos
+            pwm_scores = hf[counts_key][:]
         else:
-            pos_array = motif_scores[labels > 0,:]
-        pos_array_z = scipy.stats.mstats.zscore(pos_array, axis=1)
-        pos_vector = np.mean(pos_array_z, axis=0) # normalization
+            labels = hf['labels'][:][at_least_one_pos > 0, task_idx]
+            pwm_scores = hf[counts_key][:][at_least_one_pos > 0,:]
+        
+    # first calculate ranks w just positives
+    pos_array = pwm_scores[labels > 0,:]
+    pos_array_summed = np.sum(pos_array, axis=0)
+    
+    # extract top k for spot check
+    top_counts_k = 100
+    top_counts_indices = np.argpartition(pos_array_summed, -top_counts_k)[-top_counts_k:]
+    most_seen_pwms = [pwm_names[i] for i in xrange(len(pwm_names)) if i in top_counts_indices]
+    print most_seen_pwms
+        
+    # now calculate the true diff between pos and neg sets for motifs
+    neg_array = pwm_scores[labels < 1,:]
+    neg_array_summed = np.sum(neg_array, axis=0)
+        
+    true_diff = pos_array_summed - neg_array_summed
 
-        # TODO save out the mean column of positives
-        motif_z_avg_df = pd.DataFrame(data=pos_vector, index=motif_names)
-        motif_z_avg_df.to_csv('{}.zscores.txt'.format(out_prefix), sep='\t')
+    # set up results array 
+    bootstraps = np.zeros((bootstrap_num+1, pwm_scores.shape[1])) 
+    bootstraps[0,:] = true_diff
 
-        num_pos_examples = pos_array.shape[0]
-        num_motifs = pos_array.shape[1]
+    # now do bootstraps
+    for i in range(bootstrap_num):
+        
+        if i % 10 == 0: print i
+        
+        # randomly select pos and neg examples 
+        shuffled_labels = np.random.permutation(labels)
+        pos_array = pwm_scores[shuffled_labels > 0,:]
+        pos_array_summed = np.sum(pos_array, axis=0)
 
-        # set up results array
-        bootstraps = np.zeros((bootstrap_num+1, num_motifs))
-        bootstraps[0,:] = pos_vector
+        neg_array = pwm_scores[shuffled_labels < 1,:]
+        neg_array_summed = np.sum(neg_array, axis=0)
 
-        # Now only select bootstraps from regions that are open in skin
-        #motif_scores = motif_scores[np.sum(hf['labels'], axis=1) > 0,:]
-
-        for i in range(bootstrap_num):
-
-            if i % 1000 == 0:
-                print i
-
-            # randomly select examples 
-            bootstrap_indices = np.random.choice(motif_scores.shape[0],
-                                                 num_pos_examples,
-                                                 replace=False)
-            bootstrap_indices.sort()
-            bootstrap_array = motif_scores[bootstrap_indices,:]
-
-            bootstrap_array_z = scipy.stats.mstats.zscore(bootstrap_array, axis=1)
-
-            # calculate sum
-            bootstrap_sum = np.mean(bootstrap_array_z, axis=0)
-
-            # save into vector
-            bootstraps[i+1,:] = bootstrap_sum
-
-    # convert to ranks and save out
-    bootstrap_df = pd.DataFrame(data=bootstraps, columns=motif_names)
+        bootstrap_diff = pos_array_summed - neg_array_summed
+        
+        # save into vector 
+        bootstraps[i+1,:] = bootstrap_diff
+        
+    # convert to ranks and save out 
+    bootstrap_df = pd.DataFrame(data=bootstraps, columns=pwm_names)
     bootstrap_ranks_df = bootstrap_df.rank(ascending=False, pct=True)
     pos_fdr = bootstrap_ranks_df.iloc[0,:]
     pos_fdr.to_csv('{}.bootstrap_fdr.txt'.format(out_prefix), sep='\t')
 
     # also save out a list of those that passed the FDR cutoff
-    fdr_cutoff = pos_fdr.ix[pos_fdr < 0.05]
-    fdr_cutoff.to_csv('{}.bootstrap_fdr.cutoff.txt'.format(out_prefix), sep='\t')
+    fdr_cutoff = pos_fdr.ix[pos_fdr < fdr]
+    fdr_cutoff.to_csv('{}.bootstrap_fdr.cutoff.txt'.format(out_prefix),
+                      sep='\t')
 
-    # also save out list that pass FDR and also zscore cutoff
-    pos_fdr_t = pd.DataFrame(data=pos_fdr, index=pos_fdr.index)
-    fdr_w_zscore = motif_z_avg_df.merge(pos_fdr_t, left_index=True, right_index=True)
-    fdr_w_zscore.columns = ['zscore', 'FDR']
-    fdr_w_zscore_cutoffs = fdr_w_zscore[(fdr_w_zscore['FDR'] < 0.005) & (fdr_w_zscore['zscore'] > zscore_cutoff)]
-    fdr_w_zscore_cutoffs_sorted = fdr_w_zscore_cutoffs.sort_values('zscore', ascending=False)
-    fdr_w_zscore_cutoffs_sorted.to_csv('{}.fdr_cutoff.zscore_cutoff.txt'.format(out_prefix), sep='\t')
-    
-    
+    # also save one that is adjusted for most seen
+    fdr_cutoff = fdr_cutoff[fdr_cutoff.index.isin(most_seen_pwms)]
+    fdr_cutoff.to_csv('{}.bootstrap_fdr.cutoff.most_seen.txt'.format(out_prefix),
+                      sep='\t')
+
+    # save a vector of counts (for rank importance)
+    final_pwms = fdr_cutoff.index
+    pwm_name_to_index = dict(zip(pwm_names, range(len(pwm_names))))
+    counts = [pos_array_summed[pwm_name_to_index[pwm_name]] for pwm_name in final_pwms]
+
+    pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in final_pwms]
+    most_seen_df = pd.DataFrame(data=counts, index=pwm_names_clean)
+    most_seen_df.to_csv("{}.most-seen.txt".format(out_prefix), sep='\t', header=False)
+
     return None
+
+
+def make_motif_x_timepoint_mat(pwm_counts_mat_h5, key_list, task_indices_list, pwm_indices, pwm_names, prefix=""):
+    """Make a motif x timepoints matrix and normalize the columns
+    """
+    # set up output matrix
+    pwm_x_timepoint = np.zeros((len(pwm_indices), len(key_list))) 
+    
+    with h5py.File(pwm_counts_mat_h5, "r") as hf:
+        for i in xrange(len(key_list)):
+            key = key_list[i]
+            print key
+            task_idx = task_indices_list[i]
+            labels = hf['labels'][:, task_idx]
+            pwm_scores = hf[key][:][labels > 0,:]
+            pwm_scores_selected = pwm_scores[:, pwm_indices]
+            
+            # sum up
+            pwm_scores_summed = np.sum(pwm_scores_selected, axis=0)
+
+            # and save into matrix
+            pwm_x_timepoint[:,i] = pwm_scores_summed
+
+    # set up as pandas to save out
+    columns = ["d0.0", "d0.5", "d1.0", "d1.5", "d2.0", "d2.5", "d3.0", "d4.5", "d5.0", "d6.0"]
+    pwm_x_timepoint_df = pd.DataFrame(data=pwm_x_timepoint, index=pwm_names, columns=columns)
+    pwm_x_timepoint_df.to_csv("{}pwm_x_timepoint.mat.txt".format(prefix), sep='\t')
+    
+    return
+
 
 
 def generate_motif_x_motif_mat(motif_mat_h5, out_prefix, region_set=None, score_type='spearman'):

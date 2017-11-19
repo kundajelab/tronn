@@ -8,6 +8,7 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 
+
 def pwm_convolve_v2(features, labels, model_params, is_training=False):
     '''
     All this model does is convolve with PWMs and get top k pooling to output
@@ -107,6 +108,64 @@ def pwm_convolve_v3(features, labels, model_params, is_training=False):
     normalized_scores = tf.divide(pwm_convolve_scores, tf.add(nonzero_vals, pseudocount))
 
     return normalized_scores
+
+
+def motif_assignment(features, labels, model_params, is_training=False):
+    """This specifically takes in features and then tries to match to only one motif
+    It does an approximation check to choose how many motifs it believes should be assigned
+    """
+    # get params
+    pwm_list = model_params["pwms"]
+    max_hits = model_params.get("k_val", 4)
+    motif_len = tf.constant(model_params.get("motif_len", 5), tf.float32)
+
+    # approximation: check num important base pairs per example, and divide by motif len 
+    num_motifs = tf.divide(
+        tf.reduce_sum(
+            tf.cast(tf.greater(features, 0), tf.float32), 
+            axis=[1,2,3]),
+        motif_len) # {N, 1}
+    num_motifs = tf.minimum(num_motifs, max_hits) # heuristic for now
+    num_motifs_list = tf.unstack(num_motifs)
+
+    # convolve with PWMs
+    pwm_scores = pwm_convolve_v3(features, labels, {"pwms": pwm_list}) # {N, 1, pos, motif}
+    
+    # max pool - this accounts for hits that are offset because 
+    # the motifs are not aligned to each other
+    pwm_scores_pooled = slim.max_pool2d(pwm_scores, [1, 10], stride=[1, 10])
+
+    # grab max at each position
+    pwm_scores_max_vals = tf.reduce_max(pwm_scores_pooled, axis=3, keep_dims=True) # {N, 1, pos, 1}
+
+    # then only keep the max at each position. multiply by conditional on > 0 to keep clean
+    pwm_scores_max = tf.multiply(
+        pwm_scores_pooled,
+        tf.multiply(
+            tf.cast(tf.greater_equal(pwm_scores_pooled, pwm_scores_max_vals), tf.float32),
+            tf.cast(tf.greater(pwm_scores_pooled, 0), tf.float32))) # {N, 1, pos, motif}
+
+    # separate into each example
+    pwm_scores_max_list = tf.unstack(pwm_scores_max) # list of {1, pos, motif}
+
+    print tf.reshape(pwm_scores_max[0], [-1]).shape
+
+    # and then top k
+    pwm_scores_topk = []
+    for i in xrange(len(num_motifs_list)):
+        top_k_vals, top_k_indices = tf.nn.top_k(tf.reshape(pwm_scores_max_list[i], [-1]), k=tf.cast(num_motifs_list[i], tf.int32))
+        thresholds = tf.reduce_min(top_k_vals, keep_dims=True)
+        top_hits_w_location = tf.cast(tf.greater_equal(pwm_scores_max_list[i], thresholds), tf.float32) # this is a threshold, so a count
+        top_scores_w_location = tf.multiply(pwm_scores_max_list[i], top_hits_w_location) # {1, pos, motif}
+        pwm_scores_topk.append(top_hits_w_location)
+
+    # and restack
+    pwm_final_scores = tf.stack(pwm_scores_topk) # {N, 1, pos, motif}
+
+    # and reduce
+    pwm_final_counts = tf.squeeze(tf.reduce_sum(pwm_final_scores, axis=2)) # {N, motif}
+
+    return pwm_final_counts
 
 
 

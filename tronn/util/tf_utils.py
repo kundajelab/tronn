@@ -1,6 +1,8 @@
 """Description: Contains various tensorflow utility functions
 """
 
+import logging
+
 import tensorflow as tf
 
 
@@ -80,7 +82,7 @@ def print_param_count():
     total_params = sum(v.get_shape().num_elements() for v in tf.global_variables())
     for var in sorted(tf.trainable_variables(), key=lambda var: (var.name, var.get_shape().num_elements())):
         num_elems = var.get_shape().num_elements()
-        if num_elems > 500:
+        if num_elems > 100:
             print var.name, var.get_shape().as_list(), num_elems
     print 'Num params (model/trainable/global): %d/%d/%d' % (model_params, trainable_params, total_params)
             
@@ -100,6 +102,8 @@ def setup_tensorflow_session():
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
+    logging.info("Opened tensorflow session")
+
     return sess, coord, threads
 
 
@@ -108,6 +112,7 @@ def close_tensorflow_session(coord, threads):
     """
     coord.request_stop()
     coord.join(threads)
+    logging.info("Closed tensorflow session")
     
     return None
 

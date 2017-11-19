@@ -239,7 +239,7 @@ def run(args):
         fake_task_num=args.fake_task_num)
 
     # predict
-    labels, predictions, probs, metadata = predict(
+    labels, predictions, probs, metadata, metadata_full = predict(
         tronn_graph,
         args.model_dir,
         args.batch_size,

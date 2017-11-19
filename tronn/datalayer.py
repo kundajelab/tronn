@@ -234,7 +234,14 @@ def hdf5_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shu
     return features_tensor, labels_tensor, metadata_tensor
 
 
-def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='features', shuffle=False, num_epochs=1):
+def hdf5_list_to_ordered_slices(
+        hdf5_files, 
+        batch_size, 
+        tasks=[], 
+        features_key='features', 
+        shuffle=False, 
+        fake_task_num=0, 
+        num_epochs=1):
     """Extract batches from hdf5 file list. This is used to get ordered examples out 
     to re-merge back into regions.
 
@@ -259,7 +266,7 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
                               for num_examples in num_examples_per_file ]
     
     max_batches = sum(total_batches_per_file)
-    print max_batches
+    print "Max batches:", max_batches
     batch_id_queue = tf.train.range_input_producer(max_batches, shuffle=shuffle, num_epochs=num_epochs)
 
     # generate a batch_to_file dictionary so it's easy to get the file
@@ -352,6 +359,13 @@ def hdf5_list_to_ordered_slices(hdf5_files, batch_size, tasks=[], features_key='
     labels_tensor.set_shape([batch_size, len(tasks)])
     metadata_tensor.set_shape([batch_size, 1])
 
+    # fake tasks num: this is to be able to check a multitask model on a single output dataset
+    if fake_task_num > 0:
+        #extra_to_add_num = fake_task_num - len(tasks)
+        labels_list = tf.unstack(labels_tensor, axis=1)
+        labels_final = labels_list + [labels_list[-1] for i in xrange(fake_task_num)]
+        labels_tensor = tf.stack(labels_final, axis=1)
+
     return features_tensor, labels_tensor, metadata_tensor
 
 
@@ -362,7 +376,7 @@ def load_data_from_filename_list(
         features_key='features',
         shuffle=True,
         shuffle_seed=0,
-        ordered_num_epochs=2,
+        ordered_num_epochs=1,
         fake_task_num=0,
         filter_tasks=[]):
     """Load data into queues from a filename list of hdf5 files
@@ -396,7 +410,7 @@ def load_data_from_filename_list(
 
     elif shuffle == False:
     	example_slices_list = hdf5_list_to_ordered_slices(
-            hdf5_files, batch_size, tasks, features_key, num_epochs=ordered_num_epochs)
+            hdf5_files, batch_size, tasks, features_key, fake_task_num=fake_task_num, num_epochs=ordered_num_epochs)
     	features, labels, metadata = tf.train.batch(
             example_slices_list,
             batch_size,

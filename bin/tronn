@@ -17,6 +17,9 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(
         description='TRONN: Transcriptional Regulation Optimized Neural Nets')
+    parser.add_argument(
+        "--cluster", default="sherlock",
+        help="what cluster you're on (get annotations)")
     subparsers = parser.add_subparsers(dest='subcommand_name')
 
     # command for preprocessing data
@@ -52,6 +55,11 @@ def parse_args():
     # findgrammar test bed
     add_findgrammars_parser(subparsers)
     
+    # get motifs test bed
+    add_getmotifs_parser(subparsers)
+
+    add_vizimpts_parser(subparsers)
+
     # load data jsons
     #load_data_files(parser)
 
@@ -622,6 +630,8 @@ def add_findgrammars_parser(subparsers):
     # add in PWM information
     group_input.add_argument(
         "--pwm_file", help="pwm_file")
+    group_input.add_argument(
+        "--pwm_list", help="list of pwms to use")
     
     # group for model
     group_model = argparser_multitask.add_argument_group(
@@ -650,6 +660,105 @@ def add_findgrammars_parser(subparsers):
         help='plot some sample sequences weighted by importance scores')
 
     return
+
+
+
+def add_getmotifs_parser(subparsers):
+    """
+    """
+    argparser_multitask = subparsers.add_parser(
+        "getmotifs",
+        help="Get statistically significant motifs")
+    
+    # group for input files
+    group_input = argparser_multitask.add_argument_group(
+    	"Input files and folders")
+    add_hdf5_data_options(group_input)
+    group_input.add_argument(
+        "--importances_tasks", nargs="+", required=True, type=int,
+        help="tasks to interpret on")
+    group_input.add_argument(
+        "--interpretation_tasks", nargs="+", required=True, type=int,
+        help="tasks to interpret on")
+
+    # add in PWM information
+    group_input.add_argument(
+        "--pwm_file", help="pwm_file")
+    
+    # group for model
+    group_model = argparser_multitask.add_argument_group(
+        "Model definition")
+    add_trained_nn_model_options(group_model)
+
+    # group for parameters
+    group_params = argparser_multitask.add_argument_group(
+        "Interpretation hyperparameters")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
+    group_params.add_argument(
+        '--sample_size', default=220000, type=int,
+        help='number of regions to get importance scores')
+
+    # group for output files
+    group_output = argparser_multitask.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="importances")
+    group_output.add_argument(
+        '--tmp_dir', default='importances_tmp',
+        help='temporary scratch directory')
+    group_output.add_argument(
+        '--plot_samples', action='store_true',
+        help='plot some sample sequences weighted by importance scores')
+
+    return
+
+
+def add_vizimpts_parser(subparsers):
+    """
+    """
+    argparser_multitask = subparsers.add_parser(
+        "vizimportances",
+        help="Get back importance score visualizations for a region")
+
+
+    # group for input files
+    # start with BED file, preprocess, then run through
+    group_input = argparser_multitask.add_argument_group(
+    	"Input files and folders")
+    load_data_files(group_input)
+    group_input.add_argument(
+        "--labels", nargs='+', required=True,
+        help='list of label file peak sets (BED/narrowPeak)')
+    group_input.add_argument(
+        "--importances_tasks", nargs="+", required=True, type=int,
+        help="tasks to interpret on")
+    
+    # group for model
+    group_model = argparser_multitask.add_argument_group(
+        "Model definition")
+    add_trained_nn_model_options(group_model)
+
+    # group for parameters
+    group_params = argparser_multitask.add_argument_group(
+        "Interpretation hyperparameters")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
+
+    # group for output files
+    group_output = argparser_multitask.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="importances")
+    group_output.add_argument(
+        '--tmp_dir', default='importances_tmp',
+        help='temporary scratch directory')
+    group_output.add_argument(
+        '--plot_samples', action='store_true',
+        help='plot some sample sequences weighted by importance scores')
+
+    return
+
 
 
 def add_baseline_parser(subparsers):
@@ -739,7 +848,8 @@ def track_runs(args):
     # track github commit
     git_repo_path = os.path.dirname(os.path.realpath(__file__))
     os.system('echo "commit:" > {0}'.format(logging_file))
-    os.system('git -C {0} rev-parse HEAD >> {1}'.format(git_repo_path, logging_file))
+    os.system('git --git-dir={0}/.git rev-parse HEAD >> {1}'.format(
+        git_repo_path.split("/bin")[0], logging_file))
     os.system('echo "" >> {0}'.format(logging_file))
     
     # write out the command
@@ -762,6 +872,7 @@ def main():
     subcommand = args.subcommand_name
 
     if subcommand == "preprocess":
+        args.annotations = args.annotations[args.cluster]
         from tronn.run_preprocess import run
         run(args)
     elif subcommand == "preprocess_variants":
@@ -807,12 +918,21 @@ def main():
         add_model_params(args)
         from tronn.run_findgrammars import run
         run(args)
+    elif subcommand == "getmotifs":
+        add_model_params(args)
+        from tronn.run_getmotifs import run
+        run(args)
     elif subcommand == "baseline":
         from tronn.run_tensorforest import run
         run(args)
     elif subcommand == "extractparams":
         add_model_params(args)
         from tronn.util.extract_params import run
+        run(args)
+    elif subcommand == "vizimportances":
+        args.annotations = args.annotations[args.cluster]
+        add_model_params(args)
+        from tronn.run_vizimpts import run
         run(args)
         
     return None

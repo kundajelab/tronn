@@ -13,7 +13,8 @@ from tronn.datalayer import get_task_and_class_weights
 from tronn.datalayer import get_positive_weights_per_task
 
 # move this later
-from tronn.nets.inference_nets import get_motif_hits
+from tronn.nets.inference_nets import get_importance_weighted_motif_hits
+from tronn.nets.inference_nets import get_motif_assignments
 
 
 class TronnGraph(object):
@@ -30,7 +31,7 @@ class TronnGraph(object):
                  shuffle_data=True,
                  fake_task_num=0,
                  filter_tasks=[],
-                 ordered_num_epochs=2): # changed for prediction...
+                 ordered_num_epochs=1): # changed for prediction...
         logging.info("Initialized TronnGraph")
         self.data_files = data_files # data files is a dict of lists
         self.tasks = tasks
@@ -96,13 +97,15 @@ class TronnNeuralNetGraph(TronnGraph):
                  class_weighted_loss=False,
                  positives_focused_loss=False,
                  finetune=False,
-                 finetune_tasks=[]):
+                 finetune_tasks=[],
+                 ordered_num_epochs=100): # 1 for interpretation, 100 for viz
         super(TronnNeuralNetGraph, self).__init__(
             data_files, tasks, data_loader,
             model_fn, model_params, batch_size,
             feature_key=feature_key, shuffle_data=shuffle_data,
             fake_task_num=fake_task_num,
-            filter_tasks=filter_tasks)
+            filter_tasks=filter_tasks,
+            ordered_num_epochs=ordered_num_epochs)
         self.final_activation_fn = final_activation_fn
         self.loss_fn = loss_fn
         self.optimizer_fn = optimizer_fn
@@ -213,7 +216,10 @@ class TronnNeuralNetGraph(TronnGraph):
 
         # add in other essential metadata: labels, feature metadata, label metadata
         self.importances["labels"] = self.labels
-        self.importances["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
+        #try:
+        #    self.importances["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
+        #except:
+        self.importances["negative"] = self.labels
         self.importances["probs"] = self.probs
         self.importances["subset_accuracy"] = self._add_task_subset_accuracy()
         self.importances["example_metadata"] = self.metadata
@@ -254,7 +260,56 @@ class TronnNeuralNetGraph(TronnGraph):
 
         # and set up outputs
         self.out_tensors = {}
-        out = get_motif_hits(self.features, self.labels, model_params)
+        out = get_importance_weighted_motif_hits(
+            self.features, self.labels, model_params)
+        for key in out.keys():
+            self.out_tensors[key] = out[key]
+
+        # add in other essential metadata: labels, feature metadata, label metadata
+        self.out_tensors["labels"] = self.labels
+        self.out_tensors["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
+        self.out_tensors["probs"] = self.probs
+        self.out_tensors["subset_accuracy"] = self._add_task_subset_accuracy()
+        self.out_tensors["example_metadata"] = self.metadata
+        
+        return self.out_tensors
+
+    
+    def build_inference_graph_v3(self, data_key="data", pwm_list=None, normalize=True):
+        """Build a graph with back prop ties to be able to get 
+        importance scores
+        """
+        assert pwm_list is not None
+        assert self.importances_fn is not None
+
+        # set up importance tasks
+        if self.importances_tasks is None:
+            self.importances_tasks = self.tasks
+
+        self.build_graph(data_key, is_training=False)
+
+        # split logits into task level and only keep those that will be used
+        task_logits = tf.unstack(self.logits, axis=1)
+        task_probs = tf.unstack(self.probs, axis=1)
+
+        importance_logits = []
+        importance_probs = []
+        for task_idx in self.importances_tasks:
+            importance_logits.append(task_logits[task_idx])
+            importance_probs.append(task_probs[task_idx])
+
+        # set up inference transforms to get motif hits
+        model_params = {
+            "pwm_list": pwm_list,
+            "importances_fn": self.importances_fn,
+            "logits": importance_logits,
+            "probs": importance_probs,
+            "normalize": True}
+
+        # and set up outputs
+        self.out_tensors = {}
+        out = get_motif_assignments(
+            self.features, self.labels, model_params)
         for key in out.keys():
             self.out_tensors[key] = out[key]
 

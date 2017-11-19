@@ -4,6 +4,7 @@
 import h5py
 import logging
 import math
+import time
 import numpy as np
 
 import tensorflow as tf
@@ -63,9 +64,11 @@ def layerwise_relevance_propagation(tensor, features, probs=None, normalize=Fals
     if normalize:
         thresholded = stdev_cutoff(importances)
         print "REMEMBER TO CHANGE IMPT NORMALIZATION BACK"
-        importances = normalize_to_one(thresholded, probs) # don't forget this is changed!
+        #importances = normalize_to_one(thresholded, probs) # don't forget this is changed!
+        importances = normalize_to_probs(thresholded, probs) # don't forget this is changed!
 
     if zscore_vals:
+        print "CURRENTLY ZSCORING"
         signal_mean, signal_var = tf.nn.moments(importances, axes=[1, 2, 3])
         signal_mean = tf.expand_dims(tf.expand_dims(tf.expand_dims(signal_mean, 1), 2), 3)
         signal_stdev = tf.sqrt(signal_var)
@@ -140,7 +143,8 @@ def extract_importances(
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
 
-            except tf.errors.OutOfRangeError:
+            #except tf.errors.OutOfRangeError:
+            except:
 
                 # add in last of the examples
                 h5_handler.flush()
@@ -220,16 +224,272 @@ def extract_importances_and_motif_hits(
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
 
-            except tf.errors.OutOfRangeError:
-
+            #except tf.errors.OutOfRangeError:
+            except:
+                print "Done reading data"
                 # add in last of the examples
+
+            finally:
+                time.sleep(60)
                 h5_handler.flush()
                 h5_handler.chomp_datasets()
 
-        close_tensorflow_session(coord, threads)
+        # catch the exception ValueError - (only on sherlock, come back to this)
+        try:
+            close_tensorflow_session(coord, threads)
+        except:
+            pass
 
     return None
 
+
+def extract_motif_assignments(
+        tronn_graph,
+        model_checkpoint,
+        out_file,
+        sample_size,
+        pwm_list,
+        method="guided_backprop",
+        width=4096,
+        pos_only=False,
+        h5_batch_size=128):
+    """Set up a graph and then run importance score extractor
+    and save out to file.
+
+    Args:
+      tronn_graph: a TronnNeuralNetGraph instance
+      model_dir: directory with trained model
+      out_file: hdf5 file to store importances
+      method: importance method to use
+      sample_size: number of regions to run
+      pos_only: only keep positive sequences
+
+    Returns:
+      None
+    """
+    with tf.Graph().as_default() as g:
+
+        # build graph
+        if method == "guided_backprop":
+            with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+                outputs = tronn_graph.build_inference_graph_v3(pwm_list=pwm_list, normalize=True)
+        elif method == "simple_gradients":
+            outputs = tronn_graph.build_inference_graph_v3(normalize=True)
+            
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+
+        # restore
+        #saver = tf.train.Saver()
+        #saver.restore(sess, model_checkpoint)
+        init_assign_op, init_feed_dict = restore_variables_op(
+            model_checkpoint, skip=["pwm"])
+        sess.run(init_assign_op, init_feed_dict)
+        
+        
+        # set up hdf5 file to store outputs
+        with h5py.File(out_file, 'w') as hf:
+
+            h5_handler = H5Handler(
+                hf, outputs, sample_size, resizable=True, batch_size=4096)
+
+            # set up outlayer
+            example_generator = ExampleGenerator(
+                sess,
+                outputs,
+                64, # Fix this later
+                reconstruct_regions=False,
+                keep_negatives=True,
+                filter_by_prediction=True,
+                filter_tasks=tronn_graph.importances_tasks)
+
+            if False:
+                # run all samples
+                try:
+                    total_examples = 0
+                    while not coord.should_stop():
+
+                        region, region_arrays = example_generator.run()
+                        region_arrays["example_metadata"] = region
+
+                        h5_handler.store_example(region_arrays)
+                        total_examples += 1
+
+                #except tf.errors.OutOfRangeError:
+                except:
+                    print "Done reading data"
+                    # add in last of the examples
+
+                finally:
+                    time.sleep(60)
+                    h5_handler.flush()
+                    h5_handler.chomp_datasets()
+            else:
+                # do a sample count, run a subset
+                total_examples = 0
+                for i in xrange(sample_size):
+                    region, region_arrays = example_generator.run()
+                    region_arrays["example_metadata"] = region
+
+                    h5_handler.store_example(region_arrays)
+                    total_examples += 1
+                
+                h5_handler.flush()
+                h5_handler.chomp_datasets()
+
+        # catch the exception ValueError - (only on sherlock, come back to this)
+        try:
+            close_tensorflow_session(coord, threads)
+        except:
+            pass
+
+    return None
+
+
+def get_pwm_hits_from_raw_sequence(
+        tronn_graph,
+        out_file,
+        sample_size,
+        pwm_list,
+        h5_batch_size=128):
+    """Set up a graph and then run importance score extractor
+    and save out to file.
+
+    Args:
+      tronn_graph: a TronnNeuralNetGraph instance
+      model_dir: directory with trained model
+      out_file: hdf5 file to store importances
+      method: importance method to use
+      sample_size: number of regions to run
+      pos_only: only keep positive sequences
+
+    Returns:
+      None
+    """
+    with tf.Graph().as_default() as g:
+
+        # build graph
+        outputs = tronn_graph.build_graph()
+        outputs_dict = {
+            "example_metadata": tronn_graph.metadata,
+            "labels": tronn_graph.labels,
+            "negative": tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(tronn_graph.labels, 1, keep_dims=True), tf.bool)), tf.int32),
+            "pwm_hits": outputs}
+            
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+        
+        # set up hdf5 file to store outputs
+        with h5py.File(out_file, 'w') as hf:
+
+            h5_handler = H5Handler(
+                hf, outputs_dict, sample_size, resizable=True, batch_size=4096)
+
+            # set up outlayer
+            example_generator = ExampleGenerator(
+                sess,
+                outputs_dict,
+                64, # Fix this later
+                reconstruct_regions=False,
+                keep_negatives=False,
+                filter_by_prediction=False,
+                filter_tasks=[])
+
+            try:
+                total_examples = 0
+                while not coord.should_stop():
+
+                    region, region_arrays = example_generator.run()
+                    region_arrays["example_metadata"] = region
+
+                    h5_handler.store_example(region_arrays)
+                    total_examples += 1
+
+            #except tf.errors.OutOfRangeError:
+            except:
+                print "Done reading data"
+            finally:
+                time.sleep(60)
+                h5_handler.flush()
+                h5_handler.chomp_datasets()
+
+        try:
+            close_tensorflow_session(coord, threads)
+        except:
+            pass
+
+    return None
+
+
+def extract_importances_and_viz(
+        tronn_graph,
+        model_checkpoint,
+        out_prefix,
+        method="guided_backprop",
+        h5_batch_size=128):
+    """Set up a graph and then run importance score extractor
+    and save out to file.
+
+    Args:
+      tronn_graph: a TronnNeuralNetGraph instance
+      model_dir: directory with trained model
+      out_file: hdf5 file to store importances
+      method: importance method to use
+      sample_size: number of regions to run
+      pos_only: only keep positive sequences
+
+    Returns:
+      None
+    """
+    with tf.Graph().as_default() as g:
+
+        # build graph
+        if method == "guided_backprop":
+            with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+                outputs = tronn_graph.build_inference_graph(normalize=True)
+        elif method == "simple_gradients":
+            outputs = tronn_graph.build_inference_graph(normalize=True)
+            
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+
+        # restore
+        #saver = tf.train.Saver()
+        #saver.restore(sess, model_checkpoint)
+        init_assign_op, init_feed_dict = restore_variables_op(
+            model_checkpoint, skip=["pwm"])
+        sess.run(init_assign_op, init_feed_dict)
+
+        # set up outlayer
+        example_generator = ExampleGenerator(
+            sess,
+            outputs,
+            1, # Fix this later
+            reconstruct_regions=False,
+            keep_negatives=True,
+            filter_by_prediction=False,
+            filter_tasks=tronn_graph.importances_tasks)
+        
+        for i in xrange(12):
+
+            region, region_arrays = example_generator.run()
+            region_arrays["example_metadata"] = region
+            
+            for key in region_arrays.keys():
+                
+                if "importance" in key:
+                    # squeeze and visualize!
+                    print "plotting", key
+                    plot_name = "{}.{}.png".format(region.replace(":", "-"), key)
+                    plot_weights(np.squeeze(region_arrays[key][:,400:600,:]), plot_name) # array, fig name
+
+        # catch the exception ValueError - (only on sherlock, come back to this)
+        try:
+            close_tensorflow_session(coord, threads)
+        except:
+            pass
+
+    return None
 
 
 def split_importances_by_task_positives(importances_main_file, tasks, prefix):

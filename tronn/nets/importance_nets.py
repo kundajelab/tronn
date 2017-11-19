@@ -4,7 +4,7 @@
 import tensorflow as tf
 
 
-def stdev_cutoff(signal, num_stdev=1): # change this?
+def stdev_cutoff(signal, num_stdev=3): # change this?
     """Given importance scores, calculates poisson pval
     and thresholds at that pval
 
