@@ -1,5 +1,12 @@
 {
-    "univ_dhs":"/mnt/data/epigenomeRoadmap/integrative/regulatoryRegions/ENCODERoadmap/reg2map/HoneyBadger2_release/DNase/p10/regions_all.bed.gz",
-    "ref_fasta":"/mnt/data/annotations/by_release/hg19.GRCh37/hg19.genome.fa",
-    "chrom_sizes":"/mnt/data/annotations/by_release/hg19.GRCh37/hg19.chrom.sizes"
+    "kundaje":{
+	"univ_dhs":"/mnt/data/epigenomeRoadmap/integrative/regulatoryRegions/ENCODERoadmap/reg2map/HoneyBadger2_release/DNase/p10/regions_all.bed.gz",
+	"ref_fasta":"/mnt/data/annotations/by_release/hg19.GRCh37/hg19.genome.fa",
+	"chrom_sizes":"/mnt/data/annotations/by_release/hg19.GRCh37/hg19.chrom.sizes"
+    },
+    "sherlock":{
+	"univ_dhs":"/scratch/PI/akundaje/dskim89/dannk/annotations/reg2map_honeybadger2_dnase_p10_regions_all.bed.gz",
+	"ref_fasta":"/scratch/PI/akundaje/dskim89/dannk/annotations/hg19.genome.fa",
+	"chrom_sizes":"/scratch/PI/akundaje/dskim89/dannk/annotations/hg19.chrom.sizes"
+    }
 }
