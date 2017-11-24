@@ -131,7 +131,7 @@ def run(args):
         for line in fp:
             pwms_to_use.append(line.strip().split('\t')[0])
 
-    #args.interpretation_tasks = [16, 18, 19, 23]
+    args.interpretation_tasks = [16, 18, 19, 23]
     
     # go through each interpretation task
     for i in xrange(len(args.interpretation_tasks)):
@@ -231,9 +231,17 @@ def run(args):
             # extract hashes
             with h5py.File(pwm_hits_mat_h5, "r") as hf:
                 pwm_hits = hf["pwm_hits"][:]
-                # shrink first (ran into floating point issue for hash being so large)
-                #pwm_hits = pwm_hits[:, ~np.all(pwm_hits == 0, axis=0)]
+                # shrink first to make more coherent
+                # only keep top hits
+                top_k = 10
+                pwm_hits_summed = np.sum(pwm_hits, axis=0)
+                ind = np.argpartition(pwm_hits_summed, -top_k)[-top_k:]
 
+                # filter pwms and names
+                pwm_hits = pwm_hits[:,ind]
+                pwm_names_task = [pwm_names_filt[i] for i in ind] # TODO fix here
+                #pwm_hits = pwm_hits[:, ~np.all(pwm_hits == 0, axis=0)]
+                
                 pwm_presence = (pwm_hits > 0).astype(int)
                 pwm_hash = np.zeros((pwm_hits.shape[0]), dtype=np.float128)
                 for i in xrange(pwm_hits.shape[1]):
@@ -284,7 +292,7 @@ def run(args):
                     hash_motifs_present = (np.sum(pwm_presence[hash_indices], axis=0) > 0).astype(int)
 
                     motif_indices = np.where(hash_motifs_present)[0]
-                    hash_motifs = [pwm_names_filt[i] for i in xrange(len(pwm_names_filt)) if i in motif_indices]
+                    hash_motifs = [pwm_names_task[i] for i in xrange(len(pwm_names_task)) if i in motif_indices]
                     all_pwms_used += hash_motifs
                     hash_to_motifs_file = "{0}/{1}.task-{2}.hash-to-motifs.txt".format(
                         args.tmp_dir, args.prefix, interpretation_task_idx)
@@ -294,16 +302,17 @@ def run(args):
                 # get master list of PWMs for this task, and filter pwm hits to get only those columns
                 # and save out the hits info with the regions info
                 all_pwms_used = list(set(all_pwms_used))
-                pwm_indices = [i for i in xrange(len(pwm_names_filt)) if pwm_names_filt[i] in all_pwms_used]
-                pwm_used_names = [pwm_names_filt[i].split("_")[0] for i in xrange(len(pwm_names_filt)) if pwm_names_filt[i] in all_pwms_used]
+                pwm_indices = [i for i in xrange(len(pwm_names_task)) if pwm_names_task[i] in all_pwms_used]
+                pwm_used_names = [pwm_names_task[i].split("_")[0] for i in xrange(len(pwm_names_task)) if pwm_names_task[i] in all_pwms_used]
                 
                 # filter out zeros, and non used pwms
+                index = hf["example_metadata"][:][~np.all(pwm_hits == 0, axis=1),:]
                 pwm_hits = pwm_hits[~np.all(pwm_hits == 0, axis=1),:]
                 pwm_hits = pwm_hits[:, pwm_indices]
                 pwm_hits = pwm_hits[:, ~np.all(pwm_hits == 0, axis=0)]
 
                 # save out
-                pwm_hits_df = pd.DataFrame(data=pwm_hits, index=hf["example_metadata"][:,0], columns=pwm_used_names)
+                pwm_hits_df = pd.DataFrame(pwm_hits, index=index, columns=pwm_used_names)
                 pwm_hits_df.to_csv(
                     "{0}/{1}.task-{2}.pwm_hits.small.mat.txt".format(
                         args.tmp_dir, args.prefix, interpretation_task_idx),

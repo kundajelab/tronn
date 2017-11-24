@@ -123,6 +123,11 @@ def plot_weights_given_ax(ax, array,
     ax.xaxis.set_ticks(np.arange(0.0, array.shape[0]+1, subticks_frequency))
     height_padding = max(abs(min_neg_height)*(height_padding_factor),
                          abs(max_pos_height)*(height_padding_factor))
+    
+    # fixed setting CHANGE LATER
+    max_pos_height = 4
+    min_neg_height = -2
+    
     ax.set_ylim(min_neg_height-height_padding, max_pos_height+height_padding)
 
 

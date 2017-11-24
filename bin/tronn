@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='TRONN: Transcriptional Regulation Optimized Neural Nets')
     parser.add_argument(
-        "--cluster", default="sherlock",
+        "--cluster", default="kundaje",
         help="what cluster you're on (get annotations)")
     subparsers = parser.add_subparsers(dest='subcommand_name')
 

@@ -61,6 +61,9 @@ def layerwise_relevance_propagation(tensor, features, probs=None, normalize=Fals
     importances = tf.multiply(features, feature_grad, 'input_mul_grad')
     #importances_squeezed = tf.transpose(tf.squeeze(importances_raw), perm=[0, 2, 1])
 
+    # change later
+    importances = stdev_cutoff(importances)
+    
     if normalize:
         thresholded = stdev_cutoff(importances)
         print "REMEMBER TO CHANGE IMPT NORMALIZATION BACK"
@@ -448,7 +451,7 @@ def extract_importances_and_viz(
             with g.gradient_override_map({'Relu': 'GuidedRelu'}):
                 outputs = tronn_graph.build_inference_graph(normalize=True)
         elif method == "simple_gradients":
-            outputs = tronn_graph.build_inference_graph(normalize=True)
+            outputs = tronn_graph.build_inference_graph(normalize=False) # change this back
             
         # set up session
         sess, coord, threads = setup_tensorflow_session()
@@ -474,14 +477,16 @@ def extract_importances_and_viz(
 
             region, region_arrays = example_generator.run()
             region_arrays["example_metadata"] = region
+            print region
             
             for key in region_arrays.keys():
                 
                 if "importance" in key:
                     # squeeze and visualize!
-                    print "plotting", key
                     plot_name = "{}.{}.png".format(region.replace(":", "-"), key)
                     plot_weights(np.squeeze(region_arrays[key][:,400:600,:]), plot_name) # array, fig name
+                if "prob" in key:
+                    print region_arrays[key]
 
         # catch the exception ValueError - (only on sherlock, come back to this)
         try:

@@ -91,6 +91,7 @@ def run(args):
         tronn_graph,
         checkpoint_path,
         prefix,
-        method="guided_backprop")
+        method="simple_gradients")
+        #method="guided_backprop")
         
     return

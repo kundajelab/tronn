@@ -29,7 +29,9 @@ def stdev_cutoff(signal, num_stdev=3): # change this?
 
     # and threshold
     greaterthan_tensor = tf.cast(tf.greater(signal, thresholds), tf.float32)
-    thresholded_tensor = signal * greaterthan_tensor
+    lessthan_tensor = tf.cast(tf.less(signal, -thresholds), tf.float32)
+    mask_tensor = tf.add(greaterthan_tensor, lessthan_tensor)
+    thresholded_tensor = signal * mask_tensor
 
     #out_tensor = tf.transpose(tf.squeeze(thresholded_tensor), [0, 2, 1])
 
