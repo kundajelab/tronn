@@ -62,13 +62,13 @@ def layerwise_relevance_propagation(tensor, features, probs=None, normalize=Fals
     #importances_squeezed = tf.transpose(tf.squeeze(importances_raw), perm=[0, 2, 1])
 
     # change later
-    importances = stdev_cutoff(importances)
+    #importances = stdev_cutoff(importances)
     
     if normalize:
-        thresholded = stdev_cutoff(importances)
+        importances = stdev_cutoff(importances)
         print "REMEMBER TO CHANGE IMPT NORMALIZATION BACK"
         #importances = normalize_to_one(thresholded, probs) # don't forget this is changed!
-        importances = normalize_to_probs(thresholded, probs) # don't forget this is changed!
+        importances = normalize_to_probs(importances, probs) # don't forget this is changed!
 
     if zscore_vals:
         print "CURRENTLY ZSCORING"
@@ -188,7 +188,7 @@ def extract_importances_and_motif_hits(
             with g.gradient_override_map({'Relu': 'GuidedRelu'}):
                 outputs = tronn_graph.build_inference_graph_v2(pwm_list=pwm_list, normalize=True)
         elif method == "simple_gradients":
-            outputs = tronn_graph.build_inference_graph_v2(normalize=True)
+            outputs = tronn_graph.build_inference_graph_v2(pwm_list=pwm_list, normalize=True)
             
         # set up session
         sess, coord, threads = setup_tensorflow_session()
@@ -275,9 +275,11 @@ def extract_motif_assignments(
         # build graph
         if method == "guided_backprop":
             with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+                print "using guided backprop"
                 outputs = tronn_graph.build_inference_graph_v3(pwm_list=pwm_list, normalize=True)
         elif method == "simple_gradients":
-            outputs = tronn_graph.build_inference_graph_v3(normalize=True)
+            print "using gradients x input"
+            outputs = tronn_graph.build_inference_graph_v3(pwm_list=pwm_list, normalize=True)
             
         # set up session
         sess, coord, threads = setup_tensorflow_session()

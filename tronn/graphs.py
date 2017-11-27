@@ -98,7 +98,7 @@ class TronnNeuralNetGraph(TronnGraph):
                  positives_focused_loss=False,
                  finetune=False,
                  finetune_tasks=[],
-                 ordered_num_epochs=100): # 1 for interpretation, 100 for viz
+                 ordered_num_epochs=1): # 1 for interpretation, 100 for viz
         super(TronnNeuralNetGraph, self).__init__(
             data_files, tasks, data_loader,
             model_fn, model_params, batch_size,
@@ -228,8 +228,7 @@ class TronnNeuralNetGraph(TronnGraph):
 
     
     def build_inference_graph_v2(self, data_key="data", pwm_list=None, normalize=True):
-        """Build a graph with back prop ties to be able to get 
-        importance scores
+        """Use for findgrammars
         """
         assert pwm_list is not None
         assert self.importances_fn is not None
@@ -275,9 +274,8 @@ class TronnNeuralNetGraph(TronnGraph):
         return self.out_tensors
 
     
-    def build_inference_graph_v3(self, data_key="data", pwm_list=None, normalize=True):
-        """Build a graph with back prop ties to be able to get 
-        importance scores
+    def build_inference_graph_v3(self, data_key="data", pwm_list=None, normalize=True, abs_val=False):
+        """Use for getmotifs
         """
         assert pwm_list is not None
         assert self.importances_fn is not None
@@ -304,7 +302,8 @@ class TronnNeuralNetGraph(TronnGraph):
             "importances_fn": self.importances_fn,
             "logits": importance_logits,
             "probs": importance_probs,
-            "normalize": True}
+            "normalize": True,
+            "abs_val": abs_val}
 
         # and set up outputs
         self.out_tensors = {}

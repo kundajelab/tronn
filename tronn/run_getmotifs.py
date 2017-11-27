@@ -165,7 +165,7 @@ def run(args):
             pwm_counts_mat_h5,
             args.sample_size,
             pwm_list,
-            method="guided_backprop")
+            method="guided_backprop") # simple_gradients
 
     # now run a bootstrap FDR for the various tasks
 

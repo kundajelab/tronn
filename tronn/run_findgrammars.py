@@ -218,7 +218,7 @@ def run(args):
                     pwm_hits_mat_h5,
                     args.sample_size,
                     pwm_list_filt,
-                    method="guided_backprop")
+                    method="simple_gradients") # or guided_backprop
 
         # now in pwm hits file,
         # TODO(dk) factor this code out

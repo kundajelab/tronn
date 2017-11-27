@@ -53,7 +53,7 @@ def get_importance_weighted_motif_hits(
         labels,
         model_params,
         is_training=False,
-        k_val=4):
+        k_val=10):
     """Goes from one-hot sequence to global pwm hits. 
     Use as standard addition on the inference graph, assumes trained model
     has been set up by tronn graph so that you have logits
@@ -115,6 +115,7 @@ def get_motif_assignments(
     logits_tensors = model_params["logits"]
     probs_tensors = model_params["probs"]
     normalize = model_params["normalize"]
+    absolute_val = model_params.get("abs_val", False)
     
     # first set up importances
     per_task_importances = []
@@ -131,6 +132,10 @@ def get_motif_assignments(
         
     # stack
     importances = tf.squeeze(tf.stack(per_task_importances, axis=1)) # out: (example, task, bp_pos, bp/channel)
+
+    # TODO(dk) convert all to pos ONLY for when getting motifs - want negatives for grammars.
+    if absolute_val:
+        importances = tf.abs(importances)
     
     # reduce max (just want regions where importance was found across the board)
     global_importances = tf.reduce_max(importances, axis=1, keep_dims=True) # out: (example, 1, bp_pos, bp/channel)
