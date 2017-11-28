@@ -55,7 +55,7 @@ class TronnGraph(object):
         self.features, self.labels, self.metadata = self.data_loader(
             self.data_files[data_key],
             self.batch_size,
-            self.tasks,
+            task_indices=self.tasks,
             features_key=self.feature_key,
             shuffle=self.shuffle_data,
             ordered_num_epochs=self.ordered_num_epochs,
