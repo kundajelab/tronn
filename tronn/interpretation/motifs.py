@@ -489,7 +489,9 @@ def bootstrap_fdr_v2(
         
         if i % 10 == 0: print i
         
-        # randomly select pos and neg examples 
+        # randomly select pos and neg examples
+        # NOTE: this is as unbalanced as the dataset is...
+        # TODO - dk, balance this?
         shuffled_labels = np.random.permutation(labels)
         pos_array = pwm_scores[shuffled_labels > 0,:]
         pos_array_summed = np.sum(pos_array, axis=0)

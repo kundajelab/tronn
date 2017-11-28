@@ -126,17 +126,22 @@ def run(args):
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     logging.info("Found {} chrom files".format(len(data_files)))
 
-    pwms_to_use = []
-    with open(args.pwm_list, "r") as fp:
-        for line in fp:
-            pwms_to_use.append(line.strip().split('\t')[0])
-
-    args.interpretation_tasks = [16, 18, 19, 23]
+    # debug
+    args.interpretation_tasks = [16, 17, 18, 19, 20, 21, 22, 23]
     
     # go through each interpretation task
     for i in xrange(len(args.interpretation_tasks)):
 
         interpretation_task_idx = args.interpretation_tasks[i]
+
+        # set up pwms to use here
+        pwm_list_file = "{}/interpretation.task-{}.bootstrap_fdr.cutoff.txt".format(
+            args.pwm_list, interpretation_task_idx) # for now, use --pwm_list for the directory with pwm lists
+        #pwm_list_file = args.pwm_list
+        pwms_to_use = []
+        with open(pwm_list_file, "r") as fp:
+            for line in fp:
+                pwms_to_use.append(line.strip().split('\t')[0])        
         
         # skip for now
         if interpretation_task_idx == 81:
@@ -318,6 +323,11 @@ def run(args):
                         args.tmp_dir, args.prefix, interpretation_task_idx),
                     sep='\t')
 
+                # plot with R
+                os.system(
+                    ("Rscript {0}/plot_task_tfs.R "
+                     "{0}/{1}.task-{2}.pwm_hits.small.mat.txt "
+                     "{0}/{1}.task-{2}.pwm_hits.small.pdf").format(args.tmp_dir, args.prefix, interpretation_task_idx)) 
 
                 # backcheck on full set
                 all_regions = "{0}/{1}.task-{2}.all.regions.txt".format(args.tmp_dir, args.prefix, interpretation_task_idx)
