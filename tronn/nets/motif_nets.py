@@ -49,7 +49,7 @@ def pwm_convolve_v2(features, labels, model_params, is_training=False):
     return motif_tensor
 
 
-def pwm_convolve_v3(features, labels, model_params, is_training=False):
+def pwm_convolve_v3(features, labels, config, is_training=False):
     '''
     All this model does is convolve with PWMs and get top k pooling to output
     a example by motif matrix.
@@ -63,7 +63,8 @@ def pwm_convolve_v3(features, labels, model_params, is_training=False):
 
     '''
     # TODO(dk) vector projection
-    pwm_list = model_params["pwms"]
+    pwm_list = config.get("pwms")
+    assert pwm_list is not None
 
     # get various sizes needed to instantiate motif matrix
     num_filters = len(pwm_list)
@@ -107,6 +108,11 @@ def pwm_convolve_v3(features, labels, model_params, is_training=False):
     pseudocount = 0.00000001
     normalized_scores = tf.divide(pwm_convolve_scores, tf.add(nonzero_vals, pseudocount))
 
+    # max pool if requested
+    pool = config.get("pool", False)
+    if pool:
+        normalized_scores = slim.max_pool2d(normalized_scores, [1,10], stride=[1,10])
+    
     return normalized_scores
 
 
@@ -116,6 +122,7 @@ def motif_assignment(features, labels, model_params, is_training=False):
     """
     # get params
     pwm_list = model_params["pwms"]
+    assert pwm_list is not None
     max_hits = model_params.get("k_val", 4)
     motif_len = tf.constant(model_params.get("motif_len", 5), tf.float32)
 

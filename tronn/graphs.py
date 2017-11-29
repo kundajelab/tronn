@@ -182,39 +182,36 @@ class TronnNeuralNetGraph(TronnGraph):
         return train_op
 
     
-    def build_inference_graph(self, data_key="data", normalize=False, zscore_vals=False):
+    def build_inference_graph(self, data_key="data", pwm_file=None):
         """Build a graph with back prop ties to be able to get 
         importance scores
         """
         assert self.importances_fn is not None
 
-        # set up importance tasks
-        if self.importances_tasks is None:
-            self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
-            
-        print self.importances_tasks
+        # build graph
         self.build_graph(data_key, is_training=False)
 
-        # split logits into task level
-        task_logits = tf.unstack(self.logits, axis=1)
-        task_probs = tf.unstack(self.probs, axis=1)
-        
-        # add in importance score calculations
-        self.importances = {}
-        for task_idx in self.importances_tasks:
-            importance_key = "importances_task{}".format(task_idx)
-            print "importance scores will be calculated for: ", importance_key
-            if normalize:
-                self.importances[importance_key] = self.importances_fn(
-                    task_logits[task_idx], self.features, probs=task_probs[task_idx], normalize=True)
-            elif zscore_vals:
-                self.importances[importance_key] = self.importances_fn(
-                    task_logits[task_idx], self.features, probs=task_probs[task_idx], zscore_vals=True)
-            else:
-                self.importances[importance_key] = self.importances_fn(
-                    task_logits[task_idx], self.features, normalize=False)
+        # set up config
+        if self.importances_tasks is None:
+            self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
 
-        # add in other essential metadata: labels, feature metadata, label metadata
+        importance_logits = []
+        importance_probs = []
+        for task_idx in self.importances_tasks:
+            importance_logits.append(task_logits[task_idx])
+            importance_probs.append(task_probs[task_idx])
+            
+        config = {
+            "logits": importance_logits,
+            "probs": importance_probs,
+            "pwms": pwm_file}
+        
+        # stack on inference fn
+        features, labels, config = get_motif_assignments_v2(
+            self.features, self.labels, config, is_training=False)
+        
+
+        # and end with an output aggregation fn
         self.importances["labels"] = self.labels
         #try:
         #    self.importances["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)

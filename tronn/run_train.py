@@ -67,7 +67,7 @@ def run(args):
     logging.info("Num train examples: %d" % args.num_train_examples)
     logging.info("Num valid examples: %d" % args.num_valid_examples)
     logging.info("Train_steps/epoch: %d" % args.train_steps)
-
+    
     # extract checkpoint paths
     restore_model_checkpoint = None
     if args.restore_model_dir is not None:

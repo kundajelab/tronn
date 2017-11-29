@@ -17,6 +17,86 @@ from tronn.interpretation.motifs import extract_positives_from_motif_mat
 
 
 def interpret(
+        tronn_graph,
+        model_checkpoint,
+        h5_file,
+        sample_size=None,
+        pwm_list=None,
+        method="input_x_grad",
+        keep_negatives=False,
+        h5_batch_size=128):
+    """Set up a graph and run inference stack
+    """
+    with tf.Graph().as_default() as g:
+
+        # build graph
+        if method == "input_x_grad":
+            print "using input_x_grad"
+            outputs = tronn_graph.build_inference_graph(pwm_list=pwm_list, normalize=True)
+        elif method == "guided_backprop":
+            with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+                print "using guided backprop"
+                outputs = tronn_graph.build_inference_graph_v3(pwm_list=pwm_list, normalize=True)
+            
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+
+        # restore
+        init_assign_op, init_feed_dict = restore_variables_op(
+            model_checkpoint, skip=["pwm"])
+        sess.run(init_assign_op, init_feed_dict)
+        
+        # set up hdf5 file to store outputs
+        with h5py.File(h5_file, 'w') as hf:
+
+            h5_handler = H5Handler(
+                hf, outputs, sample_size, resizable=True, batch_size=4096)
+
+            # set up outlayer
+            example_generator = ExampleGenerator(
+                sess,
+                outputs,
+                64, # Fix this later
+                reconstruct_regions=False,
+                keep_negatives=keep_negatives,
+                filter_by_prediction=True,
+                filter_tasks=tronn_graph.importances_tasks)
+
+            # run all samples unless sample size is defined
+            try:
+                total_examples = 0
+                while not coord.should_stop():
+                    
+                    region, region_arrays = example_generator.run()
+                    region_arrays["example_metadata"] = region
+
+                    h5_handler.store_example(region_arrays)
+                    total_examples += 1
+
+                    # check condition
+                    if (sample_size is not None) and (total_examples >= sample_size):
+                        break
+
+            except tf.errors.OutOfRangeError:
+                print "Done reading data"
+                # add in last of the examples
+
+            finally:
+                time.sleep(60)
+                h5_handler.flush()
+                h5_handler.chomp_datasets()
+
+        # catch the exception ValueError - (only on sherlock, come back to this)
+        try:
+            close_tensorflow_session(coord, threads)
+        except:
+            pass
+
+    return None
+
+
+
+def interpret_old(
         args,
         data_loader,
         data_files,

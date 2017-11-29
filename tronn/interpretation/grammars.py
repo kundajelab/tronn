@@ -40,34 +40,6 @@ class Grammar(object):
 
         # consider adding: threshold, distance constraints
 
-        
-def setup_tensorflow_session():
-    """Start up session in a graph
-    """
-
-    # set up session
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
-    sess.run(tf.local_variables_initializer())
-
-    # start queue runners
-    coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-    
-    return sess, coord, threads
-
-
-def close_tensorflow_session(coord, threads):
-    """Cleanly close a running graph
-    """
-
-    coord.request_stop()
-    coord.join(threads)
-
-    
-    return None
-
 
 def scan_grammars(data_files, motif_file, grammars, prefix, out_dir, batch_size, total_region_num):
     """Scans given regions for grammars and returns a matrix of hits

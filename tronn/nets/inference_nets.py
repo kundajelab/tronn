@@ -7,6 +7,34 @@ from tronn.nets.motif_nets import pwm_convolve_v3
 from tronn.nets.motif_nets import motif_assignment
 
 
+# TODO - change this to contain stacks of transforms
+
+def get_motif_assignments_v2(features, labels, config, is_training=False):
+    """Update to motif assignments
+    """
+    # set up stack
+    inference_stack = [
+        (multitask_importances, {"anchors": tf.unstack(config["logits"], axis=1), "importances_fn": input_x_grad}),
+        (multitask_global_importances, {"append": True}),
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (normalize_w_probability_weights, {"probs": tf.unstack(config["probs"], axis=1)}),
+        (motif_assignment, {"pmws": config["pwms"], "k_val": 4, "motif_len": 5}),
+        (threshold_topk, {"k_val": 4})
+    ]
+
+    # stack the transforms
+    for transform_fn, config in inference_stack:
+        features, labels, config = transform_fn(features, labels, config)
+        # TODO - if needed, pass on additional configs through
+        
+    return features, labels, config
+
+
+
+
+
+
+
 def threshold_top_k(input_tensor, k_val):
     """Get top k hits across all axes
     """
@@ -39,7 +67,7 @@ def get_top_k_motif_hits(
     # convolve with PWMs
     pwm_scores = pwm_convolve_v3(features, labels, model_params) # out: (example, 1, bp_pos, motif)
 
-    # max pool?
+    # max pool? put this into convolve as an option
     pwm_scores = slim.max_pool2d(pwm_scores, [1,10], stride=[1,10])
     
     # TODO(dk) maybe just do the MAX instead?
@@ -97,6 +125,8 @@ def get_importance_weighted_motif_hits(
     outputs["pwm_hits"] = motif_assignment(global_importances, labels, {"pwms": pwm_list, "k_val": k_val})
     
     return outputs
+
+
 
 
 def get_motif_assignments(
