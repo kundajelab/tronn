@@ -387,13 +387,19 @@ def load_data_from_filename_list(
     logging.info("loading data for tasks:%s from hdf5_files:%s" % (task_indices, hdf5_files))
 
     # TODO(dk) check file sizes and change num epochs as needed to fill the queue - or change queue capacity?
+    num_examples = get_total_num_examples(hdf5_files)
+    print num_examples
     
     if shuffle:
         # use a thread for each hdf5 file to put together in parallel
         example_slices_list = [hdf5_to_tensors(hdf5_file, batch_size, task_indices, features_key, shuffle=True, fake_task_num=fake_task_num)
                                for hdf5_file in hdf5_files]
-        min_after_dequeue = 10000
-        capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
+        if num_examples < 10000:
+            min_after_dequeue = 0
+            capacity = 10000 - batch_size
+        else:
+            min_after_dequeue = 10000
+            capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
         features, labels, metadata = tf.train.shuffle_batch_join(
             example_slices_list,
             batch_size,

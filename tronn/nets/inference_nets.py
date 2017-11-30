@@ -67,8 +67,8 @@ def importances_to_motif_assignments(features, labels, config, is_training=False
         (multitask_importances, {"anchors": config["importance_logits"], "importances_fn": input_x_grad}),
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (normalize_w_probability_weights, {"probs": config["importance_probs"]}),
-        (multitask_global_importance, {"append": False}),
-        (motif_assignment, {"pwms": config["pwms"], "k_val": 4, "motif_len": 5, "pool": True}),
+        (multitask_global_importance, {"append": True}),
+        (multitask_motif_assignment, {"pwms": config["pwms"], "k_val": 4, "motif_len": 5, "pool": True}),
         #(threshold_topk, {"k_val": 4})
     ]
 
@@ -78,9 +78,14 @@ def importances_to_motif_assignments(features, labels, config, is_training=False
         features, labels, config = transform_fn(features, labels, config)
         # TODO - if needed, pass on additional configs through
 
-    features = {"pwm-counts.global": features}
-            
-    return features, labels, config
+    # TODO separate out results into separate task sets
+    features = tf.unstack(features, axis=1)
+    
+    outputs = {}
+    for i in xrange(len(features)):
+        outputs["pwm-counts.taskidx-{}".format(i)] = features[i]
+        
+    return outputs, labels, config
 
 
 def get_top_k_motif_hits(features, labels, config, is_training=False):

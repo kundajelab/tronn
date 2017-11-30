@@ -12,20 +12,38 @@ def shuffle_null_threshold(features, labels, config, is_training=False):
     """
     assert is_training == False
     num_shuffles = config.get("shuffled_null.num_shuffles", 100)
-    top_k = int(100*config.get("shuffled_null.pval", 0.05))
+    k_val = int(100*config.get("shuffled_null.pval", 0.05))
+    two_tailed = False
     
-    examples_list = tf.unstack(features) # list of {1, seq_len, 4}
-    
+    examples_list = tf.unstack(tf.squeeze(features, axis=3)) # list of {seq_len, 4}
+
+    thresholded = []
     for example in examples_list:
+        example_reduced = tf.reduce_sum(example, axis=1)
         # shuffle
-
-        # get top k
-
-        # if that position is in top k, pass through otherwise zero out
+        shuffles = []
+        for i in xrange(num_shuffles):
+            shuffles.append(tf.random_shuffle(example_reduced))
+        all_shuffles = tf.stack(shuffles, axis=2) # {seq_len, 100}
         
-        pass
-    
-    return
+        # get top k
+        top_k_vals, top_k_indices = tf.nn.top_k(all_shuffles, k=k_val)
+        thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0], 1])
+        greaterthan_mask = tf.cast(tf.greater_equal(example, thresholds), tf.float32) # {seq_len, 4}
+        if two_tailed:
+            top_k_vals, top_k_indices = tf.nn.top_k(-all_shuffles, k=k_val)
+            thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0], 1])
+            lessthan_mask = tf.cast(tf.less_equal(example, thresholds), tf.float32) # {seq_len, 4}
+
+        # TODO finish here
+            
+        
+        example_thresholded = example * thresholds_mask
+        thresholded.append(example_thresholded)
+
+    features = tf.expand_dims(tf.stack(thresholded, axis=0), axis=1)
+        
+    return features, labels, config
 
 
 def threshold_poisson(signal, pval):

@@ -18,12 +18,12 @@ from tronn.preprocess import generate_ordered_single_file_nn_dataset
 
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
-from tronn.nets.nets import model_fns
+from tronn.nets.nets import net_fns
 from tronn.learn.learning import predict
 from tronn.learn.learning import predict_variant_scores
 from tronn.interpretation.motifs import get_encode_pwms
 
-from tronn.interpretation.importances import layerwise_relevance_propagation
+from tronn.nets.importance_nets import input_x_grad
 
 def load_pwms(pwm_file_list):
     """Load pwm files from list of filenames into one dict
@@ -42,21 +42,21 @@ def setup_model(args):
     if args.model_type == "nn":
         assert(args.model is not None) and ((args.model_dir is not None) or (args.model_checkpoint is not None))
         model_params = args.model
-        model_fn = model_fns[args.model['name']]
+        net_fn = net_fns[args.model['name']]
         
     elif args.model_type == "motif":
         assert args.pwm_files is not None
         model_params = {"pwms": load_pwms(args.pwm_files)}
-        model_fn = model_fns["pwm_convolve"]
+        net_fn = net_fns["pwm_convolve"]
         
     elif args.model_type == "grammar":
         assert (args.pwm_files is not None) and (args.grammar_files is not None)
         model_params = {
             "pwms": load_pwms(args.pwm_files),
             "grammars": args.grammar_files}
-        model_fn = model_fns["grammars"]
+        net_fn = net_fns["grammars"]
         
-    return model_fn, model_params
+    return net_fn, model_params
 
 
 def scores_to_probs(np_array):
@@ -208,7 +208,7 @@ def run(args):
         data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
         
     # set up model params
-    model_fn, model_params = setup_model(args)
+    net_fn, model_params = setup_model(args)
 
     # set up network graph and outputs
     if args.reconstruct_regions:
@@ -223,10 +223,10 @@ def run(args):
         args.tasks,
         load_data_from_filename_list,
         args.batch_size,
-        model_fn,
+        net_fn,
         model_params,
         tf.nn.sigmoid,
-        importances_fn=layerwise_relevance_propagation,
+        importances_fn=input_x_grad,
         shuffle_data=shuffle_data)
         
     # predict

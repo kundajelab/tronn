@@ -141,10 +141,11 @@ def multitask_motif_assignment(features, labels, config, is_training=False):
     features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
 
     motif_assignments = []
-    for task_features in features:
+    for i in xrange(len(features)):
         # TODO(dk) give unique PWM names for weights
-        task_features, _, _ = motif_assignment(task_features, labels, config)
-        motif_assignments.append(task_features)
+        with tf.variable_scope("task_{}".format(i)):
+            task_features, _, _ = motif_assignment(features[i], labels, config)
+            motif_assignments.append(task_features)
     features = tf.stack(motif_assignments, axis=1)
 
     return features, labels, config

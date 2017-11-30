@@ -403,6 +403,7 @@ def predict(
             saver.restore(sess, checkpoint_path)
             
         # set up arrays to hold outputs
+        # TODO - this needs to be fixed
         num_examples = num_evals
         all_labels_array = np.zeros((num_examples, label_tensor.get_shape()[1]))
         all_logits_array = np.zeros((num_examples, logit_tensor.get_shape()[1]))
@@ -418,28 +419,40 @@ def predict(
             "logits": logit_tensor,
             "probs": probs_tensor,
             "feature_metadata": metadata_tensor}
+        
         example_generator = ExampleGenerator(
             sess,
             tensor_dict,
             batch_size,
             reconstruct_regions=reconstruct_regions)
 
-        for i in range(num_evals):
+        try:
+            total_evals = 0
+            while not coord.should_stop():
+                region, region_arrays = example_generator.run()
+                labels = region_arrays["labels"]
+                logits = region_arrays["logits"]
+                probs = region_arrays["probs"]
 
-            region, region_arrays = example_generator.run()
-            labels = region_arrays["labels"]
-            logits = region_arrays["logits"]
-            probs = region_arrays["probs"]
+                # put into numpy arrays
+                all_labels_array[total_evals,:] = labels
+                all_logits_array[total_evals,:] = logits
+                all_probs_array[total_evals,:] = probs
 
-            # put into numpy arrays
-            all_labels_array[i,:] = labels
-            all_logits_array[i,:] = logits
-            all_probs_array[i,:] = probs
+                all_metadata.append(str(region_arrays["feature_metadata"][0]))
+                regions.append(region)
+                total_evals += 1
+                
+                if total_evals >= num_evals:
+                    break
 
-            all_metadata.append(str(region_arrays["feature_metadata"][0]))
-            regions.append(region)
+        except tf.errors.OutOfRangeError:
+            print "No more data"
 
-        close_tensorflow_session(coord, threads)
+        try:
+            close_tensorflow_session(coord, threads)
+        except:
+            pass
     
     return all_labels_array, all_logits_array, all_probs_array, regions, all_metadata
 
