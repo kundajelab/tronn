@@ -8,6 +8,7 @@ import tensorflow.contrib.slim as slim
 from tronn.util.tf_utils import get_fan_in
 from tronn.util.initializers import pwm_simple_initializer
 
+
 def _load_grammar_file(grammar_file):
     """Load a grammar file in a specific format
     """

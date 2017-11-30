@@ -8,47 +8,6 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 
-
-def pwm_convolve_v2(features, labels, model_params, is_training=False):
-    '''
-    All this model does is convolve with PWMs and get top k pooling to output
-    a example by motif matrix.
-    '''
-
-    pwm_list = model_params["pwms"]
-
-    # get various sizes needed to instantiate motif matrix
-    num_filters = len(pwm_list)
-
-    max_size = 0
-    for pwm in pwm_list:
-        if pwm.weights.shape[1] > max_size:
-            max_size = pwm.weights.shape[1]
-
-    # make the convolution net
-    conv1_filter_size = [1, max_size]
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features)),
-            biases_initializer=None,
-            trainable=False):
-        net = slim.conv2d(
-            features, num_filters, conv1_filter_size,
-            scope='conv1/conv')
-
-    # Then get top k values across the correct axis
-    net = tf.transpose(net, perm=[0, 1, 3, 2])
-    top_k_val, top_k_indices = tf.nn.top_k(net, k=3)
-
-    # Do a summation
-    motif_tensor = tf.squeeze(tf.reduce_sum(top_k_val, 3)) # 3 is the axis
-
-    return motif_tensor
-
-
 def pwm_convolve_v3(features, labels, config, is_training=False):
     '''
     All this model does is convolve with PWMs and get top k pooling to output
@@ -123,6 +82,7 @@ def motif_assignment(features, labels, model_params, is_training=False):
     # get params
     pwm_list = model_params["pwms"]
     assert pwm_list is not None
+    pool = model_params.get("pool", False)
     max_hits = model_params.get("k_val", 4)
     motif_len = tf.constant(model_params.get("motif_len", 5), tf.float32)
 
@@ -136,28 +96,28 @@ def motif_assignment(features, labels, model_params, is_training=False):
     num_motifs_list = tf.unstack(num_motifs)
 
     # convolve with PWMs
-    pwm_scores = pwm_convolve_v3(features, labels, {"pwms": pwm_list}) # {N, 1, pos, motif}
+    pwm_scores = pwm_convolve_v3(features, labels, {"pwms": pwm_list, "pool": pool}) # {N, 1, pos, motif}
     
     # max pool - this accounts for hits that are offset because 
     # the motifs are not aligned to each other
-    pwm_scores_pooled = slim.max_pool2d(pwm_scores, [1, 10], stride=[1, 10])
+    #pwm_scores_pooled = slim.max_pool2d(pwm_scores, [1, 10], stride=[1, 10])
 
     # grab max at each position
-    pwm_scores_max_vals = tf.reduce_max(pwm_scores_pooled, axis=3, keep_dims=True) # {N, 1, pos, 1}
+    pwm_scores_max_vals = tf.reduce_max(pwm_scores, axis=3, keep_dims=True) # {N, 1, pos, 1}
 
     # then only keep the max at each position. multiply by conditional on > 0 to keep clean
     pwm_scores_max = tf.multiply(
-        pwm_scores_pooled,
+        pwm_scores,
         tf.multiply(
-            tf.cast(tf.greater_equal(pwm_scores_pooled, pwm_scores_max_vals), tf.float32),
-            tf.cast(tf.greater(pwm_scores_pooled, 0), tf.float32))) # {N, 1, pos, motif}
+            tf.cast(tf.greater_equal(pwm_scores, pwm_scores_max_vals), tf.float32),
+            tf.cast(tf.greater(pwm_scores, 0), tf.float32))) # {N, 1, pos, motif}
 
     # separate into each example
     pwm_scores_max_list = tf.unstack(pwm_scores_max) # list of {1, pos, motif}
 
     print tf.reshape(pwm_scores_max[0], [-1]).shape
 
-    # and then top k
+    # and then top k - TODO factor out?
     pwm_scores_topk = []
     for i in xrange(len(num_motifs_list)):
         top_k_vals, top_k_indices = tf.nn.top_k(tf.reshape(pwm_scores_max_list[i], [-1]), k=tf.cast(num_motifs_list[i], tf.int32))
@@ -172,8 +132,22 @@ def motif_assignment(features, labels, model_params, is_training=False):
     # and reduce
     pwm_final_counts = tf.squeeze(tf.reduce_sum(pwm_final_scores, axis=2)) # {N, motif}
 
-    return pwm_final_counts
+    return pwm_final_counts, labels, model_params
 
+
+def multitask_motif_assignment(features, labels, config, is_training=False):
+    """Multitask motif assignment
+    """
+    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
+
+    motif_assignments = []
+    for task_features in features:
+        # TODO(dk) give unique PWM names for weights
+        task_features, _, _ = motif_assignment(task_features, labels, config)
+        motif_assignments.append(task_features)
+    features = tf.stack(motif_assignments, axis=1)
+
+    return features, labels, config
 
 
 def featurize_motifs(features, pwm_list=None, is_training=False):
@@ -211,6 +185,9 @@ def featurize_motifs(features, pwm_list=None, is_training=False):
     motif_tensor = tf.squeeze(tf.reduce_sum(top_k_val, 3)) # 3 is the axis
 
     return motif_tensor
+
+
+# get rid of all these below when clear it's not used
 
 
 def pwm_convolve(features, labels, pwm_list):
@@ -260,6 +237,46 @@ def pwm_convolve(features, labels, pwm_list):
     load_pwm_update = weights[0].assign(pwm_np_tensor)
 
     return motif_tensor, load_pwm_update
+
+
+def pwm_convolve_v2(features, labels, model_params, is_training=False):
+    '''
+    All this model does is convolve with PWMs and get top k pooling to output
+    a example by motif matrix.
+    '''
+
+    pwm_list = model_params["pwms"]
+
+    # get various sizes needed to instantiate motif matrix
+    num_filters = len(pwm_list)
+
+    max_size = 0
+    for pwm in pwm_list:
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+
+    # make the convolution net
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features)),
+            biases_initializer=None,
+            trainable=False):
+        net = slim.conv2d(
+            features, num_filters, conv1_filter_size,
+            scope='conv1/conv')
+
+    # Then get top k values across the correct axis
+    net = tf.transpose(net, perm=[0, 1, 3, 2])
+    top_k_val, top_k_indices = tf.nn.top_k(net, k=3)
+
+    # Do a summation
+    motif_tensor = tf.squeeze(tf.reduce_sum(top_k_val, 3)) # 3 is the axis
+
+    return motif_tensor
 
 
 def top_motifs_w_distances(features, pwm_list, top_k_val=2):

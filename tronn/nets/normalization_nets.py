@@ -14,12 +14,20 @@ def normalize_w_probability_weights(features, labels, config, is_training=False)
     assert is_training == False
 
     probs = config.get("probs", None)
-    assert weights is not None
-    
-    weight_sums = tf.reduce_sum(input_tensors, axis=[1, 2, 3], keep_dims=True)
-    features = tf.multiply(
-        tf.divide(features, weight_sums),
-        tf.reshape(probs, weight_sums.get_shape()))
+    assert probs is not None
+
+    # split out into tasks to normalize by task probs
+    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
+    normalized_features = []
+    for i in xrange(len(features)):
+        weight_sums = tf.reduce_sum(features[i], axis=[1, 2, 3], keep_dims=True)
+        task_features = tf.multiply(
+            tf.divide(features[i], weight_sums),
+            tf.reshape(probs[i], weight_sums.get_shape()))
+        normalized_features.append(task_features)
+
+    # and concat back into a block
+    features = tf.concat(normalized_features, axis=1)
 
     return features, labels, config
 

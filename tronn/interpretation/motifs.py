@@ -11,7 +11,6 @@ import tensorflow as tf
 
 from scipy.signal import correlate2d
 
-from tronn.nets.nets import model_fns
 from tronn.visualization import plot_weights
 
 

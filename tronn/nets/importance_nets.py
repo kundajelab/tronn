@@ -47,10 +47,11 @@ def multitask_importances(features, labels, config, is_training=False):
     task_importances = []
     for anchor_idx in xrange(len(anchors)):
         config["anchor"] = anchors[anchor_idx]
-        task_importance = importances_fn(
+        task_importance, _, _ = importances_fn(
             features, labels, config)
         task_importances.append(task_importance)
-    features = tf.stack(task_importances, axis=1)
+
+    features = tf.concat(task_importances, axis=1)
 
     return features, labels, config
 
@@ -65,7 +66,7 @@ def multitask_global_importance(features, labels, config, is_training=False):
     features_max = tf.reduce_max(features, axis=1, keep_dims=True)
 
     if append:
-        features = tf.stack(tf.unstack(features) + [features_max])
+        features = tf.concat([features, features_max], axis=1)
     else:
         features = features_max
 

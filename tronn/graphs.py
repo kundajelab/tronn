@@ -12,10 +12,6 @@ from tronn.util.tf_ops import positives_focused_loss_fn
 from tronn.datalayer import get_task_and_class_weights
 from tronn.datalayer import get_positive_weights_per_task
 
-# move this later
-from tronn.nets.inference_nets import get_importance_weighted_motif_hits
-from tronn.nets.inference_nets import get_motif_assignments
-
 
 class TronnGraph(object):
     """Builds out a general purpose TRONN model graph"""
@@ -182,7 +178,7 @@ class TronnNeuralNetGraph(TronnGraph):
         return train_op
 
     
-    def build_inference_graph(self, data_key="data", pwm_file=None):
+    def build_inference_graph(self, data_key="data", pwm_list=None):
         """Build a graph with back prop ties to be able to get 
         importance scores
         """
@@ -195,6 +191,9 @@ class TronnNeuralNetGraph(TronnGraph):
         if self.importances_tasks is None:
             self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
 
+        task_logits = tf.unstack(self.logits, axis=1)
+        task_probs = tf.unstack(self.probs, axis=1)
+
         importance_logits = []
         importance_probs = []
         for task_idx in self.importances_tasks:
@@ -202,123 +201,27 @@ class TronnNeuralNetGraph(TronnGraph):
             importance_probs.append(task_probs[task_idx])
             
         config = {
-            "logits": importance_logits,
-            "probs": importance_probs,
-            "pwms": pwm_file}
+            "importance_logits": importance_logits,
+            "importance_probs": importance_probs,
+            "pwms": pwm_list}
         
-        # stack on inference fn
-        features, labels, config = get_motif_assignments_v2(
+        # set up inference stack
+        outputs, labels, config = self.importances_fn( # TODO rename this to inference fn
             self.features, self.labels, config, is_training=False)
-        
 
-        # and end with an output aggregation fn
-        self.importances["labels"] = self.labels
-        #try:
-        #    self.importances["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
-        #except:
-        self.importances["negative"] = self.labels
-        self.importances["probs"] = self.probs
-        self.importances["subset_accuracy"] = self._add_task_subset_accuracy()
-        self.importances["example_metadata"] = self.metadata
+        # and end with an output aggregation fn - dict
+        outputs["labels"] = self.labels
+        outputs["probs"] = self.probs
+        outputs["subset_accuracy"] = self._add_task_subset_accuracy()
+        outputs["example_metadata"] = self.metadata
+        if len(self.labels.get_shape().as_list()) > 1:
+            outputs["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
+        else:
+            outputs["negative"] = self.labels
         
-        return self.importances
+        return outputs
 
     
-    def build_inference_graph_v2(self, data_key="data", pwm_list=None, normalize=True):
-        """Use for findgrammars
-        """
-        assert pwm_list is not None
-        assert self.importances_fn is not None
-
-        # set up importance tasks
-        if self.importances_tasks is None:
-            self.importances_tasks = self.tasks
-
-        self.build_graph(data_key, is_training=False)
-
-        # split logits into task level and only keep those that will be used
-        task_logits = tf.unstack(self.logits, axis=1)
-        task_probs = tf.unstack(self.probs, axis=1)
-
-        importance_logits = []
-        importance_probs = []
-        for task_idx in self.importances_tasks:
-            importance_logits.append(task_logits[task_idx])
-            importance_probs.append(task_probs[task_idx])
-
-        # set up inference transforms to get motif hits
-        model_params = {
-            "pwm_list": pwm_list,
-            "importances_fn": self.importances_fn,
-            "logits": importance_logits,
-            "probs": importance_probs,
-            "normalize": True}
-
-        # and set up outputs
-        self.out_tensors = {}
-        out = get_importance_weighted_motif_hits(
-            self.features, self.labels, model_params)
-        for key in out.keys():
-            self.out_tensors[key] = out[key]
-
-        # add in other essential metadata: labels, feature metadata, label metadata
-        self.out_tensors["labels"] = self.labels
-        self.out_tensors["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
-        self.out_tensors["probs"] = self.probs
-        self.out_tensors["subset_accuracy"] = self._add_task_subset_accuracy()
-        self.out_tensors["example_metadata"] = self.metadata
-        
-        return self.out_tensors
-
-    
-    def build_inference_graph_v3(self, data_key="data", pwm_list=None, normalize=True, abs_val=False):
-        """Use for getmotifs
-        """
-        assert pwm_list is not None
-        assert self.importances_fn is not None
-
-        # set up importance tasks
-        if self.importances_tasks is None:
-            self.importances_tasks = self.tasks
-
-        self.build_graph(data_key, is_training=False)
-
-        # split logits into task level and only keep those that will be used
-        task_logits = tf.unstack(self.logits, axis=1)
-        task_probs = tf.unstack(self.probs, axis=1)
-
-        importance_logits = []
-        importance_probs = []
-        for task_idx in self.importances_tasks:
-            importance_logits.append(task_logits[task_idx])
-            importance_probs.append(task_probs[task_idx])
-
-        # set up inference transforms to get motif hits
-        model_params = {
-            "pwm_list": pwm_list,
-            "importances_fn": self.importances_fn,
-            "logits": importance_logits,
-            "probs": importance_probs,
-            "normalize": True,
-            "abs_val": abs_val}
-
-        # and set up outputs
-        self.out_tensors = {}
-        out = get_motif_assignments(
-            self.features, self.labels, model_params)
-        for key in out.keys():
-            self.out_tensors[key] = out[key]
-
-        # add in other essential metadata: labels, feature metadata, label metadata
-        self.out_tensors["labels"] = self.labels
-        self.out_tensors["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
-        self.out_tensors["probs"] = self.probs
-        self.out_tensors["subset_accuracy"] = self._add_task_subset_accuracy()
-        self.out_tensors["example_metadata"] = self.metadata
-        
-        return self.out_tensors
-
-
     def _add_loss(self, data_key):
         """set up loss function
         """

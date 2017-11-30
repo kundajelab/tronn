@@ -13,16 +13,12 @@ from tensorflow.python.ops import gen_nn_ops
 
 from tronn.util.tf_utils import setup_tensorflow_session
 from tronn.util.tf_utils import close_tensorflow_session
+
 from tronn.visualization import plot_weights
 from tronn.interpretation.regions import RegionImportanceTracker
 
 from tronn.outlayer import ExampleGenerator
 from tronn.outlayer import H5Handler
-
-from tronn.nets.importance_nets import importances_stdev_cutoff
-from tronn.nets.importance_nets import stdev_cutoff
-from tronn.nets.importance_nets import normalize_to_probs
-from tronn.nets.importance_nets import normalize_to_one
 
 from tronn.util.tf_ops import restore_variables_op
 
@@ -43,119 +39,6 @@ def _GuidedReluGrad(op, grad):
     return tf.where(0. < grad,
                     gen_nn_ops._relu_grad(grad, op.outputs[0]),
                     tf.zeros(grad.get_shape()))
-
-
-def layerwise_relevance_propagation(tensor, features, probs=None, normalize=False, zscore_vals=False):
-    """Layer-wise Relevance Propagation (Batch et al), implemented
-    as input * gradient (equivalence is demonstrated in deepLIFT paper,
-    Shrikumar et al). Generally center the tensor on the logits.
-    
-    Args:
-      tensor: the tensor from which to propagate gradients backwards
-      features: the input tensor on which you want the importance scores
-    
-    Returns:
-      Input tensor weighted by gradient backpropagation.
-    """
-    [feature_grad] = tf.gradients(tensor, [features])
-    importances = tf.multiply(features, feature_grad, 'input_mul_grad')
-    #importances_squeezed = tf.transpose(tf.squeeze(importances_raw), perm=[0, 2, 1])
-
-    # change later
-    #importances = stdev_cutoff(importances)
-    
-    if normalize:
-        importances = stdev_cutoff(importances)
-        print "REMEMBER TO CHANGE IMPT NORMALIZATION BACK"
-        #importances = normalize_to_one(thresholded, probs) # don't forget this is changed!
-        importances = normalize_to_probs(importances, probs) # don't forget this is changed!
-
-    if zscore_vals:
-        print "CURRENTLY ZSCORING"
-        signal_mean, signal_var = tf.nn.moments(importances, axes=[1, 2, 3])
-        signal_mean = tf.expand_dims(tf.expand_dims(tf.expand_dims(signal_mean, 1), 2), 3)
-        signal_stdev = tf.sqrt(signal_var)
-        signal_stdev = tf.expand_dims(tf.expand_dims(tf.expand_dims(signal_stdev, 1), 2), 3)
-        importances = (importances - signal_mean) / signal_stdev
-    
-    return importances
-
-
-
-
-def get_pwm_hits_from_raw_sequence(
-        tronn_graph,
-        out_file,
-        sample_size,
-        pwm_list,
-        h5_batch_size=128):
-    """Set up a graph and then run importance score extractor
-    and save out to file.
-
-    Args:
-      tronn_graph: a TronnNeuralNetGraph instance
-      model_dir: directory with trained model
-      out_file: hdf5 file to store importances
-      method: importance method to use
-      sample_size: number of regions to run
-      pos_only: only keep positive sequences
-
-    Returns:
-      None
-    """
-    with tf.Graph().as_default() as g:
-
-        # build graph
-        outputs = tronn_graph.build_graph()
-        outputs_dict = {
-            "example_metadata": tronn_graph.metadata,
-            "labels": tronn_graph.labels,
-            "negative": tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(tronn_graph.labels, 1, keep_dims=True), tf.bool)), tf.int32),
-            "pwm_hits": outputs}
-            
-        # set up session
-        sess, coord, threads = setup_tensorflow_session()
-        
-        # set up hdf5 file to store outputs
-        with h5py.File(out_file, 'w') as hf:
-
-            h5_handler = H5Handler(
-                hf, outputs_dict, sample_size, resizable=True, batch_size=4096)
-
-            # set up outlayer
-            example_generator = ExampleGenerator(
-                sess,
-                outputs_dict,
-                64, # Fix this later
-                reconstruct_regions=False,
-                keep_negatives=False,
-                filter_by_prediction=False,
-                filter_tasks=[])
-
-            try:
-                total_examples = 0
-                while not coord.should_stop():
-
-                    region, region_arrays = example_generator.run()
-                    region_arrays["example_metadata"] = region
-
-                    h5_handler.store_example(region_arrays)
-                    total_examples += 1
-
-            #except tf.errors.OutOfRangeError:
-            except:
-                print "Done reading data"
-            finally:
-                time.sleep(60)
-                h5_handler.flush()
-                h5_handler.chomp_datasets()
-
-        try:
-            close_tensorflow_session(coord, threads)
-        except:
-            pass
-
-    return None
 
 
 def extract_importances_and_viz(

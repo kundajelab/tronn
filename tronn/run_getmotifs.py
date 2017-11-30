@@ -13,18 +13,9 @@ from collections import Counter
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
-from tronn.nets.nets import model_fns
-from tronn.interpretation.importances import extract_importances_and_motif_hits
-from tronn.interpretation.importances import extract_motif_assignments
-from tronn.interpretation.importances import get_pwm_hits_from_raw_sequence
-from tronn.interpretation.importances import layerwise_relevance_propagation
-from tronn.interpretation.importances import visualize_sample_sequences
+from tronn.nets.nets import net_fns
 
-from tronn.interpretation.importances import split_importances_by_task_positives
-from tronn.interpretation.seqlets import extract_seqlets
-from tronn.interpretation.seqlets import reduce_seqlets
-from tronn.interpretation.seqlets import cluster_seqlets
-from tronn.interpretation.seqlets import make_motif_sets
+from tronn.interpretation.interpret import interpret
 
 from tronn.datalayer import get_total_num_examples
 
@@ -47,18 +38,16 @@ def run(args):
     pwm_list = get_encode_pwms(args.pwm_file)
     pwm_names = [pwm.name for pwm in pwm_list]
 
-    # get global as well as interpretation task motif matrices
-    
     # set up graph
     tronn_graph = TronnNeuralNetGraph(
         {'data': data_files},
         args.tasks,
         load_data_from_filename_list,
         args.batch_size / 2,
-        model_fns[args.model['name']],
+        net_fns[args.model['name']],
         args.model,
         tf.nn.sigmoid,
-        importances_fn=layerwise_relevance_propagation,
+        importances_fn=net_fns["importances_to_motif_assignments"], # TODO change this to allow input of inference stack
         importances_tasks=args.importances_tasks,
         shuffle_data=True, # NOTE: CHANGE LATER
         filter_tasks=[])
@@ -74,13 +63,13 @@ def run(args):
     pwm_counts_mat_h5 = '{0}/{1}.pwm-counts.h5'.format(
         args.tmp_dir, args.prefix)
     if not os.path.isfile(pwm_counts_mat_h5):
-        extract_motif_assignments(
+        interpret(
             tronn_graph,
             checkpoint_path,
             pwm_counts_mat_h5,
             args.sample_size,
             pwm_list,
-            method=args.backprop if args.backprop is not None else "guided_backprop") # simple_gradients or guided_backprop
+            method=args.backprop if args.backprop is not None else "input_x_grad") # simple_gradients or guided_backprop
 
     # now run a bootstrap FDR for the various tasks
 
