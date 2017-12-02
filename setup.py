@@ -18,5 +18,6 @@ if __name__== "__main__":
                    'R/make_network_grammar.R',
                    'R/make_network_grammar_v2.R',
                    'R/filter_w_rna.R',
-                   'R/run_rgreat.R']
+                   'R/run_rgreat.R',
+                   "R/plot_tfs.R"]
     )

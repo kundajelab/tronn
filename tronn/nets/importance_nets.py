@@ -60,10 +60,9 @@ def multitask_global_importance(features, labels, config, is_training=False):
     """Also get global importance
     """
     assert is_training == False
-    
     append = config.get("append", True)
-
-    features_max = tf.reduce_max(features, axis=1, keep_dims=True)
+    
+    features_max = tf.reduce_sum(tf.abs(features), axis=1, keep_dims=True) # max, or mean? need to watch for two tailed stuff
 
     if append:
         features = tf.concat([features, features_max], axis=1)
@@ -72,36 +71,3 @@ def multitask_global_importance(features, labels, config, is_training=False):
 
     return features, labels, config
 
-
-def stdev_cutoff(signal, num_stdev=3): # change this?
-    """Given importance scores, calculates poisson pval
-    and thresholds at that pval
-
-    Args:
-      signal: input tensor
-      pval: the pval threshold
-
-    Returns:
-      out_tensor: output thresholded tensor
-    """
-    #percentile_val = 1. - pval
-    signal_shape = signal.get_shape()
-    
-    # get mean and stdev
-    signal_mean, signal_var = tf.nn.moments(signal, axes=[1, 2, 3])
-    signal_stdev = tf.sqrt(signal_var)
-    thresholds = tf.add(signal_mean, tf.scalar_mul(num_stdev, signal_stdev))
-
-    for dim_idx in range(1, len(signal_shape)):
-        to_stack = [thresholds for i in range(signal_shape[dim_idx])] # here?
-        thresholds = tf.stack(to_stack, dim_idx)
-
-    # and threshold
-    greaterthan_tensor = tf.cast(tf.greater(signal, thresholds), tf.float32)
-    lessthan_tensor = tf.cast(tf.less(signal, -thresholds), tf.float32)
-    mask_tensor = tf.add(greaterthan_tensor, lessthan_tensor)
-    thresholded_tensor = signal * mask_tensor
-
-    #out_tensor = tf.transpose(tf.squeeze(thresholded_tensor), [0, 2, 1])
-
-    return thresholded_tensor

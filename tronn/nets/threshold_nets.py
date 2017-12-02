@@ -7,41 +7,51 @@ import tensorflow as tf
 # TODO(dk)
 
 
-def shuffle_null_threshold(features, labels, config, is_training=False):
+def threshold_shufflenull(features, labels, config, is_training=False):
     """Shuffle values to get a null distribution at each position
     """
     assert is_training == False
-    num_shuffles = config.get("shuffled_null.num_shuffles", 100)
-    k_val = int(100*config.get("shuffled_null.pval", 0.05))
-    two_tailed = False
+    num_shuffles = config.get("num_shuffles", 100)
+    k_val = int(100*config.get("pval", 0.05))
+    two_tailed = config.get("two_tailed", False)
     
-    examples_list = tf.unstack(tf.squeeze(features, axis=3)) # list of {seq_len, 4}
+    # separate out tasks first and reduce to get importance on one axis
+    task_list = tf.unstack(tf.reduce_sum(features, axis=3), axis=1)
+    
+    task_thresholds = []
+    for task_features in task_list:
 
-    thresholded = []
-    for example in examples_list:
-        example_reduced = tf.reduce_sum(example, axis=1)
-        # shuffle
-        shuffles = []
-        for i in xrange(num_shuffles):
-            shuffles.append(tf.random_shuffle(example_reduced))
-        all_shuffles = tf.stack(shuffles, axis=2) # {seq_len, 100}
-        
-        # get top k
-        top_k_vals, top_k_indices = tf.nn.top_k(all_shuffles, k=k_val)
-        thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0], 1])
-        greaterthan_mask = tf.cast(tf.greater_equal(example, thresholds), tf.float32) # {seq_len, 4}
-        if two_tailed:
-            top_k_vals, top_k_indices = tf.nn.top_k(-all_shuffles, k=k_val)
-            thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0], 1])
-            lessthan_mask = tf.cast(tf.less_equal(example, thresholds), tf.float32) # {seq_len, 4}
-
-        # TODO finish here
+        # then separate out examples
+        examples_list = tf.unstack(task_features) # list of {seq_len}
+        threshold_masks = []
+        for example in examples_list:
+            #example_reduced = tf.reduce_sum(example, axis=1)
+            # shuffle
+            shuffles = []
+            for i in xrange(num_shuffles):
+                shuffles.append(tf.random_shuffle(example))
+            all_shuffles = tf.stack(shuffles, axis=1) # {seq_len, 100}
             
-        
-        example_thresholded = example * thresholds_mask
-        thresholded.append(example_thresholded)
+            # get top k
+            top_k_vals, top_k_indices = tf.nn.top_k(all_shuffles, k=k_val)
+            thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0]])
+            greaterthan_mask = tf.cast(tf.greater_equal(example, thresholds), tf.float32) # {seq_len, 4}
+            if two_tailed:
+                top_k_vals, top_k_indices = tf.nn.top_k(-all_shuffles, k=k_val)
+                thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0]])
+                lessthan_mask = tf.cast(tf.less_equal(example, thresholds), tf.float32) # {seq_len, 4}
+                greaterthan_mask = tf.add(greaterthan_mask, lessthan_mask)
 
-    features = tf.expand_dims(tf.stack(thresholded, axis=0), axis=1)
+            # just keep masks and broadcast to channels on the original features
+            threshold_masks.append(greaterthan_mask)
+
+        # stack
+        threshold_mask = tf.stack(threshold_masks, axis=0)
+        task_thresholds.append(threshold_mask)
+
+    # stack
+    threshold_mask = tf.expand_dims(tf.stack(task_thresholds, axis=1), axis=3)
+    features = tf.multiply(features, threshold_mask)
         
     return features, labels, config
 

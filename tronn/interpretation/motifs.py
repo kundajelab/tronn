@@ -440,11 +440,11 @@ def extract_positives_from_motif_topk_mat(h5_file, out_file):
 
 
 def bootstrap_fdr_v2(
-        pwm_counts_mat_h5, 
-        pwm_names,
-        out_prefix, 
-        task_idx, # which labels to pull (by idx)
+        pwm_counts_mat_h5,
         counts_key, # which pwm counts table to use
+        pwm_names,
+        out_prefix,
+        task_idx, # which labels to pull (by idx)
         global_importances=False,
         region_set=None,
         bootstrap_num=99,
@@ -452,9 +452,10 @@ def bootstrap_fdr_v2(
     """Given a motif matrix and labels, calculate a bootstrap FDR
     """
     with h5py.File(pwm_counts_mat_h5, 'r') as hf:
-
+        
         at_least_one_pos = (hf["negative"][:,0] == 0).astype(int)
-
+        #at_least_one_pos = (np.sum(hf["labels"][:], axis=1) > 0).astype(int)
+        
         # better to pull it all into memory to slice fast 
         if global_importances:
             labels = at_least_one_pos
@@ -505,19 +506,23 @@ def bootstrap_fdr_v2(
         
     # convert to ranks and save out 
     bootstrap_df = pd.DataFrame(data=bootstraps, columns=pwm_names)
+    #bootstrap_df = bootstrap_df.loc[:,(bootstrap_df != 0).any(axis=0)] # remove all zero columns
+    bootstrap_df.to_csv("{}.permutations.txt".format(out_prefix), sep='\t')
     bootstrap_ranks_df = bootstrap_df.rank(ascending=False, pct=True)
+    
     pos_fdr = bootstrap_ranks_df.iloc[0,:]
-    pos_fdr.to_csv('{}.bootstrap_fdr.txt'.format(out_prefix), sep='\t')
+    pos_fdr_file = "{}.txt".format(out_prefix)
+    pos_fdr.to_csv(pos_fdr_file, sep='\t')
 
     # also save out a list of those that passed the FDR cutoff
     fdr_cutoff = pos_fdr.ix[pos_fdr < fdr]
-    fdr_cutoff.to_csv('{}.bootstrap_fdr.cutoff.txt'.format(out_prefix),
-                      sep='\t')
+    fdr_cutoff_file = "{}.cutoff.txt".format(out_prefix)
+    fdr_cutoff.to_csv(fdr_cutoff_file, sep='\t')
 
     # also save one that is adjusted for most seen
     fdr_cutoff = fdr_cutoff[fdr_cutoff.index.isin(most_seen_pwms)]
-    fdr_cutoff.to_csv('{}.bootstrap_fdr.cutoff.most_seen.txt'.format(out_prefix),
-                      sep='\t')
+    fdr_cutoff_mostseen_file = "{}.cutoff.most_seen.txt".format(out_prefix)
+    fdr_cutoff.to_csv(fdr_cutoff_mostseen_file, sep='\t')
 
     # save a vector of counts (for rank importance)
     final_pwms = fdr_cutoff.index
@@ -526,9 +531,10 @@ def bootstrap_fdr_v2(
 
     pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in final_pwms]
     most_seen_df = pd.DataFrame(data=counts, index=pwm_names_clean)
-    most_seen_df.to_csv("{}.most-seen.txt".format(out_prefix), sep='\t', header=False)
+    most_seen_file = "{}.most_seen.txt".format(out_prefix)
+    most_seen_df.to_csv(most_seen_file, sep='\t', header=False)
 
-    return None
+    return fdr_cutoff_file
 
 
 def make_motif_x_timepoint_mat(pwm_counts_mat_h5, key_list, task_indices_list, pwm_indices, pwm_names, prefix=""):
@@ -536,28 +542,31 @@ def make_motif_x_timepoint_mat(pwm_counts_mat_h5, key_list, task_indices_list, p
     """
     # set up output matrix
     pwm_x_timepoint = np.zeros((len(pwm_indices), len(key_list))) 
-    
+
     with h5py.File(pwm_counts_mat_h5, "r") as hf:
+        # for each task (ie timepoint)
         for i in xrange(len(key_list)):
             key = key_list[i]
             print key
             task_idx = task_indices_list[i]
+            print task_idx
             labels = hf['labels'][:, task_idx]
             pwm_scores = hf[key][:][labels > 0,:]
-            pwm_scores_selected = pwm_scores[:, pwm_indices]
+            pwm_scores_selected = pwm_scores[:, np.array(pwm_indices)]
             
             # sum up
             pwm_scores_summed = np.sum(pwm_scores_selected, axis=0)
-
+            
             # and save into matrix
             pwm_x_timepoint[:,i] = pwm_scores_summed
-
+            
     # set up as pandas to save out
     columns = ["d0.0", "d0.5", "d1.0", "d1.5", "d2.0", "d2.5", "d3.0", "d4.5", "d5.0", "d6.0"]
     pwm_x_timepoint_df = pd.DataFrame(data=pwm_x_timepoint, index=pwm_names, columns=columns)
-    pwm_x_timepoint_df.to_csv("{}pwm_x_timepoint.mat.txt".format(prefix), sep='\t')
+    pwm_x_timepoint_file = "{}.pwm_x_timepoint.mat.txt".format(prefix)
+    pwm_x_timepoint_df.to_csv(pwm_x_timepoint_file, sep='\t')
     
-    return
+    return pwm_x_timepoint_file
 
 
 

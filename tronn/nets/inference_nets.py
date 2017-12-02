@@ -11,6 +11,8 @@ from tronn.nets.normalization_nets import normalize_w_probability_weights
 
 from tronn.nets.threshold_nets import threshold_topk
 from tronn.nets.threshold_nets import threshold_gaussian
+from tronn.nets.threshold_nets import threshold_shufflenull
+
 
 from tronn.nets.motif_nets import pwm_convolve_v3
 from tronn.nets.motif_nets import multitask_motif_assignment
@@ -68,6 +70,7 @@ def importances_to_motif_assignments(features, labels, config, is_training=False
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (normalize_w_probability_weights, {"probs": config["importance_probs"]}),
         (multitask_global_importance, {"append": True}),
+        # TODO - split out pwm convolution from motif assignment
         (multitask_motif_assignment, {"pwms": config["pwms"], "k_val": 4, "motif_len": 5, "pool": True}),
         #(threshold_topk, {"k_val": 4})
     ]
@@ -86,6 +89,39 @@ def importances_to_motif_assignments(features, labels, config, is_training=False
         outputs["pwm-counts.taskidx-{}".format(i)] = features[i]
         
     return outputs, labels, config
+
+
+def importances_to_motif_assignments_v2(features, labels, config, is_training=False):
+    """Update to motif assignments
+    
+    Returns:
+      dict of results
+    """
+    # set up stack
+    inference_stack = [
+        (multitask_importances, {"anchors": config["importance_logits"], "importances_fn": input_x_grad}),
+        (threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}),
+        (normalize_w_probability_weights, {"probs": config["importance_probs"]}),
+        (multitask_global_importance, {"append": True}),
+        (multitask_motif_assignment, {"pwms": config["pwms"], "k_val": 4, "motif_len": 5, "pool": True}),
+        #(threshold_topk, {"k_val": 4})
+    ]
+
+    # stack the transforms
+    for transform_fn, config in inference_stack:
+        print transform_fn
+        features, labels, config = transform_fn(features, labels, config)
+        # TODO - if needed, pass on additional configs through
+
+    # TODO separate out results into separate task sets
+    features = tf.unstack(features, axis=1)
+    
+    outputs = {}
+    for i in xrange(len(features)):
+        outputs["pwm-counts.taskidx-{}".format(i)] = features[i]
+        
+    return outputs, labels, config
+
 
 
 def get_top_k_motif_hits(features, labels, config, is_training=False):

@@ -17,40 +17,45 @@ from tronn.interpretation.motifs import bootstrap_fdr_v2
 from tronn.interpretation.motifs import make_motif_x_timepoint_mat
 
 
-
-def get_significant_motifs(h5_file, counts_key, label_idx):
+def run_permutation_test_and_plot(
+        h5_file,
+        counts_key,
+        task_idx,
+        pwm_names,
+        prefix,
+        importances_tasks,
+        global_scoring=False):
     """Given the pwm scores, use shuffled nulls to determine which motifs
     are significant beyond a pval
     """
     # bootstrap FDR
-    bootstrap_fdr_v2(
-        pwm_counts_mat_h5, 
+    sig_file = bootstrap_fdr_v2(
+        h5_file,
+        counts_key,
         pwm_names, 
-        "global", 
-        10, # not used
-        "pwm-counts.taskidx-{}".format(len(args.importances_tasks)), # global is always appended to the end
-        global_importances=True)
+        "{}.permutation_test".format(prefix), 
+        task_idx,
+        global_importances=global_scoring) # TODO add significance options for bootstrap FDR
 
-    # and now can take this new master list and then go through timepoints and extract counts per timepoint
-    master_pwm_names = []
-    with open("global.bootstrap_fdr.cutoff.txt", "r") as fp:
+    # get the motif x timepoint matrix to look at
+    sig_pwm_names = []
+    with open(sig_file, "r") as fp:
         for line in fp:
-            master_pwm_names.append(line.strip().split('\t')[0])
-            
-    master_pwm_indices = [i for i in xrange(len(pwm_names)) if pwm_names[i] in master_pwm_names]
-    master_pwm_names_sorted = [pwm_name.split("_")[0] for pwm_name in pwm_names if pwm_name in master_pwm_names]
-    key_list = ["pwm-counts.taskidx-{}".format(i) for i in xrange(10)]
-    make_motif_x_timepoint_mat(
-        pwm_counts_mat_h5, 
-        key_list, 
-        args.importances_tasks, 
-        master_pwm_indices, 
-        master_pwm_names_sorted,
-        prefix="global.")
+            sig_pwm_names.append(line.strip().split('\t')[0])
+    sig_pwm_indices = [i for i in xrange(len(pwm_names)) if pwm_names[i] in sig_pwm_names]
+    sig_pwm_names_sorted = [pwm_name.split("_")[0] for pwm_name in pwm_names if pwm_name in sig_pwm_names]
+    
+    mat_file = make_motif_x_timepoint_mat(
+        h5_file, 
+        ["pwm-counts.taskidx-{}".format(i) for i in xrange(len(importances_tasks))], 
+        importances_tasks, 
+        sig_pwm_indices, 
+        sig_pwm_names_sorted,
+        prefix=prefix)
 
-
-    os.system("Rscript plot_tfs.R global.pwm_x_timepoint.mat.txt global.pwm_x_timepoint.pdf")
-
+    # plot
+    out_plot = "{}.pdf".format(mat_file.split(".txt")[0])
+    os.system("plot_tfs.R {} {}".format(mat_file, out_plot))
 
     return
 
@@ -102,71 +107,30 @@ def run(args):
             keep_negatives=True,
             method=args.backprop if args.backprop is not None else "input_x_grad") # simple_gradients or guided_backprop
 
-    # now run a bootstrap FDR for the various tasks
-
-    # first global
-    bootstrap_fdr_v2(
-        pwm_counts_mat_h5, 
-        pwm_names, 
-        "global", 
-        10, # not used
-        "pwm-counts.taskidx-{}".format(len(args.importances_tasks)), # global is always appended to the end
-        global_importances=True)
-
-    # and now can take this new master list and then go through timepoints and extract counts per timepoint
-    master_pwm_names = []
-    with open("global.bootstrap_fdr.cutoff.txt", "r") as fp:
-        for line in fp:
-            master_pwm_names.append(line.strip().split('\t')[0])
-            
-    master_pwm_indices = [i for i in xrange(len(pwm_names)) if pwm_names[i] in master_pwm_names]
-    master_pwm_names_sorted = [pwm_name.split("_")[0] for pwm_name in pwm_names if pwm_name in master_pwm_names]
-    key_list = ["pwm-counts.taskidx-{}".format(i) for i in xrange(10)]
-    make_motif_x_timepoint_mat(
-        pwm_counts_mat_h5, 
-        key_list, 
-        args.importances_tasks, 
-        master_pwm_indices, 
-        master_pwm_names_sorted,
-        prefix="global.")
-
-    # and plot with R
-    os.system("Rscript plot_tfs.R global.pwm_x_timepoint.mat.txt global.pwm_x_timepoint.pdf")
+    # first global permutation test
+    global_task_idx = len(args.importances_tasks)
+    run_permutation_test_and_plot(
+        pwm_counts_mat_h5,
+        "pwm-counts.taskidx-{}".format(global_task_idx),
+        global_task_idx,
+        pwm_names,
+        "{}/global".format(args.out_dir),
+        args.importances_tasks,
+        global_scoring=True)
         
     # get motif sets for interpretation tasks (ie clusters)
     print "running pwm sets for clusters"
     for i in xrange(len(args.interpretation_tasks)):
         interpretation_task_idx = args.interpretation_tasks[i]
+
         print interpretation_task_idx
-        bootstrap_fdr_v2(
-            pwm_counts_mat_h5, 
-            pwm_names, 
-            "interpretation.task-{}".format(interpretation_task_idx), 
-            interpretation_task_idx, 
-            "pwm-counts.taskidx-{}".format(10)) # pull from global importances, not timepoints
-
-        # and now can take this new master list and then go through timepoints and extract counts per timepoint
-        master_pwm_names = []
-        motif_results_list = "interpretation.task-{}.bootstrap_fdr.cutoff.txt".format(interpretation_task_idx)
-        with open(motif_results_list, "r") as fp:
-            for line in fp:
-                master_pwm_names.append(line.strip().split('\t')[0])
-
-        master_pwm_indices = [i for i in xrange(len(pwm_names)) if pwm_names[i] in master_pwm_names]
-        master_pwm_names_sorted = [pwm_name.split("_")[0] for pwm_name in pwm_names if pwm_name in master_pwm_names]
-        key_list = ["pwm-counts.taskidx-{}".format(i) for i in xrange(10)]
-        make_motif_x_timepoint_mat(
-            pwm_counts_mat_h5, 
-            key_list, 
-            args.importances_tasks, 
-            master_pwm_indices, 
-            master_pwm_names_sorted,
-            prefix="interpretation.task-{}.".format(interpretation_task_idx))
-
-        # and plot with R
-        os.system(
-            ("Rscript plot_tfs.R "
-             "interpretation.task-{0}.pwm_x_timepoint.mat.txt "
-             "interpretation.task-{0}.pwm_x_timepoint.pdf").format(interpretation_task_idx))
+        run_permutation_test_and_plot(
+            pwm_counts_mat_h5,
+            "pwm-counts.taskidx-{}".format(global_task_idx),
+            interpretation_task_idx,
+            pwm_names,
+            "{}/task-{}".format(args.out_dir, interpretation_task_idx),
+            args.importances_tasks,
+            global_scoring=False)
 
     return
