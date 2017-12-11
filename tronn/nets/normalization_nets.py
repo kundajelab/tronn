@@ -10,25 +10,65 @@ def normalize_w_probability_weights(features, labels, config, is_training=False)
     (ie, think of if you had a total weight
     of 1, how should it be spread, and then weight that by the final
     probability value)
+
+    Rationale (for clarifying my thoughts to myself): there are usually more
+    positive than negative base pairs, with input_x_grad. This means that
+    probs better than logits for normalization. This also means that there
+    is usually a positive gap between sum(pos bp) and sum (neg bp). So normalize
+    that gap to the prob val.
+
+    Possible failure modes:
+    1) sum(features) < 0. Strong negative features. (Though do we care, these are negatives)
+    2) sum(features) very close to 0. will make features explode, mostly problem
+    if strong prob score towards 1.
+
     """
     assert is_training == False
 
     probs = config.get("probs", None)
     assert probs is not None
-
+    
+    probs = [tf.subtract(tensor, 0.5) for tensor in probs] # 0.5 is technically not confident
+    
     # split out into tasks to normalize by task probs
     features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
+
+    # normalize
     normalized_features = []
     for i in xrange(len(features)):
-        weight_sums = tf.reduce_sum(features[i], axis=[1, 2, 3], keep_dims=True)
+        weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2, 3], keep_dims=True)
         task_features = tf.multiply(
-            tf.divide(features[i], weight_sums),
+            tf.divide(features[i], weight_sums), # TODO add some weight to make sure doesnt explode?
             tf.reshape(probs[i], weight_sums.get_shape()))
         normalized_features.append(task_features)
 
     # and concat back into a block
     features = tf.concat(normalized_features, axis=1)
 
+    return features, labels, config
+
+
+def normalize_to_logits(features, labels, config, is_training=False):
+    """Normalize to logits? Most likely not best way to do it
+    """
+    assert is_training == False
+
+    logits = config.get("logits", None)
+    assert logits is not None
+    
+    # split out into tasks to normalize by task probs
+    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
+    normalized_features = []
+    for i in xrange(len(features)):
+        weight_sums = tf.reduce_sum(features[i], axis=[1, 2, 3], keep_dims=True) # impt edge case - balanced pos neg
+        task_features = tf.multiply(
+            tf.divide(features[i], tf.abs(weight_sums)), # TODO add some weight to make sure doesnt explode?
+            tf.reshape(tf.abs(logits[i]), weight_sums.get_shape()))
+        normalized_features.append(task_features)
+
+    # and concat back into a block
+    features = tf.concat(normalized_features, axis=1)
+    
     return features, labels, config
 
 
@@ -51,17 +91,44 @@ def zscore(features, labels, config, is_training=False):
     """
     assert is_training == False
     
-    num_stdev = config.get("normalize.zscore.num_stdev", 3)
-    
     # get mean and stdev
     signal_mean, signal_var = tf.nn.moments(features, axes=[1, 2, 3])
     signal_stdev = tf.sqrt(signal_var)
     
     # and zscore
-    features = (features - signal_mean) / signal_stdev
+    features = tf.divide(
+        tf.subtract(features, tf.reshape(signal_mean, [features.get_shape().as_list()[0], 1, 1, 1])),
+        tf.reshape(signal_stdev, [features.get_shape().as_list()[0], 1, 1, 1]))
 
     return features, labels, config
 
+
+def zscore_and_scale_to_weights(features, labels, config, is_training=False):
+    """Zscore such that the standard dev is not 1 but {weight}
+    """
+    assert is_training == False
+
+    #weights = config.get("logits", None)
+    weights = config.get("probs", None)
+    assert weights is not None
+
+    weights = tf.subtract(weights, 0.5)
+    
+    # zscore and multiply by abs(logit) - ie, the bigger the logit (more confident) the stronger
+    # the contributions should be
+    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
+    normalized_features = []
+    for i in xrange(len(features)):
+        features_z, labels, config = zscore(features[i], labels, config, is_training=is_training)
+        task_features = tf.multiply(
+            features_z,
+            tf.reshape(weights[i], [features_z.get_shape().as_list()[0], 1, 1, 1])) # just multiply by logits, not absolute val?
+        normalized_features.append(task_features)
+
+    # and concat
+    features = tf.concat(normalized_features, axis=1)
+    
+    return features, labels, config
 
 
 

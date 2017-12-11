@@ -66,7 +66,7 @@ def interpret(
             with g.gradient_override_map({'Relu': 'GuidedRelu'}):
                 print "using guided backprop"
                 outputs = tronn_graph.build_inference_graph_v3(pwm_list=pwm_list)
-            
+                
         # set up session
         sess, coord, threads = setup_tensorflow_session()
 
@@ -98,7 +98,7 @@ def interpret(
                     
                     region, region_arrays = example_generator.run()
                     region_arrays["example_metadata"] = region
-
+                    
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
 

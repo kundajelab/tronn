@@ -14,11 +14,9 @@ from collections import Counter
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
-from tronn.nets.nets import model_fns
-from tronn.interpretation.importances import extract_importances_and_motif_hits
-from tronn.interpretation.importances import get_pwm_hits_from_raw_sequence
-from tronn.interpretation.importances import layerwise_relevance_propagation
-from tronn.interpretation.importances import visualize_sample_sequences
+from tronn.nets.nets import net_fns
+
+from tronn.interpretation.interpret import interpret
 
 from tronn.interpretation.importances import split_importances_by_task_positives
 from tronn.interpretation.seqlets import extract_seqlets
@@ -43,26 +41,21 @@ def run(args):
 
     # debug
     args.interpretation_tasks = [16, 17, 18, 19, 20, 21, 22, 23]
+    args.interpretation_tasks = [16]
     
     # go through each interpretation task
     for i in xrange(len(args.interpretation_tasks)):
 
         interpretation_task_idx = args.interpretation_tasks[i]
-
-        # set up pwms to use here
-        pwm_list_file = "{}/interpretation.task-{}.bootstrap_fdr.cutoff.txt".format(
-            args.pwm_list, interpretation_task_idx) # for now, use --pwm_list for the directory with pwm lists
-        #pwm_list_file = args.pwm_list
+        print interpretation_task_idx
+        
+        # set up pwms to use here, also pwm names
+        pwm_list_file = "{}/task-{}.permutation_test.cutoff.txt".format(
+            args.motif_dir, interpretation_task_idx) # for now, use --pwm_list for the directory with pwm lists
         pwms_to_use = []
         with open(pwm_list_file, "r") as fp:
             for line in fp:
                 pwms_to_use.append(line.strip().split('\t')[0])        
-        
-        # skip for now
-        if interpretation_task_idx == 81:
-            continue
-
-        print interpretation_task_idx
 
         pwm_list = get_encode_pwms(args.pwm_file)
         pwm_list_filt = []
@@ -74,62 +67,63 @@ def run(args):
         print len(pwm_list_filt)
         pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
 
-        # now check model type
+        # set up graph
+        tronn_graph = TronnNeuralNetGraph(
+            {'data': data_files},
+            args.tasks,
+            load_data_from_filename_list,
+            args.batch_size / 2,
+            net_fns[args.model['name']],
+            args.model,
+            tf.nn.sigmoid,
+            importances_fn=net_fns["importances_to_motif_assignments"],
+            importances_tasks=args.importances_tasks,
+            shuffle_data=True,
+            filter_tasks=[interpretation_task_idx])
+
+        # checkpoint file
+        if args.model_checkpoint is not None:
+            checkpoint_path = args.model_checkpoint
+        else:
+            checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
+        logging.info("Checkpoint: {}".format(checkpoint_path))
+
+        # get motif hits
         pwm_hits_mat_h5 = '{0}/{1}.task-{2}.pwm-hits.h5'.format(
             args.tmp_dir, args.prefix, interpretation_task_idx)
+        if not os.path.isfile(pwm_hits_mat_h5):
+            interpret(
+                tronn_graph,
+                checkpoint_path,
+                pwm_hits_mat_h5,
+                args.sample_size,
+                pwm_list,
+                keep_negatives=False,
+                method=args.backprop if args.backprop is not None else "input_x_grad")
 
-        # TODO - change this, should be able to run everything through TronnNeuralNetGraph
-        if args.model["name"] == "get_top_k_motif_hits":
-            # set up graph
-            tronn_graph = TronnGraph(
-                {"data": data_files},
-                [],
-                load_data_from_filename_list,
-                model_fns[args.model["name"]],
-                {"pwms": pwm_list_filt, "k_val": 5},
-                args.batch_size,
-                shuffle_data=False,
-                filter_tasks=[interpretation_task_idx])
+        # put those into a text file to load into R
+        reduced_mat_file = "{0}/{1}.task-{2}.motif_mat.reduced.txt".format(
+            args.tmp_dir, args.prefix, interpretation_task_idx)
+        if not os.path.isfile(reduced_mat_file):
+            with h5py.File(pwm_hits_mat_h5, "r") as hf:
+                pwm_hits = hf["pwm_hits"][:]
 
-            # get pwm_hits
-            if not os.path.isfile(pwm_hits_mat_h5):
-                get_pwm_hits_from_raw_sequence(
-                    tronn_graph,
-                    pwm_hits_mat_h5,
-                    args.sample_size,
-                    pwm_list_filt)
+                # filtering
+                #index = hf["example_metadata"][:][~np.all(pwm_hits == 0, axis=1),:]
+                #pwm_hits = pwm_hits[~np.all(pwm_hits == 0, axis=1),:]
+                #pwm_hits = pwm_hits[:, pwm_indices]
+                #pwm_hits = pwm_hits[:, ~np.all(pwm_hits == 0, axis=0)]
+                
+                # set up dataframe and save out
+                pwm_hits_df = pd.DataFrame(pwm_hits, index=hf["example_metadata"][:][:,0] columns=pwm_names_filt)
+                pwm_hits_df.to_csv(reduced_mat_file, sep='\t')
+                
 
-        else:
-            # set up graph
-            tronn_graph = TronnNeuralNetGraph(
-                {'data': data_files},
-                args.tasks,
-                load_data_from_filename_list,
-                args.batch_size / 2,
-                model_fns[args.model['name']],
-                args.model,
-                tf.nn.sigmoid,
-                importances_fn=layerwise_relevance_propagation,
-                importances_tasks=args.importances_tasks,
-                shuffle_data=False,
-                filter_tasks=[interpretation_task_idx])
+        # continue in R with hclust
 
-            # checkpoint file
-            if args.model_checkpoint is not None:
-                checkpoint_path = args.model_checkpoint
-            else:
-                checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
-            logging.info("Checkpoint: {}".format(checkpoint_path))
 
-            # get importances
-            if not os.path.isfile(pwm_hits_mat_h5):
-                extract_importances_and_motif_hits(
-                    tronn_graph,
-                    checkpoint_path,
-                    pwm_hits_mat_h5,
-                    args.sample_size,
-                    pwm_list_filt,
-                    method="simple_gradients") # or guided_backprop
+
+        quit()
 
         # now in pwm hits file,
         # TODO(dk) factor this code out
@@ -144,6 +138,7 @@ def run(args):
                 pwm_hits = hf["pwm_hits"][:]
                 # shrink first to make more coherent
                 # only keep top hits
+                # TODO - is this necessary? since will use real clustering?
                 top_k = 10
                 pwm_hits_summed = np.sum(pwm_hits, axis=0)
                 ind = np.argpartition(pwm_hits_summed, -top_k)[-top_k:]

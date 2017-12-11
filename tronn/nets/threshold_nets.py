@@ -11,8 +11,9 @@ def threshold_shufflenull(features, labels, config, is_training=False):
     """Shuffle values to get a null distribution at each position
     """
     assert is_training == False
+    print config
     num_shuffles = config.get("num_shuffles", 100)
-    k_val = int(100*config.get("pval", 0.05))
+    k_val = int(num_shuffles*config.get("pval", 0.05)) # too strict?
     two_tailed = config.get("two_tailed", False)
     
     # separate out tasks first and reduce to get importance on one axis
@@ -39,7 +40,7 @@ def threshold_shufflenull(features, labels, config, is_training=False):
             if two_tailed:
                 top_k_vals, top_k_indices = tf.nn.top_k(-all_shuffles, k=k_val)
                 thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0]])
-                lessthan_mask = tf.cast(tf.less_equal(example, thresholds), tf.float32) # {seq_len, 4}
+                lessthan_mask = tf.cast(tf.less_equal(example, -thresholds), tf.float32) # {seq_len, 4}
                 greaterthan_mask = tf.add(greaterthan_mask, lessthan_mask)
 
             # just keep masks and broadcast to channels on the original features
@@ -138,30 +139,92 @@ def threshold_gaussian(features, labels, config, is_training=False):
     return features, labels, config
 
 
+def add_per_example_kval(features, labels, config, is_training=False):
+    """Extracts a per example max motifs val to pass onto threshold_topk_by_example
+    """
+    motif_len = tf.constant(config.get("motif_len", 5), tf.float32)
+    max_hits = config.get("k_val", 4)
+    
+    num_motifs = tf.divide(
+        tf.reduce_sum(
+            tf.cast(tf.not_equal(features, 0), tf.float32),
+            axis=[1,2,3]),
+        motif_len) # {N, 1}
+    num_motifs = tf.minimum(num_motifs, max_hits) # heuristic for now
+    num_motifs_list = tf.unstack(num_motifs)
 
-def threshold_topk(features, labels, config, is_training=False):
+    config["k_val"] = num_motifs_list
+    
+    return features, labels, config
+
+
+def threshold_topk_by_example(features, labels, config, is_training=False):
     """Get top k hits across all axes
     """
     assert is_training == False
+    splitting_axis = config.get("splitting_axis", 0)
+    position_axis = config.get("position_axis", 2)
+    #two_tailed = config.get("two_tailed", True)
 
-    k_val = config.get("k_val", 4)
-    
-    # TODO(dk) allow adjustment of which axes to get topk over
+    # separate by the axis desired
+    features = [tf.expand_dims(tensor, axis=splitting_axis)
+                for tensor in tf.unstack(features, axis=splitting_axis)] # {1, 1, pos, M}
+    k_val = config.get("k_val", [4 for i in xrange(len(features))])
     
     # grab the top k and determine threshold val
-    input_shape = features.get_shape().as_list()
-    top_k_shape = [input_shape[0], input_shape[1]*input_shape[2]*input_shape[3]]
-    top_k_vals, top_k_indices = tf.nn.top_k(tf.reshape(features, top_k_shape), k=k_val)
-    
-    thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [input_shape[0], 1, 1, 1])
-    thresholds_mask = tf.cast(tf.greater_equal(features, thresholds), tf.float32) # out: (example, 1, bp_pos, motif)
+    features_topk = []
+    for i in xrange(len(features)):
+        top_k_vals, top_k_indices = tf.nn.top_k(
+            tf.reshape(tf.abs(features[i]), [-1]), # -1 flattens into 1D
+            k=tf.cast(k_val[i], tf.int32))
+        threshold = tf.reduce_min(top_k_vals, keep_dims=True)
+        
+        # threshold both pos and neg
+        greaterthan_w_location = tf.cast(tf.greater_equal(features[i], threshold), tf.float32)
+        lessthan_w_location = tf.cast(tf.less_equal(features[i], -threshold), tf.float32)
+        threshold_mask = tf.add(greaterthan_w_location, lessthan_w_location)
 
-    # threshold values
-    top_scores = tf.multiply(features, thresholds_mask) # this gives you back actual scores
+        # and mask
+        top_scores_w_location = tf.multiply(features[i], threshold_mask) # {1, 1, pos, motif}
+        features_topk.append(top_scores_w_location)
 
-    # and aggregate
-    #top_hits_per_example = tf.squeeze(tf.reduce_mean(top_hits_w_location, axis=2)) # out: (example, motif)
-    features = tf.squeeze(tf.reduce_max(top_hits_w_location, axis=2)) # out: (example, motif)
+    # and restack
+    features = tf.concat(features_topk, axis=splitting_axis) # {N, 1, pos, motif}
+
+    # and reduce
+    features = tf.squeeze(tf.reduce_sum(features, axis=position_axis)) # {N, motif}
 
     return features, labels, config
 
+
+def multitask_threshold_topk_by_example(features, labels, config, is_training=False):
+    """Split into tasks and then call threshold_by_topk_example
+    """
+    assert is_training == False
+
+    task_axis = 1
+
+    # unstack features by task
+    features = [tf.expand_dims(tensor, axis=task_axis) for tensor in tf.unstack(features, axis=task_axis)] # {N, 1, pos, M}
+    
+    # run through thresholding
+    thresholded = []
+    for task_features in features:
+        task_features_thresholded, labels, config = threshold_topk_by_example(
+            task_features, labels, config, is_training=is_training)
+        thresholded.append(tf.expand_dims(task_features_thresholded, axis=task_axis))
+    features = tf.concat(thresholded, axis=task_axis)
+
+    return features, labels, config
+
+
+def clip_edges(features, labels, config, is_training=False):
+    """Grab just the middle base pairs
+    """
+    assert is_training == False
+
+    left_clip = config.get("left_clip", 0)
+    right_clip = config.get("right_clip", features.get_shape().as_list()[2])
+    features = features[:,:,left_clip:right_clip,:]
+
+    return features, labels, config

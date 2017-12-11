@@ -83,6 +83,7 @@ def run(args):
         args.model,
         tf.nn.sigmoid,
         importances_fn=net_fns["importances_to_motif_assignments"], # TODO change this to allow input of inference stack
+        #importances_fn=net_fns["get_importances"], # TODO change this to allow input of inference stack
         importances_tasks=args.importances_tasks,
         shuffle_data=True,
         filter_tasks=[])

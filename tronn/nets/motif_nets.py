@@ -1,6 +1,8 @@
 """Contains nets that perform PWM convolutions
 """
 
+import logging
+
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -8,33 +10,26 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 
-def pwm_convolve_v3(features, labels, config, is_training=False):
-    '''
-    All this model does is convolve with PWMs and get top k pooling to output
-    a example by motif matrix.
 
-    vector projection:
-    
+def pwm_convolve(features, labels, config, is_training=False):
+    """Convolve with PWMs and normalize with vector projection:
+
       projection = a dot b / | b |
-
-    Can break this down into convolution of a and b, and then features of b as
-    binary and convolution and square?
-
-    '''
-    # TODO(dk) vector projection
+    """
     pwm_list = config.get("pwms")
     assert pwm_list is not None
-
+        
     # get various sizes needed to instantiate motif matrix
     num_filters = len(pwm_list)
-    print "Total PWMs:", num_filters
-
+    logging.info("Total PWMs: {}".format(num_filters))
+    
     max_size = 0
     for pwm in pwm_list:
         if pwm.weights.shape[1] > max_size:
             max_size = pwm.weights.shape[1]
-
-    # make the convolution net for dot product
+    logging.info("Filter size: {}".format(max_size))
+            
+    # make the convolution net for dot product, normal filters
     conv1_filter_size = [1, max_size]
     with slim.arg_scope(
             [slim.conv2d],
@@ -44,35 +39,220 @@ def pwm_convolve_v3(features, labels, config, is_training=False):
                 conv1_filter_size, pwm_list, get_fan_in(features)),
             biases_initializer=None,
             trainable=False):
-        pwm_convolve_scores = slim.conv2d(
+        # pwm cross correlation
+        pwm_scores = slim.conv2d(
             features, num_filters, conv1_filter_size,
             scope='pwm/conv')
 
-    # make another convolution net for the normalization factor
-    nonzero_features = tf.cast(tf.greater(features, [0]), tf.float32)
+    # make another convolution net for the normalization factor, with squared filters
+    nonzero_features = tf.cast(tf.not_equal(features, 0), tf.float32)
     with slim.arg_scope(
             [slim.conv2d],
             padding='VALID',
             activation_fn=None,
             weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features), squared=True),
+                conv1_filter_size, pwm_list, get_fan_in(features), squared=True), # <- this is why you can't merge
             biases_initializer=None,
             trainable=False):
+        # normalization factor
         nonzero_squared_vals = slim.conv2d(
             nonzero_features, num_filters, conv1_filter_size,
             scope='nonzero_pwm/conv')
         nonzero_vals = tf.sqrt(nonzero_squared_vals)
     
     # and then normalize using the vector projection formulation
+    # todo this is probably screwing with the vectors
     pseudocount = 0.00000001
-    normalized_scores = tf.divide(pwm_convolve_scores, tf.add(nonzero_vals, pseudocount))
+    features = tf.divide(pwm_scores, tf.add(nonzero_vals, pseudocount)) # {N, task, seq_len, M}
 
-    # max pool if requested
-    pool = config.get("pool", False)
-    if pool:
-        normalized_scores = slim.max_pool2d(normalized_scores, [1,10], stride=[1,10])
+    return features, labels, config
+
+
+def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
+    """Convolve both pos and negative scores with PWMs. Prevents getting scores
+    when the negative correlation is stronger.
     
-    return normalized_scores
+    NOTE: this is wrong. breaks the shape of the sequence
+    """
+    # do positive sequence. ignore negative scores. only keep positive results
+    with tf.variable_scope("pos_seq_pwm"):
+        pos_seq_scores, _, _ = pwm_convolve(tf.nn.relu(features), labels, config, is_training=is_training)
+        pos_seq_scores = tf.nn.relu(pos_seq_scores)
+        
+    # do negative sequence. ignore positive scores. only keep positive (ie negative) results
+    with tf.variable_scope("neg_seq_pwm"):
+        neg_seq_scores, _, _ = pwm_convolve(tf.nn.relu(-features), labels, config, is_training=is_training)
+        neg_seq_scores = tf.nn.relu(neg_seq_scores)
+        
+    # and then take max (best score, whether pos or neg) do not use abs; and keep sign
+    max_seq_scores = tf.reduce_max(tf.stack([pos_seq_scores, neg_seq_scores], axis=0), axis=0) # {N, task, seq_len/pool_width, M}
+    
+    # and now get the sign and mask
+    pos_scores_masked = tf.multiply(
+        pos_seq_scores,
+        tf.cast(tf.equal(pos_seq_scores, max_seq_scores), tf.float32))
+    #pos_scores_masked = tf.multiply(
+    #    pos_scores_masked,
+    #    tf.cast(tf.not_equal(max_seq_scores, 0), tf.float32))
+    neg_scores_masked = tf.multiply(
+        -neg_seq_scores,
+        tf.cast(tf.equal(neg_seq_scores, max_seq_scores), tf.float32))
+    #neg_scores_masked = tf.multiply(
+    #    neg_scores_masked,
+    #    tf.cast(tf.not_equal(max_seq_scores, 0), tf.float32))
+
+    features = tf.add(pos_scores_masked, neg_scores_masked)
+    
+    return features, labels, config
+
+
+def pwm_maxpool(features, labels, config, is_training=False):
+    """Two tailed pooling operation when have both pos/neg scores
+    """
+    pool_width = config.get("pool_width", None)
+    assert pool_width is not None
+    
+    # get the max vals, both pos and neg
+    maxpool_pos = slim.max_pool2d(features, [1, pool_width], stride=[1, pool_width]) # {N, task, seq_len/pool_width, M}
+    maxpool_neg = slim.max_pool2d(-features, [1, pool_width], stride=[1, pool_width]) # {N, task, seq_len/pool_width, M}
+    maxpool_abs = tf.reduce_max(tf.stack([maxpool_pos, maxpool_neg], axis=0), axis=0) # {N, task, seq_len/pool_width, M}
+    
+    # get the right values
+    maxpool_pos_masked = tf.multiply(
+        maxpool_pos,
+        tf.cast(tf.equal(maxpool_pos, maxpool_abs), tf.float32))
+    maxpool_neg_masked = tf.multiply(
+        -maxpool_neg,
+        tf.cast(tf.equal(maxpool_neg, maxpool_abs), tf.float32))
+    features = tf.add(maxpool_pos_masked, maxpool_neg_masked)
+
+    return features, labels, config
+
+
+def pwm_positional_max(features, labels, config, is_training=False):
+    """Get max at a position
+    """
+    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)] # list of {N, 1, pos, M}
+
+    # TODO build a function to filter for two sided max?
+    features_pos_max = []
+    for i in xrange(len(features)):
+        task_features = features[i]
+        # fix this? is wrong?
+        features_max_vals = tf.reduce_max(tf.abs(task_features), axis=3, keep_dims=True) # {N, 1, pos, 1}
+        features_max_mask = tf.multiply(
+            tf.cast(tf.equal(tf.abs(task_features), features_max_vals), tf.float32),
+            tf.cast(tf.not_equal(task_features, 0), tf.float32))
+        task_features = tf.multiply(task_features, features_max_mask)
+        features_pos_max.append(task_features)
+        
+    # restack
+    features = tf.concat(features_pos_max, axis=1) # {N, task, pos, M}
+    
+    return features, labels, config
+
+
+def pwm_convolve_v3(features, labels, config, is_training=False):
+    """Convolve with PWMs and normalize with vector projection:
+
+      projection = a dot b / | b |
+    """
+    pwm_list = config.get("pwms")
+    pool = config.get("pool", False)
+    pool_width = config.get("pool_width", None)
+    assert pwm_list is not None
+    if pool is not None:
+        assert pool_width is not None
+    positional_max = config.get("positional_max", False)
+        
+    # get various sizes needed to instantiate motif matrix
+    num_filters = len(pwm_list)
+    logging.info("Total PWMs: {}".format(num_filters))
+
+    max_size = 0
+    for pwm in pwm_list:
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+    logging.info("Filter size: {}".format(max_size))
+            
+    # make the convolution net for dot product, normal filters
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features)),
+            biases_initializer=None,
+            trainable=False):
+        # pwm cross correlation
+        pwm_scores = slim.conv2d(
+            features, num_filters, conv1_filter_size,
+            scope='pwm/conv')
+
+    # make another convolution net for the normalization factor, with squared filters
+    nonzero_features = tf.cast(tf.not_equal(features, 0), tf.float32)
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features), squared=True), # <- this is why you can't merge
+            biases_initializer=None,
+            trainable=False):
+        # normalization factor
+        nonzero_squared_vals = slim.conv2d(
+            nonzero_features, num_filters, conv1_filter_size,
+            scope='nonzero_pwm/conv')
+        nonzero_vals = tf.sqrt(nonzero_squared_vals)
+    
+    # and then normalize using the vector projection formulation
+    # todo this is probably screwing with the vectors
+    pseudocount = 0.00000001
+    features = tf.divide(pwm_scores, tf.add(nonzero_vals, pseudocount)) # {N, task, seq_len, M}
+
+    # max pool if requested - loses the negatives? yup
+    # max pool and min pool and then take the larger val?
+    
+    # first, need to convolve with abs scores. that way, you can only keep the top scores.
+    # once you know those, make a mask
+    # then need to reconvolve with the raw scores. then treat with the mask
+    # this gives positive and negative motifs correctly.
+    if pool:
+        # get the max vals, both pos and neg
+        maxpool_pos = slim.max_pool2d(features, [1, pool_width], stride=[1, pool_width]) # {N, task, seq_len/pool_width, M}
+        maxpool_neg = slim.max_pool2d(-features, [1, pool_width], stride=[1, pool_width]) # {N, task, seq_len/pool_width, M}
+        maxpool_abs = tf.reduce_max(tf.abs(tf.stack([maxpool_pos, maxpool_neg], axis=0)), axis=0) # {N, task, seq_len/pool_width, M}
+
+        # get the right values
+        maxpool_pos_masked = tf.multiply(
+            maxpool_pos,
+            tf.cast(tf.greater_equal(maxpool_pos, maxpool_abs), tf.float32))
+        maxpool_neg_masked = tf.multiply(
+            -maxpool_neg,
+            tf.cast(tf.less_equal(-maxpool_neg, -maxpool_abs), tf.float32))
+        features = tf.add(maxpool_pos_masked, maxpool_neg_masked)
+        
+    # only keep max at each position if requested, separately for each task
+    if positional_max:
+        features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)] # list of {N, 1, pos, M}
+        
+        features_pos_max = []
+        for i in xrange(len(features)):
+            task_features = features[i]
+            features_max_vals = tf.reduce_max(tf.abs(task_features), axis=3, keep_dims=True) # {N, 1, pos, 1}
+            features_max_mask = tf.multiply(
+                tf.add(
+                    tf.cast(tf.greater_equal(task_features, features_max_vals), tf.float32),
+                    tf.cast(tf.less_equal(task_features, -features_max_vals), tf.float32)), # add two sided threshold masks
+                tf.cast(tf.not_equal(task_features, 0), tf.float32)) # and then make sure none are zero. {N, 1, pos, motif}
+            
+            task_features = tf.multiply(task_features, features_max_mask)
+            features_pos_max.append(task_features)
+        # restack
+        features = tf.concat(features_pos_max, axis=1) # {N, task, pos, M}
+        
+    return features, labels, config
 
 
 def motif_assignment(features, labels, model_params, is_training=False):
@@ -198,7 +378,7 @@ def featurize_motifs(features, pwm_list=None, is_training=False):
 # get rid of all these below when clear it's not used
 
 
-def pwm_convolve(features, labels, pwm_list):
+def pwm_convolve_old(features, labels, pwm_list):
     '''
     All this model does is convolve with PWMs and get top k pooling to output
     a example by motif matrix.

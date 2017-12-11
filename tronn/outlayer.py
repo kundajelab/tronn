@@ -29,14 +29,14 @@ class RegionObject(object):
         """
         # merge by offset
         if self.merge_type == "offset":
+            
             basepair_dimension_idx = 1
-            # note that sequence len should be dim 1
-            # TODO(dk) clean this up
+            # note that sequence len should be dim 1, {1, seq_len, 4}
             # deal with overhangs and clip
             left_clip_idx = abs(min(0, offset))
             right_clip_idx = new_array.shape[basepair_dimension_idx] - abs(
                 min(0, self.array.shape[basepair_dimension_idx] - (new_array.shape[basepair_dimension_idx] + offset)))
-            new_array_clipped = new_array[:,left_clip_idx:right_clip_idx,:]
+            new_array_clipped = new_array[:, left_clip_idx:right_clip_idx,:]
 
             if offset < 0:
                 adjusted_offset = 0
@@ -52,7 +52,7 @@ class RegionObject(object):
 
             self.array += np.concatenate(
                 (left_zero_padding, new_array_clipped, right_zero_padding),
-                axis=1)
+                axis=basepair_dimension_idx)
         # merge by sum
         elif self.merge_type == "sum":
             self.array += new_array
@@ -207,7 +207,7 @@ class ExampleGenerator(object):
             else:
                 region_arrays[key] = (
                     self.batch_region_arrays[key][self.batch_pointer,:],
-                    "max")
+                    "sum") # CHANGE THIS LATER
         self.batch_pointer += 1
         self.all_examples += 1
 

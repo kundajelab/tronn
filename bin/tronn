@@ -631,12 +631,15 @@ def add_findgrammars_parser(subparsers):
     group_input.add_argument(
         "--pwm_file", help="pwm_file")
     group_input.add_argument(
-        "--pwm_list", help="list of pwms to use")
+        "--motif_dir", help="where the motif files are")
     
     # group for model
     group_model = argparser_multitask.add_argument_group(
         "Model definition")
     add_trained_nn_model_options(group_model)
+    group_model.add_argument(
+        "--backprop", help="what method to use for interpretation")
+
 
     # group for parameters
     group_params = argparser_multitask.add_argument_group(

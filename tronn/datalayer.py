@@ -327,7 +327,7 @@ def hdf5_list_to_ordered_tensors(
     return features_tensor, labels_tensor, metadata_tensor
 
 
-def filter_through_labels(features, labels, metadata, filter_tasks):
+def filter_through_labels(features, labels, metadata, filter_tasks, batch_size):
     """Given specific filter tasks, only push through examples 
     if they are positive in these tasks
     """
@@ -423,7 +423,7 @@ def load_data_from_filename_list(
     # filtering as desired
     if len(filter_tasks) > 0:
         features, labels, metadata = filter_through_labels(
-            features, labels, metadata, filter_tasks)
+            features, labels, metadata, filter_tasks, batch_size)
         
     return features, labels, metadata
 
