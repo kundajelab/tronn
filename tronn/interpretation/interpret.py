@@ -53,6 +53,7 @@ def interpret(
         pwm_list=None,
         method="input_x_grad",
         keep_negatives=False,
+        filter_by_prediction=True,
         h5_batch_size=128):
     """Set up a graph and run inference stack
     """
@@ -88,7 +89,7 @@ def interpret(
                 64, # Fix this later
                 reconstruct_regions=False,
                 keep_negatives=keep_negatives,
-                filter_by_prediction=True,
+                filter_by_prediction=filter_by_prediction,
                 filter_tasks=tronn_graph.importances_tasks)
 
             # run all samples unless sample size is defined

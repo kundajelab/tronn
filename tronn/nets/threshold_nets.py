@@ -11,7 +11,6 @@ def threshold_shufflenull(features, labels, config, is_training=False):
     """Shuffle values to get a null distribution at each position
     """
     assert is_training == False
-    print config
     num_shuffles = config.get("num_shuffles", 100)
     k_val = int(num_shuffles*config.get("pval", 0.05)) # too strict?
     two_tailed = config.get("two_tailed", False)
@@ -142,19 +141,25 @@ def threshold_gaussian(features, labels, config, is_training=False):
 def add_per_example_kval(features, labels, config, is_training=False):
     """Extracts a per example max motifs val to pass onto threshold_topk_by_example
     """
-    motif_len = tf.constant(config.get("motif_len", 5), tf.float32)
-    max_hits = config.get("k_val", 4)
-    
-    num_motifs = tf.divide(
-        tf.reduce_sum(
-            tf.cast(tf.not_equal(features, 0), tf.float32),
-            axis=[1,2,3]),
-        motif_len) # {N, 1}
-    num_motifs = tf.minimum(num_motifs, max_hits) # heuristic for now
-    num_motifs_list = tf.unstack(num_motifs)
+    motif_len = tf.constant(config.get("motif_len", 10), tf.float32)
+    max_k = config.get("max_k", 4)
 
-    config["k_val"] = num_motifs_list
+    # split features by task
+    features_by_task = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)] # list of {N, 1, pos, C}
     
+    all_k_vals = []
+    for task_features in features_by_task:
+        num_motifs = tf.divide(
+            tf.reduce_sum(
+                tf.cast(tf.not_equal(task_features, 0), tf.float32),
+                axis=[1,2,3]),
+            motif_len) # {N, 1}
+        num_motifs = tf.minimum(num_motifs, max_k) # heuristic for now
+        num_motifs_list = tf.unstack(num_motifs) # list of [1], len is N
+        all_k_vals.append(num_motifs_list)
+        
+    config["per_example_kvals"] = all_k_vals
+
     return features, labels, config
 
 
@@ -203,15 +208,18 @@ def multitask_threshold_topk_by_example(features, labels, config, is_training=Fa
     assert is_training == False
 
     task_axis = 1
-
+    per_example_kvals = config.get("per_example_kvals")
+    
     # unstack features by task
     features = [tf.expand_dims(tensor, axis=task_axis) for tensor in tf.unstack(features, axis=task_axis)] # {N, 1, pos, M}
     
     # run through thresholding
     thresholded = []
-    for task_features in features:
+    for task_idx in xrange(len(features)):
+        if per_example_kvals is not None:
+            config["k_val"] = per_example_kvals[task_idx]
         task_features_thresholded, labels, config = threshold_topk_by_example(
-            task_features, labels, config, is_training=is_training)
+            features[task_idx], labels, config, is_training=is_training)
         thresholded.append(tf.expand_dims(task_features_thresholded, axis=task_axis))
     features = tf.concat(thresholded, axis=task_axis)
 

@@ -26,6 +26,8 @@ from tronn.nets.motif_nets import pwm_positional_max
 from tronn.nets.motif_nets import multitask_motif_assignment
 from tronn.nets.motif_nets import motif_assignment
 
+from tronn.nets.filter_nets import filter_by_accuracy
+
 
 def get_importances(features, labels, config, is_training=False):
     """Get importance scores
@@ -160,33 +162,56 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
     """
     # set up stack
     inference_stack = [
-        (multitask_importances, {"anchors": config["importance_logits"], "importances_fn": input_x_grad}), # importances
-        (threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
-        (normalize_w_probability_weights, {"probs": config["importance_probs"]}), # normalize
-        (clip_edges, {"left_clip": 400, "right_clip": 600}), # clip for active center
-        (multitask_global_importance, {"append": True}), # get global (abs val)
-        #(add_per_example_kval, {"k_val": 4, "motif_len": 5}), # get a kval for each example, use with multitask_threshold_topk_by_example
-        (pwm_convolve_inputxgrad, {"pwms": config["pwms"]}),
-        (pwm_maxpool, {"pool_width": 10}),
+        (multitask_importances, {
+            "anchors": config["outputs"]["logits"],
+            "importances_fn": input_x_grad,
+            "relu": False}), # importances, TODO use ReLU?
+        (filter_by_accuracy, {
+            "filter_probs": config["outputs"]["probs"],
+            "acc_threshold": 0.7}),
+        (threshold_shufflenull, {
+            "num_shuffles": 100,
+            "pval": 0.05,
+            "two_tailed": False}), # threshold TODO make sure this matches ReLU above
+        (normalize_w_probability_weights, {
+            "normalize_probs": config["outputs"]["probs"]}), # normalize TODO change this?
+        (clip_edges, {
+            "left_clip": 400,
+            "right_clip": 600}), # clip for active center
+        (multitask_global_importance, {
+            "append": True}), # get global (abs val)
+        (add_per_example_kval, {
+            "max_k": 4,
+            "motif_len": 10}), # get a kval for each example, use with multitask_threshold_topk_by_example
+        (pwm_convolve_inputxgrad, {
+            "pwms": config["pwms"]}),
+        (pwm_maxpool, {
+            "pool_width": 10}),
         (pwm_positional_max, {}),
-        (multitask_threshold_topk_by_example, {"splitting_axis": 0, "position_axis": 2}) # just keep top k
+        (multitask_threshold_topk_by_example, {
+            "splitting_axis": 0,
+            "position_axis": 2}) # just keep top k
     ]
 
     # stack the transforms
-    master_config = {}
+    master_config = config
     for transform_fn, config in inference_stack:
         print transform_fn
         master_config.update(config) # update config before and after
         features, labels, config = transform_fn(features, labels, master_config)
         master_config.update(config)
     
-    # unstack features by task
+    # unstack features by task and attach to config
     features = tf.unstack(features, axis=1)
     outputs = {}
     for i in xrange(len(features)):
         outputs["pwm-counts.taskidx-{}".format(i)] = features[i]
+        master_config["outputs"]["pwm-counts.taskidx-{}".format(i)] = features[i]
+
+    # and add labels
+    master_config["outputs"]["labels"] = labels
         
-    return outputs, labels, config
+    return outputs, labels, master_config
 
 
 def get_top_k_motif_hits(features, labels, config, is_training=False):

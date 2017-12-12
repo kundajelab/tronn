@@ -106,6 +106,7 @@ def run(args):
             args.sample_size,
             pwm_list,
             keep_negatives=True,
+            filter_by_prediction=True,
             method=args.backprop if args.backprop is not None else "input_x_grad") # simple_gradients or guided_backprop
 
     # first global permutation test

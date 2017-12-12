@@ -97,16 +97,17 @@ def run(args):
                 checkpoint_path,
                 pwm_hits_mat_h5,
                 args.sample_size,
-                pwm_list,
+                pwm_list_filt,
                 keep_negatives=False,
                 method=args.backprop if args.backprop is not None else "input_x_grad")
 
         # put those into a text file to load into R
         reduced_mat_file = "{0}/{1}.task-{2}.motif_mat.reduced.txt".format(
             args.tmp_dir, args.prefix, interpretation_task_idx)
+        pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in pwm_names_filt]
         if not os.path.isfile(reduced_mat_file):
             with h5py.File(pwm_hits_mat_h5, "r") as hf:
-                pwm_hits = hf["pwm_hits"][:]
+                pwm_hits = hf["pwm-counts.taskidx-10"][:]
 
                 # filtering
                 #index = hf["example_metadata"][:][~np.all(pwm_hits == 0, axis=1),:]
@@ -115,7 +116,7 @@ def run(args):
                 #pwm_hits = pwm_hits[:, ~np.all(pwm_hits == 0, axis=0)]
                 
                 # set up dataframe and save out
-                pwm_hits_df = pd.DataFrame(pwm_hits, index=hf["example_metadata"][:][:,0] columns=pwm_names_filt)
+                pwm_hits_df = pd.DataFrame(pwm_hits, index=hf["example_metadata"][:][:,0], columns=pwm_names_clean)
                 pwm_hits_df.to_csv(reduced_mat_file, sep='\t')
                 
 

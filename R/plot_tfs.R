@@ -13,10 +13,17 @@ out_file <- args[2]
 
 data <- read.table(data_file, header=TRUE, row.names=1)
 
-# normalize the columns
+# normalize the rows
+#data_norm <- data
+
 data_norm <- t(t(data)/colSums(data))
 data_norm <- t(scale(t(data_norm), center=TRUE, scale=TRUE))
+#data_norm <- data_norm / apply(abs(data_norm), 1, max)
+print(data_norm)
+
 data_norm <- na.omit(data_norm)
+
+
 
 write.table(data_norm, file="spotcheck.txt", sep='\t', quote=FALSE)
 

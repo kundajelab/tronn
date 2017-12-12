@@ -25,12 +25,12 @@ def normalize_w_probability_weights(features, labels, config, is_training=False)
     """
     assert is_training == False
 
-    probs = config.get("probs", None)
+    probs = config.get("normalize_probs", None)
     assert probs is not None
-    
-    probs = [tf.subtract(tensor, 0.5) for tensor in probs] # 0.5 is technically not confident
-    
-    # split out into tasks to normalize by task probs
+
+    # split out by task
+    probs = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(probs, axis=1)]
+    #probs = [tf.subtract(tensor, 0.5) for tensor in probs] # 0.5 is technically not confident
     features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
 
     # normalize

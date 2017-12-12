@@ -191,33 +191,34 @@ class TronnNeuralNetGraph(TronnGraph):
         if self.importances_tasks is None:
             self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
 
-        task_logits = tf.unstack(self.logits, axis=1)
-        task_probs = tf.unstack(self.probs, axis=1)
-
-        importance_logits = []
-        importance_probs = []
-        for task_idx in self.importances_tasks:
-            importance_logits.append(task_logits[task_idx])
-            importance_probs.append(task_probs[task_idx])
+        # set up negatives call (but change this - just filter through queues)
+        if len(self.labels.get_shape().as_list()) > 1:
+            negative = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
+        else:
+            negative = tf.logical_not(tf.cast(self.labels, tf.bool))
             
+        # NOTE: if filtering, need to pass through everything associated with example that is coming back out
+        # as such, everything in config needs to be in batch format to quickly filter things
+        # rather make a sub dict in config for batch things
         config = {
-            "importance_logits": importance_logits,
-            "importance_probs": importance_probs,
-            "pwms": pwm_list}
-        
+            "batch_size": self.batch_size,
+            "pwms": pwm_list,
+            "importance_task_indices": self.importances_tasks,
+            "outputs": { # these are all the batch results that must stay with their corresponding example
+                "logits": self.logits,
+                "probs": self.probs,
+                "example_metadata": self.metadata,
+                "subset_accuracy": self._add_task_subset_accuracy(),
+                "negative": negative
+            }
+        }
+
         # set up inference stack
-        outputs, labels, config = self.importances_fn( # TODO rename this to inference fn
+        features, labels, config = self.importances_fn( # TODO rename this to inference fn
             self.features, self.labels, config, is_training=False)
 
-        # and end with an output aggregation fn - dict
-        outputs["labels"] = self.labels
-        outputs["probs"] = self.probs
-        outputs["subset_accuracy"] = self._add_task_subset_accuracy()
-        outputs["example_metadata"] = self.metadata
-        if len(self.labels.get_shape().as_list()) > 1:
-            outputs["negative"] = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
-        else:
-            outputs["negative"] = self.labels
+        # grab desired outputs
+        outputs = config["outputs"]
         
         return outputs
 

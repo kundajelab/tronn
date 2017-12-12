@@ -188,6 +188,9 @@ class ExampleGenerator(object):
                 continue
 
             if self.filter_by_prediction and self.batch_region_arrays["subset_accuracy"][self.batch_pointer] < accuracy_cutoff:
+                #print self.batch_region_arrays["subset_accuracy"][self.batch_pointer]
+                #print self.batch_region_arrays["labels"][self.batch_pointer, 0:10]
+                #print self.batch_region_arrays["probs"][self.batch_pointer, 0:10]
                 self.batch_pointer += 1
                 self.all_examples += 1
                 continue
