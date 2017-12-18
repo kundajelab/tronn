@@ -99,7 +99,7 @@ def interpret(
                     
                     region, region_arrays = example_generator.run()
                     region_arrays["example_metadata"] = region
-                    
+
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
 

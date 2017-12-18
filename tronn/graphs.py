@@ -192,8 +192,15 @@ class TronnNeuralNetGraph(TronnGraph):
             self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
 
         # set up negatives call (but change this - just filter through queues)
+        # TODO this needs to get set up with importance tasks
+        importance_labels = []
+        labels_list = tf.unstack(self.labels, axis=1)
+        for task_idx in self.importances_tasks:
+            importance_labels.append(labels_list[task_idx])
+        importance_labels = tf.stack(importance_labels, axis=1)
+        
         if len(self.labels.get_shape().as_list()) > 1:
-            negative = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(self.labels, 1, keep_dims=True), tf.bool)), tf.int32)
+            negative = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(importance_labels, 1, keep_dims=True), tf.bool)), tf.int32)
         else:
             negative = tf.logical_not(tf.cast(self.labels, tf.bool))
             
@@ -289,7 +296,7 @@ class TronnNeuralNetGraph(TronnGraph):
         """Given task subset, get subset accuracy
         """
         assert self.importances_tasks is not None
-        
+
         # split and get subset
         labels_unstacked = tf.unstack(self.labels, axis=1)
         labels_subset = tf.stack([labels_unstacked[i] for i in self.importances_tasks], axis=1)

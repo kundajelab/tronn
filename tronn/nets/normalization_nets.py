@@ -30,13 +30,21 @@ def normalize_w_probability_weights(features, labels, config, is_training=False)
 
     # split out by task
     probs = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(probs, axis=1)]
+    
+    # use probs as a confidence measure. further from 0.5 the stronger - so increase the importance weights accordingly.
+    # for the timepoints, key is to explain the dominant prediction, so multiply by neg for negative scores.
+    # for global, use abs value.
+    # something w probs + values?
     #probs = [tf.subtract(tensor, 0.5) for tensor in probs] # 0.5 is technically not confident
     features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
 
     # normalize
+    # for normalization, just use total sum of importance scores to be 1
+    # this makes probs just a confidence measure.
     normalized_features = []
     for i in xrange(len(features)):
         weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2, 3], keep_dims=True)
+        #weight_sums = tf.reduce_sum(features[i], axis=[1, 2, 3], keep_dims=True)
         task_features = tf.multiply(
             tf.divide(features[i], weight_sums), # TODO add some weight to make sure doesnt explode?
             tf.reshape(probs[i], weight_sums.get_shape()))

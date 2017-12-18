@@ -99,6 +99,7 @@ def run(args):
                 args.sample_size,
                 pwm_list_filt,
                 keep_negatives=False,
+                filter_by_prediction=True,
                 method=args.backprop if args.backprop is not None else "input_x_grad")
 
         # put those into a text file to load into R
@@ -118,7 +119,15 @@ def run(args):
                 # set up dataframe and save out
                 pwm_hits_df = pd.DataFrame(pwm_hits, index=hf["example_metadata"][:][:,0], columns=pwm_names_clean)
                 pwm_hits_df.to_csv(reduced_mat_file, sep='\t')
-                
+
+
+        # TODO throw in Louvain communities here
+
+        # figure out how to output sorted communities? hclust on groups? ReorderCluster
+        
+
+        # and save out communities
+        
 
         # continue in R with hclust
 

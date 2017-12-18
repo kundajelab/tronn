@@ -78,7 +78,7 @@ def run(args):
         {'data': data_files},
         args.tasks,
         load_data_from_filename_list,
-        args.batch_size / 2,
+        args.batch_size,
         net_fns[args.model['name']],
         args.model,
         tf.nn.sigmoid,

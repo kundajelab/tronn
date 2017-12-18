@@ -146,6 +146,7 @@ class ExampleGenerator(object):
         self.valid_examples = 0
         self.reconstruct_regions = reconstruct_regions
         self.keep_negatives = keep_negatives
+        self.pos_neg_imbalance = 0 # update only for positives, and allow negatives until it balances
 
         if self.reconstruct_regions: #?? whats going on here
             self.name_idx = -1
@@ -158,7 +159,6 @@ class ExampleGenerator(object):
         filter_tasks_mask_tmp = np.zeros((1, int(tensor_dict["labels"].get_shape()[1])))
         filter_tasks_mask_tmp[0, filter_tasks] = 1
         self.filter_tasks_mask = filter_tasks_mask_tmp
-
             
         # initialize region tracker with first region in batch
         self.batch_region_arrays = self.sess.run(self.tensor_dict)
@@ -182,7 +182,13 @@ class ExampleGenerator(object):
                 self.batch_region_arrays = self.sess.run(self.tensor_dict)
 
             # filtering should happen here
-            if not self.keep_negatives and self.batch_region_arrays["negative"][self.batch_pointer] == 1:
+            if (not self.keep_negatives) and (self.batch_region_arrays["negative"][self.batch_pointer] == 1):
+                self.batch_pointer += 1
+                self.all_examples += 1
+                continue
+
+            # if it's negative no imbalance, pass
+            if (self.pos_neg_imbalance <= 0) and (self.batch_region_arrays["negative"][self.batch_pointer] == 1):
                 self.batch_pointer += 1
                 self.all_examples += 1
                 continue
@@ -195,6 +201,12 @@ class ExampleGenerator(object):
                 self.all_examples += 1
                 continue
 
+            # if it passed conditions and was positive, increase the positive mark. if negative, decrease it (min 0)
+            if self.batch_region_arrays["negative"][self.batch_pointer] == 1:
+                self.pos_neg_imbalance = max(0, self.pos_neg_imbalance - 1)
+            else:
+                self.pos_neg_imbalance += 1
+            
             break # if all filtering conditions were met
             
         # extract data and construct into region array dict
@@ -213,7 +225,7 @@ class ExampleGenerator(object):
                     "sum") # CHANGE THIS LATER
         self.batch_pointer += 1
         self.all_examples += 1
-
+        
         return region_name, region_arrays
 
     

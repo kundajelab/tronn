@@ -27,6 +27,8 @@ from tronn.nets.motif_nets import multitask_motif_assignment
 from tronn.nets.motif_nets import motif_assignment
 
 from tronn.nets.filter_nets import filter_by_accuracy
+from tronn.nets.filter_nets import filter_by_importance
+from tronn.nets.filter_nets import filter_singles
 
 
 def get_importances(features, labels, config, is_training=False):
@@ -106,54 +108,6 @@ def importances_to_motif_assignments(features, labels, config, is_training=False
     return outputs, labels, config
 
 
-def importances_to_motif_assignments_v2(features, labels, config, is_training=False):
-    """Update to motif assignments
-    
-    1) get importances
-    2) threshold with shuffled null (pvals)
-    3) normalize to probs (absolute val)
-    4) and take max (abs val) for global
-    5) work through motif assignment
-
-    note: important how to think about a normalized importance score. in classification sense,
-    probabilities near 1 and 0 are more certain than near 0.5. So importance scores should be
-    scaled to those ends.
-
-    Returns:
-      dict of results
-    """
-    # set up stack
-    inference_stack = [
-        (multitask_importances, {"anchors": config["importance_logits"], "importances_fn": input_x_grad}), # importances
-        (threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
-        (normalize_w_probability_weights, {"probs": config["importance_probs"]}), # normalize
-        # TODO - just get middle 200? If so do this after thresholding and normalization
-        (clip_edges, {"left_clip": 400, "right_clip": 600}),
-        #(zscore_and_scale_to_weights, {"logits": config["importance_logits"]}), # normalize
-        #(zscore_and_scale_to_weights, {"probs": config["importance_probs"]}), # normalize
-        (multitask_global_importance, {"append": True}), # get global (abs val)
-        # replace this part of stack with get_importances
-        
-        (multitask_motif_assignment, {"pwms": config["pwms"], "k_val": 4, "motif_len": 5, "pool": True}),
-        #(threshold_topk, {"k_val": 4})
-    ]
-
-    # stack the transforms
-    for transform_fn, config in inference_stack:
-        print transform_fn
-        features, labels, config = transform_fn(features, labels, config)
-        # TODO - if needed, pass on additional configs through
-
-    # TODO separate out results into separate task sets
-    features = tf.unstack(features, axis=1)
-    
-    outputs = {}
-    for i in xrange(len(features)):
-        outputs["pwm-counts.taskidx-{}".format(i)] = features[i]
-        
-    return outputs, labels, config
-
-
 def importances_to_motif_assignments_v3(features, labels, config, is_training=False):
     """Update to motif assignments
 
@@ -162,35 +116,26 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
     """
     # set up stack
     inference_stack = [
-        (multitask_importances, {
-            "anchors": config["outputs"]["logits"],
-            "importances_fn": input_x_grad,
-            "relu": False}), # importances, TODO use ReLU?
-        (filter_by_accuracy, {
-            "filter_probs": config["outputs"]["probs"],
-            "acc_threshold": 0.7}),
-        (threshold_shufflenull, {
-            "num_shuffles": 100,
-            "pval": 0.05,
-            "two_tailed": False}), # threshold TODO make sure this matches ReLU above
-        (normalize_w_probability_weights, {
-            "normalize_probs": config["outputs"]["probs"]}), # normalize TODO change this?
-        (clip_edges, {
-            "left_clip": 400,
-            "right_clip": 600}), # clip for active center
-        (multitask_global_importance, {
-            "append": True}), # get global (abs val)
-        (add_per_example_kval, {
-            "max_k": 4,
-            "motif_len": 10}), # get a kval for each example, use with multitask_threshold_topk_by_example
-        (pwm_convolve_inputxgrad, {
-            "pwms": config["pwms"]}),
-        (pwm_maxpool, {
-            "pool_width": 10}),
+        (multitask_importances, {"anchors": config["outputs"]["logits"], "importances_fn": input_x_grad, "relu": False}), # importances
+        (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples
+        # TODO - build a correct shuffle null
+        #(threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (filter_singles, {"window": 5, "min_fract": 0.4}), # needs to have 3bp within a 5bp window
+        (filter_by_importance, {"cutoff": 10}),
+        (normalize_w_probability_weights, {"normalize_probs": config["outputs"]["probs"]}), # normalize, never use logits (too much range) unless clip it
+        #(clip_edges, {"left_clip": 400, "right_clip": 600}), # clip for active center
+        
+        (add_per_example_kval, {"max_k": 4, "motif_len": 5}), # get a kval for each example, use with multitask_threshold_topk_by_example
+        (pwm_convolve_inputxgrad, {"pwms": config["pwms"]}),
+        # potentially move the aggregation here?
+        
+        (pwm_maxpool, {"pool_width": 10}),
         (pwm_positional_max, {}),
-        (multitask_threshold_topk_by_example, {
-            "splitting_axis": 0,
-            "position_axis": 2}) # just keep top k
+        (multitask_threshold_topk_by_example, {"splitting_axis": 0, "position_axis": 2}), # just keep top k
+
+        # moved from after filtration
+        (multitask_global_importance, {"append": True}), # get global (abs val)
     ]
 
     # stack the transforms
@@ -200,7 +145,9 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
         master_config.update(config) # update config before and after
         features, labels, config = transform_fn(features, labels, master_config)
         master_config.update(config)
-    
+        #master_config["outputs"] = config["outputs"]
+        #print master_config["outputs"]["logits"]
+        
     # unstack features by task and attach to config
     features = tf.unstack(features, axis=1)
     outputs = {}
@@ -210,7 +157,7 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
 
     # and add labels
     master_config["outputs"]["labels"] = labels
-        
+    
     return outputs, labels, master_config
 
 

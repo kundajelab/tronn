@@ -70,8 +70,8 @@ def multitask_global_importance(features, labels, config, is_training=False):
     assert is_training == False
     append = config.get("append", True)
     
-    #features_max = tf.reduce_sum(tf.abs(features), axis=1, keep_dims=True)
-    features_max = tf.reduce_max(tf.abs(features), axis=1, keep_dims=True)
+    features_max = tf.reduce_mean(features, axis=1, keep_dims=True) # TODO add abs
+    #features_max = tf.reduce_max(tf.abs(features), axis=1, keep_dims=True)
 
     if append:
         features = tf.concat([features, features_max], axis=1)

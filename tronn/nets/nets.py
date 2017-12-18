@@ -11,8 +11,6 @@ from tronn.nets.deep_nets import tfslim_resnet
 from tronn.nets.inference_nets import get_importances
 from tronn.nets.inference_nets import get_top_k_motif_hits
 from tronn.nets.inference_nets import sequence_to_motif_assignments
-from tronn.nets.inference_nets import importances_to_motif_assignments
-from tronn.nets.inference_nets import importances_to_motif_assignments_v2
 from tronn.nets.inference_nets import importances_to_motif_assignments_v3
 
 from tronn.nets.mutate_nets import ism_for_grammar_dependencies

@@ -109,32 +109,38 @@ def threshold_gaussian(features, labels, config, is_training=False):
     
     num_stdev = config.get("stdev", 3)
     two_tailed = config.get("two_tailed", True)
-    
-    # get mean and stdev to get threshold
-    signal_mean, signal_var = tf.nn.moments(features, axes=[1, 2, 3])
-    signal_stdev = tf.sqrt(signal_var)
-    thresholds = tf.add(signal_mean, tf.scalar_mul(num_stdev, signal_stdev))
 
-    # expand thresholds for broadcasting
-    signal_shape = features.get_shape()
-    for dim_idx in xrange(1, len(signal_shape)):
-        thresholds = tf.expand_dims(thresholds, axis=dim_idx)
+    # separate out tasks first
+    task_features_list = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
     
-    #for dim_idx in range(1, len(signal_shape)):
-    #    to_stack = [thresholds for i in range(signal_shape[dim_idx])] # here?
-    #    thresholds = tf.stack(to_stack, dim_idx)
+    thresholded = []
+    for task_features in task_features_list:
+    
+        # get mean and stdev to get threshold
+        signal_mean, signal_var = tf.nn.moments(task_features, axes=[1, 2, 3])
+        signal_stdev = tf.sqrt(signal_var)
+        thresholds = tf.add(signal_mean, tf.scalar_mul(num_stdev, signal_stdev))
 
-    # set up mask
-    if two_tailed:
-        greaterthan_tensor = tf.cast(tf.greater(features, thresholds), tf.float32)
-        lessthan_tensor = tf.cast(tf.less(features, -thresholds), tf.float32)
-        mask_tensor = tf.add(greaterthan_tensor, lessthan_tensor)
-    else:
-        mask_tensor = tf.cast(tf.greater(features, thresholds), tf.float32)
+        # expand thresholds for broadcasting
+        signal_shape = task_features.get_shape()
+        for dim_idx in xrange(1, len(signal_shape)):
+            thresholds = tf.expand_dims(thresholds, axis=dim_idx)
+
+        # set up mask
+        if two_tailed:
+            greaterthan_tensor = tf.cast(tf.greater_equal(task_features, thresholds), tf.float32)
+            lessthan_tensor = tf.cast(tf.less_equal(task_features, -thresholds), tf.float32)
+            mask_tensor = tf.add(greaterthan_tensor, lessthan_tensor)
+        else:
+            mask_tensor = tf.cast(tf.greater_equal(task_features, thresholds), tf.float32)
         
-    # mask out insignificant features
-    features = features * mask_tensor
-
+        # mask out insignificant features and append
+        task_features = tf.multiply(task_features, mask_tensor)
+        thresholded.append(task_features)
+        
+    # remerge
+    features = tf.concat(thresholded, axis=1) #{N, task, pos, C}
+    
     return features, labels, config
 
 
