@@ -64,13 +64,57 @@ def multitask_importances(features, labels, config, is_training=False):
     return features, labels, config
 
 
+def multitask_global_importance_old(features, labels, config, is_training=False):
+    """Also get global importance
+    """
+    assert is_training == False
+    append = config.get("append", True)
+
+    # TODO could do a max - min scoring system
+    features_max = tf.reduce_sum(features, axis=1, keep_dims=True) # TODO add abs? probably not
+    #features_max = tf.reduce_max(tf.abs(features), axis=1, keep_dims=True)
+
+    if append:
+        features = tf.concat([features, features_max], axis=1)
+    else:
+        features = features_max
+
+    return features, labels, config
+
+
 def multitask_global_importance(features, labels, config, is_training=False):
     """Also get global importance
     """
     assert is_training == False
     append = config.get("append", True)
+
+    count_thresh = 2
     
-    features_max = tf.reduce_mean(features, axis=1, keep_dims=True) # TODO add abs
+    # per example, only keep positions that have been seen more than once
+    features_by_example = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features)] # {1, task, M}
+
+    # for each example, get sum across tasks
+    masked_features_list = []
+    for example_features in features_by_example:
+        motif_counts = tf.reduce_sum(
+            tf.cast(tf.not_equal(example_features, 0), tf.float32),
+            axis=1, keep_dims=True) # sum across tasks {1, 1, M}
+        #motif_max = tf.reduce_max(
+        #    motif_counts, axis=[1, 3], keep_dims=True) # {1, 1, pos, 1}
+        # then mask based on max position
+        motif_mask = tf.cast(tf.greater_equal(motif_counts, count_thresh), tf.float32)
+        # and mask
+        masked_features = tf.multiply(motif_mask, example_features)
+        masked_features_list.append(masked_features)
+
+    # stack
+    features = tf.concat(masked_features_list, axis=0)
+    
+    # TODO could do a max - min scoring system?
+    features_max = tf.reduce_sum(features, axis=1, keep_dims=True) # TODO add abs? probably not
+
+
+    
     #features_max = tf.reduce_max(tf.abs(features), axis=1, keep_dims=True)
 
     if append:

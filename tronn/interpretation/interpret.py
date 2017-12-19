@@ -48,6 +48,7 @@ def _GuidedReluGrad(op, grad):
 def interpret(
         tronn_graph,
         model_checkpoint,
+        batch_size,
         h5_file,
         sample_size=None,
         pwm_list=None,
@@ -66,7 +67,7 @@ def interpret(
         elif method == "guided_backprop":
             with g.gradient_override_map({'Relu': 'GuidedRelu'}):
                 print "using guided backprop"
-                outputs = tronn_graph.build_inference_graph_v3(pwm_list=pwm_list)
+                outputs = tronn_graph.build_inference_graph(pwm_list=pwm_list)
                 
         # set up session
         sess, coord, threads = setup_tensorflow_session()
@@ -86,7 +87,7 @@ def interpret(
             example_generator = ExampleGenerator(
                 sess,
                 outputs,
-                64, # Fix this later
+                batch_size,
                 reconstruct_regions=False,
                 keep_negatives=keep_negatives,
                 filter_by_prediction=filter_by_prediction,

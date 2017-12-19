@@ -556,7 +556,7 @@ def make_motif_x_timepoint_mat(pwm_counts_mat_h5, key_list, task_indices_list, p
             
             # sum up
             # convert to counts first?
-            pwm_scores_summed = np.sum(pwm_scores_selected, axis=0)
+            pwm_scores_summed = np.divide(np.sum(pwm_scores_selected, axis=0), pwm_scores_selected.shape[0])
             #pwm_scores_summed = np.sum((np.abs(pwm_scores_selected) > 0), axis=0)
             #pwm_scores_summed = np.mean(pwm_scores_selected, axis=0)
             

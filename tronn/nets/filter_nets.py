@@ -17,7 +17,7 @@ def is_accurate(labels, probs, acc_threshold=0.8):
     
     # set condition
     #condition_met = tf.greater_equal(accuracy, [acc_threshold])
-    condition_met = tf.greater(accuracy, acc_threshold)
+    condition_met = tf.greater_equal(accuracy, acc_threshold)
     #print condition_met.get_shape()
     
     return condition_met

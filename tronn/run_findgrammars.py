@@ -41,7 +41,7 @@ def run(args):
 
     # debug
     args.interpretation_tasks = [16, 17, 18, 19, 20, 21, 22, 23]
-    args.interpretation_tasks = [16]
+    args.interpretation_tasks = [16, 18, 23]
     
     # go through each interpretation task
     for i in xrange(len(args.interpretation_tasks)):
@@ -72,7 +72,7 @@ def run(args):
             {'data': data_files},
             args.tasks,
             load_data_from_filename_list,
-            args.batch_size / 2,
+            args.batch_size,
             net_fns[args.model['name']],
             args.model,
             tf.nn.sigmoid,
@@ -95,6 +95,7 @@ def run(args):
             interpret(
                 tronn_graph,
                 checkpoint_path,
+                args.batch_size,
                 pwm_hits_mat_h5,
                 args.sample_size,
                 pwm_list_filt,
@@ -132,8 +133,7 @@ def run(args):
         # continue in R with hclust
 
 
-
-        quit()
+        continue
 
         # now in pwm hits file,
         # TODO(dk) factor this code out

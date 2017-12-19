@@ -22,6 +22,7 @@ from tronn.nets.threshold_nets import clip_edges
 from tronn.nets.motif_nets import pwm_convolve_v3
 from tronn.nets.motif_nets import pwm_convolve_inputxgrad
 from tronn.nets.motif_nets import pwm_maxpool
+from tronn.nets.motif_nets import pwm_consistency_check
 from tronn.nets.motif_nets import pwm_positional_max
 from tronn.nets.motif_nets import multitask_motif_assignment
 from tronn.nets.motif_nets import motif_assignment
@@ -112,7 +113,7 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
     """Update to motif assignments
 
     Returns:
-      dict of resuults
+      dict of results
     """
     # set up stack
     inference_stack = [
@@ -122,18 +123,23 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
         #(threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles, {"window": 5, "min_fract": 0.4}), # needs to have 3bp within a 5bp window
+        # TODOMAYBE stabilize here too? ie filter out things that dont match well across time?
+        
         (filter_by_importance, {"cutoff": 10}),
         (normalize_w_probability_weights, {"normalize_probs": config["outputs"]["probs"]}), # normalize, never use logits (too much range) unless clip it
-        #(clip_edges, {"left_clip": 400, "right_clip": 600}), # clip for active center
         
+        #(clip_edges, {"left_clip": 400, "right_clip": 600}), # clip for active center
         (add_per_example_kval, {"max_k": 4, "motif_len": 5}), # get a kval for each example, use with multitask_threshold_topk_by_example
         (pwm_convolve_inputxgrad, {"pwms": config["pwms"]}),
-        # potentially move the aggregation here?
-        
+
+        # maxpool to deal with slightly shifted motifs and check which motifs most consistent across time
         (pwm_maxpool, {"pool_width": 10}),
+        (pwm_consistency_check, {}),
+
+        # take max and threshold
         (pwm_positional_max, {}),
         (multitask_threshold_topk_by_example, {"splitting_axis": 0, "position_axis": 2}), # just keep top k
-
+        
         # moved from after filtration
         (multitask_global_importance, {"append": True}), # get global (abs val)
     ]
@@ -145,8 +151,6 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
         master_config.update(config) # update config before and after
         features, labels, config = transform_fn(features, labels, master_config)
         master_config.update(config)
-        #master_config["outputs"] = config["outputs"]
-        #print master_config["outputs"]["logits"]
         
     # unstack features by task and attach to config
     features = tf.unstack(features, axis=1)

@@ -102,6 +102,7 @@ def run(args):
         interpret(
             tronn_graph,
             checkpoint_path,
+            args.batch_size,
             pwm_counts_mat_h5,
             args.sample_size,
             pwm_list,

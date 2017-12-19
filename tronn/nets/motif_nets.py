@@ -129,6 +129,35 @@ def pwm_maxpool(features, labels, config, is_training=False):
     return features, labels, config
 
 
+def pwm_consistency_check(features, labels, config, is_training=False):
+    """Try to keep most consistent motifs across tasks. max scores are accounted for later
+    """
+    # split by example
+    features_by_example = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features)] # {1, task, pos, M}
+
+    # for each example, get sum across tasks
+    masked_features_list = []
+    for example_features in features_by_example:
+        motif_present = tf.cast(tf.not_equal(example_features, 0), tf.float32) # {1, task, pos, M}
+
+        # TODO: probably just want max sum across the real scores, not counts.
+        motif_counts = tf.reduce_sum(
+            motif_present, axis=1, keep_dims=True) # sum across tasks {1, 1, pos, M}
+        #motif_counts = tf.reduce_sum(
+        #    tf.abs(example_features), axis=1, keep_dims=True) # sum across tasks {1, 1, pos, M}
+        motif_max = tf.reduce_max(motif_counts, axis=3, keep_dims=True) # max across motifs {1, 1, pos, 1}
+        # then mask based on max position
+        motif_mask = tf.cast(tf.greater_equal(motif_counts, motif_max), tf.float32) # {1, 1, pos, M}
+        # and mask
+        masked_features = tf.multiply(motif_mask, example_features)
+        masked_features_list.append(masked_features)
+
+    # stack
+    features = tf.concat(masked_features_list, axis=0) # {N, task, pos, M}
+    
+    return features, labels, config
+
+
 def pwm_positional_max(features, labels, config, is_training=False):
     """Get max at a position
     """
@@ -148,7 +177,7 @@ def pwm_positional_max(features, labels, config, is_training=False):
         
     # restack
     features = tf.concat(features_pos_max, axis=1) # {N, task, pos, M}
-    
+
     return features, labels, config
 
 
