@@ -122,7 +122,7 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
         # TODO - build a correct shuffle null
         #(threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (filter_singles, {"window": 5, "min_fract": 0.4}), # needs to have 3bp within a 5bp window
+        (filter_singles, {"window": 5, "min_fract": 0.4}), # needs to have 2bp within a 5bp window
         # TODOMAYBE stabilize here too? ie filter out things that dont match well across time?
         
         (filter_by_importance, {"cutoff": 10}),

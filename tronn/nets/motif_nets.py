@@ -10,6 +10,102 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 
+# next iteration:
+# maybe just do a vector projection multiplied by a jaccard distance
+# TODO deal with length issue for cross correlation
+
+
+
+# TODO - change to different convolve method?
+def pwm_convolve_new(features, labels, config, is_training=False):
+    """Inspired by Av's jaccard-like distance
+    """
+    # jaccard: essentially intersection over union
+    # use the jaccard distance to weight the matches.
+    # ie, score = sum(importances matching pwm) * jaccard distance
+    pwm_list = config.get("pwms")
+    assert pwm_list is not None
+        
+    # get various sizes needed to instantiate motif matrix
+    num_filters = len(pwm_list)
+    logging.info("Total PWMs: {}".format(num_filters))
+    
+    max_size = 0
+    for pwm in pwm_list:
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+    logging.info("Filter size: {}".format(max_size))
+
+    # first, jaccard
+
+    # get |a intersect b| using convolutional net
+    # define |a intersect b| as approx min of convolving bool(a) and b, but with ones
+    # this way you capture the intersect by presence of specific base pairs
+    
+    # convolve pwms with binarized features, [-1, 1]
+    binarized_features = tf.add(
+        tf.cast(tf.greater(features, 0), tf.float32),
+        -tf.cast(tf.less(features, 0), tf.float32))
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features)),
+            biases_initializer=None,
+            trainable=False):
+        # pwm cross correlation
+        jaccard_intersection = slim.conv2d(
+            binarized_features, num_filters, conv1_filter_size,
+            scope='pwm/conv')
+        jaccard_intersection = tf.abs(jaccard_intersection)
+
+    # and get summed importance in that window
+    summed_feature_impt = tf.reduce_sum(
+        tf.multiply(
+            slim.avg_pool2d(features, [1, max_size], stride=[1,1], padding="VALID"),
+            max_size),
+        axis=3, keep_dims=True)
+    print summed_feature_impt.get_shape()
+
+    # numerator: summed importance * jaccard intersection score.
+    numerator = tf.multiply(summed_feature_impt, jaccard_intersection)
+    print numerator.get_shape()
+    
+    # union: |a| + |b| - |a intersect b|
+    # getting |input| - max pool on binarized features
+    # getting |pwm| - convolve on full sequence
+    summed_feature_presence = tf.reduce_sum(
+        tf.multiply(
+            slim.avg_pool2d(tf.abs(binarized_features), [1, max_size], stride=[1,1], padding="VALID"),
+            max_size),
+        axis=3, keep_dims=True)
+
+    # make another convolution net for the normalization factor, with squared filters
+    ones_input = tf.ones(features.get_shape())
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features), squared=True), # <- this is why you can't merge
+            biases_initializer=None,
+            trainable=False):
+        # normalization factor
+        summed_pwm_squared = slim.conv2d(
+            ones_input, num_filters, conv1_filter_size,
+            scope='nonzero_pwm/conv')
+        summed_pwm_abs = tf.sqrt(summed_pwm_squared)
+
+    # denominator: |input| + |pwm| - intersection
+    denominator = tf.subtract(tf.add(summed_feature_presence, summed_pwm_abs), jaccard_intersection)
+        
+    # divide the two answers.
+    final_score = tf.divide(numerator, denominator)
+    
+    return final_score, labels, config
+
 
 def pwm_convolve(features, labels, config, is_training=False):
     """Convolve with PWMs and normalize with vector projection:

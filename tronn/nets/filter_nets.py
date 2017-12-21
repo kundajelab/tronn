@@ -108,7 +108,6 @@ def is_low_importance(features, cutoff=10):
             axis=[2, 3]),
         axis=1) # shape {N}
 
-    print feature_sums.get_shape()
     condition_met = tf.greater(feature_sums, cutoff)
     
     return condition_met

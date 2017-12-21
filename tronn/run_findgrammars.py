@@ -29,6 +29,8 @@ from tronn.datalayer import get_total_num_examples
 from tronn.interpretation.motifs import PWM
 from tronn.interpretation.motifs import get_encode_pwms
 
+import phenograph
+
 
 def run(args):
     """Find grammars utilizing the timeseries tasks
@@ -42,6 +44,7 @@ def run(args):
     # debug
     args.interpretation_tasks = [16, 17, 18, 19, 20, 21, 22, 23]
     args.interpretation_tasks = [16, 18, 23]
+    #args.interpretation_tasks = [16]
     
     # go through each interpretation task
     for i in xrange(len(args.interpretation_tasks)):
@@ -59,10 +62,13 @@ def run(args):
 
         pwm_list = get_encode_pwms(args.pwm_file)
         pwm_list_filt = []
-        for pwm in pwm_list:
+        pwm_list_filt_indices = []
+        for i in xrange(len(pwm_list)):
+            pwm = pwm_list[i]
             for pwm_name in pwms_to_use:
                 if pwm_name in pwm.name:
                     pwm_list_filt.append(pwm)
+                    pwm_list_filt_indices.append(i)
         print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
         print len(pwm_list_filt)
         pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
@@ -98,7 +104,8 @@ def run(args):
                 args.batch_size,
                 pwm_hits_mat_h5,
                 args.sample_size,
-                pwm_list_filt,
+                pwm_list,
+                #pwm_list_filt,
                 keep_negatives=False,
                 filter_by_prediction=True,
                 method=args.backprop if args.backprop is not None else "input_x_grad")
@@ -109,7 +116,8 @@ def run(args):
         pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in pwm_names_filt]
         if not os.path.isfile(reduced_mat_file):
             with h5py.File(pwm_hits_mat_h5, "r") as hf:
-                pwm_hits = hf["pwm-counts.taskidx-10"][:]
+                # only keep those in filtered set
+                pwm_hits = hf["pwm-counts.taskidx-10"][:][:,np.array(pwm_list_filt_indices)]
 
                 # filtering
                 #index = hf["example_metadata"][:][~np.all(pwm_hits == 0, axis=1),:]
@@ -123,14 +131,57 @@ def run(args):
 
 
         # TODO throw in Louvain communities here
+        pwm_hits_df = pd.read_table(reduced_mat_file, index_col=0)
+        pwm_hits_df = pwm_hits_df.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
 
-        # figure out how to output sorted communities? hclust on groups? ReorderCluster
-        
+        communities, graph, Q = phenograph.cluster(pwm_hits_df)
 
-        # and save out communities
-        
+        # and then only keep reasonably sized communities
+        for community_idx in np.unique(communities).tolist():
 
-        # continue in R with hclust
+            # determine community size
+            region_indices = np.where(communities == community_idx)[0]
+
+            # only keep large communities
+            if region_indices.shape[0] < 500:
+                continue
+
+            # pull out matrix
+            community_mat = pwm_hits_df.iloc[region_indices,]
+
+            # determine community name
+            ranked_pwms = np.sum(community_mat, axis=0).sort_values()
+            stop_idx = -1
+            top_score = ranked_pwms[-1]
+            thresh = 0.10
+            while True:
+                print stop_idx
+                if ranked_pwms[stop_idx-1] < top_score * thresh:
+                    break
+                else:
+                    stop_idx -= 1
+            
+            top_pwms = ranked_pwms[stop_idx:].index.tolist()
+            print top_pwms
+            print ranked_pwms[stop_idx:]
+            print region_indices.shape[0]
+
+            # and save out community matrix and BED file
+            out_prefix = "{0}/{1}.task-{2}.community-{3}.{4}".format(
+                args.tmp_dir, args.prefix, interpretation_task_idx, community_idx, "_".join(list(reversed(top_pwms))[:3]))
+            out_mat_file = "{}.mat.txt".format(out_prefix)
+            community_mat.to_csv(out_mat_file, sep='\t')
+
+            out_bed_file = "{}.bed".format(out_prefix)
+            make_bed = (
+                "cat {0} | "
+                "awk -F '\t' '{{ print $1 }}' | "
+                "grep -v index | "
+                "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
+                "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
+                "sort -k1,1 -k2,2n "
+                "> {1}").format(out_mat_file, out_bed_file)
+            os.system(make_bed)
 
 
         continue

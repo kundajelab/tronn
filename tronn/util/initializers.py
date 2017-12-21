@@ -36,7 +36,14 @@ def torch_fullyconnected_initializer(fan_in, dtype=dtypes.float32):
     return torch_initializer(stdv)
 
 
-def pwm_simple_initializer(filter_shape, pwm_list, fan_in, squared=False, dtype=dtypes.float32):
+def pwm_simple_initializer(
+        filter_shape,
+        pwm_list,
+        fan_in,
+        length_norm=True,
+        squared=False,
+        binarize=False,
+        dtype=dtypes.float32):
     """Load just PWMs into layer
     """
     filter_length = filter_shape[1]
@@ -63,9 +70,23 @@ def pwm_simple_initializer(filter_shape, pwm_list, fan_in, squared=False, dtype=
             pwm_center = pwm.weights.shape[1] / 2
             padded_weights = pwm.weights[:,pwm_center-left_pad:pwm_center+right_pad]
 
+        if length_norm:
+            num_nonzero_basepairs = np.sum((np.sum(padded_weights, axis=0) != 0))
+            #print num_nonzero_basepairs
+            padded_weights = np.divide(padded_weights, num_nonzero_basepairs)
+
+            # also need to normalize so that max score is 1 on flat sequence?
+
+            # different normalization - normalize so that total info is approx 1, normalized to max base pair?
+            
+            
         # This bit is used for vector projection - mostly keep FALSE
         if squared:
             padded_weights = np.square(padded_weights)
+
+        # use this if just want hits in specific directions
+        if binarize:
+            pass
             
         weights_list.append(padded_weights)
 
