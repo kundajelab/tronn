@@ -26,6 +26,8 @@ from tronn.outlayer import H5Handler
 
 from tronn.util.tf_ops import restore_variables_op
 
+from tronn.visualization import plot_weights
+
 
 @ops.RegisterGradient("GuidedRelu")
 def _GuidedReluGrad(op, grad):
@@ -125,6 +127,85 @@ def interpret(
 
     return None
 
+
+
+def interpret_and_viz(
+        tronn_graph,
+        model_checkpoint,
+        batch_size,
+        sample_size=None,
+        method="input_x_grad",
+        keep_negatives=False,
+        filter_by_prediction=True):
+    """Set up a graph and run inference stack
+    """
+    with tf.Graph().as_default() as g:
+
+        # build graph
+        if method == "input_x_grad":
+            print "using input_x_grad"
+            outputs = tronn_graph.build_inference_graph()
+        elif method == "guided_backprop":
+            with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+                print "using guided backprop"
+                outputs = tronn_graph.build_inference_graph()
+                
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+
+        # restore
+        init_assign_op, init_feed_dict = restore_variables_op(
+            model_checkpoint, skip=["pwm"])
+        sess.run(init_assign_op, init_feed_dict)
+        
+        # set up outlayer
+        example_generator = ExampleGenerator(
+            sess,
+            outputs,
+            batch_size,
+            reconstruct_regions=False,
+            keep_negatives=keep_negatives,
+            filter_by_prediction=filter_by_prediction,
+            filter_tasks=tronn_graph.importances_tasks)
+
+        # run all samples unless sample size is defined
+        try:
+            total_examples = 0
+            while not coord.should_stop():
+                    
+                region, region_arrays = example_generator.run()
+                region_arrays["example_metadata"] = region
+
+                for key in region_arrays.keys():
+                    if "pwm" in key:
+                        # squeeze and visualize!
+                        plot_name = "{}.{}.png".format(region.replace(":", "-"), key)
+                        print plot_name
+                        #plot_weights(np.squeeze(region_arrays[key][400:600,:]), plot_name) # array, fig name
+                        plot_weights(np.squeeze(region_arrays[key]), plot_name) # array, fig name
+                    if "prob" in key:
+                        print region_arrays[key]
+
+                total_examples += 1
+                        
+                # check condition
+                if (sample_size is not None) and (total_examples >= sample_size):
+                    break
+
+        except tf.errors.OutOfRangeError:
+            print "Done reading data"
+            # add in last of the examples
+
+        finally:
+            time.sleep(60)
+
+        # catch the exception ValueError - (only on sherlock, come back to this)
+        try:
+            close_tensorflow_session(coord, threads)
+        except:
+            pass
+
+    return None
 
 
 

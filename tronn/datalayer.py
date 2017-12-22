@@ -297,7 +297,7 @@ def hdf5_list_to_ordered_tensors(
         """
         # set up h5_handle and batch_start
         file_idx, local_batch = global_batch_to_file_idx[batch_id]
-	h5_handle = h5py_handles[file_idx]
+	h5_handle = h5_handles[file_idx]
         batch_start = local_batch*batch_size
         return hdf5_to_slices(
             h5_handle,
@@ -314,7 +314,7 @@ def hdf5_list_to_ordered_tensors(
         stateful=False, name='py_func_batchid_to_examples')
 
     # set shapes
-    features_tensor.set_shape([batch_size] + list(h5_handles[0][features_key][1:]))
+    features_tensor.set_shape([batch_size] + list(h5_handles[0][features_key].shape[1:]))
     labels_tensor.set_shape([batch_size, len(task_indices)])
     metadata_tensor.set_shape([batch_size, 1])
 

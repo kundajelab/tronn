@@ -13,13 +13,7 @@ from collections import Counter
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
-from tronn.nets.nets import model_fns
-from tronn.interpretation.importances import extract_importances_and_motif_hits
-from tronn.interpretation.importances import extract_motif_assignments
-from tronn.interpretation.importances import extract_importances_and_viz
-from tronn.interpretation.importances import get_pwm_hits_from_raw_sequence
-from tronn.interpretation.importances import layerwise_relevance_propagation
-from tronn.interpretation.importances import visualize_sample_sequences
+from tronn.nets.nets import net_fns
 
 from tronn.interpretation.importances import split_importances_by_task_positives
 from tronn.interpretation.seqlets import extract_seqlets
@@ -36,13 +30,15 @@ from tronn.interpretation.motifs import make_motif_x_timepoint_mat
 
 from tronn.preprocess import generate_nn_dataset
 
+from tronn.interpretation.interpret import interpret_and_viz
 
 def run(args):
     """Find motifs (global and interpretation task specific)
     """
     os.system('mkdir -p {}'.format(args.tmp_dir))
 
-    if True:
+    data_files = glob.glob("{}/h5/*h5".format(args.out_dir))
+    if len(data_files) == 0:
         # first generate dataset
         generate_nn_dataset(
             args.labels[0],
@@ -69,10 +65,10 @@ def run(args):
         [],
         load_data_from_filename_list,
         1,
-        model_fns[args.model['name']],
+        net_fns[args.model['name']],
         args.model,
         tf.nn.sigmoid,
-        importances_fn=layerwise_relevance_propagation,
+        importances_fn=net_fns["importances_to_motif_assignments"],
         importances_tasks=args.importances_tasks,
         fake_task_num=118,
         shuffle_data=False, # NOTE: CHANGE LATER
@@ -87,11 +83,13 @@ def run(args):
 
     # extract importances and plot
     prefix = "viz.test"
-    extract_importances_and_viz(
+    interpret_and_viz(
         tronn_graph,
         checkpoint_path,
-        prefix,
-        method="simple_gradients")
-        #method="guided_backprop")
+        1,
+        sample_size=10,
+        method="input_x_grad",
+        keep_negatives=False,
+        filter_by_prediction=True)
         
-    return
+    return None

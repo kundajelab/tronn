@@ -29,7 +29,7 @@ from tronn.nets.motif_nets import motif_assignment
 
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_by_importance
-from tronn.nets.filter_nets import filter_singles
+from tronn.nets.filter_nets import filter_singles_twotailed
 
 
 def get_importances(features, labels, config, is_training=False):
@@ -115,20 +115,27 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
     Returns:
       dict of results
     """
+
+    # important principles: utilizing consistency across tasks, filtering out noise, proper normalization
+    
+    # short todos:
+    # 2) normalizing motifs by info content - number of bases that are actually nonzero?
+    # 3) increase number of importance base pairs needed (to account for noise) - maybe up to 20 needed?
+    
     # set up stack
     inference_stack = [
         (multitask_importances, {"anchors": config["outputs"]["logits"], "importances_fn": input_x_grad, "relu": False}), # importances
         (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples
         # TODO - build a correct shuffle null
-        #(threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
+        ##(threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (filter_singles, {"window": 5, "min_fract": 0.4}), # needs to have 2bp within a 5bp window
+        (filter_singles_twotailed, {"window": 5, "min_fract": float(2)/5}), # needs to have 2bp within a 5bp window. CHANGE TO: 9 window, 3 within
         # TODOMAYBE stabilize here too? ie filter out things that dont match well across time?
         
-        (filter_by_importance, {"cutoff": 10}),
+        (filter_by_importance, {"cutoff": 20}),
         (normalize_w_probability_weights, {"normalize_probs": config["outputs"]["probs"]}), # normalize, never use logits (too much range) unless clip it
         
-        #(clip_edges, {"left_clip": 400, "right_clip": 600}), # clip for active center
+        ##(clip_edges, {"left_clip": 400, "right_clip": 600}), # clip for active center
         (add_per_example_kval, {"max_k": 4, "motif_len": 5}), # get a kval for each example, use with multitask_threshold_topk_by_example
         (pwm_convolve_inputxgrad, {"pwms": config["pwms"]}),
 

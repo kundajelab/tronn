@@ -178,6 +178,23 @@ def filter_singles(features, labels, config, is_training=False):
     return features, labels, config
 
 
+def filter_singles_twotailed(features, labels, config, is_training=False):
+    """Filter out singlets, removing positive and negative singlets separately
+    """
+    # split features
+    pos_features = tf.cast(tf.greater(features, 0), tf.float32)
+    neg_features = tf.cast(tf.less(features, 0), tf.float32)
+
+    # get masks
+    pos_mask, _, _ = filter_singles(pos_features, labels, config, is_training=is_training)
+    neg_mask, _, _ = filter_singles(neg_features, labels, config, is_training=is_training)
+    keep_mask = tf.add(pos_mask, neg_mask)
+
+    # mask features
+    features = tf.multiply(features, keep_mask)
+
+    return features, labels, config
+
 
 
 

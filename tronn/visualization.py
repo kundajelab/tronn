@@ -125,8 +125,8 @@ def plot_weights_given_ax(ax, array,
                          abs(max_pos_height)*(height_padding_factor))
     
     # fixed setting CHANGE LATER
-    max_pos_height = 4
-    min_neg_height = -2
+    #max_pos_height = 4
+    #min_neg_height = -2
     
     ax.set_ylim(min_neg_height-height_padding, max_pos_height+height_padding)
 
