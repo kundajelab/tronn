@@ -71,7 +71,7 @@ def pwm_simple_initializer(
             padded_weights = pwm.weights[:,pwm_center-left_pad:pwm_center+right_pad]
 
         if length_norm:
-            num_nonzero_basepairs = np.sum((np.sum(padded_weights, axis=0) != 0))
+            num_nonzero_basepairs = np.sum((np.sum(padded_weights, axis=0) != 0)) # is this right?
             #print num_nonzero_basepairs
             padded_weights = np.divide(padded_weights, num_nonzero_basepairs)
 

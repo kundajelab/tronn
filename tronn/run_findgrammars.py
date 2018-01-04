@@ -44,7 +44,7 @@ def run(args):
     # debug
     args.interpretation_tasks = [16, 17, 18, 19, 20, 21, 22, 23]
     args.interpretation_tasks = [16, 18, 23]
-    #args.interpretation_tasks = [16]
+    #args.interpretation_tasks = [20]
     
     # go through each interpretation task
     for i in xrange(len(args.interpretation_tasks)):
@@ -131,6 +131,7 @@ def run(args):
 
 
         # TODO throw in Louvain communities here
+        # this is unsupervised learning - clusters. within these, need to get significant motifs (relative to background)
         pwm_hits_df = pd.read_table(reduced_mat_file, index_col=0)
         pwm_hits_df = pwm_hits_df.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
 
@@ -149,6 +150,8 @@ def run(args):
             # pull out matrix
             community_mat = pwm_hits_df.iloc[region_indices,]
 
+            # TODO: bootstrap FDR to figure out which motifs are truly enriched relative to others in the set
+            
             # determine community name
             ranked_pwms = np.sum(community_mat, axis=0).sort_values()
             stop_idx = -1

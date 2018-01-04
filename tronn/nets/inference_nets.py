@@ -129,14 +129,14 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
         # TODO - build a correct shuffle null
         ##(threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (filter_singles_twotailed, {"window": 5, "min_fract": float(2)/5}), # needs to have 2bp within a 5bp window. CHANGE TO: 9 window, 3 within
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 5bp window.
         # TODOMAYBE stabilize here too? ie filter out things that dont match well across time?
         
         (filter_by_importance, {"cutoff": 20}),
         (normalize_w_probability_weights, {"normalize_probs": config["outputs"]["probs"]}), # normalize, never use logits (too much range) unless clip it
         
         ##(clip_edges, {"left_clip": 400, "right_clip": 600}), # clip for active center
-        (add_per_example_kval, {"max_k": 4, "motif_len": 5}), # get a kval for each example, use with multitask_threshold_topk_by_example
+        (add_per_example_kval, {"max_k": 4, "motif_len": 5}), # get a kval for each example, use with multitask_threshold_topk_by_example, tighten this up?
         (pwm_convolve_inputxgrad, {"pwms": config["pwms"]}),
 
         # maxpool to deal with slightly shifted motifs and check which motifs most consistent across time
