@@ -151,6 +151,7 @@ class ExampleGenerator(object):
         if self.reconstruct_regions: #?? whats going on here
             self.name_idx = -1
         else:
+            # to make a unique name, keep the whole thing?
             self.name_idx = 0
 
         self.filter_by_prediction = filter_by_prediction
@@ -214,7 +215,11 @@ class ExampleGenerator(object):
         for key in self.batch_region_arrays.keys():
             if key == "example_metadata":
                 region = self.batch_region_arrays[key][self.batch_pointer,0]
-                region_name = region.split(";")[self.name_idx].split("=")[1].split("::")[0]
+                if self.name_idx == -1:
+                    region_name = region.split(";")[self.name_idx].split("=")[1].split("::")[0]
+                else:
+                    # the whole region name is the unique id.
+                    region_name = region
             elif "importance" in key:
                 region_arrays[key] = (
                     self.batch_region_arrays[key][self.batch_pointer,:,:],
