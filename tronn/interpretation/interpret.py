@@ -165,7 +165,7 @@ def interpret_and_viz(
             batch_size,
             reconstruct_regions=False,
             keep_negatives=keep_negatives,
-            filter_by_prediction=filter_by_prediction,
+            filter_by_prediction=False,
             filter_tasks=tronn_graph.importances_tasks)
 
         # run all samples unless sample size is defined
@@ -187,6 +187,7 @@ def interpret_and_viz(
                         print region_arrays[key]
 
                 total_examples += 1
+                print total_examples
                         
                 # check condition
                 if (sample_size is not None) and (total_examples >= sample_size):

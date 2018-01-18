@@ -42,9 +42,9 @@ def run(args):
     logging.info("Found {} chrom files".format(len(data_files)))
 
     # debug
-    args.interpretation_tasks = [16, 17, 18, 19, 20, 21, 22, 23]
-    args.interpretation_tasks = [16, 18, 23]
-    #args.interpretation_tasks = [20]
+    #args.interpretation_tasks = [16, 17, 18, 19, 20, 21, 22, 23]
+    #args.interpretation_tasks = [16, 18, 23]
+    #args.interpretation_tasks = [32]
     
     # go through each interpretation task
     for i in xrange(len(args.interpretation_tasks)):
@@ -55,6 +55,7 @@ def run(args):
         # set up pwms to use here, also pwm names
         pwm_list_file = "{}/task-{}.permutation_test.cutoff.txt".format(
             args.motif_dir, interpretation_task_idx) # for now, use --pwm_list for the directory with pwm lists
+            #args.motif_dir, 16) # for now, use --pwm_list for the directory with pwm lists
         pwms_to_use = []
         with open(pwm_list_file, "r") as fp:
             for line in fp:
@@ -119,7 +120,7 @@ def run(args):
                 # only keep those in filtered set
                 pwm_hits = hf["pwm-counts.taskidx-10"][:][:,np.array(pwm_list_filt_indices)]
 
-                # filtering
+                # further reduce out those that are low scoring?
                 #index = hf["example_metadata"][:][~np.all(pwm_hits == 0, axis=1),:]
                 #pwm_hits = pwm_hits[~np.all(pwm_hits == 0, axis=1),:]
                 #pwm_hits = pwm_hits[:, pwm_indices]
@@ -134,9 +135,31 @@ def run(args):
         # this is unsupervised learning - clusters. within these, need to get significant motifs (relative to background)
         pwm_hits_df = pd.read_table(reduced_mat_file, index_col=0)
         pwm_hits_df = pwm_hits_df.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
+        pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df==0).all(axis=1)] # remove elements with no hits
+        print "total examples used:", pwm_hits_df.shape
 
-        communities, graph, Q = phenograph.cluster(pwm_hits_df)
+        # filtering:
+        if True:
+            # remove rows that are zero
+            pwm_hits_df_binary = (pwm_hits_df > 0).astype(int) #* pwm_hits_df
 
+            pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df_binary==0).all(axis=1)] # remove elements with no hits
+            pwm_hits_df_binary = pwm_hits_df_binary.loc[~(pwm_hits_df_binary==0).all(axis=1)] # remove elements with no hits
+            
+            # remove low scoring motifs
+            pwm_hits_df = pwm_hits_df.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
+            pwm_hits_df_binary = pwm_hits_df_binary.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
+            
+        communities, graph, Q = phenograph.cluster(pwm_hits_df_binary)
+
+        # save out a new mat sorted by community
+        sorted_mat_file = "{0}/{1}.task-{2}.motif_mat.reduced.community_sorted.txt".format(
+            args.tmp_dir, args.prefix, interpretation_task_idx)
+        pwm_hits_df["community"] = communities
+        pwm_hits_df = pwm_hits_df.sort_values("community")
+        pwm_hits_df.to_csv(sorted_mat_file, sep='\t')
+        pwm_hits_df = pwm_hits_df.drop(["community"], axis=1)
+        
         # and then only keep reasonably sized communities
         for community_idx in np.unique(communities).tolist():
 
@@ -144,12 +167,12 @@ def run(args):
             region_indices = np.where(communities == community_idx)[0]
 
             # only keep large communities
-            if region_indices.shape[0] < 500:
+            if region_indices.shape[0] < 100:
                 continue
-
+            
             # pull out matrix
             community_mat = pwm_hits_df.iloc[region_indices,]
-
+            
             # TODO: bootstrap FDR to figure out which motifs are truly enriched relative to others in the set
             
             # determine community name
@@ -159,7 +182,9 @@ def run(args):
             thresh = 0.10
             while True:
                 print stop_idx
-                if ranked_pwms[stop_idx-1] < top_score * thresh:
+                if -stop_idx == len(ranked_pwms):
+                    break
+                elif ranked_pwms[stop_idx-1] < top_score * thresh:
                     break
                 else:
                     stop_idx -= 1
@@ -168,7 +193,7 @@ def run(args):
             print top_pwms
             print ranked_pwms[stop_idx:]
             print region_indices.shape[0]
-
+            
             # and save out community matrix and BED file
             out_prefix = "{0}/{1}.task-{2}.community-{3}.{4}".format(
                 args.tmp_dir, args.prefix, interpretation_task_idx, community_idx, "_".join(list(reversed(top_pwms))[:3]))
@@ -185,7 +210,6 @@ def run(args):
                 "sort -k1,1 -k2,2n "
                 "> {1}").format(out_mat_file, out_bed_file)
             os.system(make_bed)
-
 
         continue
 

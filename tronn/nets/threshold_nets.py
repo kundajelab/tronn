@@ -2,7 +2,7 @@
 """
 
 import tensorflow as tf
-
+import tensorflow.contrib.slim as slim
 
 # TODO(dk)
 
@@ -240,6 +240,39 @@ def multitask_threshold_topk_by_example(features, labels, config, is_training=Fa
         thresholded.append(tf.expand_dims(task_features_thresholded, axis=task_axis))
     features = tf.concat(thresholded, axis=task_axis)
 
+    return features, labels, config
+
+
+def add_sumpool_threshval(features, labels, config, is_training=False):
+    """Determine whether there are enough meaningful basepairs within a window to keep a motif there
+    """
+    width = config.get("width", 25)
+    stride = config.get("stride", 1)
+    fract = config.get("fract", 2/25.)
+
+    # first pool with 1bp stride
+    features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
+    bp_fraction_per_window = slim.avg_pool2d(features_present, [1, width], stride=[1, stride])
+    threshold_mask = tf.cast(tf.greater_equal(bp_fraction_per_window, fract), tf.float32)
+    
+    print bp_fraction_per_window
+    print threshold_mask
+
+    # to consider - trim the edges?
+    
+    config["sumpool_mask"] = threshold_mask
+
+    return features, labels, config
+
+
+def apply_sumpool_thresh(features, labels, config, is_training=False):
+    """Apply the sumpooled threshold from before
+    """
+    mask = config.get("sumpool_mask")
+    assert mask is not None
+    
+    features = tf.multiply(features, mask)
+    
     return features, labels, config
 
 

@@ -107,7 +107,7 @@ def pwm_convolve_new(features, labels, config, is_training=False):
     return final_score, labels, config
 
 
-def pwm_convolve(features, labels, config, is_training=False):
+def pwm_convolve_old(features, labels, config, is_training=False):
     """Convolve with PWMs and normalize with vector projection:
 
       projection = a dot b / | b |
@@ -164,6 +164,43 @@ def pwm_convolve(features, labels, config, is_training=False):
     return features, labels, config
 
 
+def pwm_convolve(features, labels, config, is_training=False):
+    """Convolve with PWMs and normalize with vector projection:
+
+      projection = a dot b / | b |
+    """
+    pwm_list = config.get("pwms")
+    assert pwm_list is not None
+        
+    # get various sizes needed to instantiate motif matrix
+    num_filters = len(pwm_list)
+    logging.info("Total PWMs: {}".format(num_filters))
+    
+    max_size = 0
+    for pwm in pwm_list:
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+    logging.info("Filter size: {}".format(max_size))
+            
+    # make the convolution net for dot product, normal filters
+    # here, the pwms are already normalized to unit vectors for vector projection
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features), unit_vector=True, length_norm=False),
+            biases_initializer=None,
+            trainable=False):
+        # pwm cross correlation
+        features = slim.conv2d(
+            features, num_filters, conv1_filter_size,
+            scope='pwm/conv')
+        
+    return features, labels, config
+
+
 def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
     """Convolve both pos and negative scores with PWMs. Prevents getting scores
     when the negative correlation is stronger.
@@ -207,8 +244,14 @@ def pwm_maxpool(features, labels, config, is_training=False):
     """
     pool_width = config.get("pool_width", None)
     assert pool_width is not None
+
+    # testing
+    # big maxpool across 15 pwm width, but per position
+
+    # end testing
+
     
-    # get the max vals, both pos and neg
+    # get the max vals, both pos and neg, VALID padding
     maxpool_pos = slim.max_pool2d(features, [1, pool_width], stride=[1, pool_width]) # {N, task, seq_len/pool_width, M}
     maxpool_neg = slim.max_pool2d(-features, [1, pool_width], stride=[1, pool_width]) # {N, task, seq_len/pool_width, M}
     maxpool_abs = tf.reduce_max(tf.stack([maxpool_pos, maxpool_neg], axis=0), axis=0) # {N, task, seq_len/pool_width, M}
@@ -274,6 +317,15 @@ def pwm_positional_max(features, labels, config, is_training=False):
     # restack
     features = tf.concat(features_pos_max, axis=1) # {N, task, pos, M}
 
+    squeeze_position = config.get("squeeze", False)
+    if squeeze_position:
+        # should be max or sum?
+        features = tf.squeeze(tf.reduce_max(features, axis=2)) # {N, task, M}
+
+    keep_pos = config.get("keep_pos_only", False)
+    if keep_pos:
+        features = tf.nn.relu(features)
+    
     return features, labels, config
 
 

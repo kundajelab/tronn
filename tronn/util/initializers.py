@@ -40,12 +40,17 @@ def pwm_simple_initializer(
         filter_shape,
         pwm_list,
         fan_in,
+        max_centered=True,
+        unit_vector=False,
         length_norm=True,
         squared=False,
         binarize=False,
         dtype=dtypes.float32):
     """Load just PWMs into layer
     """
+
+    # TODO: center at maximal point, not at center of PWM
+    
     filter_length = filter_shape[1]
     left_pad = math.ceil(filter_length / 2.)
     right_pad = math.floor(filter_length / 2.)
@@ -58,18 +63,41 @@ def pwm_simple_initializer(
         extend_length = int((filter_length - pwm.weights.shape[1]) / 2)
         
         if extend_length >= 0:
-            # centered weight
-            padded_weights = np.concatenate(
-                (np.zeros(
-                    (4, extend_length)),
-                 pwm.weights,
-                 np.zeros(
-                     (4, filter_length-extend_length-pwm.weights.shape[1]))),
-                axis=1)
+            if max_centered:
+                filter_length = 2*filter_shape[1]
+                left_pad = math.ceil(filter_length / 2.)
+                right_pad = math.floor(filter_length / 2.)
+                max_position = np.argmax(np.max(pwm.weights, axis=0))
+                
+                # center on max position
+                left_extend = int(left_pad) - max_position
+                right_extend = int(right_pad) - (pwm.weights.shape[1] - max_position)
+                
+                padded_weights = np.concatenate(
+                    (np.zeros(
+                        (4, left_extend)),
+                     pwm.weights,
+                     np.zeros(
+                         (4, right_extend))),
+                    axis=1)
+            else:
+                # centered weight
+                padded_weights = np.concatenate(
+                    (np.zeros(
+                        (4, extend_length)),
+                     pwm.weights,
+                     np.zeros(
+                         (4, filter_length-extend_length-pwm.weights.shape[1]))),
+                    axis=1)
         else:
             pwm_center = pwm.weights.shape[1] / 2
             padded_weights = pwm.weights[:,pwm_center-left_pad:pwm_center+right_pad]
 
+        # TODO zscore normalize? want to do a true vector projection....
+        # ie, need to take the sqrt(sum of squares) for euclidean distance?
+        if unit_vector:
+            padded_weights = np.divide(padded_weights, np.sqrt(np.sum(np.square(padded_weights))))
+            
         if length_norm:
             num_nonzero_basepairs = np.sum((np.sum(padded_weights, axis=0) != 0)) # is this right?
             #print num_nonzero_basepairs

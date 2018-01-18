@@ -131,15 +131,18 @@ def plot_weights_given_ax(ax, array,
     ax.set_ylim(min_neg_height-height_padding, max_pos_height+height_padding)
 
 
-def plot_weights(array,
-  fig_name, 
-                 figsize=(150,2), # 20,2
-                 height_padding_factor=0.2,
-                 length_padding=0.1, #1.0,
-                 subticks_frequency=1.0,
-                 colors=default_colors,
-                 plot_funcs=default_plot_funcs,
-                 highlight={}):
+def plot_weights(
+        array,
+        fig_name, 
+        figsize=(150,2), # 20,2
+        height_padding_factor=0.2,
+        length_padding=0.1, #1.0,
+        subticks_frequency=1.0,
+        colors=default_colors,
+        plot_funcs=default_plot_funcs,
+        highlight={}):
+    """Plot weights
+    """
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111) 
     plot_weights_given_ax(ax=ax, array=array,
