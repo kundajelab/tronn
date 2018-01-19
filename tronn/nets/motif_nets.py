@@ -181,6 +181,7 @@ def pwm_convolve(features, labels, config, is_training=False):
         if pwm.weights.shape[1] > max_size:
             max_size = pwm.weights.shape[1]
     logging.info("Filter size: {}".format(max_size))
+    config["filter_width"] = max_size
             
     # make the convolution net for dot product, normal filters
     # here, the pwms are already normalized to unit vectors for vector projection
@@ -239,6 +240,76 @@ def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
     return features, labels, config
 
 
+def pwm_motif_max(features, labels, config, is_training=False):
+    """Get max at a position
+    """
+    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)] # list of {N, 1, pos, M}
+
+    # TODO build a function to filter for two sided max?
+    features_pos_max = []
+    for i in xrange(len(features)):
+        task_features = features[i]
+        # fix this? is wrong?
+        features_max_vals = tf.reduce_max(tf.abs(task_features), axis=2, keep_dims=True) # {N, 1, 1, M}
+        features_max_mask = tf.multiply(
+            tf.cast(tf.equal(tf.abs(task_features), features_max_vals), tf.float32),
+            tf.cast(tf.not_equal(task_features, 0), tf.float32))
+        task_features = tf.multiply(task_features, features_max_mask)
+        features_pos_max.append(task_features)
+        
+    # restack
+    features = tf.concat(features_pos_max, axis=1) # {N, task, pos, M}
+
+    return features, labels, config
+
+
+def pwm_match_filtered_convolve(features, labels, config, is_training=False):
+    """Run pwm convolve twice, with importance scores and without.
+    Choose max for motif across positions using raw sequence
+    """
+
+    # run on raw features
+    pos_features_present = tf.cast(tf.greater(features, [0]), tf.float32)
+    neg_features_present = -tf.cast(tf.less(features, [0]), tf.float32)
+    binarized_features = tf.add(pos_features_present, neg_features_present)
+
+    with tf.variable_scope("binarize_filt"):
+        pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
+            binarized_features, labels, config, is_training=is_training) # {N, task, pos, M}
+
+    # get max per motif to filter the importance weighted scores
+    max_scores_from_binarized, _, _ = pwm_motif_max(
+        pwm_binarized_feature_scores, labels, config, is_training=is_training)
+    pwm_binarized_feature_maxfilt_mask = tf.cast(
+        tf.not_equal(max_scores_from_binarized, [0]), tf.float32)
+    
+    # run on impt weighted features
+    pwm_impt_weighted_scores, _, _ = pwm_convolve_inputxgrad(
+        features, labels, config, is_training=is_training)
+
+    # and filter through mask
+    features = tf.multiply(
+        pwm_binarized_feature_maxfilt_mask,
+        pwm_impt_weighted_scores)
+
+    # TODO at this stage also need to perform the weighting by bp presence
+    # do an avg pool
+    if False:
+        features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
+        max_size = config.get("filter_width")
+        assert max_size is not None
+        nonzero_bp_fraction_per_window = slim.avg_pool2d(
+            features_present, [1, max_size], stride=[1,1], padding="VALID") # check sizing
+
+        import ipdb
+        ipdb.set_trace()
+        
+        features = tf.multiply(
+            features, nonzero_bp_fraction_per_window)
+
+    return features, labels, config
+
+
 def pwm_maxpool(features, labels, config, is_training=False):
     """Two tailed pooling operation when have both pos/neg scores
     """
@@ -266,6 +337,10 @@ def pwm_maxpool(features, labels, config, is_training=False):
     features = tf.add(maxpool_pos_masked, maxpool_neg_masked)
 
     return features, labels, config
+
+
+# TODO more correctly, need to set up a check so that a motif across time is only kept if seen at least
+# twice across time too
 
 
 def pwm_consistency_check(features, labels, config, is_training=False):
@@ -317,14 +392,26 @@ def pwm_positional_max(features, labels, config, is_training=False):
     # restack
     features = tf.concat(features_pos_max, axis=1) # {N, task, pos, M}
 
-    squeeze_position = config.get("squeeze", False)
-    if squeeze_position:
-        # should be max or sum?
-        features = tf.squeeze(tf.reduce_max(features, axis=2)) # {N, task, M}
+    return features, labels, config
 
-    keep_pos = config.get("keep_pos_only", False)
-    if keep_pos:
-        features = tf.nn.relu(features)
+
+def pwm_position_squeeze(features, labels, config, is_training=False):
+    """Squeeze position
+    """
+    squeeze_type = config.get("squeeze_type", "max")
+    if squeeze_type == "max":
+        features = tf.squeeze(tf.reduce_max(features, axis=2))
+    elif squeeze_type == "mean":
+        features = tf.squeeze(tf.reduce_mean(features, axis=2))
+    elif squeeze_type == "sum":
+        features = tf.squeeze(tf.reduce_sum(features, axis=2))
+
+    return features, labels, config
+
+def pwm_relu(features, labels, config, is_training=False):
+    """Only keep positive
+    """
+    features = tf.nn.relu(features)
     
     return features, labels, config
 

@@ -8,6 +8,7 @@ import numpy as np
 def split_region(region):
     """Split region into a list of [chr, start, stop]
     """
+    region = region.split(";")[-1].split("=")[1] # to account for new region names
     chrom = region.split(":")[0]
     start = int(region.split(":")[1].split("-")[0])
     stop = int(region.split(":")[1].split("-")[1].split("(")[0].rstrip('\0'))

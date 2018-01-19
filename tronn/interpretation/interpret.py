@@ -106,6 +106,9 @@ def interpret(
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
 
+                    #import ipdb
+                    #ipdb.set_trace()
+
                     # check condition
                     if (sample_size is not None) and (total_examples >= sample_size):
                         break

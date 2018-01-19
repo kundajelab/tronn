@@ -56,6 +56,8 @@ def run(args):
         pwm_list_file = "{}/task-{}.permutation_test.cutoff.txt".format(
             args.motif_dir, interpretation_task_idx) # for now, use --pwm_list for the directory with pwm lists
             #args.motif_dir, 16) # for now, use --pwm_list for the directory with pwm lists
+        pwm_list_file = "{}/global.permutation_test.cutoff.txt".format(args.motif_dir)
+        
         pwms_to_use = []
         with open(pwm_list_file, "r") as fp:
             for line in fp:
@@ -127,9 +129,11 @@ def run(args):
                 #pwm_hits = pwm_hits[:, ~np.all(pwm_hits == 0, axis=0)]
                 
                 # set up dataframe and save out
-                pwm_hits_df = pd.DataFrame(pwm_hits, index=hf["example_metadata"][:][:,0], columns=pwm_names_clean)
+                pwm_hits_df = pd.DataFrame(pwm_hits, index=hf["example_metadata"][:][:,0], columns=pwm_names_filt)
                 pwm_hits_df.to_csv(reduced_mat_file, sep='\t')
 
+        # for now, just want the reduced mats
+        # but maybe need to do the community clustering first?
 
         # TODO throw in Louvain communities here
         # this is unsupervised learning - clusters. within these, need to get significant motifs (relative to background)

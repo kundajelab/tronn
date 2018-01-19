@@ -24,6 +24,10 @@ from tronn.nets.motif_nets import pwm_convolve_inputxgrad
 from tronn.nets.motif_nets import pwm_maxpool
 from tronn.nets.motif_nets import pwm_consistency_check
 from tronn.nets.motif_nets import pwm_positional_max
+from tronn.nets.motif_nets import pwm_position_squeeze
+from tronn.nets.motif_nets import pwm_relu
+from tronn.nets.motif_nets import pwm_match_filtered_convolve
+
 from tronn.nets.motif_nets import multitask_motif_assignment
 from tronn.nets.motif_nets import motif_assignment
 
@@ -138,6 +142,8 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
         (multitask_importances, {"anchors": config["outputs"]["logits"], "importances_fn": input_x_grad, "relu": False}), # importances
         (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples
         # TODO - build a correct shuffle null
+        # ^ do this by adding on extra shuffled sequences to a batch (pass along the ratio and indices)
+        # then after using the extra shuffled sequences, can discard and only pass along real sequences into a queue
         ##(threshold_shufflenull, {"num_shuffles": 100, "pval": 0.05, "two_tailed": True}), # threshold
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 5bp window.
@@ -149,7 +155,9 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
         ##(clip_edges, {"left_clip": 400, "right_clip": 600}), # clip for active center
         #(add_per_example_kval, {"max_k": 4, "motif_len": 5}), # get a kval for each example, use with multitask_threshold_topk_by_example, tighten this up?
         #(add_sumpool_threshval, {"width": 10, "stride": 1, "fract": 2/25.}),
-        (pwm_convolve_inputxgrad, {"pwms": config["pwms"]}),
+        
+        #(pwm_convolve_inputxgrad, {"pwms": config["pwms"]}),
+        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
 
         # maxpool to deal with slightly shifted motifs and check which motifs most consistent across time
         #(pwm_maxpool, {"pool_width": 10}), # from 10
@@ -158,8 +166,23 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
         (multitask_global_importance, {"append": True}), # get global (abs val)
         
         # take max and threshold
-        # dont do this?
-        (pwm_positional_max, {"squeeze": True, "keep_pos_only": True}), # change squeeze back to True
+        # this is an important step to reduce noise
+        # sources of noise - confounding of match with the importance score strength
+        # solving this still leaves the possibility of a match simply due to noise - maybe weight by num of nonzero bp in the filter range?
+        # maybe a double filter - first select position with best match on binary sequence (no weighting, just 1 or 0)
+        # also consider a minimum match threshold. since log likelihood, greater than zero?
+        # and then with that, filter?
+
+        # filter steps to add:
+        # 1) PWM raw sequence filter (ie on raw sequence, score > 0) - do this in the pwm step above. don't do max because what if multiple sites in region?
+        #    actually max probably ok for now (even top 3, for later)
+        # 2) spread the score across the filter and intersect with nonzero basepairs, and re-sum - this gives you a weighted score
+        #    another way to do this is to just do a sumpool in the filter range, divide by filter size, and multiply the score by that val
+        # 3) then from those scores take max val across positions (below: the pwm_position_squeeze)
+        
+        #(pwm_positional_max, {}), # change squeeze back to True
+        (pwm_position_squeeze, {"squeeze_type": "max"}),
+        (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
         #(multitask_threshold_topk_by_example, {"splitting_axis": 0, "position_axis": 2}), # just keep top k
         #(apply_sumpool_thresh, {}),
         

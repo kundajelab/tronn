@@ -2,9 +2,11 @@
 """
 
 import os
+import h5py
 import glob
 import logging
 
+import numpy as np
 import tensorflow as tf
 
 from tronn.graphs import TronnNeuralNetGraph
@@ -15,6 +17,8 @@ from tronn.interpretation.interpret import interpret
 from tronn.interpretation.motifs import get_encode_pwms
 from tronn.interpretation.motifs import bootstrap_fdr_v2
 from tronn.interpretation.motifs import make_motif_x_timepoint_mat
+
+from sklearn.linear_model import LogisticRegression
 
 
 def run_permutation_test_and_plot(
@@ -58,6 +62,46 @@ def run_permutation_test_and_plot(
     os.system("plot_tfs.R {} {}".format(mat_file, out_plot))
 
     return
+
+
+def run_logistic_regression(
+        h5_file,
+        feature_key,
+        label_key,
+        task_idx,
+        C=1):
+    """Run logistic regression on the motif mat
+    """
+    print "running logistic regression"
+    with h5py.File(h5_file, "r") as hf:
+        # get X and y
+        X = hf[feature_key]
+        y = hf[label_key][:,task_idx]
+
+        # get a balanced set
+        # NOTE this naturally lends itself to a bootstrap-ish situation?
+        X_pos = X[y > 0,:]
+        y_pos = y[y > 0]
+        pos_size = X_pos.shape[0]
+
+        X_neg = X[y == 0,:]
+        y_neg = y[y == 0]
+        neg_size = X_neg.shape[0]
+        idx = np.random.randint(neg_size, size=pos_size)
+        X_neg = X_neg[idx,:]
+        y_neg = y_neg[idx]
+    
+        X_bal = np.vstack((X_pos, X_neg))
+        y_bal = np.hstack((y_pos, y_neg))
+    
+    # fit
+    model = LogisticRegression(C=C, penalty="l1", tol=0.0001)
+    model.fit(X_bal, y_bal)
+    print model.score(X_bal, y_bal)
+
+    coefs = model.coef_.ravel()
+    
+    return np.where(coefs != 0)
 
 
 def run(args):
@@ -110,8 +154,49 @@ def run(args):
             filter_by_prediction=True,
             method=args.backprop if args.backprop is not None else "input_x_grad") # simple_gradients or guided_backprop
 
-    # first global permutation test
+
     global_task_idx = len(args.importances_tasks)
+    
+    # TODO: for each task of interest, build an ML model
+    # (simplest: L1 regularized logistic regression) to
+    # extract top motif features per task
+    # take that master set and save out list as well as ordering
+    # by correlation
+    # don't viz correlations at this stage?
+    all_pwm_indices = []
+    for i in xrange(len(args.interpretation_tasks)):
+        interpretation_task_idx = args.interpretation_tasks[i]
+        # TODO eventually convert this to bootstrapped version
+        pwm_indices = run_logistic_regression(
+            pwm_counts_mat_h5,
+            "pwm-counts.taskidx-{}".format(global_task_idx),
+            "labels",
+            interpretation_task_idx)
+        print "task:", pwm_indices[0].tolist()
+        all_pwm_indices = sorted(list(set(all_pwm_indices + pwm_indices[0].tolist())))
+        print "all:", all_pwm_indices
+        print len(all_pwm_indices)
+
+        # save out PWMs per task
+        # TODO
+        sig_file = "task-{}.permutation_test.cutoff.txt".format(interpretation_task_idx)
+        with open(sig_file, "w") as out:
+            for pwm_idx in pwm_indices[0].tolist():
+                out.write("{}\n".format(pwm_list[pwm_idx].name))
+
+    # save out selected PWMs
+    sig_file = "global.permutation_test.cutoff.txt"
+    with open(sig_file, "w") as out:
+        for pwm_idx in all_pwm_indices:
+            out.write("{}\tNA\n".format(pwm_list[pwm_idx].name))
+        
+    import ipdb
+    ipdb.set_trace()
+
+    quit()
+
+    # first global permutation test
+
     run_permutation_test_and_plot(
         pwm_counts_mat_h5,
         "pwm-counts.taskidx-{}".format(global_task_idx),
