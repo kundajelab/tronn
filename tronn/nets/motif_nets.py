@@ -288,24 +288,25 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
         features, labels, config, is_training=is_training)
 
     # and filter through mask
-    features = tf.multiply(
+    filt_features = tf.multiply(
         pwm_binarized_feature_maxfilt_mask,
         pwm_impt_weighted_scores)
 
     # TODO at this stage also need to perform the weighting by bp presence
     # do an avg pool
-    if False:
+    if True:
         features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
-        max_size = config.get("filter_width")
+        max_size = 2*config.get("filter_width") # NOTE: this is because of max centering in the initializer
         assert max_size is not None
-        nonzero_bp_fraction_per_window = slim.avg_pool2d(
-            features_present, [1, max_size], stride=[1,1], padding="VALID") # check sizing
-
-        import ipdb
-        ipdb.set_trace()
-        
+        nonzero_bp_fraction_per_window = tf.reduce_sum(
+            slim.avg_pool2d(
+                features_present, [1, max_size], stride=[1,1], padding="VALID"),
+            axis=3, keep_dims=True)
         features = tf.multiply(
-            features, nonzero_bp_fraction_per_window)
+            filt_features,
+            nonzero_bp_fraction_per_window)
+    else:
+        features = filt_features
 
     return features, labels, config
 
