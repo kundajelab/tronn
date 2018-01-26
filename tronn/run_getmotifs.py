@@ -7,6 +7,7 @@ import glob
 import logging
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 
 from tronn.graphs import TronnNeuralNetGraph
@@ -20,6 +21,7 @@ from tronn.interpretation.motifs import make_motif_x_timepoint_mat
 
 from sklearn.linear_model import LogisticRegression
 
+from tronn.run_findgrammars import get_significant_correlations
 
 def run_permutation_test_and_plot(
         h5_file,
@@ -156,6 +158,18 @@ def run(args):
 
 
     global_task_idx = len(args.importances_tasks)
+
+    # calculate a global motif correlation score
+    corr_mat_file = "{}/global.corr_mat.txt".format(args.tmp_dir)
+    with h5py.File(pwm_counts_mat_h5, "r") as hf:
+        motif_mat = hf["pwm-counts.taskidx-{}".format(global_task_idx)][:]
+        print "got motif mat"
+        corr_mat, pval_mat = get_significant_correlations(motif_mat)
+        corr_mat_df = pd.DataFrame(corr_mat, index=pwm_names, columns=pwm_names)
+        corr_mat_df.to_csv(corr_mat_file, sep="\t")
+
+        
+    quit()
     
     # TODO: for each task of interest, build an ML model
     # (simplest: L1 regularized logistic regression) to
@@ -163,37 +177,34 @@ def run(args):
     # take that master set and save out list as well as ordering
     # by correlation
     # don't viz correlations at this stage?
-    all_pwm_indices = []
-    for i in xrange(len(args.interpretation_tasks)):
-        interpretation_task_idx = args.interpretation_tasks[i]
-        # TODO eventually convert this to bootstrapped version
-        pwm_indices = run_logistic_regression(
-            pwm_counts_mat_h5,
-            "pwm-counts.taskidx-{}".format(global_task_idx),
-            "labels",
-            interpretation_task_idx)
-        print "task:", pwm_indices[0].tolist()
-        all_pwm_indices = sorted(list(set(all_pwm_indices + pwm_indices[0].tolist())))
-        print "all:", all_pwm_indices
-        print len(all_pwm_indices)
+    if False:
+        all_pwm_indices = []
+        for i in xrange(len(args.interpretation_tasks)):
+            interpretation_task_idx = args.interpretation_tasks[i]
+            # TODO eventually convert this to bootstrapped version
+            pwm_indices = run_logistic_regression(
+                pwm_counts_mat_h5,
+                "pwm-counts.taskidx-{}".format(global_task_idx),
+                "labels",
+                interpretation_task_idx)
+            print "task:", pwm_indices[0].tolist()
+            all_pwm_indices = sorted(list(set(all_pwm_indices + pwm_indices[0].tolist())))
+            print "all:", all_pwm_indices
+            print len(all_pwm_indices)
 
-        # save out PWMs per task
-        # TODO
-        sig_file = "task-{}.permutation_test.cutoff.txt".format(interpretation_task_idx)
+            # save out PWMs per task
+            # TODO
+            sig_file = "task-{}.permutation_test.cutoff.txt".format(interpretation_task_idx)
+            with open(sig_file, "w") as out:
+                for pwm_idx in pwm_indices[0].tolist():
+                    out.write("{}\n".format(pwm_list[pwm_idx].name))
+                    
+        # save out selected PWMs
+        sig_file = "global.permutation_test.cutoff.txt"
         with open(sig_file, "w") as out:
-            for pwm_idx in pwm_indices[0].tolist():
-                out.write("{}\n".format(pwm_list[pwm_idx].name))
-
-    # save out selected PWMs
-    sig_file = "global.permutation_test.cutoff.txt"
-    with open(sig_file, "w") as out:
-        for pwm_idx in all_pwm_indices:
-            out.write("{}\tNA\n".format(pwm_list[pwm_idx].name))
-        
-    import ipdb
-    ipdb.set_trace()
-
-    quit()
+            for pwm_idx in all_pwm_indices:
+                out.write("{}\tNA\n".format(pwm_list[pwm_idx].name))
+                
 
     # first global permutation test
 
