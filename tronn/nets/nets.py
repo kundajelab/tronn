@@ -1,6 +1,7 @@
 """Access point for all nets
 """
 
+from tronn.nets.deep_nets import fbasset
 from tronn.nets.deep_nets import basset
 from tronn.nets.deep_nets import danq
 from tronn.nets.deep_nets import deepsea
@@ -20,6 +21,7 @@ from tronn.nets.grammar_nets import multiple_grammars
 
 net_fns = {
     "basset": basset,
+    "fbasset": fbasset, #factorized basset
     "danq": danq,
     "deepsea": deepsea,
     "inception": tfslim_inception,
