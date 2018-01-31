@@ -40,88 +40,121 @@ from tronn.nets.filter_nets import filter_by_importance
 from tronn.nets.filter_nets import filter_singles_twotailed
 
 
-def get_importances(features, labels, config, is_training=False):
-    """Get importance scores
+def build_inference_stack(features, labels, config, inference_stack):
+    """Given the inference stack, build the graph
     """
-    # set up stack
-    inference_stack = [
-        (multitask_importances, {"anchors": config["outputs"]["logits"], "importances_fn": input_x_grad, "relu": False}), # importances
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 5bp window.
-        #(normalize_w_probability_weights, {"probs": config["importance_probs"]}), # this normalization is weak, normalize pos and neg separately?
-        #(normalize_to_logits, {"logits": config["importance_logits"]}),
-        (multitask_global_importance, {"append": True}),
-    ]
-    
-    # stack the transforms
     master_config = config
     for transform_fn, config in inference_stack:
         print transform_fn
         master_config.update(config) # update config before and after
         features, labels, config = transform_fn(features, labels, master_config)
+        print features.get_shape()
         master_config.update(config)
-        
-    # unstack features by task and attach to config
-    features = tf.unstack(features, axis=1)
-    outputs = {}
+
+    return features, labels, config
+
+
+def unstack_tasks(features, labels, config, prefix="features", task_axis=1):
+    """Unstack by task (axis=1)
+    """
+    features = tf.unstack(features, axis=task_axis)
+    #outputs = {}
     for i in xrange(len(features)):
-        outputs["pwm-counts.taskidx-{}".format(i)] = features[i]
-        master_config["outputs"]["pwm-counts.taskidx-{}".format(i)] = features[i]
+        task_features_key = "{}.taskidx-{}".format(prefix, i)
+        #outputs[task_features_key] = features[i]
+        config["outputs"][task_features_key] = features[i]
 
     # and add labels
-    master_config["outputs"]["labels"] = labels
-    
-    return outputs, labels, config
+    config["outputs"]["labels"] = labels
+
+    return config
 
 
-def sequence_to_motif_assignments(features, labels, config, is_training=False):
-    """Go straight from raw sequence to motif scores. Do not pass (through) NN.
+def sequence_to_importance_scores(
+        features,
+        labels,
+        config,
+        is_training=False,
+        keep_outputs=True):
+    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
-    # set up stack
     inference_stack = [
-        (motif_assignment, {"pmws": config["pwms"], "k_val": 4, "motif_len": 5, "pool": True}),
-        (threshold_topk, {"k_val": 4})
+        (multitask_importances, {"anchors": config["outputs"]["logits"], "importances_fn": input_x_grad, "relu": False}), # importances
+        (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 7bp window.
+        (filter_by_importance, {"cutoff": 20}),
+        (normalize_w_probability_weights, {"normalize_probs": config["outputs"]["probs"]}), # normalize, never use logits (too much range) unless clip it
     ]
+    
+    # set up inference stack
+    features, labels, config = build_inference_stack(
+        features, labels, config, inference_stack)
 
-    # stack the transforms
-    for transform_fn, config in inference_stack:
-        features, labels, config = transform_fn(features, labels, config)
-        # TODO - if needed, pass on additional configs through
+    # unstack
+    if keep_outputs:
+        config = unstack_tasks(features, labels, config, prefix="importances") # TODO fix this
         
     return features, labels, config
 
 
-def importances_to_motif_assignments(features, labels, config, is_training=False):
-    """Update to motif assignments
-    
-    Returns:
-      dict of results
+def sequence_to_motif_scores(
+        features,
+        labels,
+        config,
+        is_training=False,
+        keep_outputs=True):
+    """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
-    # set up stack
+    use_importances = config.get("use_importances", True)
+    assert use_importances is not None
+
+    # if using NN, convert features to importance scores first
+    if use_importances:
+        features, labels, config = sequence_to_importance_scores(
+            features, labels, config, is_training=is_training, keep_outputs=keep_outputs)
+
+    # set up inference stack
     inference_stack = [
-        (multitask_importances, {"anchors": config["importance_logits"], "importances_fn": input_x_grad}),
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (normalize_w_probability_weights, {"probs": config["importance_probs"]}),
-        (multitask_global_importance, {"append": True}),
-        # TODO - split out pwm convolution from motif assignment
-        (multitask_motif_assignment, {"pwms": config["pwms"], "k_val": 4, "motif_len": 5, "pool": True}),
-        #(threshold_topk, {"k_val": 4})
+        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}), # double filter: raw seq match and impt weighted seq match
+        (pwm_consistency_check, {}), # get consistent across time scores
+        (multitask_global_importance, {"append": True, "keep_features": True}), # get global (abs val)
+        (pwm_position_squeeze, {"squeeze_type": "max"}), # get the max across positions {N, motif}
+        (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
     ]
 
-    # stack the transforms
-    for transform_fn, config in inference_stack:
-        print transform_fn
-        features, labels, config = transform_fn(features, labels, config)
-        # TODO - if needed, pass on additional configs through
+    # build inference stack
+    features, labels, config = build_inference_stack(
+        features, labels, config, inference_stack)
 
-    # TODO separate out results into separate task sets
-    features = tf.unstack(features, axis=1)
+    # unstack
+    if keep_outputs:
+        config = unstack_tasks(features, labels, config, prefix="pwm-scores")
     
-    outputs = {}
-    for i in xrange(len(features)):
-        outputs["pwm-counts.taskidx-{}".format(i)] = features[i]
+    return features, labels, config
+
+
+# set up grammars net
+def sequence_to_grammar_scores(features, labels, config, is_training=False):
+    """Go from sequence (N, 1, pos, 4) to grammar hits (N, grammar)
+    """
+    # first go from sequence to motifs
+    features, labels, config = sequence_to_motif_scores(
+        features, labels, config, is_training=is_training)
+
+    # set up inference stack
+    inference_stack = [
+        # scan motifs for hits - ie, add another grammar layer on top
         
-    return outputs, labels, config
+
+    ]
+
+    
+    return features, labels, config
+
+
+# OLD CODE BELOW TO DELETE
+
 
 
 def importances_to_motif_assignments_v3(features, labels, config, is_training=False):

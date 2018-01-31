@@ -102,7 +102,7 @@ def run(args):
             net_fns[args.model['name']],
             args.model,
             tf.nn.sigmoid,
-            importances_fn=net_fns["importances_to_motif_assignments"],
+            importances_fn=net_fns[args.importances_fn],
             importances_tasks=args.importances_tasks,
             shuffle_data=True,
             filter_tasks=[interpretation_task_idx])

@@ -221,7 +221,7 @@ class ExampleGenerator(object):
                 else:
                     # the whole region name is the unique id.
                     region_name = region
-            elif "importance" in key:
+            elif "region_importance" in key: # TODO - change this later, if region merging
                 region_arrays[key] = (
                     self.batch_region_arrays[key][self.batch_pointer,:,:],
                     "offset")

@@ -369,7 +369,7 @@ def pwm_consistency_check(features, labels, config, is_training=False):
 
     # stack
     features = tf.concat(masked_features_list, axis=0) # {N, task, pos, M}
-    
+
     return features, labels, config
 
 

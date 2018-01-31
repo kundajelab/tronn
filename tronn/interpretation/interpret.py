@@ -10,6 +10,7 @@ import math
 import time
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 
 from tensorflow.python.framework import ops
@@ -45,6 +46,58 @@ def _GuidedReluGrad(op, grad):
     return tf.where(0. < grad,
                     gen_nn_ops._relu_grad(grad, op.outputs[0]),
                     tf.zeros(grad.get_shape()))
+
+
+def visualize_region(
+        region,
+        region_arrays,
+        pwm_list,
+        prefix="viz",
+        global_idx=10):
+    """Given a dict representing a region, plot necessary things
+    """
+    region_string = region.strip("\x00").split(";")[0].split("=")[1].replace(":", "-")
+    region_prefix = "{}.{}".format(prefix, region_string)
+        
+    for key in region_arrays.keys():
+        
+        # plot importance scores across time (keys="importances.taskidx-{}")
+        if "importances.taskidx" in key:
+            # squeeze and visualize!
+            plot_name = "{}.{}.png".format(region_prefix, key)
+            print plot_name
+            #plot_weights(np.squeeze(region_arrays[key][400:600,:]), plot_name) # array, fig name
+            plot_weights(np.squeeze(region_arrays[key]), plot_name) # array, fig name
+            
+        elif "global-pwm-scores" in key:
+            # save out to matrix
+            # save it out with pwm names...
+            file_name = "{}.{}.txt".format(region_prefix, key)
+            motif_pos_scores = np.transpose(np.squeeze(region_arrays[key]))
+            motif_pos_scores_df = pd.DataFrame(
+                motif_pos_scores,
+                index=[pwm.name for pwm in pwm_list])
+            motif_pos_scores_df.to_csv(file_name, header=False, sep="\t")
+            
+        elif "pwm-scores.taskidx-{}".format(global_idx) in key:
+            # save out to matrix
+            file_name = "{}.{}.txt".format(region_prefix, key)
+            motif_pos_scores = np.transpose(np.squeeze(region_arrays[key]))
+            motif_pos_scores_df = pd.DataFrame(
+                motif_pos_scores,
+                index=[pwm.name for pwm in pwm_list])
+            motif_pos_scores_df.to_csv(file_name, header=False, sep="\t")
+
+        elif "prob" in key:
+            print "probs:", region_arrays[key][0:12]
+
+        elif "logit" in key:
+            print "logits:", region_arrays[key][0:12]
+            
+    # after this, collect the global and pwm max scores and plot with R
+    # TODO
+
+    return None
 
 
 def interpret(
@@ -106,8 +159,12 @@ def interpret(
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
 
-                    #import ipdb
-                    #ipdb.set_trace()
+                    import ipdb
+                    ipdb.set_trace()
+
+                    # replace with real condition here
+                    if True:
+                        visualize_region(region, region_arrays, pwm_list, prefix="viz", global_idx=10)
 
                     # check condition
                     if (sample_size is not None) and (total_examples >= sample_size):
@@ -131,7 +188,11 @@ def interpret(
     return None
 
 
-
+# TODO remove this. eventually will want to visualize random samples on occasion
+# or under a condition, but during the normal running of interpret - therefore will
+# still want to save outputs to hdf5
+# BUT NOT YET - this is used in the other viz module, where you have specific sequences
+# that you are quickly checking.
 def interpret_and_viz(
         tronn_graph,
         model_checkpoint,

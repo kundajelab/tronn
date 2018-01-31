@@ -183,6 +183,7 @@ class TronnNeuralNetGraph(TronnGraph):
         importance scores
         """
         assert self.importances_fn is not None
+        self.pwm_list = pwm_list # keep pwm list
 
         # build graph
         self.build_graph(data_key, is_training=False)

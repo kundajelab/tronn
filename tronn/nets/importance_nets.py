@@ -83,7 +83,8 @@ def multitask_global_importance_old(features, labels, config, is_training=False)
 
 
 def multitask_global_importance(features, labels, config, is_training=False):
-    """Also get global importance
+    """Also get global importance. does a check to see that the feature is at least
+    observed twice (count_thresh)
     """
     assert is_training == False
     append = config.get("append", True)
@@ -121,6 +122,11 @@ def multitask_global_importance(features, labels, config, is_training=False):
         features = tf.concat([features, features_max], axis=1)
     else:
         features = features_max
+
+    if config.get("keep_features", False):
+        # attach to config
+        config["outputs"]["global-pwm-scores"] = features_max #{N, pos, motif}
+        
 
     return features, labels, config
 

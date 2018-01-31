@@ -639,6 +639,8 @@ def add_findgrammars_parser(subparsers):
     add_trained_nn_model_options(group_model)
     group_model.add_argument(
         "--backprop", help="what method to use for interpretation")
+    group_model.add_argument(
+        "--importances_fn", help="inference stack")
 
 
     # group for parameters
