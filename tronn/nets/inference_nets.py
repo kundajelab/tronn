@@ -208,7 +208,7 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
 
     # and add labels
     master_config["outputs"]["labels"] = labels
-    
+
     return outputs, labels, master_config
 
 

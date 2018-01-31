@@ -401,7 +401,7 @@ def pwm_position_squeeze(features, labels, config, is_training=False):
     """
     squeeze_type = config.get("squeeze_type", "max")
     if squeeze_type == "max":
-        features = tf.squeeze(tf.reduce_max(features, axis=2))
+        features = tf.squeeze(tf.reduce_max(features, axis=2)) # features {N, task, pos, M}
     elif squeeze_type == "mean":
         features = tf.squeeze(tf.reduce_mean(features, axis=2))
     elif squeeze_type == "sum":

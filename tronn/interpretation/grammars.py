@@ -44,7 +44,7 @@ def get_significant_correlations(motif_mat, corr_method="pearson", pval_thresh=0
                     correlation_pvals[i,j] = pval
             elif corr_method == "continuous_jaccard":
                 min_vals = np.minimum(motif_mat[:,i], motif_mat[:,j])
-                max_vals = np.minimum(motif_mat[:,i], motif_mat[:,j])
+                max_vals = np.maximum(motif_mat[:,i], motif_mat[:,j])
                 similarity = np.sum(min_vals) / np.sum(max_vals)
                 correlation_vals[i,j] = similarity
                 correlation_pvals[i,j] = similarity
@@ -70,7 +70,8 @@ def reduce_corr_mat_by_motif_similarity(
         edges.columns = ["var1", "var2", "value"]
 
         # remove self correlation and zeros
-        edges_filtered = edges.loc[ (edges["value"] > edge_cor_thresh) & (edges["var1"] !=  edges["var2"]) ]
+        edges_filtered = edges.loc[edges["value"] > edge_cor_thresh]
+        edges_filtered = edges_filtered.loc[edges_filtered["var1"] != edges_filtered["var2"]]
         edges_filtered = edges_filtered.loc[edges_filtered["var1"] != "UNK"]
         edges_filtered = edges_filtered.loc[edges_filtered["var2"] != "UNK"]
 
@@ -160,7 +161,7 @@ def plot_corr_as_network(corr_mat, prefix):
         font_size=5)
     f.savefig("{}.network.pdf".format(prefix))
     
-    return None
+    return G
 
 
 def plot_corr_on_fixed_graph(corr_mat, positions, prefix, corr_thresh=0.5, node_size_dict=None):
@@ -199,7 +200,7 @@ def plot_corr_on_fixed_graph(corr_mat, positions, prefix, corr_thresh=0.5, node_
     plt.ylim(-1,1)
     f.savefig("{}.network.pdf".format(prefix))
     
-    return
+    return G
 
 
 def get_significant_motifs(motif_mat, colnames, prefix, num_shuffles=99, pval_thresh=0.05):

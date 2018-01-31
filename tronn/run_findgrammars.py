@@ -34,6 +34,8 @@ from tronn.interpretation.grammars import plot_corr_as_network
 from tronn.interpretation.grammars import plot_corr_on_fixed_graph
 from tronn.interpretation.grammars import get_significant_motifs
 
+import networkx as nx
+
 import phenograph
 
 
@@ -45,11 +47,6 @@ def run(args):
     # data files
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     logging.info("Found {} chrom files".format(len(data_files)))
-
-    # debug
-    #args.interpretation_tasks = [16, 17, 18, 19, 20, 21, 22, 23]
-    #args.interpretation_tasks = [16, 18, 23]
-    #args.interpretation_tasks = [32]
     
     # go through each interpretation task
     for i in xrange(len(args.interpretation_tasks)):
@@ -65,15 +62,15 @@ def run(args):
         pwm_list_file = "global.pwm_names.txt"
         
         # motif annotation
-        metadata_file = (
-            "/srv/scratch/shared/indra/dskim89/ggr/integrative/v0.2.5/annotations/",
-            "HOCOMOCOv11_core_annotation_HUMAN_mono.nonredundant.expressed.txt")
+        metadata_file = "/srv/scratch/shared/indra/dskim89/ggr/integrative/v0.2.5/annotations/HOCOMOCOv11_core_annotation_HUMAN_mono.nonredundant.expressed.txt"
         pwm_name_to_hgnc = {}
+        hgnc_to_pwm_name = {}
         with open(metadata_file, "r") as fp:
             for line in fp:
                 fields = line.strip().split("\t")
                 try:
                     pwm_name_to_hgnc[fields[0]] = fields[4]
+                    hgnc_to_pwm_name[fields[4]] = fields[0]
                 except:
                     pwm_name_to_hgnc[fields[0]] = fields[0].split(".")[0].split("_")[2]
                     pwm_name_to_hgnc[fields[0]] = "UNK"
@@ -166,7 +163,10 @@ def run(args):
             corr_mat, pval_mat = get_significant_correlations(
                 pwm_hits_df.as_matrix(),
                 corr_method="continuous_jaccard",
+                #corr_method="pearson",
+                corr_min=0.4,
                 pval_thresh=0.05)
+            
             corr_mat_df = pd.DataFrame(corr_mat, index=pwm_names_filt, columns=pwm_names_filt)
             corr_mat_df.to_csv(corr_mat_file, sep="\t")
 
@@ -176,7 +176,7 @@ def run(args):
             corr_mat_df.index = corr_mat_df.columns
         
             # generate a network plot
-            plot_corr_as_network(corr_mat_df, "task-{}.testing.network".format(interpretation_task_idx))
+            #plot_corr_as_network(corr_mat_df, "task-{}.testing.network".format(interpretation_task_idx))
 
         # also do Louvain clustering to visualize here
         continue
@@ -293,8 +293,8 @@ def run(args):
 
         
     # then with that, get back a G (graph)
-    max_G = get_networkx_graph(max_corr_df)
-    max_G_positions = nx.spring_layout(max_G, weight="value")
+    max_G = get_networkx_graph(max_corr_df, corr_thresh=0.2)
+    max_G_positions = nx.spring_layout(max_G, weight="value", k=0.15) # k is normally 1/sqrt(n), n=node_num
 
     # then replot the network using this graph
     for i in xrange(len(args.interpretation_tasks)):
@@ -338,33 +338,79 @@ def run(args):
 
         # here, reduce pwms
         if True:
+            print "reducing pwms..."
             pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
-            corr_mat_df = reduce_corr_mat_by_motif_similarity(corr_mat_df, pwm_dict, id_to_signal_dict)
+            corr_mat_df = reduce_corr_mat_by_motif_similarity(
+                corr_mat_df,
+                pwm_dict,
+                id_to_signal_dict,
+                edge_cor_thresh=0.25)
+            print "done"
             
         # and adjust names after, need to match pwms
         corr_mat_df.columns = [";".join([name.split("_")[0] for name in pwm_name_to_hgnc[pwm_name].split(";")])
                                for pwm_name in corr_mat_df.columns]
         corr_mat_df.index = corr_mat_df.columns
 
+        # save this out to quickly plot later
+        
+        
         # ---------------
         # Plotting
         # ---------------
       
         prefix = "task-{}.testing.max_pos".format(interpretation_task_idx)
-        plot_corr_on_fixed_graph(corr_mat_df, max_G_positions, prefix, node_size_dict=node_size_dict)
+        task_G = plot_corr_on_fixed_graph(corr_mat_df, max_G_positions, prefix, corr_thresh=0.25, node_size_dict=node_size_dict)
 
+        # save out connected components as separate groups (just connectivity, look at cliques later)
+        components = []
+        component_idx = 0
+        for component in nx.connected_components(task_G):
+            print component
+            components.append(list(component))
 
-        # TODO save out these groups - list of pwms?
-        # am i looking for cliques?
-        # at this stage just output list of edges, but per connected component.
-        # have to go through edge list and for each pair, check for relationship (deltadeeplift)
+            # here, save out.
+            component_file = "{}.component_{}.txt".format(prefix, component_idx)
+            with open(component_file, "w") as out:
+                for hgnc_name in list(component):
+                    out.write("{}\t{}\n".format(hgnc_to_pwm_name[hgnc_name], hgnc_name))
+
+            # quick back check - look for regions that have these motifs
+            # TODO this selection needs to be a little smarter - may be picking up too much noise
+            pwm_names = [hgnc_to_pwm_name[name] for name in list(component)]
+            pwm_hits_pwm_subset_df = pwm_hits_df[pwm_names]
+
+            pwm_hits_positive_df = pwm_hits_pwm_subset_df.loc[~(pwm_hits_pwm_subset_df==0).any(axis=1)]
+            component_regions_file = "{}.component_{}.regions.txt".format(prefix, component_idx)
+            pwm_hits_positive_df.to_csv(component_regions_file, columns=[], header=False)
+
+            # make bed file
+            component_regions_bed = "{}.component_{}.regions.bed".format(prefix, component_idx)
+            make_bed = (
+                "cat {0} | "
+                "awk -F ';' '{{ print $3 }}' | "
+                "awk -F '=' '{{ print $2 }}' | "
+                "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
+                "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
+                "sort -k1,1 -k2,2n | "
+                "bedtools merge -i stdin > "
+                "{1}").format(component_regions_file, component_regions_bed)
+            os.system(make_bed)
+            
+            import ipdb
+            ipdb.set_trace()
+                    
+            component_idx += 1
+
+            
+            
+
+        # now use these files as inputs to scan for grammars.
 
         # after THAT, then can output a directed graph model for each grammar.
         # store as pwm x pwm matrix (directed, so asymmetrical) so easy to load in for scanning.
         
         
         
-        # key point - if we can see it on the network, it needs to be clear enough to threshold out
-        # that set and check to make sure it's real
         
-    return
+    return None
