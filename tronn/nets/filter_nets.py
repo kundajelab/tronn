@@ -355,6 +355,14 @@ def filter_singles_twotailed(features, labels, config, is_training=False):
     # mask features
     features = tf.multiply(features, keep_mask)
 
+    # output for later
+    num_positive_features = tf.reduce_sum(
+        tf.cast(
+            tf.greater(
+                tf.reduce_max(features, axis=[1,3]), [0]),
+            tf.float32), axis=1, keep_dims=True)
+    config["outputs"]["positive_importance_bp_sum"] = num_positive_features
+
     return features, labels, config
 
 

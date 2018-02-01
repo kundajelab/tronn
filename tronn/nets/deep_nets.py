@@ -13,10 +13,13 @@ from tronn.nets.tfslim import resnet_v2
 from tronn.util.tf_ops import maxnorm
 
 
-def pass_through(features, labels, config, is_training=False):
+def empty_net(features, labels, config, is_training=False):
     """Placeholder model to pass through features
     """
-    return features
+    # for all outputs, return 0 as logit
+    logits = tf.zeros(labels.get_shape())
+    
+    return logits
 
 
 def final_pool(net, pool):

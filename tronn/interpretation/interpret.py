@@ -64,7 +64,7 @@ def visualize_region(
         # plot importance scores across time (keys="importances.taskidx-{}")
         if "importances.taskidx" in key:
             # squeeze and visualize!
-            plot_name = "{}.{}.png".format(region_prefix, key)
+            plot_name = "{}.{}.pdf".format(region_prefix, key)
             print plot_name
             #plot_weights(np.squeeze(region_arrays[key][400:600,:]), plot_name) # array, fig name
             plot_weights(np.squeeze(region_arrays[key]), plot_name) # array, fig name
@@ -110,7 +110,8 @@ def interpret(
         method="input_x_grad",
         keep_negatives=False,
         filter_by_prediction=True,
-        h5_batch_size=128):
+        h5_batch_size=128,
+        viz_bp_cutoff=20):
     """Set up a graph and run inference stack
     """
     with tf.Graph().as_default() as g:
@@ -128,10 +129,16 @@ def interpret(
         sess, coord, threads = setup_tensorflow_session()
 
         # restore
-        init_assign_op, init_feed_dict = restore_variables_op(
-            model_checkpoint, skip=["pwm"])
-        sess.run(init_assign_op, init_feed_dict)
-        
+        if model_checkpoint is not None:
+            init_assign_op, init_feed_dict = restore_variables_op(
+                model_checkpoint, skip=["pwm"])
+            sess.run(init_assign_op, init_feed_dict)
+        else:
+            print "WARNING"
+            print "WARNING"
+            print "WARNING: did not use checkpoint. are you sure? this should only happen for empty_net"
+ 
+            
         # set up hdf5 file to store outputs
         with h5py.File(h5_file, 'w') as hf:
 
@@ -158,13 +165,24 @@ def interpret(
 
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
+                    
+                    # conditions for visualization: logits > 0,
+                    # and mean(importances) > 0, AND not empty net
+                    # set up real condition
+                    if False:
+                        logits = region_arrays["logits"][0:12]
+                        num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
+                    
+                        import ipdb
+                        ipdb.set_trace()
 
-                    import ipdb
-                    ipdb.set_trace()
-
-                    # replace with real condition here
-                    if True:
-                        visualize_region(region, region_arrays, pwm_list, prefix="viz", global_idx=10)
+                        if np.max(logits) > 0 and num_pos_impt_bps > viz_bp_cutoff:
+                            visualize_region(
+                                region,
+                                region_arrays,
+                                pwm_list,
+                                prefix="viz",
+                                global_idx=10)
 
                     # check condition
                     if (sample_size is not None) and (total_examples >= sample_size):

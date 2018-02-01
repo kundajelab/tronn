@@ -221,6 +221,10 @@ class TronnNeuralNetGraph(TronnGraph):
             }
         }
 
+        # don't run importances if empty net
+        if self.model_params["name"] == "empty_net":
+            config["use_importances"] = False
+        
         # set up inference stack
         features, labels, config = self.importances_fn( # TODO rename this to inference fn
             self.features, self.labels, config, is_training=False)

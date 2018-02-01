@@ -8,6 +8,7 @@ from tronn.nets.deep_nets import deepsea
 from tronn.nets.deep_nets import resnet
 from tronn.nets.deep_nets import tfslim_inception
 from tronn.nets.deep_nets import tfslim_resnet
+from tronn.nets.deep_nets import empty_net
 
 from tronn.nets.inference_nets import sequence_to_importance_scores
 from tronn.nets.inference_nets import sequence_to_motif_scores
@@ -24,6 +25,7 @@ net_fns = {
     "deepsea": deepsea,
     "inception": tfslim_inception,
     "resnet": tfslim_resnet,
+    "empty_net": empty_net,
     "sequence_to_importance_scores": sequence_to_importance_scores,
     "sequence_to_motif_scores": sequence_to_motif_scores,
     "ism": ism_for_grammar_dependencies,

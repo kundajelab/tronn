@@ -52,13 +52,9 @@ def run(args):
     for i in xrange(len(args.interpretation_tasks)):
 
         interpretation_task_idx = args.interpretation_tasks[i]
-        print interpretation_task_idx
+        print "interpreting task", interpretation_task_idx
         
         # set up pwms to use here, also pwm names
-        #pwm_list_file = "{}/task-{}.permutation_test.cutoff.txt".format(
-        #    args.motif_dir, interpretation_task_idx) # for now, use --pwm_list for the directory with pwm lists
-            #args.motif_dir, 16) # for now, use --pwm_list for the directory with pwm lists
-        #pwm_list_file = "{}/global.permutation_test.cutoff.txt".format(args.motif_dir)
         pwm_list_file = "global.pwm_names.txt"
         
         # motif annotation
@@ -93,6 +89,9 @@ def run(args):
         print len(pwm_list_filt)
         pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
 
+        print args.model["name"]
+        print net_fns[args.model["name"]]
+        
         # set up graph
         tronn_graph = TronnNeuralNetGraph(
             {'data': data_files},
@@ -107,9 +106,11 @@ def run(args):
             shuffle_data=True,
             filter_tasks=[interpretation_task_idx])
 
-        # checkpoint file
+        # checkpoint file (unless empty net)
         if args.model_checkpoint is not None:
             checkpoint_path = args.model_checkpoint
+        elif args.model["name"] == "empty_net":
+            checkpoint_path = None
         else:
             checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
         logging.info("Checkpoint: {}".format(checkpoint_path))
@@ -130,6 +131,11 @@ def run(args):
                 filter_by_prediction=True,
                 method=args.backprop if args.backprop is not None else "input_x_grad")
 
+        if args.model["name"] == "empty_net":
+            global_taskidx = 1
+        else:
+            global_taskidx = 10
+            
         # put those into a text file to load into R
         reduced_mat_file = "{0}/{1}.task-{2}.motif_mat.reduced.txt".format(
             args.tmp_dir, args.prefix, interpretation_task_idx)
@@ -137,7 +143,7 @@ def run(args):
         if not os.path.isfile(reduced_mat_file):
             with h5py.File(pwm_hits_mat_h5, "r") as hf:
                 # only keep those in filtered set
-                pwm_hits = hf["pwm-counts.taskidx-10"][:][:,np.array(pwm_list_filt_indices)]
+                pwm_hits = hf["pwm-scores.taskidx-{}".format(global_taskidx)][:][:,np.array(pwm_list_filt_indices)]
 
                 # further reduce out those that are low scoring?
                 #index = hf["example_metadata"][:][~np.all(pwm_hits == 0, axis=1),:]

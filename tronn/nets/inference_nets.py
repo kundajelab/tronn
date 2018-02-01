@@ -31,9 +31,8 @@ from tronn.nets.motif_nets import pwm_match_filtered_convolve
 from tronn.nets.motif_nets import multitask_motif_assignment
 from tronn.nets.motif_nets import motif_assignment
 
-# sumpool test
-from tronn.nets.threshold_nets import add_sumpool_threshval
-from tronn.nets.threshold_nets import apply_sumpool_thresh
+#from tronn.nets.threshold_nets import add_sumpool_threshval
+#from tronn.nets.threshold_nets import apply_sumpool_thresh
 
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_by_importance
@@ -83,7 +82,7 @@ def sequence_to_importance_scores(
         (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 7bp window.
-        (filter_by_importance, {"cutoff": 20}),
+        (filter_by_importance, {"cutoff": 20}), # TODO - change this to positive cutoff?
         (normalize_w_probability_weights, {"normalize_probs": config["outputs"]["probs"]}), # normalize, never use logits (too much range) unless clip it
     ]
     
@@ -107,18 +106,20 @@ def sequence_to_motif_scores(
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
     use_importances = config.get("use_importances", True)
+    count_thresh = config.get("count_thresh", 1)
     assert use_importances is not None
 
     # if using NN, convert features to importance scores first
     if use_importances:
         features, labels, config = sequence_to_importance_scores(
             features, labels, config, is_training=is_training, keep_outputs=keep_outputs)
-
+        count_thresh = 2 # there's time info, so can filter across tasks
+        
     # set up inference stack
     inference_stack = [
         (pwm_match_filtered_convolve, {"pwms": config["pwms"]}), # double filter: raw seq match and impt weighted seq match
         (pwm_consistency_check, {}), # get consistent across time scores
-        (multitask_global_importance, {"append": True, "keep_features": True}), # get global (abs val)
+        (multitask_global_importance, {"append": True, "keep_features": True, "count_thresh": count_thresh}), # get global (abs val)
         (pwm_position_squeeze, {"squeeze_type": "max"}), # get the max across positions {N, motif}
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
     ]

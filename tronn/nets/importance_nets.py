@@ -59,7 +59,7 @@ def multitask_importances(features, labels, config, is_training=False):
             features, labels, config)
         task_importances.append(task_importance)
 
-    features = tf.concat(task_importances, axis=1)
+    features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
 
     return features, labels, config
 
@@ -88,8 +88,7 @@ def multitask_global_importance(features, labels, config, is_training=False):
     """
     assert is_training == False
     append = config.get("append", True)
-
-    count_thresh = 2
+    count_thresh = config.get("count_thresh", 2)
     
     # per example, only keep positions that have been seen more than once
     features_by_example = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features)] # {1, task, M}
@@ -126,7 +125,6 @@ def multitask_global_importance(features, labels, config, is_training=False):
     if config.get("keep_features", False):
         # attach to config
         config["outputs"]["global-pwm-scores"] = features_max #{N, pos, motif}
-        
 
     return features, labels, config
 
