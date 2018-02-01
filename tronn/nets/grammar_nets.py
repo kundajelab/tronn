@@ -9,6 +9,42 @@ from tronn.util.tf_utils import get_fan_in
 from tronn.util.initializers import pwm_simple_initializer
 
 
+# TODO - figure out how to load a grammar
+# given a list of pwm ids, set up vector with those marked as positive.
+
+
+def score_grammar(features, labels, config, is_training=False):
+    """load in grammar
+    """
+    grammar_file = config.get("grammar_file")
+    assert grammar_file is not None
+    
+    # TODO - set it up by task axis also?
+    # set up grammar layer by loading in numpy array
+    # TODO figure out how to load in grammars
+    # use a variable with an initial value that is not trainable?
+    grammar_weights = tf.zeros((1, 1)) # {M, G}
+    grammar_weights = tf.expand_dims(grammar_weights, axis=0) # {1, M, G}
+    grammar_threshold = tf.reduce_sum(grammar_weights, axis=1) # {1, G}
+    
+    # set up features
+    features = tf.expand_dims(features, axis=2) # {N, M, 1}
+
+    # multiply
+    grammar_scores = tf.reduce_sum(
+        tf.cast(
+            tf.greater(
+                tf.multiply(grammar_weights, features), [0]),
+            tf.float32), axis=1) # {N, G}
+    features = tf.cast(tf.greater_equal(grammar_scores, grammar_threshold), tf.float32) # {N, G}
+    
+    return features, labels, config
+
+
+
+
+# OLD CODE
+
 def _load_grammar_file(grammar_file):
     """Load a grammar file in a specific format
     """

@@ -15,8 +15,8 @@ import matplotlib.pyplot as plt
 
 from collections import Counter
 
-from tronn.interpretation.motifs_tmp import PWM
-from tronn.interpretation.motifs_tmp import read_pwm_file
+from tronn.interpretation.motifs import PWM
+from tronn.interpretation.motifs import read_pwm_file
 
 import phenograph
 

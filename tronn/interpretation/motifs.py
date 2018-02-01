@@ -3,20 +3,26 @@
 
 import h5py
 import math
+
 import numpy as np
 import pandas as pd
-import scipy.stats
 
 import tensorflow as tf
 
+#import scipy.stats
+from scipy.stats import pearsonr
 from scipy.signal import correlate2d
+from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
+from scipy.spatial.distance import squareform
 
 from tronn.visualization import plot_weights
 
 
-def get_encode_pwms(motif_file, as_dict=False):
+def read_pwm_file(pwm_file, value_type="log_likelihood", as_dict=False):
     """Extracts motifs into PWM class format
     """
+    background_freq = 0.25
+    
     # option to set up as dict or list
     if as_dict:
         pwms = {}
@@ -24,19 +30,26 @@ def get_encode_pwms(motif_file, as_dict=False):
         pwms = []
 
     # open motif file and read
-    with open(motif_file) as fp:
+    with open(pwm_file) as fp:
         line = fp.readline().strip()
         while True:
             if line == '':
                 break
-            
             header = line.strip('>').strip()
             weights = []
             
             while True:
                 line = fp.readline()
                 if line == '' or line[0] == '>': break
-                weights.append(map(float, line.split()))
+                position_weights = map(float, line.split())
+                
+                if value_type == "log_likelihood":
+                    # no need to change anything
+                    weights.append(position_weights)
+                elif value_type == "probability":
+                    # convert to log likelihood
+                    weights.append(
+                        np.log2(np.array(position_weights) / background_freq).tolist())
 
             pwm = PWM(np.array(weights).transpose(1,0), header)
 
@@ -49,6 +62,327 @@ def get_encode_pwms(motif_file, as_dict=False):
     return pwms
 
 
+class PWM(object):
+    """PWM class for PWM operations
+    """
+    
+    def __init__(self, weights, name=None, threshold=None):
+        self.weights = weights
+        self.name = name
+        self.threshold = threshold
+
+        
+    def normalize(self, style="gaussian", in_place=True):
+        """Normalize pwm
+        """
+        if style == "gaussian":
+            mean = np.mean(self.weights)
+            std = np.std(self.weights)
+            normalized_weights = (self.weights - mean) / std
+        elif style == "probabilities":
+            col_sums = self.weights.sum(axis=0)
+            normalized_pwm_tmp = self.weights / np.amax(col_sums[np.newaxis,:])
+            normalized_weights = np.nan_to_num(normalized_pwm_tmp)
+        elif style == "log_odds":
+            print "Not yet implemented"
+        else:
+            print "Style not recognized"
+            
+        if in_place:
+            self.weights = normalized_weights
+            return self
+        else:
+            new_pwm = PWM(normalized_weights, "{}.norm".format(self.name))
+            return new_pwm
+        
+        
+    def xcor(self, pwm, normalize=True):
+        """Compute xcor score with other motif, return score and offset relative to first pwm
+        """
+        if normalize:
+            pwm1_norm = self.normalize(in_place=False)
+            pwm2_norm = pwm.normalize(in_place=False)
+        else:
+            pwm1_norm = pwm1
+            pwm2_norm = pwm2
+
+        # calculate xcor
+        xcor_vals = correlate2d(pwm1_norm.weights, pwm2_norm.weights, mode='same')
+        xcor_norm = xcor_vals / (pwm1_norm.weights.shape[0]*pwm1_norm.weights.shape[1])
+        score = np.max(xcor_norm[1,:])
+        offset = np.argmax(xcor_norm[1,:]) - int(math.ceil(pwm2_norm.weights.shape[1] / 2.) - 1)
+
+        return score, offset
+
+
+    def pearson_xcor(self, pwm, use_probs=True, ic_thresh=0.4, ncor=False):
+        """Calculate pearson across offsets, return best score
+        and best position
+        """
+        # get total offset
+        offset_total = self.weights.shape[1] + pwm.weights.shape[1] - 1
+                
+        # set up values
+        max_cor_val = -1
+        best_offset = 0
+
+        for i in xrange(offset_total):
+
+            # get padded weights
+            self_padded_weights, other_padded_weights = self.pad_by_offset(pwm, i)
+
+            # use merge and chomp to get the start and stop to chomp
+            start_idx, stop_idx = self.merge(
+                pwm, offset=i, chomp=False).chomp_points(ic_thresh=ic_thresh)
+            if start_idx == stop_idx:
+                continue
+            
+            #start_idx, stop_idx = PWM(np.maximum(self_padded_weights,other_padded_weights)).chomp_points(ic_thresh=ic_thresh)
+
+            self_padded_weights_chomped = self_padded_weights[:,start_idx:stop_idx]
+            other_padded_weights_chomped = other_padded_weights[:,start_idx:stop_idx]
+
+            if use_probs:
+                self_padded_weights_chomped = PWM(self_padded_weights_chomped).get_probs()
+                other_padded_weights_chomped = PWM(other_padded_weights_chomped).get_probs()
+            
+            # take both and calculate
+            # this is a pearson on the log scale, should it be with the probs?
+            cor_val, pval = pearsonr(
+                self_padded_weights_chomped.flatten(),
+                other_padded_weights_chomped.flatten())
+
+            # normalization (RSAT)
+            if ncor:
+                width_norm_val = (
+                    self.weights.shape[1] + pwm.weights.shape[1] - self_padded_weights_chomped.shape[1]) / float(
+                        self_padded_weights_chomped.shape[1])
+                cor_val = cor_val * width_norm_val
+                
+            if cor_val > max_cor_val:
+                max_cor_val = cor_val
+                best_offset = i
+
+        return max_cor_val, best_offset
+
+    
+    def rsat_cor(self, pwm, ncor=False, offset=None):
+        """Calculate a pearson correlation across all positions
+        """
+        # tODO - dont really need this
+        # return the pearson
+        val, offset = self.pearson_xcor(pwm, ncor=ncor)
+        
+        return val
+
+    
+    def get_probs(self, count_factor=500, epsilon=0.01):
+        """Take weights and convert to a PFM
+        """
+        #pseudo_counts = count_factor * np.exp(self.weights) + epsilon
+
+        probs = np.exp(self.weights) / np.sum(np.exp(self.weights), axis=0)
+
+        return probs
+
+    
+    def get_ic(self):
+        """Get information content per each position per base pair
+        """
+        probs = self.get_probs()
+        ic = 2 + np.sum(probs * np.log2(probs), axis=0)
+        
+        return ic
+    
+    
+    def chomp_points(self, ic_thresh=0.4):
+        """Remove leading/trailing Ns. In place, but also outputs self
+        """
+        ic = self.get_ic()
+        
+        # find starting point
+        # iterate through positions unti you find the last
+        # position before a high IC position
+        start_idx = 0
+        while start_idx < self.weights.shape[1]:
+            # calculate IC of position
+            if ic[start_idx] > ic_thresh:
+                break
+            start_idx += 1
+        if start_idx == self.weights.shape[1]:
+            start_idx = self.weights.shape[1]
+
+        # find stop point
+        stop_idx = self.weights.shape[1] - 1
+        while stop_idx > 0:
+            # calculate IC of position
+            if ic[stop_idx] > ic_thresh:
+                break
+            stop_idx -= 1
+        if stop_idx == 0:
+            stop_idx = self.weights.shape[1]
+
+        return start_idx, stop_idx + 1
+
+    
+    def chomp(self, ic_thresh=0.4):
+        """Remove leading/trailing Ns. In place, but also outputs self
+        """
+        start_idx, stop_idx = self.chomp_points(ic_thresh=ic_thresh)
+
+        # chomp
+        self.weights = self.weights[:,start_idx:stop_idx+1]
+        
+        return self
+
+
+    def pad_weights(self, start_pad, end_pad, in_place=False):
+        """Pad weights with start_pad bp in the front
+        and end_pad bp in the back
+        """
+        padded_weights = np.concatenate(
+            (np.zeros((4, start_pad)),
+             self.weights,
+             np.zeros((4, end_pad))),
+            axis=1)
+        
+        return padded_weights
+
+
+    def pad_by_offset(self, pwm, offset, chomp=False):
+        """Pads self and other pwm to be same length
+        """
+        total_length = self.weights.shape[1] + 2*(pwm.weights.shape[1] - 1) #-offset
+        
+        # self pwm
+        front_pad = pwm.weights.shape[1] - 1
+        end_pad = total_length - (front_pad + self.weights.shape[1])
+        self_padded_weights = self.pad_weights(front_pad, end_pad)
+
+        # other pwm
+        front_pad = offset
+        end_pad = total_length - (front_pad + pwm.weights.shape[1])
+        other_padded_weights = pwm.pad_weights(front_pad, end_pad)
+
+        return self_padded_weights, other_padded_weights
+
+    
+    def merge(
+            self,
+            pwm,
+            offset,
+            weights=(1.0, 1.0),
+            ic_thresh=0.4,
+            background_freq=0.25,
+            new_name=None,
+            chomp=True,
+            prob_space=True,
+            normalize=False):
+        """Merge in another PWM and output a new PWM
+        """
+        self_padded_weights, other_padded_weights = self.pad_by_offset(pwm, offset)
+        weight_sum = weights[0] + weights[1]
+            
+        if prob_space:
+            self_padded_probs = np.exp(self_padded_weights) / np.sum(np.exp(self_padded_weights), axis=0)
+            other_padded_probs = np.exp(other_padded_weights) / np.sum(np.exp(other_padded_weights), axis=0)
+        
+            # merge
+            # merging by first moving back to prob space and then
+            # returning to log space
+            weighted_summed_probs = weights[0] * self_padded_probs + weights[1] * other_padded_probs
+            new_pwm = PWM(
+                np.log2(
+                    weighted_summed_probs / (weight_sum * background_freq)),
+                name=new_name)
+        else:
+            # do work in the log2 space
+            weighted_summed_vals = weights[0] * self_padded_weights + weights[1] * other_padded_weights
+            new_pwm = PWM(
+                weighted_summed_vals / weight_sum,
+                name=new_name)
+            
+        # chomp
+        if chomp:
+            new_pwm.chomp(ic_thresh=ic_thresh)
+
+        # normalize if desired
+        if normalize:
+            new_pwm.normalize()
+
+        #import ipdb
+        #ipdb.set_trace()
+
+        return new_pwm
+
+    
+    def to_motif_file(
+            self,
+            motif_file,
+            motif_format="homer",
+            pseudo_counts=500):
+        """Write PWM out to file
+        """
+        # TODO allow various formats of output
+        # such as transfac, homer, etc
+        with open(motif_file, 'a') as fp:
+            if motif_format == "homer":
+                fp.write('>{}\n'.format(self.name))
+                for i in range(self.weights.shape[1]):
+                    vals = self.weights[:,i].tolist()
+                    val_strings = [str(val) for val in vals]
+                    fp.write('{}\n'.format('\t'.join(val_strings)))
+            elif motif_format == "transfac":
+                # TODO does not include consensus letter at the moment
+                fp.write('ID {}\n'.format(self.name))
+                fp.write('BF Homo_sapiens\n')
+                fp.write('P0\tA\tC\tG\tT\n')
+                for i in range(self.weights.shape[1]):
+                    exp_vals = np.exp(self.weights[:,i])
+                    vals = pseudo_counts * (exp_vals / np.sum(exp_vals))
+                    val_strings = [str(val) for val in vals.tolist()]
+                    fp.write("{num:02d}\t{}\n".format("\t".join(val_strings), num=i+1))
+                fp.write("XX\n")
+                fp.write("//\n")
+        
+        return None
+
+    
+    def plot(self, out_file, tmp_dir="."):
+        """Plot out PWM to visualize
+        """
+        # save out in transfac format
+        tmp_out_file = "{}/motif.{}.vals.transfac.tmp".format(
+            tmp_dir, self.name.strip().split("_")[0])
+        self.to_motif_file(tmp_out_file, motif_format="transfac")
+
+        # and call weblogo
+        weblogo_cmd = (
+            "weblogo "
+            "-X NO --errorbars NO --fineprint \"\" "
+            "-C \"#CB2026\" A A "
+            "-C \"#34459C\" C C "
+            "-C \"#FBB116\" G G "
+            "-C \"#0C8040\" T T "
+            "-f {0} "
+            "-D transfac "
+            "-F pdf "
+            "-o {1}").format(
+                tmp_out_file, out_file)
+        print weblogo_cmd
+        os.system(weblogo_cmd)
+
+        # and remove tmp file
+        os.system("rm {}".format(tmp_out_file))
+        
+        return None
+
+
+
+
+
+    
+# TODO - delete this?
 def generate_offsets(array_1, array_2, offset):
     '''This script sets up two sequences with the offset 
     intended. Offset is set by first sequence
@@ -94,288 +428,6 @@ def generate_offsets(array_1, array_2, offset):
             
     return array_1_padded, array_2_padded
                                                                 
-
-
-class PWM(object):
-    """PWM class for PWM operations"""
-    
-    def __init__(self, weights, name=None, threshold=None):
-        self.weights = weights
-        self.name = name
-        self.threshold = threshold
-
-        
-    def normalize(self, style="gaussian", in_place=True):
-        """Normalize pwm
-        """
-        if style == "gaussian":
-            mean = np.mean(self.weights)
-            std = np.std(self.weights)
-            normalized_weights = (self.weights - mean) / std
-        elif style == "probabilities":
-            col_sums = self.weights.sum(axis=0)
-            normalized_pwm_tmp = self.weights / np.amax(col_sums[np.newaxis,:])
-            normalized_weights = np.nan_to_num(normalized_pwm_tmp)
-        elif style == "log_odds":
-            print "Not yet implemented"
-        else:
-            print "Style not recognized"
-            
-        if in_place:
-            self.weights = normalized_weights
-            return self
-        else:
-            new_pwm = PWM(normalized_weights, "{}.norm".format(self.name))
-            return new_pwm
-
-        
-    def xcor(self, pwm, normalize=True):
-        """Compute xcor score with other motif, return score and offset relative to first pwm
-        """
-        if normalize:
-            pwm1_norm = self.normalize(in_place=False)
-            pwm2_norm = pwm.normalize(in_place=False)
-        else:
-            pwm1_norm = pwm1
-            pwm2_norm = pwm2
-
-        # calculate xcor
-        xcor_vals = correlate2d(pwm1_norm.weights, pwm2_norm.weights, mode='same')
-        xcor_norm = xcor_vals / (pwm1_norm.weights.shape[0]*pwm1_norm.weights.shape[1])
-        score = np.max(xcor_norm[1,:])
-        offset = np.argmax(xcor_norm[1,:]) - int(math.ceil(pwm2_norm.weights.shape[1] / 2.) - 1)
-
-        return score, offset
-
-    
-    def chomp(self):
-        """Remove leading/trailing Ns. In place.
-        """
-        chomped_weights = self.weights[:,~np.all(self.weights == 0, axis=0)]
-        self.weights = chomped_weights
-        assert(self.weights.shape[0] == 4)
-        
-        return self
-    
-
-    def merge(self, pwm, offset, new_name=None, normalize=False):
-        """Merge in another PWM and output a new PWM
-        """
-        weights1_padded, weights2_padded = generate_offsets(self.weights, pwm.weights, offset)
-        try:
-            merged_pwm = weights1_padded + weights2_padded
-        except:
-            import pdb
-            pdb.set_trace()
-
-        new_pwm = PWM(merged_pwm, new_name)
-
-        if normalize:
-            new_pwm.normalize()
-
-        return new_pwm
-
-    
-    def to_motif_file(self, motif_file):
-        """Write PWM out to file
-        """
-        with open(motif_file, 'a') as fp:
-            fp.write('>{}\n'.format(self.name))
-            for i in range(self.weights.shape[1]):
-                vals = self.weights[:,i].tolist()
-                val_strings = [str(val) for val in vals]
-                fp.write('{}\n'.format('\t'.join(val_strings)))
-        
-        return None
-
-
-
-def run_pwm_convolution_multiple(data_loader,
-                        importance_h5,
-                        out_h5,
-                        batch_size,
-                        num_tasks,
-                        pwm_file):
-    '''
-    Wrapper function where, given an importance matrix, can convert everything
-    into a motif matrix. Does this across multiple tasks
-    '''
-
-    # get basic key stats (to set up output h5 file)
-    pwm_list = PWM.get_encode_pwms(pwm_file)
-    num_pwms = len(pwm_list)
-    with h5py.File(importance_h5, 'r') as hf:
-        num_examples = hf['importances_task0'].shape[0]
-
-    # set up hdf5 file for saving sequences
-    with h5py.File(out_h5, 'w') as out_hf:
-        motif_mat = out_hf.create_dataset('motif_scores',
-                                          [num_examples, num_pwms, num_tasks])
-        labels_mat = out_hf.create_dataset('labels',
-                                           [num_examples, num_tasks])
-        regions_mat = out_hf.create_dataset('regions',
-                                            [num_examples, 1],
-                                            dtype='S100')
-        motif_names_mat = out_hf.create_dataset('motif_names',
-                                                [num_pwms, 1],
-                                                dtype='S100')
-
-        # save out the motif names
-        for i in range(len(pwm_list)):
-            motif_names_mat[i] = pwm_list[i].name
-
-        # for each task
-        for task_num in range(num_tasks):
-
-            # First set up graph and convolutions model
-            with tf.Graph().as_default() as g:
-
-                # data loader
-                features, labels, metadata = data_loader([importance_h5],
-                                                         batch_size,
-                                                         'importances_task{}'.format(task_num))
-
-                # load the model
-                motif_tensor, load_pwm_update = models.pwm_convolve(features, pwm_list)
-
-                # run the model (set up sessions, etc)
-                sess = tf.Session()
-
-                sess.run(tf.global_variables_initializer())
-                sess.run(tf.local_variables_initializer())
-
-                # start queue runners
-                coord = tf.train.Coordinator()
-                threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-                # Run update to load the PWMs
-                _ = sess.run(load_pwm_update)
-
-                # run through batches worth of sequence
-                for batch_idx in range(num_examples / batch_size + 1):
-
-                    print batch_idx * batch_size
-
-                    batch_motif_mat, batch_regions, batch_labels = sess.run([motif_tensor,
-                                                                             metadata,
-                                                                             labels])
-
-                    batch_start = batch_idx * batch_size
-                    batch_stop = batch_start + batch_size
-
-                    # TODO save out to hdf5 file
-                    if batch_stop < num_examples:
-                        motif_mat[batch_start:batch_stop,:,task_num] = batch_motif_mat
-                        labels_mat[batch_start:batch_stop,:] = batch_labels[:,0:num_tasks]
-                        regions_mat[batch_start:batch_stop] = batch_regions.astype('S100')
-                    else:
-                        motif_mat[batch_start:num_examples,:,task_num] = batch_motif_mat[0:num_examples-batch_start,:]
-                        labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start,0:num_tasks]
-                        regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
-
-                coord.request_stop()
-                coord.join(threads)
-
-    return None
-
-
-def run_motif_distance_extraction(data_loader,
-                        importance_h5,
-                        out_h5,
-                        batch_size,
-                        pwm_file,
-                        task_num,
-                        top_k_val=2):
-    '''
-    Wrapper function where, given an importance matrix, can convert everything
-    into motif scores and motif distances for the top k hits
-    Only take positive sequences to build grammars!
-    '''
-
-    importance_key = 'importances_task{}'.format(task_num)
-    print importance_key
-    
-    # get basic key stats (to set up output h5 file)
-    pwm_list = PWM.get_encode_pwms(pwm_file)
-    num_pwms = len(pwm_list)
-    with h5py.File(importance_h5, 'r') as hf:
-        num_examples = hf[importance_key].shape[0]
-        num_tasks = hf['labels'].shape[1]
-
-    # First set up graph and convolutions model
-    with tf.Graph().as_default() as g:
-
-        # data loader
-        features, labels, metadata = data_loader([importance_h5],
-                                                 batch_size,
-                                                 importance_key)
-
-        # load the model
-        motif_scores, motif_distances, load_pwm_update = models.top_motifs_w_distances(features, pwm_list, top_k_val)
-
-        # run the model (set up sessions, etc)
-        sess = tf.Session()
-
-        sess.run(tf.global_variables_initializer())
-        sess.run(tf.local_variables_initializer())
-
-        # start queue runners
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-        # Run update to load the PWMs
-        _ = sess.run(load_pwm_update)
-
-        # set up hdf5 file for saving sequences
-        # TODO edit these datasets
-        with h5py.File(out_h5, 'w') as out_hf:
-            motif_score_mat = out_hf.create_dataset('motif_scores',
-                                              [num_examples, num_pwms, num_pwms, top_k_val ** 2])
-            motif_dist_mat = out_hf.create_dataset('motif_dists',
-                [num_examples, num_pwms, num_pwms, top_k_val ** 2])
-            labels_mat = out_hf.create_dataset('labels',
-                                               [num_examples, num_tasks])
-            regions_mat = out_hf.create_dataset('regions',
-                                                [num_examples, 1],
-                                                dtype='S100')
-            motif_names_mat = out_hf.create_dataset('motif_names',
-                                                    [num_pwms, 1],
-                                                    dtype='S100')
-
-            # save out the motif names
-            for i in range(len(pwm_list)):
-                motif_names_mat[i] = pwm_list[i].name
-
-            # run through batches worth of sequence
-            for batch_idx in range(num_examples / batch_size + 1):
-
-                print batch_idx * batch_size
-
-                batch_motif_scores, batch_motif_dists, batch_regions, batch_labels = sess.run([motif_scores,
-                    motif_distances,
-                                                                         metadata,
-                                                                         labels])
-
-                batch_start = batch_idx * batch_size
-                batch_stop = batch_start + batch_size
-
-                # TODO save out to hdf5 file
-                if batch_stop < num_examples:
-                    motif_score_mat[batch_start:batch_stop,:,:,:] = batch_motif_scores
-                    motif_dist_mat[batch_start:batch_stop,:,:,:] = batch_motif_dists
-                    labels_mat[batch_start:batch_stop,:] = batch_labels
-                    regions_mat[batch_start:batch_stop] = batch_regions.astype('S100')
-                else:
-                    motif_score_mat[batch_start:num_examples,:,:,:] = batch_motif_scores[0:num_examples-batch_start,:,:,:]
-                    motif_dist_mat[batch_start:num_examples,:,:,:] = batch_motif_dists[0:num_examples-batch_start,:,:,:]
-                    labels_mat[batch_start:num_examples,:] = batch_labels[0:num_examples-batch_start]
-                    regions_mat[batch_start:num_examples] = batch_regions[0:num_examples-batch_start].astype('S100')
-
-        coord.request_stop()
-        coord.join(threads)
-
-    return None
-
 
 # =======================================================================
 # Other useful helper functions

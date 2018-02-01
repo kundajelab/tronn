@@ -631,6 +631,8 @@ def add_findgrammars_parser(subparsers):
     group_input.add_argument(
         "--pwm_file", help="pwm_file")
     group_input.add_argument(
+        "--pwm_metadata_file", help="pwm_metadata_file")
+    group_input.add_argument(
         "--motif_dir", help="where the motif files are")
     
     # group for model

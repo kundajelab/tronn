@@ -24,8 +24,8 @@ from tronn.nets.nets import net_fns
 
 from tronn.interpretation.interpret import interpret
 
-from tronn.interpretation.motifs_tmp import PWM
-from tronn.interpretation.motifs_tmp import read_pwm_file
+from tronn.interpretation.motifs import PWM
+from tronn.interpretation.motifs import read_pwm_file
 
 from tronn.interpretation.grammars import get_significant_correlations
 from tronn.interpretation.grammars import reduce_corr_mat_by_motif_similarity
@@ -34,9 +34,165 @@ from tronn.interpretation.grammars import plot_corr_as_network
 from tronn.interpretation.grammars import plot_corr_on_fixed_graph
 from tronn.interpretation.grammars import get_significant_motifs
 
+from tronn.interpreation.networks import separate_and_save_components
+
 import networkx as nx
 
 import phenograph
+
+
+def setup_pwms(master_pwm_file, pwm_subset_list_file):
+    """setup which pwms are being used
+    """
+    # open the pwm subset file to get names of the pwms to use
+    pwms_to_use = []
+    with open(pwm_subset_list_file, "r") as fp:
+        for line in fp:
+            pwms_to_use.append(line.strip().split('\t')[0])        
+            
+    # then open the master file and filter out unused ones
+    pwm_list = read_pwm_file(master_pwm_file)
+    pwm_list_filt = []
+    pwm_list_filt_indices = []
+    for i in xrange(len(pwm_list)):
+        pwm = pwm_list[i]
+        for pwm_name in pwms_to_use:
+            if pwm_name in pwm.name:
+                pwm_list_filt.append(pwm)
+                pwm_list_filt_indices.append(i)
+    print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
+    print len(pwm_list_filt)
+    pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
+
+    return pwm_list_filt, pwm_list_filt_indices, pwm_names_filt
+
+
+def setup_pwm_metadata(metadata_file):
+    """read in metadata to dicts for easy use
+    """
+    pwm_name_to_hgnc = {}
+    hgnc_to_pwm_name = {}
+    with open(metadata_file, "r") as fp:
+        for line in fp:
+            fields = line.strip().split("\t")
+            try:
+                pwm_name_to_hgnc[fields[0]] = fields[4]
+                hgnc_to_pwm_name[fields[4]] = fields[0]
+            except:
+                pwm_name_to_hgnc[fields[0]] = fields[0].split(".")[0].split("_")[2]
+                pwm_name_to_hgnc[fields[0]] = "UNK"
+
+    return pwm_name_to_hgnc, hgnc_to_pwm_name
+
+
+def quick_filter(pwm_hits_df):
+    """basic filters
+    """
+    # remove rows that are zero
+    pwm_hits_df_binary = (pwm_hits_df > 0).astype(int) #* pwm_hits_df
+    pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df_binary==0).all(axis=1)] # remove elements with no hits
+    pwm_hits_df_binary = pwm_hits_df_binary.loc[~(pwm_hits_df_binary==0).all(axis=1)] # remove elements with no hits
+    
+    # remove low scoring motifs
+    pwm_hits_df = pwm_hits_df.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
+    pwm_hits_df_binary = pwm_hits_df_binary.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
+            
+    return pwm_hits_df, pwm_hits_df_binary
+
+
+def phenograph_cluster(pwm_hits_df, sorted_mat_file):
+    """Use to quickly get a nicely clustered (sorted) output file to visualize examples
+    """
+    # run Louvain here for basic clustering to visually look at patterns
+    pwm_hits_df, pwm_hits_df_binary = quick_filter(pwm_hits_df)
+    communities, graph, Q = phenograph.cluster(pwm_hits_df_binary)
+
+    # save out the sorted info into a new mat sorted by community
+    sorted_mat_file = "{0}/{1}.task-{2}.motif_mat.reduced.community_sorted.txt".format(
+        args.tmp_dir, args.prefix, interpretation_task_idx)
+    pwm_hits_df["community"] = communities
+    pwm_hits_df = pwm_hits_df.sort_values("community")
+    pwm_hits_df.to_csv(sorted_mat_file, sep='\t')
+    pwm_hits_df = pwm_hits_df.drop(["community"], axis=1)
+
+    return None
+
+
+def get_max_corr_mat(correlation_files, pwm_names_filt):
+    """Get max correlations across correlation files 
+    """
+    num_pwms = len(pwm_names_filt)
+    # get the max correlations/signal strengths to set up global graph here
+    max_corr_df = pd.DataFrame(
+        data=np.zeros((num_pwms, num_pwms)),
+        index=pwm_names_filt,
+        columns=pwm_names_filt)
+    max_signals = np.zeros((num_pwms))
+
+    for correlation_file in correlation_files:
+        
+        # load in corr mat file
+        corr_mat_df = pd.read_table(correlation_file, index_col=0)
+        #corr_mat_df.columns = [";".join([name.split("_")[0] for name in pwm_name_to_hgnc[pwm_name].split(";")])
+        #                       for pwm_name in corr_mat_df.columns]
+        #corr_mat_df.index = corr_mat_df.columns
+
+        # apply max
+        max_array = np.maximum(max_corr_df.as_matrix(), corr_mat_df.as_matrix())
+        #max_corr_df = pd.DataFrame(max_array, index=corr_mat_df.index, columns=corr_mat_df.columns)
+
+    return max_corr_df
+
+
+
+def plot_motif_network(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, id_to_name, reduce_pwms=True):
+    """Plot full motif network with signal strengths
+    """
+    # Extract signal strengths
+    pwm_hits_df = pd.read_table(regions_x_pwm_mat_file, index_col=0)
+    pwm_hits_df = pwm_hits_df.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
+    pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df==0).all(axis=1)] # remove elements with no hits
+
+    # TODO: figure out how to get signal to noise score here - sum gets diluted by lots of noise
+    # would there be any rationale to squaring?
+    signal = np.sum(pwm_hits_df, axis=0)
+    signal = 300 * signal / signal.max()
+
+    # pwm name to signal
+    id_to_signal_dict = dict(zip(signal.index, signal.as_matrix()))
+
+    # hgnc to signal
+    signal.index = [";".join([name.split("_")[0] for name in id_to_name[pwm_name].split(";")])
+                           for pwm_name in signal.index]
+    print signal.nlargest(n=10)
+    node_size_dict = dict(zip(signal.index, signal.as_matrix()))
+
+    # Get correlations
+    corr_mat_df = pd.read_table(pwm_x_pwm_corr_file, index_col=0)
+
+    # here, reduce pwms
+    if reduce_pwms:
+        reduced_corr_mat_file = "{}.reduced.txt".format(corr_mat_file.split(".tmp")[0])
+        pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
+        corr_mat_df = reduce_corr_mat_by_motif_similarity(
+            corr_mat_df,
+            pwm_dict,
+            id_to_signal_dict,
+            edge_cor_thresh=0.25)
+
+    # and adjust names after, need to match pwms
+    corr_mat_df.columns = [";".join([name.split("_")[0] for name in id_to_name[pwm_name].split(";")])
+                           for pwm_name in corr_mat_df.columns]
+    corr_mat_df.index = corr_mat_df.columns
+
+    # save this out to quickly plot later
+    corr_mat_df.to_csv(reduced_corr_mat_file, sep="\t")
+
+    # plotting
+    prefix = "task-{}.testing.max_pos".format(interpretation_task_idx)
+    task_G = plot_corr_on_fixed_graph(corr_mat_df, max_G_positions, prefix, corr_thresh=0.25, node_size_dict=node_size_dict)
+
+    return task_G
 
 
 def run(args):
@@ -48,7 +204,7 @@ def run(args):
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     logging.info("Found {} chrom files".format(len(data_files)))
     
-    # go through each interpretation task
+    # go through each interpretation task to get grammars
     for i in xrange(len(args.interpretation_tasks)):
 
         interpretation_task_idx = args.interpretation_tasks[i]
@@ -58,36 +214,10 @@ def run(args):
         pwm_list_file = "global.pwm_names.txt"
         
         # motif annotation
-        metadata_file = "/srv/scratch/shared/indra/dskim89/ggr/integrative/v0.2.5/annotations/HOCOMOCOv11_core_annotation_HUMAN_mono.nonredundant.expressed.txt"
-        pwm_name_to_hgnc = {}
-        hgnc_to_pwm_name = {}
-        with open(metadata_file, "r") as fp:
-            for line in fp:
-                fields = line.strip().split("\t")
-                try:
-                    pwm_name_to_hgnc[fields[0]] = fields[4]
-                    hgnc_to_pwm_name[fields[4]] = fields[0]
-                except:
-                    pwm_name_to_hgnc[fields[0]] = fields[0].split(".")[0].split("_")[2]
-                    pwm_name_to_hgnc[fields[0]] = "UNK"
-        
-        pwms_to_use = []
-        with open(pwm_list_file, "r") as fp:
-            for line in fp:
-                pwms_to_use.append(line.strip().split('\t')[0])        
-
-        pwm_list = read_pwm_file(args.pwm_file)
-        pwm_list_filt = []
-        pwm_list_filt_indices = []
-        for i in xrange(len(pwm_list)):
-            pwm = pwm_list[i]
-            for pwm_name in pwms_to_use:
-                if pwm_name in pwm.name:
-                    pwm_list_filt.append(pwm)
-                    pwm_list_filt_indices.append(i)
-        print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
-        print len(pwm_list_filt)
-        pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
+        #metadata_file = "/srv/scratch/shared/indra/dskim89/ggr/integrative/v0.2.5/annotations/HOCOMOCOv11_core_annotation_HUMAN_mono.nonredundant.expressed.txt"
+        pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.metadata_file)
+        # TODO add an arg here to just use all if no list
+        pwm_list_filt, pwm_list_filt_indices, pwm_names_filt = setup_pwms(args.pwm_file, pwm_list_file)
 
         print args.model["name"]
         print net_fns[args.model["name"]]
@@ -131,12 +261,13 @@ def run(args):
                 filter_by_prediction=True,
                 method=args.backprop if args.backprop is not None else "input_x_grad")
 
+        # set up task idx for the global scores
         if args.model["name"] == "empty_net":
             global_taskidx = 1
         else:
             global_taskidx = 10
             
-        # put those into a text file to load into R
+        # put those into a text file for easy downstream handling
         reduced_mat_file = "{0}/{1}.task-{2}.motif_mat.reduced.txt".format(
             args.tmp_dir, args.prefix, interpretation_task_idx)
         pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in pwm_names_filt]
@@ -144,17 +275,10 @@ def run(args):
             with h5py.File(pwm_hits_mat_h5, "r") as hf:
                 # only keep those in filtered set
                 pwm_hits = hf["pwm-scores.taskidx-{}".format(global_taskidx)][:][:,np.array(pwm_list_filt_indices)]
-
-                # further reduce out those that are low scoring?
-                #index = hf["example_metadata"][:][~np.all(pwm_hits == 0, axis=1),:]
-                #pwm_hits = pwm_hits[~np.all(pwm_hits == 0, axis=1),:]
-                #pwm_hits = pwm_hits[:, pwm_indices]
-                #pwm_hits = pwm_hits[:, ~np.all(pwm_hits == 0, axis=0)]
                 
                 # set up dataframe and save out
                 pwm_hits_df = pd.DataFrame(pwm_hits, index=hf["example_metadata"][:][:,0], columns=pwm_names_filt)
                 pwm_hits_df.to_csv(reduced_mat_file, sep='\t')
-
 
         # always reload in case you are using a smaller file
         pwm_hits_df = pd.read_table(reduced_mat_file, index_col=0)
@@ -180,123 +304,17 @@ def run(args):
             corr_mat_df.columns = [";".join([name.split("_")[0] for name in pwm_name_to_hgnc[pwm_name].split(";")])
                                    for pwm_name in corr_mat_df.columns]
             corr_mat_df.index = corr_mat_df.columns
-        
-            # generate a network plot
-            #plot_corr_as_network(corr_mat_df, "task-{}.testing.network".format(interpretation_task_idx))
 
-        # also do Louvain clustering to visualize here
-        continue
-        
-
-        # for now, just want the reduced mats
-        # but maybe need to do the community clustering first?
-
-        # TODO throw in Louvain communities here
-        # this is unsupervised learning - clusters. within these, need to get significant motifs (relative to background)
-
-        # filtering:
-        if True:
-            # remove rows that are zero
-            pwm_hits_df_binary = (pwm_hits_df > 0).astype(int) #* pwm_hits_df
-
-            pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df_binary==0).all(axis=1)] # remove elements with no hits
-            pwm_hits_df_binary = pwm_hits_df_binary.loc[~(pwm_hits_df_binary==0).all(axis=1)] # remove elements with no hits
-            
-            # remove low scoring motifs
-            pwm_hits_df = pwm_hits_df.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
-            pwm_hits_df_binary = pwm_hits_df_binary.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
-            
-        communities, graph, Q = phenograph.cluster(pwm_hits_df_binary)
-
-        # save out a new mat sorted by community
+        # phenograph to have nice output to look at
         sorted_mat_file = "{0}/{1}.task-{2}.motif_mat.reduced.community_sorted.txt".format(
             args.tmp_dir, args.prefix, interpretation_task_idx)
-        pwm_hits_df["community"] = communities
-        pwm_hits_df = pwm_hits_df.sort_values("community")
-        pwm_hits_df.to_csv(sorted_mat_file, sep='\t')
-        pwm_hits_df = pwm_hits_df.drop(["community"], axis=1)
-
-        if False:
-            # and then only keep reasonably sized communities
-            for community_idx in np.unique(communities).tolist():
-
-                # determine community size
-                region_indices = np.where(communities == community_idx)[0]
-
-                # only keep large communities
-                if region_indices.shape[0] < 100:
-                    continue
-
-                # pull out matrix
-                community_mat = pwm_hits_df.iloc[region_indices,]
-
-
-                # TODO: bootstrap FDR to figure out which motifs are truly enriched relative to others in the set
-                # DO THIS
-                get_significant_motifs(community_mat.as_matrix(), community_mat.columns, "testing", num_shuffles=99, pval_thresh=0.05)
-
-                quit()
-
-                # determine community name
-                ranked_pwms = np.sum(community_mat, axis=0).sort_values()
-                stop_idx = -1
-                top_score = ranked_pwms[-1]
-                thresh = 0.10
-                while True:
-                    print stop_idx
-                    if -stop_idx == len(ranked_pwms):
-                        break
-                    elif ranked_pwms[stop_idx-1] < top_score * thresh:
-                        break
-                    else:
-                        stop_idx -= 1
-
-                top_pwms = ranked_pwms[stop_idx:].index.tolist()
-                print top_pwms
-                print ranked_pwms[stop_idx:]
-                print region_indices.shape[0]
-
-                # and save out community matrix and BED file
-                out_prefix = "{0}/{1}.task-{2}.community-{3}.{4}".format(
-                    args.tmp_dir, args.prefix, interpretation_task_idx, community_idx, "_".join(list(reversed(top_pwms))[:3]))
-                out_mat_file = "{}.mat.txt".format(out_prefix)
-                community_mat.to_csv(out_mat_file, sep='\t')
-
-                out_bed_file = "{}.bed".format(out_prefix)
-                make_bed = (
-                    "cat {0} | "
-                    "awk -F '\t' '{{ print $1 }}' | "
-                    "grep -v index | "
-                    "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
-                    "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
-                    "sort -k1,1 -k2,2n "
-                    "> {1}").format(out_mat_file, out_bed_file)
-                os.system(make_bed)
-
+        phenograph_cluster(pwm_hits_df, sorted_mat_file)
+        
     # get the max correlations/signal strengths to set up global graph here
-    max_corr_df = pd.DataFrame(
-        data=np.zeros((len(pwm_names_filt), len(pwm_names_filt))),
-        index=pwm_names_filt,
-        columns=pwm_names_filt)
-    max_signals = np.zeros((len(pwm_names_filt)))
-    
-    for i in xrange(len(args.interpretation_tasks)):
-
-        interpretation_task_idx = args.interpretation_tasks[i]
-        print interpretation_task_idx
-
-        # load in corr mat file
-        corr_mat_file = "{0}/{1}.task-{2}.corr_mat.tmp".format(
-            args.tmp_dir, args.prefix, interpretation_task_idx)
-        corr_mat_df = pd.read_table(corr_mat_file, index_col=0)
-        corr_mat_df.columns = [";".join([name.split("_")[0] for name in pwm_name_to_hgnc[pwm_name].split(";")])
-                               for pwm_name in corr_mat_df.columns]
-        corr_mat_df.index = corr_mat_df.columns
-
-        # apply max
-        max_array = np.maximum(max_corr_df.as_matrix(), corr_mat_df.as_matrix())
-        max_corr_df = pd.DataFrame(max_array, index=corr_mat_df.index, columns=corr_mat_df.columns)
-
+    correlation_files = [
+        "{}/{}.task-{}.corr_mat.tmp".format(args.tmp_dir, args.prefix, args.interpretation_tasks[i])
+        for i in xrange(len(args.interpretation_tasks))]
+    max_corr_df = get_max_corr_mat(correlation_files, pwm_names_filt)
         
     # then with that, get back a G (graph)
     max_G = get_networkx_graph(max_corr_df, corr_thresh=0.2)
@@ -308,115 +326,17 @@ def run(args):
         interpretation_task_idx = args.interpretation_tasks[i]
         print interpretation_task_idx
 
-
-        # ---------------
-        # Extract signal strengths
-        # ---------------
-
+        # files
         reduced_mat_file = "{0}/{1}.task-{2}.motif_mat.reduced.txt".format(
             args.tmp_dir, args.prefix, interpretation_task_idx)
-        pwm_hits_df = pd.read_table(reduced_mat_file, index_col=0)
-        pwm_hits_df = pwm_hits_df.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
-        pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df==0).all(axis=1)] # remove elements with no hits
-
-        # TODO: figure out how to get signal to noise score here - sum gets diluted by lots of noise
-        # would there be any rationale to squaring?
-        signal = np.sum(pwm_hits_df, axis=0)
-        signal = 300 * signal / signal.max()
-
-        # pwm name to signal
-        id_to_signal_dict = dict(zip(signal.index, signal.as_matrix()))
-
-        # hgnc to signal
-        signal.index = [";".join([name.split("_")[0] for name in pwm_name_to_hgnc[pwm_name].split(";")])
-                               for pwm_name in signal.index]
-        print signal.nlargest(n=10)
-        node_size_dict = dict(zip(signal.index, signal.as_matrix()))
-        
-        # ---------------
-        # Get correlations
-        # ---------------
-
-        # load in corr mat file
         corr_mat_file = "{0}/{1}.task-{2}.corr_mat.tmp".format(
             args.tmp_dir, args.prefix, interpretation_task_idx)
-        corr_mat_df = pd.read_table(corr_mat_file, index_col=0)
 
-        # here, reduce pwms
-        if True:
-            print "reducing pwms..."
-            pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
-            corr_mat_df = reduce_corr_mat_by_motif_similarity(
-                corr_mat_df,
-                pwm_dict,
-                id_to_signal_dict,
-                edge_cor_thresh=0.25)
-            print "done"
-            
-        # and adjust names after, need to match pwms
-        corr_mat_df.columns = [";".join([name.split("_")[0] for name in pwm_name_to_hgnc[pwm_name].split(";")])
-                               for pwm_name in corr_mat_df.columns]
-        corr_mat_df.index = corr_mat_df.columns
+        # plot
+        task_G = plot_motif_network(reduced_mat_file, corr_mat_file, pwm_name_to_hgnc, reduce_pwms=True)
 
-        # save this out to quickly plot later
-        
-        
-        # ---------------
-        # Plotting
-        # ---------------
-      
-        prefix = "task-{}.testing.max_pos".format(interpretation_task_idx)
-        task_G = plot_corr_on_fixed_graph(corr_mat_df, max_G_positions, prefix, corr_thresh=0.25, node_size_dict=node_size_dict)
+        # and save out components
+        separate_and_save_components(task_G, pwm_hits_df, prefix, hgnc_to_pwm_name)
 
-        # save out connected components as separate groups (just connectivity, look at cliques later)
-        components = []
-        component_idx = 0
-        for component in nx.connected_components(task_G):
-            print component
-            components.append(list(component))
-
-            # here, save out.
-            component_file = "{}.component_{}.txt".format(prefix, component_idx)
-            with open(component_file, "w") as out:
-                for hgnc_name in list(component):
-                    out.write("{}\t{}\n".format(hgnc_to_pwm_name[hgnc_name], hgnc_name))
-
-            # quick back check - look for regions that have these motifs
-            # TODO this selection needs to be a little smarter - may be picking up too much noise
-            pwm_names = [hgnc_to_pwm_name[name] for name in list(component)]
-            pwm_hits_pwm_subset_df = pwm_hits_df[pwm_names]
-
-            pwm_hits_positive_df = pwm_hits_pwm_subset_df.loc[~(pwm_hits_pwm_subset_df==0).any(axis=1)]
-            component_regions_file = "{}.component_{}.regions.txt".format(prefix, component_idx)
-            pwm_hits_positive_df.to_csv(component_regions_file, columns=[], header=False)
-
-            # make bed file
-            component_regions_bed = "{}.component_{}.regions.bed".format(prefix, component_idx)
-            make_bed = (
-                "cat {0} | "
-                "awk -F ';' '{{ print $3 }}' | "
-                "awk -F '=' '{{ print $2 }}' | "
-                "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
-                "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
-                "sort -k1,1 -k2,2n | "
-                "bedtools merge -i stdin > "
-                "{1}").format(component_regions_file, component_regions_bed)
-            os.system(make_bed)
-            
-            import ipdb
-            ipdb.set_trace()
-                    
-            component_idx += 1
-
-            
-            
-
-        # now use these files as inputs to scan for grammars.
-
-        # after THAT, then can output a directed graph model for each grammar.
-        # store as pwm x pwm matrix (directed, so asymmetrical) so easy to load in for scanning.
-        
-        
-        
         
     return None
