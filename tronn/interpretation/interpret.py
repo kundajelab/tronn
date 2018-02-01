@@ -165,7 +165,7 @@ def interpret(
 
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
-                    
+
                     # conditions for visualization: logits > 0,
                     # and mean(importances) > 0, AND not empty net
                     # set up real condition

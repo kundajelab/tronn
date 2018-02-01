@@ -182,6 +182,8 @@ class ExampleGenerator(object):
             if self.batch_pointer == self.batch_size:
                 self.batch_pointer = 0
                 self.batch_region_arrays = self.sess.run(self.tensor_dict)
+                #import ipdb
+                #ipdb.set_trace()
 
             # filtering should happen here
             if (not self.keep_negatives) and (self.batch_region_arrays["negative"][self.batch_pointer] == 1):

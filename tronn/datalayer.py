@@ -343,7 +343,7 @@ def filter_through_labels(features, labels, metadata, filter_tasks, batch_size):
     pos_labels = tf.multiply(labels, labels_mask)
     matches = tf.greater(tf.reduce_sum(pos_labels, axis=1), [0])
     selected_items = tf.reshape(tf.where(matches), [-1])
-
+    
     # gather
     features_filtered = tf.gather(features, selected_items)
     labels_filtered = tf.gather(labels, selected_items)

@@ -4,9 +4,11 @@
 import pandas as pd
 import networkx as nx
 
-def separate_and_save_components(G, score_df, prefix, name_to_id):
+def separate_and_save_components(G, mat_file, prefix, name_to_id):
     """given a graph, separate by non-connected components
     """
+    score_df = pd.read_table(mat_file, index_col=0)
+    
     master_component_file = "{}.components.txt".format(prefix)
     
     # save out connected components as separate groups (just connectivity, look at cliques later)

@@ -82,7 +82,7 @@ def sequence_to_importance_scores(
         (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 7bp window.
-        (filter_by_importance, {"cutoff": 20}), # TODO - change this to positive cutoff?
+        (filter_by_importance, {"cutoff": 10, "positive_only": True}), # TODO - change this to positive cutoff?
         (normalize_w_probability_weights, {"normalize_probs": config["outputs"]["probs"]}), # normalize, never use logits (too much range) unless clip it
     ]
     
@@ -112,7 +112,7 @@ def sequence_to_motif_scores(
     # if using NN, convert features to importance scores first
     if use_importances:
         features, labels, config = sequence_to_importance_scores(
-            features, labels, config, is_training=is_training, keep_outputs=keep_outputs)
+            features, labels, config, is_training=is_training, keep_outputs=False)
         count_thresh = 2 # there's time info, so can filter across tasks
         
     # set up inference stack

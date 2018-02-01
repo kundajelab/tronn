@@ -16,6 +16,7 @@ def filter_through_mask(
         
     assert batch_size is not None
 
+    print "condition shape", condition_mask.get_shape()
     
     # filter examples
     keep_indices = tf.reshape(tf.where(condition_mask), [-1])
@@ -91,7 +92,7 @@ def filter_by_accuracy(features, labels, config, is_training=False):
     correct_predictions = tf.logical_not(tf.logical_xor(
         tf.cast(labels, tf.bool),
         tf.greater_equal(probs, 0.5))) # {N, tasks}
-    accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32), axis=1, keep_dims=True) # {N}
+    accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32), axis=1) # {N}
     
     # set condition
     condition_mask = tf.greater_equal(accuracy, acc_threshold)
@@ -109,17 +110,26 @@ def filter_by_importance(features, labels, config, is_training=False):
     """
     # get params
     batch_size = config.get("batch_size")
-    cutoff = config.get("cutoff", 10)
-
+    cutoff = config.get("cutoff", 20)
+    positive_only = config.get("positive_only", False)
+    
     # assertions
     assert batch_size is not None
 
-    # get condition mask
-    feature_sums = tf.reduce_max(
-        tf.reduce_sum(
-            tf.cast(tf.not_equal(features, 0), tf.float32),
-            axis=[2, 3]),
-        axis=1) # shape {N}
+    if positive_only:
+        # get condition mask
+        feature_sums = tf.reduce_max(
+            tf.reduce_sum(
+                tf.cast(tf.greater(features, 0), tf.float32),
+                axis=[2, 3]),
+            axis=1) # shape {N}
+    else:
+        # get condition mask
+        feature_sums = tf.reduce_max(
+            tf.reduce_sum(
+                tf.cast(tf.not_equal(features, 0), tf.float32),
+                axis=[2, 3]),
+            axis=1) # shape {N}
     
     condition_mask = tf.greater(feature_sums, cutoff)
 
