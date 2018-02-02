@@ -169,6 +169,9 @@ def interpret(
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
 
+                    import ipdb
+                    ipdb.set_trace()
+
                     # conditions for visualization: logits > 0,
                     # and mean(importances) > 0, AND not empty net
                     # set up real condition

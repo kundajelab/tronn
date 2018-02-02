@@ -42,6 +42,12 @@ def run(args):
     pwm_list, pwm_list_filt, pwm_list_filt_indices, pwm_names_filt = setup_pwms(args.pwm_file, pwm_list_file)
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
 
+    # ==============
+    # for debug
+    # ==============
+    grammars = [grammars[4]]
+    print [pwm_name_to_hgnc[name] for grammar in grammars for name in grammar.nodes]
+
     # set up graph
     print args.model["name"]
     print net_fns[args.model["name"]]
@@ -70,6 +76,7 @@ def run(args):
     logging.info("Checkpoint: {}".format(checkpoint_path))
 
     # run interpret on the graph
+    # TODO perform visualization of importance scores in here
     score_mat_h5 = '{0}/{1}.grammar_scores.h5'.format(
         args.tmp_dir, args.prefix)
     if not os.path.isfile(score_mat_h5):
@@ -85,6 +92,21 @@ def run(args):
             method=args.backprop if args.backprop is not None else "input_x_grad")
 
     # from here, take a look.
+
+
+    # TODO - write a function for this, can append as an option to any filtered set of importance scores
+    # TODO - take the importances (global) and generate modisco. make it so that can run on any dataset
+    # to look at timepoint specific ones later.
+
+
+    # TODO - visualize important motifs by positioning. make a profile map, output BED file too
+    # then can use deeptools + bigwigs to quickly view
+
+
+    # TODO - confusion matrix - what timepoints and what tasks are most enriched? should be able to
+    # recover expected timepoints and tasks.
+    
+    
     
     
     

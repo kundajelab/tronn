@@ -1,6 +1,7 @@
 """Contains nets to help run grammars
 """
 
+import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -9,7 +10,7 @@ from tronn.util.tf_utils import get_fan_in
 from tronn.util.initializers import pwm_simple_initializer
 
 
-def score_grammar(features, labels, config, is_training=False):
+def score_grammars(features, labels, config, is_training=False):
     """load in grammar
     """
     grammars = config.get("grammars")
@@ -25,7 +26,10 @@ def score_grammar(features, labels, config, is_training=False):
         grammar_array[:,grammar_idx] = grammars[grammar_idx].pwm_vector
 
     grammar_tensor = tf.convert_to_tensor(grammar_array, dtype=tf.float32) # {M, G}
-    grammar_threshold = tf.reduce_sum(grammar_weights, axis=0) # {G}
+    grammar_threshold = tf.reduce_sum(
+        tf.cast(
+            tf.not_equal(grammar_tensor, [0]),
+            tf.float32), axis=0) # {G}
 
     # adjust score tensor dimensions
     grammar_tensor = tf.expand_dims(grammar_tensor, axis=0) # {1, M, G}
@@ -40,7 +44,7 @@ def score_grammar(features, labels, config, is_training=False):
             tf.greater(
                 tf.multiply(grammar_tensor, features), [0]),
             tf.float32), axis=2) # {N, task, G}
-    
+
     # may need to adjust dims here too
     features = tf.cast(tf.greater_equal(grammar_scores, grammar_threshold), tf.float32) # {N, task, G}
 
@@ -48,5 +52,11 @@ def score_grammar(features, labels, config, is_training=False):
     
     return features, labels, config
 
+
+def get_pairwise_positions():
+    """ (N, 1, pos, M)? dont really need this right?
+    """
+
+    return
 
 

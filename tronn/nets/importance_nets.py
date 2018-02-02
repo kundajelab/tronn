@@ -111,9 +111,12 @@ def multitask_global_importance(features, labels, config, is_training=False):
     features = tf.concat(masked_features_list, axis=0)
     
     # TODO could do a max - min scoring system?
-    features_max = tf.reduce_sum(features, axis=1, keep_dims=True) # TODO add abs? probably not
+    reduce_type = config.get("reduce_type", "sum")
 
-
+    if reduce_type == "sum":
+        features_max = tf.reduce_sum(features, axis=1, keep_dims=True) # TODO add abs? probably not
+    elif reduce_type == "max":
+        features_max = tf.reduce_max(features, axis=1, keep_dims=True)
     
     #features_max = tf.reduce_max(tf.abs(features), axis=1, keep_dims=True)
 

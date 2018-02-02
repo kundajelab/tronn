@@ -370,6 +370,11 @@ def pwm_consistency_check(features, labels, config, is_training=False):
     # stack
     features = tf.concat(masked_features_list, axis=0) # {N, task, pos, M}
 
+    # sometimes keep (for grammars)
+    if config.get("keep_features", False):
+        # attach to config
+        config["outputs"]["pwm-scores-full"] = features # {N, task, pos, M}
+
     return features, labels, config
 
 

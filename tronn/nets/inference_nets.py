@@ -18,7 +18,6 @@ from tronn.nets.threshold_nets import threshold_gaussian
 from tronn.nets.threshold_nets import threshold_shufflenull
 from tronn.nets.threshold_nets import clip_edges
 
-
 from tronn.nets.motif_nets import pwm_convolve_v3
 from tronn.nets.motif_nets import pwm_convolve_inputxgrad
 from tronn.nets.motif_nets import pwm_maxpool
@@ -31,12 +30,12 @@ from tronn.nets.motif_nets import pwm_match_filtered_convolve
 from tronn.nets.motif_nets import multitask_motif_assignment
 from tronn.nets.motif_nets import motif_assignment
 
-#from tronn.nets.threshold_nets import add_sumpool_threshval
-#from tronn.nets.threshold_nets import apply_sumpool_thresh
+from tronn.nets.grammar_nets import score_grammars
 
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_by_importance
 from tronn.nets.filter_nets import filter_singles_twotailed
+from tronn.nets.filter_nets import filter_by_grammar_presence
 
 
 def build_inference_stack(features, labels, config, inference_stack):
@@ -118,7 +117,7 @@ def sequence_to_motif_scores(
     # set up inference stack
     inference_stack = [
         (pwm_match_filtered_convolve, {"pwms": config["pwms"]}), # double filter: raw seq match and impt weighted seq match
-        (pwm_consistency_check, {}), # get consistent across time scores
+        (pwm_consistency_check, {"keep_features": True}), # get consistent across time scores
         (multitask_global_importance, {"append": True, "keep_features": True, "count_thresh": count_thresh}), # get global (abs val)
         (pwm_position_squeeze, {"squeeze_type": "max"}), # get the max across positions {N, motif} # TODO - give an option for counts vs max (homotypic grammars)
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
@@ -136,34 +135,60 @@ def sequence_to_motif_scores(
 
 
 # set up grammars net
-def sequence_to_grammar_scores(features, labels, config, is_training=False):
+def sequence_to_grammar_scores(
+        features,
+        labels,
+        config,
+        is_training=False,
+        keep_outputs=True):
     """Go from sequence (N, 1, pos, 4) to grammar hits (N, grammar)
+
+    Use this inference stack to get:
+      - viz importance scores on grammars
+      - run modisco
+      - look at pairwise motif positions
+
     """
     # first go from sequence to motifs
-    # TODO - want to keep track of the motif x pos matrix (N, 1, pos, motif)
+    # TODO - make sure to keep importance scores to run modisco
     features, labels, config = sequence_to_motif_scores(
-        features, labels, config, is_training=is_training)
+        features, labels, config, is_training=is_training, keep_outputs=False)
 
-
+    # for grammar scan, want to start from an intermediate
+    features = config["outputs"]["pwm-scores-full"] # (N, task, pos, motif) <- keep this output (for visualizing positions)
+    
     # set up inference stack
     inference_stack = [
-        # 1) scan motifs for hits - ie, add another grammar layer on top. gives (N, grammar)
-        # 2) filter layer for positive hits --> can pull out to modisco (save these outputs)
-        # 3) with these, grab back the motif x pos matrix and filter for motifs in grammar (N, 1, pos, motif),
-        #    most likely (N, 1, pos, 2) which can then be grabbed for plotting -> motif profile viz
-
+        (pwm_position_squeeze, {"squeeze_type": "max"}), # squeeze = (N, task, M)
+        (score_grammars, {"grammars": config["grammars"], "pwms": config["pwms"]}), #  {N, task, G} 
+        (multitask_global_importance, {"append": True, "reduce_type": "max"}), # N, task+1, G <- keep this output (when does grammar turn on)
+        (filter_by_grammar_presence, {}) # filter stage, keeps last outputs (N, task+1, G)
     ]
 
+    # build inference stack
+    features, labels, config = build_inference_stack(
+        features, labels, config, inference_stack)
+
+    if keep_outputs:
+        config = unstack_tasks(features, labels, config, prefix="grammar-scores")
     
     return features, labels, config
 
 
 def sequence_to_grammar_ism(features, labels, config, is_training=False):
     """Go from sequence (N, 1, pos, 4) to ism/deltadeeplift results (N, 1, motif), where 1=1 motif
+
+    Use this inference stack to get:
+      -- deltadeeplift
+
     """
-
     # use sequence_to_grammar_scores above
+    features, labels, config = sequence_to_grammar_scores(
+        features, labels, config, is_training=is_training, keep_outputs=False)
 
+    inference_stack = [
+        
+    ]
 
     # then with the set of positive hits, run ISM centered on a key motif
     # 1) break the motif, using info from the motif x pos matrix info
@@ -173,7 +198,15 @@ def sequence_to_grammar_ism(features, labels, config, is_training=False):
     # 4) then run the motif scan again. {N, M}. positive AND negative are informative
     # 5) reduce_sum to calculate the summed delta for each motif (relative to the master motif) {N, M}
 
-    return
+
+    # build inference stack
+    features, labels, config = build_inference_stack(
+        features, labels, config, inference_stack)
+
+    if keep_outputs:
+        config = unstack_tasks(features, labels, config, prefix="grammar-scores")
+    
+    return features, labels, config
 
 # TODO - somewhere (datalayer?) build module for generating synthetic sequences
 
@@ -268,26 +301,4 @@ def importances_to_motif_assignments_v3(features, labels, config, is_training=Fa
     master_config["outputs"]["labels"] = labels
 
     return outputs, labels, master_config
-
-
-def get_top_k_motif_hits(features, labels, config, is_training=False):
-    """Top k style, just on global importances
-    """
-    # set up stack
-    inference_stack = [
-        (multitask_importances, {"anchors": tf.unstack(config["logits"], axis=1), "importances_fn": input_x_grad}),
-        (multitask_global_importance, {"append": False}),
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (normalize_w_probability_weights, {"probs": tf.unstack(config["probs"], axis=1)}),
-        (pwm_convolve3, {"pwms": config["pwms"], "pool": True}),
-        (threshold_topk, {"k_val": 4})
-    ]
-
-    # stack the transforms
-    for transform_fn, config in inference_stack:
-        features, labels, config = transform_fn(features, labels, config)
-        # TODO - if needed, pass on additional configs through
-    
-
-    return features, labels, config
 
