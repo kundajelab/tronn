@@ -379,6 +379,55 @@ class PWM(object):
 
 
 
+# set up for filtering pwm list (to use a subset of pwms)
+def setup_pwms(master_pwm_file, pwm_subset_list_file):
+    """setup which pwms are being used
+    """
+    # open the pwm subset file to get names of the pwms to use
+    pwms_to_use = []
+    with open(pwm_subset_list_file, "r") as fp:
+        for line in fp:
+            pwms_to_use.append(line.strip().split('\t')[0])        
+            
+    # then open the master file and filter out unused ones
+    pwm_list = read_pwm_file(master_pwm_file)
+    pwm_list_filt = []
+    pwm_list_filt_indices = []
+    for i in xrange(len(pwm_list)):
+        pwm = pwm_list[i]
+        for pwm_name in pwms_to_use:
+            if pwm_name in pwm.name:
+                pwm_list_filt.append(pwm)
+                pwm_list_filt_indices.append(i)
+    #print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
+    print len(pwm_list_filt)
+    pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
+
+    return pwm_list, pwm_list_filt, pwm_list_filt_indices, pwm_names_filt
+
+
+# set up pwm metadata
+def setup_pwm_metadata(metadata_file):
+    """read in metadata to dicts for easy use
+    """
+    pwm_name_to_hgnc = {}
+    hgnc_to_pwm_name = {}
+    with open(metadata_file, "r") as fp:
+        for line in fp:
+            fields = line.strip().split("\t")
+            try:
+                pwm_name_to_hgnc[fields[0]] = fields[4]
+                hgnc_to_pwm_name[fields[4]] = fields[0]
+            except:
+                pwm_name_to_hgnc[fields[0]] = fields[0].split(".")[0].split("_")[2]
+                pwm_name_to_hgnc[fields[0]] = "UNK"
+
+    return pwm_name_to_hgnc, hgnc_to_pwm_name
+
+
+
+    
+
 
 
     

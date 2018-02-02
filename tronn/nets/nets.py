@@ -12,10 +12,9 @@ from tronn.nets.deep_nets import empty_net
 
 from tronn.nets.inference_nets import sequence_to_importance_scores
 from tronn.nets.inference_nets import sequence_to_motif_scores
+from tronn.nets.inference_nets import sequence_to_grammar_scores
 
 from tronn.nets.mutate_nets import ism_for_grammar_dependencies
-from tronn.nets.grammar_nets import single_grammar
-from tronn.nets.grammar_nets import multiple_grammars
 
 
 net_fns = {
@@ -28,9 +27,8 @@ net_fns = {
     "empty_net": empty_net,
     "sequence_to_importance_scores": sequence_to_importance_scores,
     "sequence_to_motif_scores": sequence_to_motif_scores,
-    "ism": ism_for_grammar_dependencies,
-    "grammar": single_grammar,
-    "grammars": multiple_grammars
+    "sequence_to_grammar_scores": sequence_to_grammar_scores,
+    "ism": ism_for_grammar_dependencies
 }
 
 

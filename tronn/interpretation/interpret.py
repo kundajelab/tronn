@@ -106,7 +106,7 @@ def interpret(
         batch_size,
         h5_file,
         sample_size=None,
-        pwm_list=None,
+        inference_params={},
         method="input_x_grad",
         keep_negatives=False,
         filter_by_prediction=True,
@@ -119,11 +119,14 @@ def interpret(
         # build graph
         if method == "input_x_grad":
             print "using input_x_grad"
-            outputs = tronn_graph.build_inference_graph(pwm_list=pwm_list)
-        elif method == "guided_backprop":
-            with g.gradient_override_map({'Relu': 'GuidedRelu'}):
-                print "using guided backprop"
-                outputs = tronn_graph.build_inference_graph(pwm_list=pwm_list)
+            outputs = tronn_graph.build_inference_graph(inference_params)
+        #elif method == "guided_backprop":
+        #    with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+        #        print "using guided backprop"
+        #        outputs = tronn_graph.build_inference_graph(pwm_list=pwm_list)
+        else:
+            print "unsupported method"
+            quit()
                 
         # set up session
         sess, coord, threads = setup_tensorflow_session()

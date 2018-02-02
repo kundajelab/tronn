@@ -26,6 +26,8 @@ from tronn.interpretation.interpret import interpret
 
 from tronn.interpretation.motifs import PWM
 from tronn.interpretation.motifs import read_pwm_file
+from tronn.interpretation.motifs import setup_pwms
+from tronn.interpretation.motifs import setup_pwm_metadata
 
 from tronn.interpretation.grammars import get_significant_correlations
 from tronn.interpretation.grammars import reduce_corr_mat_by_motif_similarity
@@ -41,50 +43,6 @@ from tronn.interpretation.networks import separate_and_save_components
 import networkx as nx
 
 import phenograph
-
-
-def setup_pwms(master_pwm_file, pwm_subset_list_file):
-    """setup which pwms are being used
-    """
-    # open the pwm subset file to get names of the pwms to use
-    pwms_to_use = []
-    with open(pwm_subset_list_file, "r") as fp:
-        for line in fp:
-            pwms_to_use.append(line.strip().split('\t')[0])        
-            
-    # then open the master file and filter out unused ones
-    pwm_list = read_pwm_file(master_pwm_file)
-    pwm_list_filt = []
-    pwm_list_filt_indices = []
-    for i in xrange(len(pwm_list)):
-        pwm = pwm_list[i]
-        for pwm_name in pwms_to_use:
-            if pwm_name in pwm.name:
-                pwm_list_filt.append(pwm)
-                pwm_list_filt_indices.append(i)
-    #print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
-    print len(pwm_list_filt)
-    pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
-
-    return pwm_list, pwm_list_filt, pwm_list_filt_indices, pwm_names_filt
-
-
-def setup_pwm_metadata(metadata_file):
-    """read in metadata to dicts for easy use
-    """
-    pwm_name_to_hgnc = {}
-    hgnc_to_pwm_name = {}
-    with open(metadata_file, "r") as fp:
-        for line in fp:
-            fields = line.strip().split("\t")
-            try:
-                pwm_name_to_hgnc[fields[0]] = fields[4]
-                hgnc_to_pwm_name[fields[4]] = fields[0]
-            except:
-                pwm_name_to_hgnc[fields[0]] = fields[0].split(".")[0].split("_")[2]
-                pwm_name_to_hgnc[fields[0]] = "UNK"
-
-    return pwm_name_to_hgnc, hgnc_to_pwm_name
 
 
 def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames):
@@ -296,7 +254,7 @@ def run(args):
                 args.batch_size,
                 pwm_hits_mat_h5,
                 args.sample_size,
-                pwm_list,
+                {"pwms": pwm_list},
                 #pwm_list_filt,
                 keep_negatives=False,
                 filter_by_prediction=True,

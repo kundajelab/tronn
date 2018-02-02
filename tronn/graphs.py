@@ -178,12 +178,12 @@ class TronnNeuralNetGraph(TronnGraph):
         return train_op
 
     
-    def build_inference_graph(self, data_key="data", pwm_list=None):
+    def build_inference_graph(self, inference_params, data_key="data"): # convert to have a config dict?
         """Build a graph with back prop ties to be able to get 
         importance scores
         """
         assert self.inference_fn is not None
-        self.pwm_list = pwm_list # keep pwm list
+        #self.pwm_list = pwm_list # keep pwm list
 
         # build graph
         self.build_graph(data_key, is_training=False)
@@ -209,7 +209,8 @@ class TronnNeuralNetGraph(TronnGraph):
         # rather make a sub dict in config for batch things
         config = {
             "batch_size": self.batch_size,
-            "pwms": pwm_list,
+            "pwms": inference_params.get("pwms"),
+            "grammars": inference_params.get("grammars"),
             "importance_task_indices": self.importances_tasks,
             "outputs": { # these are all the batch results that must stay with their corresponding example
                 "logits": self.logits,

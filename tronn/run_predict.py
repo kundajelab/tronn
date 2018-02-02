@@ -21,7 +21,7 @@ from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import net_fns
 from tronn.learn.learning import predict
 from tronn.learn.learning import predict_variant_scores
-from tronn.interpretation.motifs import get_encode_pwms
+from tronn.interpretation.motifs import read_pwm_file
 
 from tronn.nets.importance_nets import input_x_grad
 
@@ -30,7 +30,7 @@ def load_pwms(pwm_file_list):
     """
     pwms = {}
     for pwm_file in pwm_file_list:
-        pwms_tmp = get_encode_pwms(pwm_file, as_dict=True)
+        pwms_tmp = read_pwm_file(pwm_file, as_dict=True)
         pwms.update(pwms_tmp)
         
     return pwms
