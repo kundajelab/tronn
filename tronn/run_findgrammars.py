@@ -34,6 +34,8 @@ from tronn.interpretation.grammars import plot_corr_as_network
 from tronn.interpretation.grammars import plot_corr_on_fixed_graph
 from tronn.interpretation.grammars import get_significant_motifs
 
+from tronn.interpretation.grammars import read_grammar_file
+
 from tronn.interpretation.networks import separate_and_save_components
 
 import networkx as nx
@@ -351,7 +353,8 @@ def run(args):
 
         interpretation_task_idx = args.interpretation_tasks[i]
         print interpretation_task_idx
-        prefix = "{}/task-{}.graph".format(args.out_dir, interpretation_task_idx)
+        prefix = "{0}/{1}.task-{2}.graph".format(
+            args.out_dir, args.prefix, interpretation_task_idx)
 
         # files
         mat_file = "{0}/{1}.task-{2}.region_x_pwm.phenograph_sorted.txt".format(
@@ -370,10 +373,13 @@ def run(args):
             reduce_pwms=True)
 
         # and save out components
+        grammar_file = "{0}/{1}.task-{2}.grammars.txt".format(
+            args.tmp_dir, args.prefix, interpretation_task_idx)
         separate_and_save_components(
             task_G,
             mat_file,
             prefix,
-            hgnc_to_pwm_name)
-        
+            hgnc_to_pwm_name,
+            grammar_file)
+
     return None

@@ -26,6 +26,97 @@ from networkx.drawing.nx_pydot import pydot_layout
 from scipy.stats import pearsonr
 
 
+def read_grammar_file(grammar_file, pwm_file, as_dict=False):
+    """Read in grammar and pwm file to set up grammars
+    """
+    if as_dict:
+        grammars = {}
+    else:
+        grammars = []
+
+    # open pwm files
+    pwms = read_pwm_file(pwm_file)
+    pwm_dict = read_pwm_file(pwm_file, as_dict=True)
+
+    # open grammar file
+    with open(grammar_file, "r") as fp:
+        line = fp.readline().strip()
+        while True:
+            if line == "":
+                break
+            # get header
+            header = line.strip(">").strip()
+            
+            # get params
+            line = fp.readline().strip()
+            param_string = line.strip("#params").strip()
+            node_dict = {}
+            edge_dict = {}
+
+            # go through nodes TODO check for presence in pwm file?
+            line = fp.readline().strip()
+            assert line.startswith("#nodes")
+            while True:
+                line = fp.readline().strip()
+                if line.startswith("#edges") or line == "": break
+
+                fields = line.split()
+                node_dict[fields[0]] = float(fields[1])
+
+            # go through edges
+            assert line.startswith("#edges")
+            while True:
+                line = fp.readline().strip()
+                if line.startswith(">") or line == "": break
+
+                fields = line.split()
+                edge_dict[(fields[0], fields[1])] = float(fields[2])
+
+            print header
+            grammar = Grammar(pwm_file, node_dict, edge_dict, param_string, name=header)
+
+            if as_dict:
+                grammars[header] = grammar
+            else:
+                grammars.append(grammar)
+
+    return grammars
+
+
+
+class Grammar(object):
+
+    def __init__(self, pwm_file, node_dict, edge_dict, param_string, name=None, threshold=None):
+        self.name = name
+        self.pwms = read_pwm_file(pwm_file)
+        self.param_string = param_string
+        self.nodes = node_dict
+        self.edges = edge_dict
+
+        # set up 1D pwm vector
+        self.pwm_vector = np.zeros((len(self.pwms)))
+        for pwm_idx in xrange(len(self.pwms)):
+            pwm = self.pwms[pwm_idx]
+            try:
+                val = self.nodes[pwm.name]
+                self.pwm_vector[pwm_idx] = val
+            except:
+                pass
+        
+        # set up 2D numpy array of adjacencies
+        self.adjacency_matrix = np.zeros((len(self.pwms), len(self.pwms)))
+        for pwm1_idx in xrange(len(self.pwms)):
+            for pwm2_idx in xrange(len(self.pwms)):
+                edge_name = (self.pwms[pwm1_idx].name, self.pwms[pwm2_idx].name)
+                try:
+                    val = self.edges[edge_name]
+                    self.adjacency_matrix[pwm1_idx, pwm2_idx] = val
+                except:
+                    pass
+                
+        return
+
+
 def get_significant_correlations(motif_mat, corr_method="pearson", pval_thresh=0.05, corr_min=0.4):
     """Given a matrix, calculate pearson correlation for each pair of 
     columns and look at p-val. If p-val is above threshold, keep 
