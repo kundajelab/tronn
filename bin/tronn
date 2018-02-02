@@ -187,6 +187,9 @@ def add_train_parser(subparsers):
         "--cvfold", default=0, type=int,
         help="which files to train on [0, 1, 2]")
     group_input.add_argument(
+        "--cvfile", default=None,
+        help="give a txt file as crossValidationTable: example is given in data directory")
+    group_input.add_argument(
         '--restore_model_dir', default=None,
         help='restore from last checkpoint in dir')
     group_input.add_argument(
@@ -288,6 +291,9 @@ def add_evaluate_parser(subparsers):
     group_input.add_argument(
         "--cvfold", default=0, type=int,
         help="which files to train on [0, 1, 2]")
+    group_input.add_argument(
+        "--cvfile", default=None,
+        help="give a txt file as crossValidationTable: example is given in data directory")
 
     # group for model
     group_model = argparser_test.add_argument_group(

@@ -131,10 +131,14 @@ class ExampleGenerator(object):
         """
         # extract data and construct into region array dict
         region_arrays = {}
+	#print(self.batch_region_arrays.keys(), "--------------")
         for key in self.batch_region_arrays.keys():
             if key == "feature_metadata":
                 region = self.batch_region_arrays[key][self.batch_pointer,0]
-                region_name = region.split(";")[self.name_idx].split("=")[1].split("::")[0]
+		#print(region)
+                #region_name = region.split(";")[self.name_idx].split("=")[1].split("::")[0]
+		region_name = region.split("::")[1]
+		#print(region_name)
             elif "importance" in key:
                 region_arrays[key] = (
                     np.squeeze(
