@@ -60,7 +60,7 @@ def setup_pwms(master_pwm_file, pwm_subset_list_file):
             if pwm_name in pwm.name:
                 pwm_list_filt.append(pwm)
                 pwm_list_filt_indices.append(i)
-    print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
+    #print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
     print len(pwm_list_filt)
     pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
 

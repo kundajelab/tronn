@@ -120,7 +120,7 @@ def sequence_to_motif_scores(
         (pwm_match_filtered_convolve, {"pwms": config["pwms"]}), # double filter: raw seq match and impt weighted seq match
         (pwm_consistency_check, {}), # get consistent across time scores
         (multitask_global_importance, {"append": True, "keep_features": True, "count_thresh": count_thresh}), # get global (abs val)
-        (pwm_position_squeeze, {"squeeze_type": "max"}), # get the max across positions {N, motif}
+        (pwm_position_squeeze, {"squeeze_type": "max"}), # get the max across positions {N, motif} # TODO - give an option for counts vs max (homotypic grammars)
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
     ]
 
@@ -140,18 +140,42 @@ def sequence_to_grammar_scores(features, labels, config, is_training=False):
     """Go from sequence (N, 1, pos, 4) to grammar hits (N, grammar)
     """
     # first go from sequence to motifs
+    # TODO - want to keep track of the motif x pos matrix (N, 1, pos, motif)
     features, labels, config = sequence_to_motif_scores(
         features, labels, config, is_training=is_training)
 
+
     # set up inference stack
     inference_stack = [
-        # scan motifs for hits - ie, add another grammar layer on top
-        
+        # 1) scan motifs for hits - ie, add another grammar layer on top. gives (N, grammar)
+        # 2) filter layer for positive hits --> can pull out to modisco (save these outputs)
+        # 3) with these, grab back the motif x pos matrix and filter for motifs in grammar (N, 1, pos, motif),
+        #    most likely (N, 1, pos, 2) which can then be grabbed for plotting -> motif profile viz
 
     ]
 
     
     return features, labels, config
+
+
+def sequence_to_grammar_ism(features, labels, config, is_training=False):
+    """Go from sequence (N, 1, pos, 4) to ism/deltadeeplift results (N, 1, motif), where 1=1 motif
+    """
+
+    # use sequence_to_grammar_scores above
+
+
+    # then with the set of positive hits, run ISM centered on a key motif
+    # 1) break the motif, using info from the motif x pos matrix info
+    # 2) pass through and get importances -
+    #    probably need to change variable scope to prevent tensorflow confusion
+    # 3) then subtract reference from broken - this is the delta deeplift part
+    # 4) then run the motif scan again. {N, M}. positive AND negative are informative
+    # 5) reduce_sum to calculate the summed delta for each motif (relative to the master motif) {N, M}
+
+    return
+
+# TODO - somewhere (datalayer?) build module for generating synthetic sequences
 
 
 # OLD CODE BELOW TO DELETE

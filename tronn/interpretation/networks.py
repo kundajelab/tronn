@@ -20,7 +20,7 @@ def separate_and_save_components(G, mat_file, prefix, name_to_id):
         components.append(list(component))
 
         # here, save out. also save out to a master file
-        component_file = "{}.component_{}.txt".format(prefix, component_idx)
+        component_file = "{}.component_{}.pwms.txt".format(prefix, component_idx)
         with open(component_file, "w") as out:
             for name in list(component):
                 out.write("{}\t{}\n".format(name_to_id[name], name))
