@@ -17,6 +17,7 @@ from sklearn.metrics import roc_curve
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import model_fns
+from tronn.learn.cross_validation import alt_setup_cv
 from tronn.learn.cross_validation import setup_cv
 from tronn.learn.learning import predict
 
@@ -216,7 +217,10 @@ def run(args):
     # find data files
     # NOTE right now this is technically validation set
     data_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
-    train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
+    if(args.cvfile is not None):
+        train_files, valid_files, test_files = alt_setup_cv(data_files, cvfold=args.cvfold, cvfile=args.cvfile)
+    else:
+        train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
     # set up model params
     model_fn, model_params = setup_model(args)
