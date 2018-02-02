@@ -138,7 +138,9 @@ def phenograph_cluster(mat_file, sorted_mat_file):
 def get_correlation_file(mat_file, corr_file, corr_min=0.4, pval_thresh=0.05):
     """Given a matrix file, calculate correlations across the columns
     """
-    mat_df = pd.read_table(mat_file, index_col=0)    
+    mat_df = pd.read_table(mat_file, index_col=0)
+    mat_df = mat_df.drop(["community"], axis=1)
+            
     corr_mat, pval_mat = get_significant_correlations(
         mat_df.as_matrix(),
         corr_method="continuous_jaccard",
@@ -161,29 +163,29 @@ def get_max_corr_mat(correlation_files, pwm_names_filt):
         data=np.zeros((num_pwms, num_pwms)),
         index=pwm_names_filt,
         columns=pwm_names_filt)
-    max_signals = np.zeros((num_pwms))
+    #max_signals = np.zeros((num_pwms))
 
     for correlation_file in correlation_files:
-        
         # load in corr mat file
         corr_mat_df = pd.read_table(correlation_file, index_col=0)
         #corr_mat_df.columns = [";".join([name.split("_")[0] for name in pwm_name_to_hgnc[pwm_name].split(";")])
         #                       for pwm_name in corr_mat_df.columns]
         #corr_mat_df.index = corr_mat_df.columns
-
+        
         # apply max
         max_array = np.maximum(max_corr_df.as_matrix(), corr_mat_df.as_matrix())
-        #max_corr_df = pd.DataFrame(max_array, index=corr_mat_df.index, columns=corr_mat_df.columns)
+        max_corr_df = pd.DataFrame(max_array, index=corr_mat_df.index, columns=corr_mat_df.columns)
 
     return max_corr_df
 
 
 
-def plot_motif_network(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, id_to_name, prefix, reduce_pwms=True):
+def plot_motif_network(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, id_to_name, prefix, pwm_dict, positions, reduce_pwms=True):
     """Plot full motif network with signal strengths
     """
     # Extract signal strengths
     pwm_hits_df = pd.read_table(regions_x_pwm_mat_file, index_col=0)
+    pwm_hits_df = pwm_hits_df.drop(["community"], axis=1)
     #pwm_hits_df = pwm_hits_df.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
     #pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df==0).all(axis=1)] # remove elements with no hits
 
@@ -206,8 +208,7 @@ def plot_motif_network(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, id_to_name, 
 
     # here, reduce pwms
     if reduce_pwms:
-        reduced_corr_mat_file = "{}.reduced.txt".format(corr_mat_file.split(".tmp")[0])
-        pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
+        reduced_corr_mat_file = "{}.reduced.txt".format(pwm_x_pwm_corr_file.split(".tmp")[0])
         corr_mat_df = reduce_corr_mat_by_motif_similarity(
             corr_mat_df,
             pwm_dict,
@@ -225,7 +226,7 @@ def plot_motif_network(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, id_to_name, 
     # plotting
     task_G = plot_corr_on_fixed_graph(
         corr_mat_df,
-        max_G_positions,
+        positions,
         prefix,
         corr_thresh=0.25,
         node_size_dict=node_size_dict)
@@ -255,7 +256,8 @@ def run(args):
         pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
         # TODO add an arg here to just use all if no list
         pwm_list, pwm_list_filt, pwm_list_filt_indices, pwm_names_filt = setup_pwms(args.pwm_file, pwm_list_file)
-
+        pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
+        
         print args.model["name"]
         print net_fns[args.model["name"]]
         
@@ -330,12 +332,16 @@ def run(args):
             get_correlation_file(region_x_pwm_sorted_mat_file, pwm_x_pwm_corr_file)
             
     # get the max correlations/signal strengths to set up global graph here
+    # adjust names here, this is for plotting
     correlation_files = [
         "{0}/{1}.task-{2}.pwm_x_pwm.corr.mat.txt".format(
             args.tmp_dir, args.prefix, args.interpretation_tasks[i])
         for i in xrange(len(args.interpretation_tasks))]
     max_corr_df = get_max_corr_mat(correlation_files, pwm_names_filt)
-        
+    max_corr_df.columns = [";".join([name.split("_")[0] for name in pwm_name_to_hgnc[pwm_name].split(";")])
+                           for pwm_name in max_corr_df.columns]
+    max_corr_df.index = max_corr_df.columns
+    
     # then with that, get back a G (graph) and the positioning according to this graph
     max_G = get_networkx_graph(max_corr_df, corr_thresh=0.2)
     max_G_positions = nx.spring_layout(max_G, weight="value", k=0.15) # k is normally 1/sqrt(n), n=node_num
@@ -359,6 +365,8 @@ def run(args):
             corr_file,
             pwm_name_to_hgnc,
             prefix,
+            pwm_dict,
+            max_G_positions,
             reduce_pwms=True)
 
         # and save out components

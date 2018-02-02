@@ -1,5 +1,6 @@
 # description: code for doing network analyses
 
+import os
 
 import pandas as pd
 import networkx as nx
