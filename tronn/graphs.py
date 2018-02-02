@@ -84,7 +84,7 @@ class TronnNeuralNetGraph(TronnGraph):
                  optimizer_fn=None,
                  optimizer_params=None,
                  metrics_fn=None,
-                 importances_fn=None,
+                 inference_fn=None,
                  importances_tasks=None,
                  feature_key="features",
                  shuffle_data=True,
@@ -107,7 +107,7 @@ class TronnNeuralNetGraph(TronnGraph):
         self.optimizer_fn = optimizer_fn
         self.optimizer_params = optimizer_params
         self.metrics_fn = metrics_fn
-        self.importances_fn = importances_fn
+        self.inference_fn = inference_fn
         self.importances_tasks = importances_tasks
         self.class_weighted_loss = class_weighted_loss
         self.positives_focused_loss = positives_focused_loss
@@ -182,7 +182,7 @@ class TronnNeuralNetGraph(TronnGraph):
         """Build a graph with back prop ties to be able to get 
         importance scores
         """
-        assert self.importances_fn is not None
+        assert self.inference_fn is not None
         self.pwm_list = pwm_list # keep pwm list
 
         # build graph
@@ -193,7 +193,6 @@ class TronnNeuralNetGraph(TronnGraph):
             self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
 
         # set up negatives call (but change this - just filter through queues)
-        # TODO this needs to get set up with importance tasks
         importance_labels = []
         labels_list = tf.unstack(self.labels, axis=1)
         for task_idx in self.importances_tasks:
@@ -226,7 +225,7 @@ class TronnNeuralNetGraph(TronnGraph):
             config["use_importances"] = False
         
         # set up inference stack
-        features, labels, config = self.importances_fn( # TODO rename this to inference fn
+        features, labels, config = self.inference_fn(
             self.features, self.labels, config, is_training=False)
 
         # grab desired outputs

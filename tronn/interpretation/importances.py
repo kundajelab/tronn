@@ -23,6 +23,8 @@ from tronn.outlayer import H5Handler
 from tronn.util.tf_ops import restore_variables_op
 
 
+# TODO - is this a defunct file? maybe delete
+
 @ops.RegisterGradient("GuidedRelu_old")
 def _GuidedReluGrad_old(op, grad):
     """Replaces ReLUs with guided ReLUs in a tensorflow graph. Use to 

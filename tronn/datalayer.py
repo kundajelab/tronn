@@ -386,7 +386,6 @@ def load_data_from_filename_list(
     """
     logging.info("loading data for tasks:%s from hdf5_files:%s" % (task_indices, hdf5_files))
 
-    # TODO(dk) check file sizes and change num epochs as needed to fill the queue - or change queue capacity?
     num_examples = get_total_num_examples(hdf5_files)
     print num_examples
     
@@ -522,7 +521,6 @@ def tflearn_kmer_input_fn(
                                                                  enqueue_many=True,
                                                                  name='batcher')
 
-        # TODO(dk) put in a featurization layer here?
         if featurize_fn is not None:
             features = featurize_fn(features, **featurize_params)
 

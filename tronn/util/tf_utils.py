@@ -60,7 +60,7 @@ def make_summary_op(metric_values, print_out=False):
     """
     if print_out:
         values_for_printing = [
-            tf.train.get_global_step(),
+            tf.train.get_or_create_global_step(),
             metric_values['mean_loss'],
             metric_values['loss'],
             metric_values['total_loss'],

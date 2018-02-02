@@ -34,9 +34,6 @@ def parse_args():
     # command for prediction/scanning
     add_predict_parser(subparsers)
 
-    # command for extracting importances
-    add_importances_parser(subparsers)
-
     # command for making motifs with wkm
     add_wkm_parser(subparsers)
 
@@ -420,46 +417,6 @@ def add_predict_parser(subparsers):
     return
 
 
-def add_importances_parser(subparsers):
-    """Add argument parser for getting feature importances
-    """
-    argparser_importances = subparsers.add_parser(
-        "extractimportances",
-        help="Get basepair level importance scores")
-
-    # group for input files
-    group_input = argparser_importances.add_argument_group(
-    	"Input files and folders")
-    add_hdf5_data_options(group_input)
-
-    # group for model
-    group_model = argparser_importances.add_argument_group(
-        "Model definition")
-    add_trained_nn_model_options(group_model)
-
-    # group for parameters
-    group_params = argparser_importances.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
-    group_params.add_argument(
-        '--sample_size', default=220000, type=int,
-        help='number of regions to get importance scores')
-
-    # group for output files
-    group_output = argparser_importances.add_argument_group(
-        "Output files and folders")
-    add_output_options(group_output, out_dir="importances")
-    group_output.add_argument(
-        '--tmp_dir', default='importances_tmp',
-        help='temporary scratch directory')
-    group_output.add_argument(
-        '--plot_samples', action='store_true',
-        help='plot some sample sequences weighted by importance scores')
-    
-    return
-
 def add_wkm_parser(subparsers):
     """Add argument parser for making motifs from weighted kmers
     """
@@ -642,8 +599,7 @@ def add_findgrammars_parser(subparsers):
     group_model.add_argument(
         "--backprop", help="what method to use for interpretation")
     group_model.add_argument(
-        "--importances_fn", help="inference stack")
-
+        "--inference_fn", help="inference stack")
 
     # group for parameters
     group_params = argparser_multitask.add_argument_group(
@@ -904,22 +860,17 @@ def main():
             print "model args: %s" % args.model
         from tronn.run_predict import run
         run(args)
-    elif subcommand == "extractimportances":
-        add_model_params(args)
-        print 'model args: %s' % args.model
-        from tronn.run_extractimportances import run
-        run(args)
-    elif subcommand == "makemotifs":
+    elif subcommand == "makemotifs": # this is modisco - TODO (on kmers)
         from tronn.run_wkm import run
         run(args)
-    elif subcommand == "bagmotifs":
+    elif subcommand == "bagmotifs": # this... could be deleted?
     	from tronn.run_bagmotifs import run
     	run(args)
-    elif subcommand == "ism":
+    elif subcommand == "ism": # this checks dependencies
     	add_model_params(args)
     	from tronn.run_ism import run
     	run(args)
-    elif subcommand == "interpret_multitask":
+    elif subcommand == "interpret_multitask": # this is modisco on seqlets - merge with makemotifs with option of kmer vs seqlet
         add_model_params(args)
         from tronn.run_multitask_interpretation import run
         run(args)
@@ -927,7 +878,7 @@ def main():
         add_model_params(args)
         from tronn.run_findgrammars import run
         run(args)
-    elif subcommand == "getmotifs":
+    elif subcommand == "getmotifs": # sorta defunct but keep to do HOMER style differential motifs
         add_model_params(args)
         from tronn.run_getmotifs import run
         run(args)
@@ -938,7 +889,7 @@ def main():
         add_model_params(args)
         from tronn.util.extract_params import run
         run(args)
-    elif subcommand == "vizimportances":
+    elif subcommand == "vizimportances": # this needs to be cleaned up?
         args.annotations = args.annotations[args.cluster]
         add_model_params(args)
         from tronn.run_vizimpts import run
