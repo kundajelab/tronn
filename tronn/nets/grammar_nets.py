@@ -28,7 +28,7 @@ def score_grammars(features, labels, config, is_training=False):
     grammar_tensor = tf.convert_to_tensor(grammar_array, dtype=tf.float32) # {M, G}
     grammar_threshold = tf.reduce_sum(
         tf.cast(
-            tf.not_equal(grammar_tensor, [0]),
+            tf.greater(grammar_tensor, [0]), # eventually, look at negative scores too
             tf.float32), axis=0) # {G}
 
     # adjust score tensor dimensions

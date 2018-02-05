@@ -125,9 +125,12 @@ def multitask_global_importance(features, labels, config, is_training=False):
     else:
         features = features_max
 
-    if config.get("keep_features", False):
+    keep_key = config.get("keep_features")
+    if keep_key is not None:
         # attach to config
-        config["outputs"]["global-pwm-scores"] = features_max #{N, pos, motif}
-
+        config["outputs"][keep_key] = features_max #{N, pos, motif}
+        # make sure keep features doesn't propagate
+        config["keep_features"] = None
+        
     return features, labels, config
 

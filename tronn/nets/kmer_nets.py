@@ -142,7 +142,7 @@ def featurize_kmers_v2(features, kmer_len=6, is_training=False):
     print sparse_indices.get_shape()
 
     # instantiate a tensor of 1s to be values
-    values = tf.ones([sparse_indices.get_shape().as_list()[0]])
+    values = tf.ones([sparse_indices.get_shape().as_list()[0]]) # (N, kmers, pos)
 
     # set up dense shape
     #dense_shape = [features.get_shape().as_list()[0], base_pairs**kmer_len]
@@ -157,7 +157,7 @@ def featurize_kmers_v2(features, kmer_len=6, is_training=False):
 
     print sparse_kmers_w_pos.get_shape()
     
-    kmer_features = tf.sparse_reduce_sum(sparse_kmers_w_pos, axis=2)
+    kmer_features = tf.sparse_reduce_sum(sparse_kmers_w_pos, axis=2) # (N, kmers)
 
     kmer_features.set_shape([batch_size, feature_num])
     

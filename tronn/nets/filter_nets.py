@@ -180,15 +180,15 @@ def filter_by_grammar_presence(features, labels, config, is_training=False):
     """given grammar vector, filter
     """
     global_features = tf.unstack(features, axis=1)[-1] # the global vector
-    
+
     # reduce sum
     condition_mask = tf.greater(tf.reduce_sum(global_features, axis=1), [0])
     
     # and run filter
-    with tf.variable_scope("grammar_filter"):
+    with tf.variable_scope("grammar_dk_filter"):
         features, labels, config = filter_through_mask(
             features, labels, config, condition_mask)
-    
+
     return features, labels, config
 
 

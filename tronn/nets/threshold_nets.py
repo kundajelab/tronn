@@ -180,7 +180,7 @@ def threshold_topk_by_example(features, labels, config, is_training=False):
     # separate by the axis desired
     features = [tf.expand_dims(tensor, axis=splitting_axis)
                 for tensor in tf.unstack(features, axis=splitting_axis)] # {1, 1, pos, M}
-    k_val = config.get("k_val", [4 for i in xrange(len(features))])
+    k_val = config.get("k_val", [10 for i in xrange(len(features))])
     
     # grab the top k and determine threshold val
     features_topk = []
@@ -201,21 +201,22 @@ def threshold_topk_by_example(features, labels, config, is_training=False):
 
     # and restack
     features = tf.concat(features_topk, axis=splitting_axis) # {N, 1, pos, motif}
-
+    
     # sometimes there are noisy scores, leading to many matches, zero them out
-    features_present = tf.cast(tf.not_equal(features, 0), tf.float32) # {N, 1, pos, motif}
-    features_counts = tf.reduce_sum(features_present, axis=[1, 2, 3], keep_dims=True) # {N, 1, 1, 1}
-    features_kval_threshold = tf.cast(
-        tf.less_equal(features_counts, tf.reshape(tf.stack(k_val), features_counts.get_shape())),
-        tf.float32)
-    features = tf.multiply(features_kval_threshold, features)
+    #features_present = tf.cast(tf.not_equal(features, 0), tf.float32) # {N, 1, pos, motif}
+    #features_counts = tf.reduce_sum(features_present, axis=[1, 2, 3], keep_dims=True) # {N, 1, 1, 1}
+    #features_kval_threshold = tf.cast(
+     #   tf.less_equal(features_counts, tf.reshape(tf.stack(k_val), features_counts.get_shape())),
+     #   tf.float32)
+    #features = tf.multiply(features_kval_threshold, features)
     
     # TODO: set up to be counts?
     #features = tf.cast(tf.not_equal(features, 0), tf.float32) # {N, 1, pos, motif}
 
     # and reduce
-    features = tf.squeeze(tf.reduce_sum(features, axis=position_axis)) # {N, motif}
-
+    #features = tf.squeeze(tf.reduce_sum(features, axis=position_axis)) # {N, motif}
+    features = tf.squeeze(features)
+    
     return features, labels, config
 
 

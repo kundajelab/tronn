@@ -51,14 +51,17 @@ def _GuidedReluGrad(op, grad):
 def visualize_region(
         region,
         region_arrays,
-        pwm_list,
+        viz_params,
         prefix="viz",
         global_idx=10):
     """Given a dict representing a region, plot necessary things
     """
     region_string = region.strip("\x00").split(";")[0].split("=")[1].replace(":", "-")
     region_prefix = "{}.{}".format(prefix, region_string)
-        
+
+    pwm_list = viz_params.get("pwms")
+    grammars = viz_params.get("grammars")
+    
     for key in region_arrays.keys():
         
         # plot importance scores across time (keys="importances.taskidx-{}")
@@ -72,12 +75,21 @@ def visualize_region(
         elif "global-pwm-scores" in key:
             # save out to matrix
             # save it out with pwm names...
-            file_name = "{}.{}.txt".format(region_prefix, key)
+            all_pwm_scores_file = "{}.{}.txt".format(region_prefix, key)
             motif_pos_scores = np.transpose(np.squeeze(region_arrays[key]))
             motif_pos_scores_df = pd.DataFrame(
                 motif_pos_scores,
                 index=[pwm.name for pwm in pwm_list])
-            motif_pos_scores_df.to_csv(file_name, header=False, sep="\t")
+            motif_pos_scores_df.to_csv(all_pwm_scores_file, header=False, sep="\t")
+            
+            # and also save out version with just the motifs in the grammar
+            for grammar in grammars:
+                grammar_pwm_scores_file = "{}.{}.txt".format(
+                    all_pwm_scores_file.split(".txt")[0],
+                    grammar.name.replace(".", "-"))
+                grammar_pwm_scores_df = motif_pos_scores_df.loc[grammar.nodes]
+                grammar_pwm_scores_df.to_csv(grammar_pwm_scores_file, header=False, sep="\t")
+                
             
         elif "pwm-scores.taskidx-{}".format(global_idx) in key:
             # save out to matrix
@@ -111,7 +123,9 @@ def interpret(
         keep_negatives=False,
         filter_by_prediction=True,
         h5_batch_size=128,
-        viz_bp_cutoff=20):
+        visualize_only=True,
+        num_to_visualize=10,
+        viz_bp_cutoff=25):
     """Set up a graph and run inference stack
     """
     with tf.Graph().as_default() as g:
@@ -130,7 +144,7 @@ def interpret(
                 
         # set up session
         sess, coord, threads = setup_tensorflow_session()
-
+                    
         # restore
         if model_checkpoint is not None:
             init_assign_op, init_feed_dict = restore_variables_op(
@@ -140,8 +154,7 @@ def interpret(
             print "WARNING"
             print "WARNING"
             print "WARNING: did not use checkpoint. are you sure? this should only happen for empty_net"
- 
-            
+
         # set up hdf5 file to store outputs
         with h5py.File(h5_file, 'w') as hf:
 
@@ -161,6 +174,7 @@ def interpret(
             # run all samples unless sample size is defined
             try:
                 total_examples = 0
+                total_visualized = 0
                 while not coord.should_stop():
                     
                     region, region_arrays = example_generator.run()
@@ -168,30 +182,32 @@ def interpret(
 
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
-
-                    import ipdb
-                    ipdb.set_trace()
-
+                    
                     # conditions for visualization: logits > 0,
                     # and mean(importances) > 0, AND not empty net
                     # set up real condition
-                    if False:
-                        logits = region_arrays["logits"][0:12]
-                        num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
+                    logits = region_arrays["logits"][0:12]
+                    num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
                     
-                        import ipdb
-                        ipdb.set_trace()
+                    if np.max(logits) > 0 and num_pos_impt_bps >= viz_bp_cutoff and total_visualized < num_to_visualize:
+                        out_dir = "{}/viz".format(os.path.dirname(h5_file))
+                        os.system("mkdir -p {}".format(out_dir))
 
-                        if np.max(logits) > 0 and num_pos_impt_bps > viz_bp_cutoff:
-                            visualize_region(
-                                region,
-                                region_arrays,
-                                pwm_list,
-                                prefix="viz",
-                                global_idx=10)
+                        visualize_region(
+                            region,
+                            region_arrays,
+                            {"pwms": inference_params["pwms"],
+                             "grammars": inference_params["grammars"]},
+                            prefix="{}/viz".format(out_dir),
+                            global_idx=10)
+                        total_visualized += 1
 
                     # check condition
                     if (sample_size is not None) and (total_examples >= sample_size):
+                        break
+
+                    # check viz condition
+                    if visualize_only and total_visualized >= num_to_visualize:
                         break
 
             except tf.errors.OutOfRangeError:

@@ -11,7 +11,6 @@ import pandas as pd
 from collections import Counter
 from scipy.stats.mstats import zscore
 
-
 from tronn.outlayer import H5Handler
 
 from tronn.interpretation.kmers import kmer_array_to_hash
@@ -23,6 +22,32 @@ from tronn.interpretation.wkm import agglom_motifs
 from tronn.visualization import plot_weights
 
 from tronn.interpretation.motifs import PWM
+
+
+# TODO write a function called modisco
+def modisco():
+    """makes a pwm file from input importance scores
+    """
+
+    # what's the best way to extract the seqlets?
+    # maybe keep a linked kmer <-> seqlet structure so that can count kmers to greedily seed?
+
+
+    # final structures could look like:
+    # (seqlets), where each row is a seqlet, even here have to choose when to cut off
+    # (kmers), where each row is a pre-combined seqlet (just add), with kmers up to N base pairs long....
+    # the key problem here is how to choose kmer length, and how to account for fine details...
+
+    # hierarchial modisco? start from smaller kmers to larger ones?
+
+    # prescan - {N, kmer, 10, 4} - this gives you access by kmer?
+    # get the kmer score to hash correctly, and then pull out the kmer?
+
+    # from the prescan, you can collapse - {kmer, 10, 4}
+    # then you can figure out top kmer and start aggregating from there.
+    # do a smart traversal? do one-hot distances until you've explored the adjacent seqlet space correctly
+    
+    return
 
 
 def extract_seqlets(thresholded_importances_h5_file, tasks, out_h5_file, seq_len=1000, kmer_len=7, stride=1):

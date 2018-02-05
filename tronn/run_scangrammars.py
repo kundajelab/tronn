@@ -45,9 +45,13 @@ def run(args):
     # ==============
     # for debug
     # ==============
-    grammars = [grammars[4]]
-    print [pwm_name_to_hgnc[name] for grammar in grammars for name in grammar.nodes]
+    for idx in xrange(len(grammars)):
+        grammars_tmp = [grammars[idx]]
+        print idx, [pwm_name_to_hgnc[name] for grammar in grammars_tmp for name in grammar.nodes]
 
+    grammars = [grammars[2]]
+    print "DEBUG: using", [pwm_name_to_hgnc[name] for grammar in grammars for name in grammar.nodes]
+    
     # set up graph
     print args.model["name"]
     print net_fns[args.model["name"]]
@@ -92,7 +96,7 @@ def run(args):
             method=args.backprop if args.backprop is not None else "input_x_grad")
 
     # from here, take a look.
-
+    # pull in
 
     # TODO - write a function for this, can append as an option to any filtered set of importance scores
     # TODO - take the importances (global) and generate modisco. make it so that can run on any dataset
@@ -105,6 +109,9 @@ def run(args):
 
     # TODO - confusion matrix - what timepoints and what tasks are most enriched? should be able to
     # recover expected timepoints and tasks.
+    # make a region x timepoint (for 1 grammar) matrix - pull from the hdf5 file
+    # make a grammar x timepoint (collapse the regions grammar)
+    # make a grammar x task matrix (tasks ordered by waves of accessibility)
     
     
     

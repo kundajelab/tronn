@@ -414,6 +414,7 @@ def pwm_position_squeeze(features, labels, config, is_training=False):
 
     return features, labels, config
 
+
 def pwm_relu(features, labels, config, is_training=False):
     """Only keep positive
     """
