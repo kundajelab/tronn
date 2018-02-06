@@ -43,6 +43,11 @@ def multitask_importances(features, labels, config, is_training=False):
     anchors = config.get("anchors")
     task_indices = config.get("importance_task_indices")
     importances_fn = config.get("importances_fn", input_x_grad)
+    keep_key = config.get("keep_onehot_sequence")
+
+    if keep_key is not None:
+        config["outputs"][keep_key] = features
+        config["keep_features"] = None
     
     assert anchors is not None
     assert task_indices is not None
@@ -125,12 +130,10 @@ def multitask_global_importance(features, labels, config, is_training=False):
     else:
         features = features_max
 
-    keep_key = config.get("keep_features")
-    if keep_key is not None:
+    if config.get("keep_global_pwm_scores") is not None:
         # attach to config
-        config["outputs"][keep_key] = features_max #{N, pos, motif}
-        # make sure keep features doesn't propagate
-        config["keep_features"] = None
+        config["outputs"][config["keep_global_pwm_scores"]] = features_max #{N, pos, motif}
+        config["keep_global_pwm_scores"] = None # TODO fix this, this is because there is overwriting
         
     return features, labels, config
 

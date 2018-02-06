@@ -267,16 +267,24 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     """Run pwm convolve twice, with importance scores and without.
     Choose max for motif across positions using raw sequence
     """
+    raw_sequence = config["outputs"].get("onehot_sequence")
 
-    # run on raw features
-    pos_features_present = tf.cast(tf.greater(features, [0]), tf.float32)
-    neg_features_present = -tf.cast(tf.less(features, [0]), tf.float32)
-    binarized_features = tf.add(pos_features_present, neg_features_present)
-
+    if raw_sequence is not None:
+        # run on raw sequence
+        binarized_features = raw_sequence
+    else:
+        # run on binarized importance scores
+        pos_features_present = tf.cast(tf.greater(features, [0]), tf.float32)
+        neg_features_present = -tf.cast(tf.less(features, [0]), tf.float32)
+        binarized_features = tf.add(pos_features_present, neg_features_present)
+    
     with tf.variable_scope("binarize_filt"):
+        # TODO - give option to do this on importance scores or raw sequence
         pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
             binarized_features, labels, config, is_training=is_training) # {N, task, pos, M}
-
+        if raw_sequence is not None:
+            del config["outputs"]["onehot_sequence"] # remove this from outputs now
+        
     # get max per motif to filter the importance weighted scores
     max_scores_from_binarized, _, _ = pwm_motif_max(
         pwm_binarized_feature_scores, labels, config, is_training=is_training)
@@ -371,9 +379,9 @@ def pwm_consistency_check(features, labels, config, is_training=False):
     features = tf.concat(masked_features_list, axis=0) # {N, task, pos, M}
 
     # sometimes keep (for grammars)
-    if config.get("keep_features", False):
+    if config.get("keep_pwm_scores_full") is not None:
         # attach to config
-        config["outputs"]["pwm-scores-full"] = features # {N, task, pos, M}
+        config["outputs"][config["keep_pwm_scores_full"]] = features # {N, task, pos, M}
 
     return features, labels, config
 

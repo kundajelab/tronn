@@ -58,9 +58,12 @@ def separate_and_save_components(G, mat_file, prefix, name_to_id, grammar_file):
         # full check comes when re-scanning with correct thresholds
         # TODO this selection needs to be a little smarter - may be picking up too much noise
         pwm_names = [name_to_id[name] for name in list(component)]
-        pwm_hits_pwm_subset_df = score_df[pwm_names]
+        pwm_hits_pwm_subset_df = (score_df[pwm_names] > 0).astype(int)
 
-        pwm_hits_positive_df = pwm_hits_pwm_subset_df.loc[~(pwm_hits_pwm_subset_df==0).any(axis=1)]
+        threshold = 0.75 * pwm_hits_pwm_subset_df.shape[1]
+        pwm_hits_positive_df = pwm_hits_pwm_subset_df.loc[pwm_hits_pwm_subset_df.sum(axis=1) > threshold]
+        
+        #pwm_hits_positive_df = pwm_hits_pwm_subset_df.loc[~(pwm_hits_pwm_subset_df==0).any(axis=1)]
         component_regions_file = "{}.component_{}.regions.txt".format(prefix, component_idx)
         pwm_hits_positive_df.to_csv(component_regions_file, columns=[], header=False)
 

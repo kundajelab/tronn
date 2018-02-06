@@ -31,6 +31,9 @@ def score_grammars(features, labels, config, is_training=False):
             tf.greater(grammar_tensor, [0]), # eventually, look at negative scores too
             tf.float32), axis=0) # {G}
 
+    # adjust grammar threshold?
+    #grammar_threshold = tf.multiply(grammar_threshold, [0.75]) # at least 75% of hits
+    
     # adjust score tensor dimensions
     grammar_tensor = tf.expand_dims(grammar_tensor, axis=0) # {1, M, G}
     grammar_tensor = tf.expand_dims(grammar_tensor, axis=0) # {1, 1, M, G}
@@ -51,12 +54,3 @@ def score_grammars(features, labels, config, is_training=False):
     # outside of this, condense features to global score
     
     return features, labels, config
-
-
-def get_pairwise_positions():
-    """ (N, 1, pos, M)? dont really need this right?
-    """
-
-    return
-
-

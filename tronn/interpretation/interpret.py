@@ -63,7 +63,7 @@ def visualize_region(
     grammars = viz_params.get("grammars")
     
     for key in region_arrays.keys():
-        
+
         # plot importance scores across time (keys="importances.taskidx-{}")
         if "importances.taskidx" in key:
             # squeeze and visualize!
@@ -123,8 +123,10 @@ def interpret(
         keep_negatives=False,
         filter_by_prediction=True,
         h5_batch_size=128,
-        visualize_only=True,
+        visualize_only=False,
         num_to_visualize=10,
+        scan_grammars=False,
+        validate_grammars=False,
         viz_bp_cutoff=25):
     """Set up a graph and run inference stack
     """
@@ -133,7 +135,10 @@ def interpret(
         # build graph
         if method == "input_x_grad":
             print "using input_x_grad"
-            outputs = tronn_graph.build_inference_graph(inference_params)
+            outputs = tronn_graph.build_inference_graph(
+                inference_params,
+                scan_grammars=scan_grammars,
+                validate_grammars=validate_grammars)
         #elif method == "guided_backprop":
         #    with g.gradient_override_map({'Relu': 'GuidedRelu'}):
         #        print "using guided backprop"
@@ -188,27 +193,30 @@ def interpret(
                     # set up real condition
                     logits = region_arrays["logits"][0:12]
                     num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
-                    
-                    if np.max(logits) > 0 and num_pos_impt_bps >= viz_bp_cutoff and total_visualized < num_to_visualize:
-                        out_dir = "{}/viz".format(os.path.dirname(h5_file))
-                        os.system("mkdir -p {}".format(out_dir))
 
-                        visualize_region(
-                            region,
-                            region_arrays,
-                            {"pwms": inference_params["pwms"],
-                             "grammars": inference_params["grammars"]},
-                            prefix="{}/viz".format(out_dir),
-                            global_idx=10)
-                        total_visualized += 1
-
+                    if visualize_only:
+                        if np.max(logits) > 0 and num_pos_impt_bps >= viz_bp_cutoff and total_visualized < num_to_visualize:
+                            out_dir = "{}/viz".format(os.path.dirname(h5_file))
+                            os.system("mkdir -p {}".format(out_dir))
+                            
+                            visualize_region(
+                                region,
+                                region_arrays,
+                                {"pwms": inference_params["pwms"],
+                                 "grammars": inference_params["grammars"]},
+                                prefix="{}/viz".format(out_dir),
+                                global_idx=10)
+                            total_visualized += 1
+                            
+                        # check viz condition
+                        if total_visualized >= num_to_visualize:
+                            break
+                            
                     # check condition
                     if (sample_size is not None) and (total_examples >= sample_size):
                         break
 
-                    # check viz condition
-                    if visualize_only and total_visualized >= num_to_visualize:
-                        break
+
 
             except tf.errors.OutOfRangeError:
                 print "Done reading data"

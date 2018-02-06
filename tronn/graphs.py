@@ -178,12 +178,16 @@ class TronnNeuralNetGraph(TronnGraph):
         return train_op
 
     
-    def build_inference_graph(self, inference_params, data_key="data"): # convert to have a config dict?
+    def build_inference_graph(
+            self,
+            inference_params,
+            scan_grammars=False,
+            validate_grammars=False,
+            data_key="data"):
         """Build a graph with back prop ties to be able to get 
         importance scores
         """
         assert self.inference_fn is not None
-        #self.pwm_list = pwm_list # keep pwm list
 
         # build graph
         self.build_graph(data_key, is_training=False)
@@ -200,18 +204,26 @@ class TronnNeuralNetGraph(TronnGraph):
         importance_labels = tf.stack(importance_labels, axis=1)
         
         if len(self.labels.get_shape().as_list()) > 1:
-            negative = tf.cast(tf.logical_not(tf.cast(tf.reduce_sum(importance_labels, 1, keep_dims=True), tf.bool)), tf.int32)
+            negative = tf.cast(
+                tf.logical_not(
+                    tf.cast(tf.reduce_sum(importance_labels, 1, keep_dims=True),
+                            tf.bool)), tf.int32)
         else:
             negative = tf.logical_not(tf.cast(self.labels, tf.bool))
-            
+
         # NOTE: if filtering, need to pass through everything associated with example that is coming back out
         # as such, everything in config needs to be in batch format to quickly filter things
-        # rather make a sub dict in config for batch things
         config = {
             "batch_size": self.batch_size,
             "pwms": inference_params.get("pwms"),
             "grammars": inference_params.get("grammars"),
             "importance_task_indices": self.importances_tasks,
+            "keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
+            "keep_importances": "importances" if validate_grammars else None,
+            "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
+            "keep_global_pwm_scores": "global-pwm-scores" if validate_grammars else None,
+            "keep_pwm_scores": "pwm-scores" if True else None, # always used
+            "keep_grammar_scores": "grammar-scores" if True else None, # always used
             "outputs": { # these are all the batch results that must stay with their corresponding example
                 "logits": self.logits,
                 "probs": self.probs,

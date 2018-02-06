@@ -72,13 +72,12 @@ def sequence_to_importance_scores(
         features,
         labels,
         config,
-        is_training=False,
-        keep_outputs=True):
+        is_training=False):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
     inference_stack = [
         (multitask_importances, {"anchors": config["outputs"]["logits"], "importances_fn": input_x_grad, "relu": False}), # importances
-        (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples
+        (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 7bp window.
         (filter_by_importance, {"cutoff": 10, "positive_only": True}), # TODO - change this to positive cutoff?
@@ -90,8 +89,8 @@ def sequence_to_importance_scores(
         features, labels, config, inference_stack)
 
     # unstack
-    if keep_outputs:
-        config = unstack_tasks(features, labels, config, prefix="importances") # TODO fix this
+    if config.get("keep_importances") is not None:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_importances"])
         
     return features, labels, config
 
@@ -100,8 +99,7 @@ def sequence_to_motif_scores(
         features,
         labels,
         config,
-        is_training=False,
-        keep_outputs=True):
+        is_training=False):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
     use_importances = config.get("use_importances", True)
@@ -111,14 +109,14 @@ def sequence_to_motif_scores(
     # if using NN, convert features to importance scores first
     if use_importances:
         features, labels, config = sequence_to_importance_scores(
-            features, labels, config, is_training=is_training, keep_outputs=True)
+            features, labels, config, is_training=is_training) # (1) TRUE for viz, FALSE otherwise
         count_thresh = 2 # there's time info, so can filter across tasks
         
     # set up inference stack
     inference_stack = [
         (pwm_match_filtered_convolve, {"pwms": config["pwms"]}), # double filter: raw seq match and impt weighted seq match
-        (pwm_consistency_check, {"keep_features": True}), # get consistent across time scores
-        (multitask_global_importance, {"append": True, "keep_features": "global-pwm-scores", "count_thresh": count_thresh}), # get global (abs val)
+        (pwm_consistency_check, {}), # get consistent across time scores
+        (multitask_global_importance, {"append": True, "count_thresh": count_thresh}), # get global (abs val), keep_features = global-pwm-scores
         (pwm_position_squeeze, {"squeeze_type": "max"}), # get the max across positions {N, motif} # TODO - give an option for counts vs max (homotypic grammars)
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
     ]
@@ -128,8 +126,8 @@ def sequence_to_motif_scores(
         features, labels, config, inference_stack)
 
     # unstack
-    if keep_outputs:
-        config = unstack_tasks(features, labels, config, prefix="pwm-scores")
+    if config.get("keep_pwm_scores") is not None:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_pwm_scores"])
 
     return features, labels, config
 
@@ -139,8 +137,7 @@ def sequence_to_grammar_scores(
         features,
         labels,
         config,
-        is_training=False,
-        keep_outputs=True):
+        is_training=False):
     """Go from sequence (N, 1, pos, 4) to grammar hits (N, grammar)
 
     Use this inference stack to get:
@@ -152,7 +149,7 @@ def sequence_to_grammar_scores(
     # first go from sequence to motifs
     # TODO - make sure to keep importance scores to run modisco
     features, labels, config = sequence_to_motif_scores(
-        features, labels, config, is_training=is_training, keep_outputs=True)
+        features, labels, config, is_training=is_training)
 
     # for grammar scan, want to start from an intermediate
     features = config["outputs"]["pwm-scores-full"] # (N, task, pos, motif) <- keep this output (for visualizing positions)
@@ -162,6 +159,8 @@ def sequence_to_grammar_scores(
         # TODO - may need to zero out the hits that overlap by N bp (they are covering the same importance scores)
         
         (pwm_position_squeeze, {"squeeze_type": "max"}), # squeeze = (N, task, M)
+        # TODO - this is actually a really bad filter, bc it will grab all the motifs around the top sequence
+        # really want to do something more spaced out - like assign the importances to just one motif....
         (multitask_threshold_topk_by_example, {}), # cutoff for top 10 motifs to reduce noise
         (score_grammars, {"grammars": config["grammars"], "pwms": config["pwms"]}), #  {N, task, G} 
         (multitask_global_importance, {"append": True, "reduce_type": "max"}), # N, task+1, G <- keep this output (when does grammar turn on)
@@ -172,8 +171,8 @@ def sequence_to_grammar_scores(
     features, labels, config = build_inference_stack(
         features, labels, config, inference_stack)
 
-    if keep_outputs:
-        config = unstack_tasks(features, labels, config, prefix="grammar-scores")
+    if config.get("keep_grammar_scores") is not None:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_grammar_scores"])
 
     return features, labels, config
 

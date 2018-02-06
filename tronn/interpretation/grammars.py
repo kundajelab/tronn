@@ -139,7 +139,14 @@ def get_significant_correlations(motif_mat, corr_method="pearson", pval_thresh=0
                 similarity = np.sum(min_vals) / np.sum(max_vals)
                 correlation_vals[i,j] = similarity
                 correlation_pvals[i,j] = similarity
-
+            elif corr_method == "intersection_size":
+                intersect = np.sum(
+                    np.logical_and(motif_mat[:,i] > 0, motif_mat[:,j] > 0))
+                #intersect_fract = float(intersect) / motif_mat.shape[0]
+                intersect_fract = intersect
+                correlation_vals[i,j] = intersect_fract
+                correlation_pvals[i,j] = intersect_fract
+                
     return correlation_vals, correlation_pvals
 
 def reduce_corr_mat_by_motif_similarity(

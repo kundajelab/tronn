@@ -49,7 +49,7 @@ def run(args):
         grammars_tmp = [grammars[idx]]
         print idx, [pwm_name_to_hgnc[name] for grammar in grammars_tmp for name in grammar.nodes]
 
-    grammars = [grammars[2]]
+    grammars = [grammars[0]]
     print "DEBUG: using", [pwm_name_to_hgnc[name] for grammar in grammars for name in grammar.nodes]
     
     # set up graph
@@ -93,6 +93,9 @@ def run(args):
             {"pwms": pwm_list, "grammars": grammars},
             keep_negatives=False,
             filter_by_prediction=True,
+            visualize_only=True, # toggle this with validate grammars?
+            scan_grammars=True,
+            validate_grammars=True, # add a flag here to toggle
             method=args.backprop if args.backprop is not None else "input_x_grad")
 
     # from here, take a look.

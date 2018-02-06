@@ -58,19 +58,38 @@ def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames)
     return None
 
 
-def quick_filter(pwm_hits_df):
+def quick_filter_old(pwm_hits_df):
     """basic filters
     """
     # remove rows that are zero
     pwm_hits_df_binary = (pwm_hits_df > 0).astype(int) #* pwm_hits_df
     pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df_binary==0).all(axis=1)] # remove elements with no hits
+    # TODO - this is not exactly right - threshold? use real vals?
     pwm_hits_df_binary = pwm_hits_df_binary.loc[~(pwm_hits_df_binary==0).all(axis=1)] # remove elements with no hits
     
     # remove low scoring motifs
-    pwm_hits_df = pwm_hits_df.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
-    pwm_hits_df_binary = pwm_hits_df_binary.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
+    #pwm_hits_df = pwm_hits_df.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
+    #pwm_hits_df_binary = pwm_hits_df_binary.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
             
     return pwm_hits_df, pwm_hits_df_binary
+
+
+def quick_filter(pwm_hits_df, threshold=0.002):
+    """basic filters
+    """
+    # remove rows that are zero
+    pwm_hits_df_mask = (pwm_hits_df > threshold).astype(int) #* pwm_hits_df
+    pwm_hits_df = pwm_hits_df * pwm_hits_df_mask
+    pwm_hits_df = pwm_hits_df.loc[~(pwm_hits_df_mask==0).all(axis=1)] # remove elements with no hits
+    # TODO - this is not exactly right - threshold? use real vals?
+    pwm_hits_df_mask = pwm_hits_df_mask.loc[~(pwm_hits_df_mask==0).all(axis=1)] # remove elements with no hits
+    
+    # remove low scoring motifs
+    #pwm_hits_df = pwm_hits_df.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
+    #pwm_hits_df_binary = pwm_hits_df_binary.loc[:, np.sum(pwm_hits_df_binary, axis=0) > 100]
+            
+    return pwm_hits_df, pwm_hits_df_mask
+
 
 
 def phenograph_cluster(mat_file, sorted_mat_file):
@@ -84,6 +103,8 @@ def phenograph_cluster(mat_file, sorted_mat_file):
     
     # run Louvain here for basic clustering to visually look at patterns
     mat_df, mat_df_binary = quick_filter(mat_df)
+
+    # use top motifs?
     communities, graph, Q = phenograph.cluster(mat_df_binary)
 
     # save out the sorted info into a new mat sorted by community
@@ -95,7 +116,12 @@ def phenograph_cluster(mat_file, sorted_mat_file):
     return None
 
 
-def get_correlation_file(mat_file, corr_file, corr_min=0.4, pval_thresh=0.05):
+def get_correlation_file(
+        mat_file,
+        corr_file,
+        corr_method="intersection_size", # continuous_jaccard, pearson
+        corr_min=0.4,
+        pval_thresh=0.05):
     """Given a matrix file, calculate correlations across the columns
     """
     mat_df = pd.read_table(mat_file, index_col=0)
@@ -103,8 +129,7 @@ def get_correlation_file(mat_file, corr_file, corr_min=0.4, pval_thresh=0.05):
             
     corr_mat, pval_mat = get_significant_correlations(
         mat_df.as_matrix(),
-        corr_method="continuous_jaccard",
-        #corr_method="pearson",
+        corr_method=corr_method,
         corr_min=corr_min,
         pval_thresh=pval_thresh)
     
@@ -124,7 +149,7 @@ def get_max_corr_mat(correlation_files, pwm_names_filt):
         index=pwm_names_filt,
         columns=pwm_names_filt)
     #max_signals = np.zeros((num_pwms))
-
+    
     for correlation_file in correlation_files:
         # load in corr mat file
         corr_mat_df = pd.read_table(correlation_file, index_col=0)
@@ -139,8 +164,15 @@ def get_max_corr_mat(correlation_files, pwm_names_filt):
     return max_corr_df
 
 
-
-def plot_motif_network(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, id_to_name, prefix, pwm_dict, positions, reduce_pwms=True):
+def plot_motif_network(
+        regions_x_pwm_mat_file,
+        pwm_x_pwm_corr_file,
+        id_to_name,
+        prefix,
+        pwm_dict,
+        positions,
+        edge_cor_thresh=0.05,
+        reduce_pwms=True):
     """Plot full motif network with signal strengths
     """
     # Extract signal strengths
@@ -173,13 +205,13 @@ def plot_motif_network(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, id_to_name, 
             corr_mat_df,
             pwm_dict,
             id_to_signal_dict,
-            edge_cor_thresh=0.25)
+            edge_cor_thresh=edge_cor_thresh)
 
     # and adjust names after, need to match pwms
     corr_mat_df.columns = [";".join([name.split("_")[0] for name in id_to_name[pwm_name].split(";")])
                            for pwm_name in corr_mat_df.columns]
     corr_mat_df.index = corr_mat_df.columns
-
+    
     # save this out to quickly plot later
     corr_mat_df.to_csv(reduced_corr_mat_file, sep="\t")
 
@@ -188,7 +220,7 @@ def plot_motif_network(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, id_to_name, 
         corr_mat_df,
         positions,
         prefix,
-        corr_thresh=0.25,
+        corr_thresh=edge_cor_thresh,
         node_size_dict=node_size_dict)
 
     return task_G
@@ -303,7 +335,7 @@ def run(args):
     max_corr_df.index = max_corr_df.columns
     
     # then with that, get back a G (graph) and the positioning according to this graph
-    max_G = get_networkx_graph(max_corr_df, corr_thresh=0.2)
+    max_G = get_networkx_graph(max_corr_df, corr_thresh=200)
     max_G_positions = nx.spring_layout(max_G, weight="value", k=0.15) # k is normally 1/sqrt(n), n=node_num
 
     # then replot the network using this graph
@@ -328,7 +360,8 @@ def run(args):
             prefix,
             pwm_dict,
             max_G_positions,
-            reduce_pwms=True)
+            reduce_pwms=True,
+            edge_cor_thresh=300)
 
         # and save out components
         grammar_file = "{0}/{1}.task-{2}.grammars.txt".format(
