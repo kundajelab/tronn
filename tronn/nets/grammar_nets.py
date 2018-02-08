@@ -32,7 +32,7 @@ def score_grammars(features, labels, config, is_training=False):
             tf.float32), axis=0) # {G}
 
     # adjust grammar threshold?
-    #grammar_threshold = tf.multiply(grammar_threshold, [0.75]) # at least 75% of hits
+    grammar_threshold = tf.multiply(grammar_threshold, [0.75]) # at least 75% of hits
     
     # adjust score tensor dimensions
     grammar_tensor = tf.expand_dims(grammar_tensor, axis=0) # {1, M, G}

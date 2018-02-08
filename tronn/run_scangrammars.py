@@ -68,7 +68,7 @@ def run(args):
         inference_fn=net_fns[args.inference_fn], # write an assert? to check it's the right fn being passed?
         importances_tasks=args.importances_tasks,
         shuffle_data=True,
-        filter_tasks=[]) # TODO adjust this as needed. in best case, want to run through the whole dataset
+        filter_tasks=args.interpretation_tasks) # TODO adjust this as needed. in best case, want to run through the whole dataset
 
     # checkpoint file (unless empty net)
     if args.model_checkpoint is not None:
@@ -79,6 +79,15 @@ def run(args):
         checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
     logging.info("Checkpoint: {}".format(checkpoint_path))
 
+    if False:
+        # validate
+        visualize_only = True
+        validate_grammars = True
+    else:
+        # just scan
+        visualize_only = False
+        validate_grammars = False
+        
     # run interpret on the graph
     # TODO perform visualization of importance scores in here
     score_mat_h5 = '{0}/{1}.grammar_scores.h5'.format(
@@ -93,13 +102,11 @@ def run(args):
             {"pwms": pwm_list, "grammars": grammars},
             keep_negatives=False,
             filter_by_prediction=True,
-            visualize_only=True, # toggle this with validate grammars?
+            visualize_only=visualize_only, # toggle this with validate grammars?
             scan_grammars=True,
-            validate_grammars=True, # add a flag here to toggle
+            validate_grammars=validate_grammars, # add a flag here to toggle
             method=args.backprop if args.backprop is not None else "input_x_grad")
 
-    # from here, take a look.
-    # pull in
 
     # TODO - write a function for this, can append as an option to any filtered set of importance scores
     # TODO - take the importances (global) and generate modisco. make it so that can run on any dataset

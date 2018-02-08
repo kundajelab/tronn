@@ -163,6 +163,7 @@ class ExampleGenerator(object):
         self.filter_tasks_mask = filter_tasks_mask_tmp
             
         # initialize region tracker with first region in batch
+        print "running first batch"
         self.batch_region_arrays = self.sess.run(self.tensor_dict)
         region, region_arrays = self.build_example_dict_arrays()
         self.region_tracker = RegionTracker(region, region_arrays)
@@ -175,16 +176,16 @@ class ExampleGenerator(object):
 
         while True:
             # debug check
-            if self.all_examples % 1000 == 0:
-            #if self.all_examples % 10 == 0:
+            #if self.all_examples % 1000 == 0:
+            if self.all_examples % 10 == 0:
                 print "all examples: {}".format(self.all_examples)
             
             # if necessary, get a new batch
             if self.batch_pointer == self.batch_size:
                 self.batch_pointer = 0
+                #print "pulling batch"
                 self.batch_region_arrays = self.sess.run(self.tensor_dict)
-                #import ipdb
-                #ipdb.set_trace()
+                #print "done"
 
             # filtering should happen here
             if (not self.keep_negatives) and (self.batch_region_arrays["negative"][self.batch_pointer] == 1):
@@ -295,8 +296,8 @@ class ExampleGenerator(object):
             self.region_tracker.merge(region, region_arrays)
 
             self.valid_examples += 1
-            if self.valid_examples % 1000 == 0:
-            #if self.valid_examples % 10 == 0:
+            #if self.valid_examples % 1000 == 0:
+            if self.valid_examples % 10 == 0:
                 print "valid examples: {}".format(self.valid_examples)
             return out_region, out_region_arrays
 

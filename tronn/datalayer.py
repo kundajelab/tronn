@@ -354,6 +354,7 @@ def filter_through_labels(features, labels, metadata, filter_tasks, batch_size):
         [features_filtered, labels_filtered, metadata_filtered],
         batch_size,
         capacity=100000,
+        num_threads=1, # adjust as needed
         enqueue_many=True,
         name="filter_batcher")
     

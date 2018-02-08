@@ -91,6 +91,28 @@ def quick_filter(pwm_hits_df, threshold=0.002):
     return pwm_hits_df, pwm_hits_df_mask
 
 
+def build_grammar_tree(filter_pwms, mat_df, min_size=500):
+    """Given a matrix of data, make a tree until leaves hit min_size.
+     do this recursively.
+    """
+    # first filter with filter pwms
+
+    # then with the resulting matrix, get num regions per motif
+
+
+    # for each motif (until you hit min size):
+    # add to filter_pwms and call build_grammar_tree to get subtree
+
+    # attach subtree to tree (figure out appropriate data structure)
+    # tree structure - nested lists? probably easiest just to make a simple Tree class (easy to find an example on stack overflow)
+
+    # return the tree
+    return
+
+
+# TODO after building the tree, recurse through it to extract grammars.
+
+
 
 def phenograph_cluster(mat_file, sorted_mat_file):
     """Use to quickly get a nicely clustered (sorted) output file to visualize examples
@@ -104,6 +126,18 @@ def phenograph_cluster(mat_file, sorted_mat_file):
     # run Louvain here for basic clustering to visually look at patterns
     mat_df, mat_df_binary = quick_filter(mat_df)
 
+    # quick test: filter for 1 motif and look
+    pwm_key = "PWM_HCLUST_134.UNK.0.A" # CEBPB
+    pwm_key = "PWM_HCLUST_121.UNK.0.A" # TFAP2B
+    pwm_key = "PWM_HCLUST_131.UNK.0.A" # ETS
+    
+    mat_df_binary = mat_df_binary[mat_df[pwm_key] > 0]
+    mat_df = mat_df[mat_df[pwm_key] > 0]
+    
+    import ipdb
+    ipdb.set_trace()
+
+    
     # use top motifs?
     communities, graph, Q = phenograph.cluster(mat_df_binary)
 
@@ -236,8 +270,9 @@ def run(args):
     logging.info("Found {} chrom files".format(len(data_files)))
     
     # go through each interpretation task to get grammars
-    for i in xrange(len(args.interpretation_tasks)):
-
+    #for i in xrange(len(args.interpretation_tasks)):
+    for i in xrange(1):
+        
         interpretation_task_idx = args.interpretation_tasks[i]
         print "interpreting task", interpretation_task_idx
         
@@ -265,7 +300,8 @@ def run(args):
             inference_fn=net_fns[args.inference_fn],
             importances_tasks=args.importances_tasks,
             shuffle_data=True,
-            filter_tasks=[interpretation_task_idx])
+            filter_tasks=args.interpretation_tasks)
+            #filter_tasks=[interpretation_task_idx]) # just change this?
 
         # checkpoint file (unless empty net)
         if args.model_checkpoint is not None:
@@ -322,7 +358,11 @@ def run(args):
             args.tmp_dir, args.prefix, interpretation_task_idx)
         if not os.path.isfile(pwm_x_pwm_corr_file):
             get_correlation_file(region_x_pwm_sorted_mat_file, pwm_x_pwm_corr_file)
-            
+
+    # remove this
+    #quit()
+    args.interpretation_tasks = [16]
+    
     # get the max correlations/signal strengths to set up global graph here
     # adjust names here, this is for plotting
     correlation_files = [
@@ -335,7 +375,7 @@ def run(args):
     max_corr_df.index = max_corr_df.columns
     
     # then with that, get back a G (graph) and the positioning according to this graph
-    max_G = get_networkx_graph(max_corr_df, corr_thresh=200)
+    max_G = get_networkx_graph(max_corr_df, corr_thresh=500)
     max_G_positions = nx.spring_layout(max_G, weight="value", k=0.15) # k is normally 1/sqrt(n), n=node_num
 
     # then replot the network using this graph
@@ -361,7 +401,7 @@ def run(args):
             pwm_dict,
             max_G_positions,
             reduce_pwms=True,
-            edge_cor_thresh=300)
+            edge_cor_thresh=1000)
 
         # and save out components
         grammar_file = "{0}/{1}.task-{2}.grammars.txt".format(

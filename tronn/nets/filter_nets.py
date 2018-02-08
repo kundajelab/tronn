@@ -9,7 +9,8 @@ def filter_through_mask(
         features,
         labels,
         config,
-        condition_mask):
+        condition_mask,
+        use_queue=True):
     """Given a precalculated condition mask, filter variables
     """
     batch_size = config.get("batch_size")
@@ -33,13 +34,17 @@ def filter_through_mask(
             tf.gather(config["outputs"][output_key], keep_indices))
         
     # set up queue
-    outputs = tf.train.batch(
-        tensors,
-        batch_size,
-        capacity=batch_size*3 + 100,
-        num_threads=1,
-        enqueue_many=True,
-        name="filtering_queue")
+    if use_queue:
+        outputs = tf.train.batch(
+            tensors,
+            batch_size,
+            #capacity=128+5, # keep capacity small to move faster?
+            capacity=batch_size*10 + 100,
+            num_threads=2, # 2
+            enqueue_many=True,
+            name="filtering_queue")
+    else:
+        outputs = tensors
 
     # separate things back out from queue
     features = outputs[0]
@@ -99,7 +104,7 @@ def filter_by_accuracy(features, labels, config, is_training=False):
     # filter
     with tf.variable_scope("accuracy_filter"):
         features, labels, config = filter_through_mask(
-            features, labels, config, condition_mask)
+            features, labels, config, condition_mask, use_queue=False)
 
     return features, labels, config
 

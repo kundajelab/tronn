@@ -116,6 +116,28 @@ class Grammar(object):
                 
         return
 
+    
+    def add_node(self, node_id):
+        """
+        """
+
+        return
+
+    
+    def delete_node(self, node_id):
+        """
+        """
+        del self.nodes[node_id]
+        for edge_key in self.edges.keys():
+            if node_id == edge_key[0]:
+                del self.edges[edge_key]
+            elif node_id == edge_key[1]:
+                del self.edges[edge_key]
+        # adjust 1D pwm vector
+
+        
+        return
+
 
 def get_significant_correlations(motif_mat, corr_method="pearson", pval_thresh=0.05, corr_min=0.4):
     """Given a matrix, calculate pearson correlation for each pair of 

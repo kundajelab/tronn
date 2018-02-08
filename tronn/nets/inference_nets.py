@@ -81,7 +81,7 @@ def sequence_to_importance_scores(
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 7bp window.
         (filter_by_importance, {"cutoff": 10, "positive_only": True}), # TODO - change this to positive cutoff?
-        (normalize_w_probability_weights, {"normalize_probs": config["outputs"]["probs"]}), # normalize, never use logits (too much range) unless clip it
+        (normalize_w_probability_weights, {}), # normalize, never use logits (too much range) unless clip it
     ]
     
     # set up inference stack
@@ -153,6 +153,7 @@ def sequence_to_grammar_scores(
 
     # for grammar scan, want to start from an intermediate
     features = config["outputs"]["pwm-scores-full"] # (N, task, pos, motif) <- keep this output (for visualizing positions)
+    del config["outputs"]["pwm-scores-full"] # remove after setting up as features
     
     # set up inference stack
     inference_stack = [
@@ -161,7 +162,7 @@ def sequence_to_grammar_scores(
         (pwm_position_squeeze, {"squeeze_type": "max"}), # squeeze = (N, task, M)
         # TODO - this is actually a really bad filter, bc it will grab all the motifs around the top sequence
         # really want to do something more spaced out - like assign the importances to just one motif....
-        (multitask_threshold_topk_by_example, {}), # cutoff for top 10 motifs to reduce noise
+        (multitask_threshold_topk_by_example, {}), # cutoff for top 10 motifs to reduce noise <- probably this bit is slow?
         (score_grammars, {"grammars": config["grammars"], "pwms": config["pwms"]}), #  {N, task, G} 
         (multitask_global_importance, {"append": True, "reduce_type": "max"}), # N, task+1, G <- keep this output (when does grammar turn on)
         (filter_by_grammar_presence, {}) # filter stage, keeps last outputs (N, task+1, G)

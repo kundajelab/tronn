@@ -25,7 +25,7 @@ def normalize_w_probability_weights(features, labels, config, is_training=False)
     """
     assert is_training == False
 
-    probs = config.get("normalize_probs", None)
+    probs = config["outputs"].get("probs", None)
     assert probs is not None
 
     # split out by task
@@ -47,6 +47,7 @@ def normalize_w_probability_weights(features, labels, config, is_training=False)
         #weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2], keep_dims=True)
         task_features = tf.multiply(
             tf.divide(features[i], weight_sums), # TODO add some weight to make sure doesnt explode?
+            #probs[i])
             tf.reshape(probs[i], weight_sums.get_shape()))
         normalized_features.append(task_features)
 
