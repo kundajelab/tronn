@@ -192,7 +192,10 @@ def interpret(
                     # and mean(importances) > 0, AND not empty net
                     # set up real condition
                     logits = region_arrays["logits"][0:12]
-                    num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
+                    try:
+                        num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
+                    except:
+                        num_pos_impt_bps = viz_bp_cutoff
 
                     if visualize_only:
                         if np.max(logits) > 0 and num_pos_impt_bps >= viz_bp_cutoff and total_visualized < num_to_visualize:

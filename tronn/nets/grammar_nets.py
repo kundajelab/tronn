@@ -26,13 +26,13 @@ def score_grammars(features, labels, config, is_training=False):
         grammar_array[:,grammar_idx] = grammars[grammar_idx].pwm_vector
 
     grammar_tensor = tf.convert_to_tensor(grammar_array, dtype=tf.float32) # {M, G}
-    grammar_threshold = tf.reduce_sum(
+    grammar_presence_threshold = tf.reduce_sum(
         tf.cast(
             tf.greater(grammar_tensor, [0]), # eventually, look at negative scores too
-            tf.float32), axis=0) # {G}
+            tf.float32), axis=0, keep_dims=True) # {1, G}
 
     # adjust grammar threshold?
-    grammar_threshold = tf.multiply(grammar_threshold, [0.75]) # at least 75% of hits
+    #grammar_threshold = tf.multiply(grammar_threshold, [0.75]) # at least 75% of hits
     
     # adjust score tensor dimensions
     grammar_tensor = tf.expand_dims(grammar_tensor, axis=0) # {1, M, G}
@@ -42,15 +42,28 @@ def score_grammars(features, labels, config, is_training=False):
     features = tf.expand_dims(features, axis=3) # {N, task, M, 1}
 
     # multiply
-    grammar_scores = tf.reduce_sum(
-        tf.cast(
-            tf.greater(
-                tf.multiply(grammar_tensor, features), [0]),
-            tf.float32), axis=2) # {N, task, G}
+    grammar_scores = tf.multiply(grammar_tensor, features) # {N, task, M, G} 
+    features = tf.reduce_sum(grammar_scores, axis=2) # {N, task, G}
 
-    # may need to adjust dims here too
-    features = tf.cast(tf.greater_equal(grammar_scores, grammar_threshold), tf.float32) # {N, task, G}
+    # keep for filtering
+    keep_key = config.get("keep_grammar_scores_full")
+    if keep_key is not None:
+        config["outputs"][keep_key] = grammar_scores # {N, task, M, G}
 
-    # outside of this, condense features to global score
-    
+        # also whether it passed the threshold
+        motif_count_scores = tf.reduce_sum(
+            tf.cast(
+                tf.greater(grammar_scores, [0]),
+                tf.float32), axis=2) # {N, task, G}
+
+        max_motif_scores = tf.reduce_max(motif_count_scores, axis=1) # {N, G}
+        
+        # was a grammar present
+        grammars_present = tf.reduce_max(
+            tf.cast(tf.greater_equal(
+                max_motif_scores,
+                grammar_presence_threshold), tf.float32),
+            axis=1, keep_dims=True) # {N}
+        config["outputs"]["grammars_present"] = grammars_present
+
     return features, labels, config

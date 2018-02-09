@@ -182,15 +182,16 @@ def filter_by_motif_presence(features, labels, config, is_training=False):
 
 
 def filter_by_grammar_presence(features, labels, config, is_training=False):
-    """given grammar vector, filter
+    """given grammar vector, filter. here, want to filter by presence of key motifs
     """
-    global_features = tf.unstack(features, axis=1)[-1] # the global vector
-
+    grammars_present = config["outputs"].get("grammars_present") #{N}
+    assert grammars_present is not None
+    
     # reduce sum
-    condition_mask = tf.greater(tf.reduce_sum(global_features, axis=1), [0])
+    condition_mask = tf.greater(tf.squeeze(grammars_present), [0]) # {N}
     
     # and run filter
-    with tf.variable_scope("grammar_dk_filter"):
+    with tf.variable_scope("grammar_filter"):
         features, labels, config = filter_through_mask(
             features, labels, config, condition_mask)
 

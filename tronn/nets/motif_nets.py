@@ -241,7 +241,8 @@ def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
 
 
 def pwm_motif_max(features, labels, config, is_training=False):
-    """Get max at a position
+    """Get max for each motif? this likely reduces noise, but is it necessary?
+    # is this sorta subsumed by position squeeze later?
     """
     features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)] # list of {N, 1, pos, M}
 
@@ -272,6 +273,7 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     if raw_sequence is not None:
         # run on raw sequence
         binarized_features = raw_sequence
+        del config["outputs"]["onehot_sequence"] # remove this from outputs now
     else:
         # run on binarized importance scores
         pos_features_present = tf.cast(tf.greater(features, [0]), tf.float32)
@@ -279,17 +281,25 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
         binarized_features = tf.add(pos_features_present, neg_features_present)
     
     with tf.variable_scope("binarize_filt"):
-        # TODO - give option to do this on importance scores or raw sequence
         pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
             binarized_features, labels, config, is_training=is_training) # {N, task, pos, M}
-        if raw_sequence is not None:
-            del config["outputs"]["onehot_sequence"] # remove this from outputs now
         
     # get max per motif to filter the importance weighted scores
-    max_scores_from_binarized, _, _ = pwm_motif_max(
-        pwm_binarized_feature_scores, labels, config, is_training=is_training)
-    pwm_binarized_feature_maxfilt_mask = tf.cast(
-        tf.not_equal(max_scores_from_binarized, [0]), tf.float32)
+    # note that this max is across positions....
+    # TODO filtering for max hit immediately may be overfiltering.
+    # counter example - two locations with similar hit strengths, but NN highlights
+    # the lower scoring one (on raw sequence) - that information is lost.
+    # just run the max at the very end.
+    if raw_sequence is None:
+        print "dont use anymore"
+        quit()
+        max_scores_from_binarized, _, _ = pwm_motif_max(
+            pwm_binarized_feature_scores, labels, config, is_training=is_training)
+        pwm_binarized_feature_maxfilt_mask = tf.cast(
+            tf.not_equal(max_scores_from_binarized, [0]), tf.float32)
+    else:
+        pwm_binarized_feature_maxfilt_mask = tf.cast(
+            tf.greater(pwm_binarized_feature_scores, [0]), tf.float32)
     
     # run on impt weighted features
     pwm_impt_weighted_scores, _, _ = pwm_convolve_inputxgrad(
@@ -315,6 +325,11 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
             nonzero_bp_fraction_per_window)
     else:
         features = filt_features
+
+    # keep for grammars
+    if config.get("keep_pwm_scores_full") is not None:
+        # attach to config
+        config["outputs"][config["keep_pwm_scores_full"]] = features # {N, task, pos, M}
 
     return features, labels, config
 
@@ -355,6 +370,9 @@ def pwm_maxpool(features, labels, config, is_training=False):
 def pwm_consistency_check(features, labels, config, is_training=False):
     """Try to keep most consistent motifs across tasks. max scores are accounted for later
     """
+
+    # TODO is this useful? check multitask global importance to see thresholding
+    
     # split by example
     features_by_example = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features)] # {1, task, pos, M}
 
@@ -414,11 +432,11 @@ def pwm_position_squeeze(features, labels, config, is_training=False):
     """
     squeeze_type = config.get("squeeze_type", "max")
     if squeeze_type == "max":
-        features = tf.squeeze(tf.reduce_max(features, axis=2)) # features {N, task, pos, M}
+        features = tf.reduce_max(features, axis=2) # features {N, task, pos, M}
     elif squeeze_type == "mean":
-        features = tf.squeeze(tf.reduce_mean(features, axis=2))
+        features = tf.reduce_mean(features, axis=2)
     elif squeeze_type == "sum":
-        features = tf.squeeze(tf.reduce_sum(features, axis=2))
+        features = tf.reduce_sum(features, axis=2)
 
     return features, labels, config
 

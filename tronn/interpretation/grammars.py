@@ -210,7 +210,7 @@ def reduce_corr_mat_by_motif_similarity(
             if ncor > ncor_thresh and cor > cor_thresh:
                 node1_signal = signal_dict[node1]
                 node2_signal = signal_dict[node2]
-
+                
                 if node1_signal > node2_signal:
                     # keep node1
                     corr_mat_tmp.drop(node2, axis=0, inplace=True)
@@ -294,12 +294,12 @@ def plot_corr_on_fixed_graph(corr_mat, positions, prefix, corr_thresh=0.5, node_
     if node_size_dict is None:
         node_size = 50
     else:
-        node_size = [node_size_dict[node] for node in G.nodes]
+        node_size = [node_size_dict[node]*0.5 for node in G.nodes]
     print node_size
 
     # set up edge weights
     edge_to_weight = nx.get_edge_attributes(G, "value")
-    edge_weights = [edge_to_weight[edge]*0.1 for edge in G.edges]
+    edge_weights = [edge_to_weight[edge]*0.01 for edge in G.edges]
     print edge_weights
     
     # plot

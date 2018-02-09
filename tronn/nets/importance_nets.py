@@ -43,11 +43,11 @@ def multitask_importances(features, labels, config, is_training=False):
     anchors = config.get("anchors")
     task_indices = config.get("importance_task_indices")
     importances_fn = config.get("importances_fn", input_x_grad)
-    keep_key = config.get("keep_onehot_sequence")
+    #keep_key = config.get("keep_onehot_sequence")
 
-    if keep_key is not None:
-        config["outputs"][keep_key] = features
-        config["keep_features"] = None
+    #if keep_key is not None:
+        #config["outputs"][keep_key] = features
+        #config["keep_features"] = None
     
     assert anchors is not None
     assert task_indices is not None
@@ -69,24 +69,6 @@ def multitask_importances(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def multitask_global_importance_old(features, labels, config, is_training=False):
-    """Also get global importance
-    """
-    assert is_training == False
-    append = config.get("append", True)
-
-    # TODO could do a max - min scoring system
-    features_max = tf.reduce_sum(features, axis=1, keep_dims=True) # TODO add abs? probably not
-    #features_max = tf.reduce_max(tf.abs(features), axis=1, keep_dims=True)
-
-    if append:
-        features = tf.concat([features, features_max], axis=1)
-    else:
-        features = features_max
-
-    return features, labels, config
-
-
 def multitask_global_importance(features, labels, config, is_training=False):
     """Also get global importance. does a check to see that the feature is at least
     observed twice (count_thresh)
@@ -99,6 +81,7 @@ def multitask_global_importance(features, labels, config, is_training=False):
     features_by_example = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features)] # {1, task, M}
 
     # for each example, get sum across tasks
+    # TODO separate this out as different function
     masked_features_list = []
     for example_features in features_by_example:
         motif_counts = tf.reduce_sum(

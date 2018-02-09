@@ -131,8 +131,8 @@ def phenograph_cluster(mat_file, sorted_mat_file):
     pwm_key = "PWM_HCLUST_121.UNK.0.A" # TFAP2B
     pwm_key = "PWM_HCLUST_131.UNK.0.A" # ETS
     
-    mat_df_binary = mat_df_binary[mat_df[pwm_key] > 0]
-    mat_df = mat_df[mat_df[pwm_key] > 0]
+    #mat_df_binary = mat_df_binary[mat_df[pwm_key] > 0]
+    #mat_df = mat_df[mat_df[pwm_key] > 0]
     
     import ipdb
     ipdb.set_trace()
@@ -240,6 +240,7 @@ def plot_motif_network(
             pwm_dict,
             id_to_signal_dict,
             edge_cor_thresh=edge_cor_thresh)
+        
 
     # and adjust names after, need to match pwms
     corr_mat_df.columns = [";".join([name.split("_")[0] for name in id_to_name[pwm_name].split(";")])
@@ -247,7 +248,8 @@ def plot_motif_network(
     corr_mat_df.index = corr_mat_df.columns
     
     # save this out to quickly plot later
-    corr_mat_df.to_csv(reduced_corr_mat_file, sep="\t")
+    if reduce_pwms:
+        corr_mat_df.to_csv(reduced_corr_mat_file, sep="\t")
 
     # plotting
     task_G = plot_corr_on_fixed_graph(
@@ -270,8 +272,8 @@ def run(args):
     logging.info("Found {} chrom files".format(len(data_files)))
     
     # go through each interpretation task to get grammars
-    #for i in xrange(len(args.interpretation_tasks)):
-    for i in xrange(1):
+    for i in xrange(len(args.interpretation_tasks)):
+    #for i in xrange(1):
         
         interpretation_task_idx = args.interpretation_tasks[i]
         print "interpreting task", interpretation_task_idx
@@ -357,10 +359,13 @@ def run(args):
         pwm_x_pwm_corr_file = "{0}/{1}.task-{2}.pwm_x_pwm.corr.mat.txt".format(
             args.tmp_dir, args.prefix, interpretation_task_idx)
         if not os.path.isfile(pwm_x_pwm_corr_file):
-            get_correlation_file(region_x_pwm_sorted_mat_file, pwm_x_pwm_corr_file)
+            get_correlation_file(
+                region_x_pwm_sorted_mat_file,
+                pwm_x_pwm_corr_file,
+                corr_method="continuous_jaccard")
 
     # remove this
-    #quit()
+    quit()
     args.interpretation_tasks = [16]
     
     # get the max correlations/signal strengths to set up global graph here
@@ -375,8 +380,8 @@ def run(args):
     max_corr_df.index = max_corr_df.columns
     
     # then with that, get back a G (graph) and the positioning according to this graph
-    max_G = get_networkx_graph(max_corr_df, corr_thresh=500)
-    max_G_positions = nx.spring_layout(max_G, weight="value", k=0.15) # k is normally 1/sqrt(n), n=node_num
+    max_G = get_networkx_graph(max_corr_df, corr_thresh=0.25)
+    max_G_positions = nx.spring_layout(max_G, weight="value") # k is normally 1/sqrt(n), n=node_num k=0.15
 
     # then replot the network using this graph
     for i in xrange(len(args.interpretation_tasks)):
@@ -400,8 +405,16 @@ def run(args):
             prefix,
             pwm_dict,
             max_G_positions,
-            reduce_pwms=True,
-            edge_cor_thresh=1000)
+            reduce_pwms=False,
+            edge_cor_thresh=0.25) # 0.25 is good
+
+        cliques = list(nx.find_cliques(task_G))
+
+        # for each clique, remove if below certain size and reduce motif redundancy
+        
+
+        import ipdb
+        ipdb.set_trace()
 
         # and save out components
         grammar_file = "{0}/{1}.task-{2}.grammars.txt".format(

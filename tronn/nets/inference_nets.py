@@ -106,16 +106,20 @@ def sequence_to_motif_scores(
     count_thresh = config.get("count_thresh", 1)
     assert use_importances is not None
 
+    keep_key = config.get("keep_onehot_sequence")
+    if keep_key is not None:
+        config["outputs"][keep_key] = features
+    
     # if using NN, convert features to importance scores first
     if use_importances:
         features, labels, config = sequence_to_importance_scores(
-            features, labels, config, is_training=is_training) # (1) TRUE for viz, FALSE otherwise
+            features, labels, config, is_training=is_training)
         count_thresh = 2 # there's time info, so can filter across tasks
         
     # set up inference stack
     inference_stack = [
         (pwm_match_filtered_convolve, {"pwms": config["pwms"]}), # double filter: raw seq match and impt weighted seq match
-        (pwm_consistency_check, {}), # get consistent across time scores
+        #(pwm_consistency_check, {}), # get consistent across time scores - this might change raw vs impt
         (multitask_global_importance, {"append": True, "count_thresh": count_thresh}), # get global (abs val), keep_features = global-pwm-scores
         (pwm_position_squeeze, {"squeeze_type": "max"}), # get the max across positions {N, motif} # TODO - give an option for counts vs max (homotypic grammars)
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
@@ -162,7 +166,7 @@ def sequence_to_grammar_scores(
         (pwm_position_squeeze, {"squeeze_type": "max"}), # squeeze = (N, task, M)
         # TODO - this is actually a really bad filter, bc it will grab all the motifs around the top sequence
         # really want to do something more spaced out - like assign the importances to just one motif....
-        (multitask_threshold_topk_by_example, {}), # cutoff for top 10 motifs to reduce noise <- probably this bit is slow?
+        (multitask_threshold_topk_by_example, {}), # cutoff for top 10 motifs to reduce noise
         (score_grammars, {"grammars": config["grammars"], "pwms": config["pwms"]}), #  {N, task, G} 
         (multitask_global_importance, {"append": True, "reduce_type": "max"}), # N, task+1, G <- keep this output (when does grammar turn on)
         (filter_by_grammar_presence, {}) # filter stage, keeps last outputs (N, task+1, G)
