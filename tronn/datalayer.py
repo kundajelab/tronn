@@ -188,7 +188,7 @@ def hdf5_to_tensors(
     max_batches = int(math.ceil(h5_handle[features_key].shape[0]/float(batch_size)))
     logging.info("max batches: {}".format(max_batches))
     batch_id_queue = tf.train.range_input_producer(
-        max_batches, shuffle=shuffle, num_epochs=num_epochs)
+        max_batches, shuffle=shuffle, seed=0, num_epochs=num_epochs)
     batch_id_tensor = batch_id_queue.dequeue()
 
     # get examples based on batch_id
@@ -267,7 +267,7 @@ def hdf5_list_to_ordered_tensors(
     max_batches = sum(total_batches_per_file)
     logging.info("max batches: {}".format(max_batches))
     batch_id_queue = tf.train.range_input_producer(
-        max_batches, shuffle=shuffle, num_epochs=num_epochs)
+        max_batches, shuffle=shuffle, seed=0, num_epochs=num_epochs)
     batch_id_tensor = batch_id_queue.dequeue()
     
     # generate a batch_to_file dictionary so it's easy to get the file
@@ -453,7 +453,7 @@ def hdf5_kmers_to_slices(hdf5_file, batch_size, tasks=[], features_key='features
     h5py_handle = h5py.File(hdf5_file)
     num_examples = h5py_handle[features_key].shape[0]
     max_batches = num_examples/batch_size
-    batch_id_queue = tf.train.range_input_producer(max_batches, shuffle=shuffle)
+    batch_id_queue = tf.train.range_input_producer(max_batches, shuffle=shuffle, seed=0)
 
     # Check shapes from the hdf5 file so that we can set the tensor shapes
     num_features = h5py_handle[features_key].shape[1]
