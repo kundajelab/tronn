@@ -428,6 +428,80 @@ def load_data_from_filename_list(
     return features, labels, metadata
 
 
+def load_step_scaled_data_from_filename_list(
+        hdf5_files,
+        batch_size,
+        task_indices=[],
+        features_key='features',
+        shuffle=True,
+        shuffle_seed=0,
+        ordered_num_epochs=1,
+        fake_task_num=0,
+        filter_tasks=[]):
+    """Wrapper around the usual loader that then takes the input and scales it
+    in this case, the batch size corresponds to the num steps that the features
+    will be scaled by.
+    """
+    steps = batch_size
+    
+    features, labels, metadata = load_data_from_filename_list(
+        hdf5_files,
+        batch_size,
+        task_indices=task_indices,
+        features_key=features_key,
+        shuffle=shuffle,
+        shuffle_seed=shuffle_seed,
+        ordered_num_epochs=ordered_num_epochs,
+        fake_task_num=fake_task_num,
+        filter_tasks=filter_tasks)
+
+    # separate out to individuals
+    features = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features, axis=0)]
+    labels = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(labels, axis=0)]
+    metadata = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(metadata, axis=0)]
+    
+    join_list = []
+    new_features = []
+    new_labels = []
+    new_metadata = []
+    for example_idx in xrange(batch_size):
+        scaled_features = tf.concat(
+            [(float(i)/steps) * features[example_idx]
+             for i in xrange(1, steps+1)], axis=0)
+        scaled_labels = tf.concat(
+            [labels[example_idx]
+             for i in xrange(1, steps+1)], axis=0)
+        scaled_metadata = tf.concat(
+            [metadata[example_idx]
+             for i in xrange(1, steps+1)], axis=0)
+        join_list.append((scaled_features, scaled_labels, scaled_metadata))
+
+    # try batch join
+    features, labels, metadata = tf.train.batch_join(
+        join_list,
+        batch_size,
+        capacity=100000,
+        enqueue_many=True,
+        name="scaled_data_batcher")
+        
+    if False:
+        # concatenate all
+        features = tf.concat(new_features, axis=0)
+        labels = tf.concat(new_labels, axis=0)
+        metadata = tf.concat(new_metadata, axis=0)
+
+        # put these into an ordered queue    
+        features, labels, metadata = tf.train.batch(
+            [features, labels, metadata],
+            batch_size,
+            capacity=100000,
+            num_threads=1, # adjust as needed
+            enqueue_many=True,
+            name="scaled_data_batcher")
+    
+    return features, labels, metadata
+
+
 # =======================
 # other input functions
 # maybe defunct

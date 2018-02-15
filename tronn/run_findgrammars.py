@@ -20,6 +20,7 @@ from collections import Counter
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
+from tronn.datalayer import load_step_scaled_data_from_filename_list
 from tronn.nets.nets import net_fns
 
 from tronn.interpretation.interpret import interpret
@@ -678,8 +679,8 @@ def run(args):
     pwm_list_file = "global.pwm_names.txt"
     
     # motif annotation
-    pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
     # TODO add an arg here to just use all if no list
+    pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
     pwm_list, pwm_list_filt, pwm_list_filt_indices, pwm_names_filt = setup_pwms(args.pwm_file, pwm_list_file)
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
     pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in pwm_names_filt]
@@ -687,13 +688,18 @@ def run(args):
     print args.model["name"]
     print net_fns[args.model["name"]]
 
-    # first calculate a sample across dynamic regions
 
+    # set up file loader, dependent on importance fn
+    if args.backprop == "integrated_gradients":
+        data_loader_fn = load_step_scaled_data_from_filename_list
+    else:
+        data_loader_fn = load_data_from_filename_list
+    
     # set up graph
     tronn_graph = TronnNeuralNetGraph(
         {'data': data_files},
         args.tasks,
-        load_data_from_filename_list,
+        data_loader_fn,
         args.batch_size,
         net_fns[args.model['name']],
         args.model,
@@ -722,10 +728,11 @@ def run(args):
             args.batch_size,
             pwm_scores_h5,
             args.sample_size,
-            {"pwms": pwm_list},
+            {"pwms": pwm_list,
+             "importances_fn": args.backprop},
             keep_negatives=False,
-            filter_by_prediction=True,
-            method=args.backprop if args.backprop is not None else "input_x_grad")
+            filter_by_prediction=True)
+            #method=args.backprop if args.backprop is not None else "input_x_grad")
         
     # now for each timepoint task, go through and calculate communities
     for i in xrange(len(args.importances_tasks)):
@@ -738,8 +745,7 @@ def run(args):
         if not os.path.isfile(region_x_pwm_mat_file):
             h5_dataset_to_text_file(
                 pwm_scores_h5,
-                "pwm-scores.taskidx-{}".format(i), # TODO check this
-                #"pwm-scores.taskidx-{}".format(global_taskidx),
+                "pwm-scores.taskidx-{}".format(i), # use i because the ordering in the file is just 0-10
                 region_x_pwm_mat_file,
                 pwm_list_filt_indices,
                 pwm_names_filt)
@@ -760,7 +766,7 @@ def run(args):
                 corr_method="continuous_jaccard")
 
         # refine the region modules with another phenograph run
-        if True:
+        if False:
             generate_motif_modules_w_phenograph(
                 region_x_pwm_sorted_mat_file,
                 pwm_x_pwm_corr_file,
@@ -769,7 +775,8 @@ def run(args):
 
     # and then enumerate
     community_files = [
-        "grammars/{}.task-{}.region_x_pwm.phenograph_sorted.recalc.phenograph.adjusted.txt".format(
+        #"grammars/{}.task-{}.region_x_pwm.phenograph_sorted.recalc.phenograph.adjusted.txt".format(
+        "grammars/{}.task-{}.region_x_pwm.phenograph_sorted.txt".format(
             args.prefix, i)
         for i in args.importances_tasks]
 

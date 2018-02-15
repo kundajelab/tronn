@@ -4,6 +4,7 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 from tronn.nets.importance_nets import input_x_grad
+from tronn.nets.importance_nets import integrated_gradients
 from tronn.nets.importance_nets import multitask_importances
 from tronn.nets.importance_nets import multitask_global_importance
 
@@ -75,8 +76,19 @@ def sequence_to_importance_scores(
         is_training=False):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
+
+    method = config.get("importances_fn")
+    #if method == "input_x_grad":
+    #    impts_fn = input_x_grad 
+    #elif method == "integrated_gradients":
+    #    impts_fn = integrated_gradients
+        #impts_fn = input_x_grad
+    #else:
+    #    print "method does not exist!"
+    #    quit()
+    
     inference_stack = [
-        (multitask_importances, {"anchors": config["outputs"]["logits"], "importances_fn": input_x_grad, "relu": False}), # importances
+        (multitask_importances, {"anchors": config["outputs"]["logits"], "backprop": method, "relu": False}), # importances
         (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 7bp window.

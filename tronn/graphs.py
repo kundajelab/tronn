@@ -17,7 +17,7 @@ class TronnGraph(object):
     """Builds out a general purpose TRONN model graph"""
 
     def __init__(self,
-                 data_files,
+                 data_files, # TODO add an arg for data params
                  tasks,
                  data_loader,
                  model_fn,
@@ -48,6 +48,7 @@ class TronnGraph(object):
         logging.info("Built TronnGraph")
         
         # Set up data loader
+        # TODO set up adjustements in the dataloader
         self.features, self.labels, self.metadata = self.data_loader(
             self.data_files[data_key],
             self.batch_size,
@@ -189,7 +190,7 @@ class TronnNeuralNetGraph(TronnGraph):
         """
         assert self.inference_fn is not None
 
-        # build graph
+        # build graph TODO if ever adjusting gradients for guided backprop, it goes here
         self.build_graph(data_key, is_training=False)
 
         # set up config
@@ -218,6 +219,7 @@ class TronnNeuralNetGraph(TronnGraph):
             "pwms": inference_params.get("pwms"),
             "grammars": inference_params.get("grammars"),
             "importance_task_indices": self.importances_tasks,
+            "importances_fn": inference_params.get("importances_fn"),
             "keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
             "keep_importances": "importances" if validate_grammars else None,
             "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars

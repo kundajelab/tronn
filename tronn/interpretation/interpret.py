@@ -133,19 +133,19 @@ def interpret(
     with tf.Graph().as_default() as g:
 
         # build graph
-        if method == "input_x_grad":
-            print "using input_x_grad"
-            outputs = tronn_graph.build_inference_graph(
-                inference_params,
-                scan_grammars=scan_grammars,
-                validate_grammars=validate_grammars)
+        #if method == "input_x_grad":
+        #    print "using input_x_grad"
+        outputs = tronn_graph.build_inference_graph(
+            inference_params,
+            scan_grammars=scan_grammars,
+            validate_grammars=validate_grammars)
         #elif method == "guided_backprop":
         #    with g.gradient_override_map({'Relu': 'GuidedRelu'}):
         #        print "using guided backprop"
         #        outputs = tronn_graph.build_inference_graph(pwm_list=pwm_list)
-        else:
-            print "unsupported method"
-            quit()
+        #else:
+        #    print "unsupported method"
+        #    quit()
                 
         # set up session
         sess, coord, threads = setup_tensorflow_session()

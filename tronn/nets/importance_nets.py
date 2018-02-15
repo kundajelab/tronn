@@ -3,6 +3,8 @@
 
 import tensorflow as tf
 
+from tronn.nets.filter_nets import rebatch
+
 
 def input_x_grad(features, labels, config, is_training=False):
     """Layer-wise Relevance Propagation (Batch et al), implemented
@@ -26,13 +28,35 @@ def input_x_grad(features, labels, config, is_training=False):
 
     if use_relu:
         features = tf.nn.relu(features)
+
+    return features, labels, config
+
+
+def integrated_gradients(features, labels, config, is_training=False):
+    """Integrated gradients as proposed by Sundararajan 2017
     
+    NOTE: the current set up is such that a batch is basically a scaled set of sequences
+    so just reduce mean on them.
+    """
+    batch_size = config.get("batch_size")
+    assert batch_size is not None
+
+    # run input_x_grad
+    features, _, _ = input_x_grad(features, labels, config, is_training=False)
+
+    # for features, reduce mean
+    features = tf.reduce_mean(features, axis=0, keep_dims=True)
+
+    # for everything else, just grab the first of the batch (they should all be the same)
+    labels = tf.expand_dims(tf.unstack(labels, axis=0)[0], axis=0)
+    for key in config["outputs"].keys():
+        config["outputs"][key] = tf.expand_dims(
+            tf.unstack(config["outputs"][key], axis=0)[0], axis=0)
+
     return features, labels, config
 
 
 # TODO basic deeplift
-# TODO integrated gradients?
-
 
 def multitask_importances(features, labels, config, is_training=False):
     """Set up importances coming from multiple tasks
@@ -42,16 +66,20 @@ def multitask_importances(features, labels, config, is_training=False):
     # get configs
     anchors = config.get("anchors")
     task_indices = config.get("importance_task_indices")
-    importances_fn = config.get("importances_fn", input_x_grad)
-    #keep_key = config.get("keep_onehot_sequence")
+    backprop = config.get("backprop", "input_x_grad")
 
-    #if keep_key is not None:
-        #config["outputs"][keep_key] = features
-        #config["keep_features"] = None
-    
+    if backprop == "input_x_grad":
+        importances_fn = input_x_grad
+    elif backprop == "integrated_gradients":
+        importances_fn = integrated_gradients
+    else:
+        print "method does not exist/not implemented!"
+        quit()
+
     assert anchors is not None
     assert task_indices is not None
     assert importances_fn is not None
+    print importances_fn
     
     # split out anchors by task
     anchors = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(anchors, axis=1)] # {N, 1, pos, C}
@@ -65,6 +93,15 @@ def multitask_importances(features, labels, config, is_training=False):
         task_importances.append(task_importance)
 
     features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
+
+    # adjust labels and configs as needed here
+    if backprop == "integrated_gradients":
+        labels = tf.expand_dims(tf.unstack(labels, axis=0)[0], axis=0)
+        for key in config["outputs"].keys():
+            config["outputs"][key] = tf.expand_dims(
+                tf.unstack(config["outputs"][key], axis=0)[0], axis=0)
+
+        features, labels, config = rebatch(features, labels, config)
 
     return features, labels, config
 

@@ -5,6 +5,42 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 
+def rebatch(features, labels, config, is_training=False):
+    """Re-batch after "breaking" a batch
+    """
+    batch_size = config.get("batch_size")
+    assert batch_size is not None
+    
+    tensor_keys = ["features", "labels"]
+    tensors = [features, labels]
+    
+    # attach the other outputs
+    for output_key in config["outputs"].keys():
+        tensor_keys.append(output_key)
+        tensors.append(config["outputs"][output_key])
+        
+    outputs = tf.train.batch(
+        tensors,
+        batch_size,
+        capacity=batch_size*5 + 100,
+        num_threads=1,
+        enqueue_many=True,
+        name="rebatch_queue")
+
+    # separate things back out from queue
+    features = outputs[0]
+    labels = outputs[1]
+
+    new_outputs = {}
+    for i in xrange(2, len(outputs)):
+        new_outputs[tensor_keys[i]] = outputs[i]
+    
+    # replace old outputs with new ones
+    config["outputs"] = new_outputs
+
+    return features, labels, config
+
+
 def filter_through_mask(
         features,
         labels,
