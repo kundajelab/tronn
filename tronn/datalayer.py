@@ -354,7 +354,7 @@ def filter_through_labels(features, labels, metadata, filter_tasks, batch_size):
         [features_filtered, labels_filtered, metadata_filtered],
         batch_size,
         capacity=100000,
-        num_threads=1, # adjust as needed
+        num_threads=4, # adjust as needed
         enqueue_many=True,
         name="filter_batcher")
     
@@ -459,7 +459,7 @@ def load_step_scaled_data_from_filename_list(
     features = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features, axis=0)]
     labels = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(labels, axis=0)]
     metadata = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(metadata, axis=0)]
-    
+
     join_list = []
     new_features = []
     new_labels = []
@@ -474,8 +474,9 @@ def load_step_scaled_data_from_filename_list(
         scaled_metadata = tf.concat(
             [metadata[example_idx]
              for i in xrange(1, steps+1)], axis=0)
-        join_list.append((scaled_features, scaled_labels, scaled_metadata))
 
+        join_list.append((scaled_features, scaled_labels, scaled_metadata))
+        
     # try batch join
     features, labels, metadata = tf.train.batch_join(
         join_list,

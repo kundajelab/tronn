@@ -187,7 +187,7 @@ def interpret(
 
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
-                    
+
                     # conditions for visualization: logits > 0,
                     # and mean(importances) > 0, AND not empty net
                     # set up real condition
@@ -219,9 +219,9 @@ def interpret(
                     if (sample_size is not None) and (total_examples >= sample_size):
                         break
 
-
-
-            except tf.errors.OutOfRangeError:
+            #except tf.errors.OutOfRangeError:
+            except Exception as e:
+                print e
                 print "Done reading data"
                 # add in last of the examples
 

@@ -78,18 +78,10 @@ def sequence_to_importance_scores(
     """
 
     method = config.get("importances_fn")
-    #if method == "input_x_grad":
-    #    impts_fn = input_x_grad 
-    #elif method == "integrated_gradients":
-    #    impts_fn = integrated_gradients
-        #impts_fn = input_x_grad
-    #else:
-    #    print "method does not exist!"
-    #    quit()
     
     inference_stack = [
-        (multitask_importances, {"anchors": config["outputs"]["logits"], "backprop": method, "relu": False}), # importances
-        (filter_by_accuracy, {"filter_probs": config["outputs"]["probs"], "acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
+        (multitask_importances, {"backprop": method, "relu": False}), # importances
+        (filter_by_accuracy, {"acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 7bp window.
         (filter_by_importance, {"cutoff": 10, "positive_only": True}), # TODO - change this to positive cutoff?

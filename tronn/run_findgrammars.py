@@ -731,8 +731,12 @@ def run(args):
             {"pwms": pwm_list,
              "importances_fn": args.backprop},
             keep_negatives=False,
+            validate_grammars=False,
             filter_by_prediction=True)
             #method=args.backprop if args.backprop is not None else "input_x_grad")
+
+    import ipdb
+    ipdb.set_trace()
         
     # now for each timepoint task, go through and calculate communities
     for i in xrange(len(args.importances_tasks)):

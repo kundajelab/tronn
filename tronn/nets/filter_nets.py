@@ -22,8 +22,9 @@ def rebatch(features, labels, config, is_training=False):
     outputs = tf.train.batch(
         tensors,
         batch_size,
-        capacity=batch_size*5 + 100,
-        num_threads=1,
+        capacity=100000,
+        #capacity=batch_size*10 + 100,
+        num_threads=4,
         enqueue_many=True,
         name="rebatch_queue")
 
@@ -76,7 +77,7 @@ def filter_through_mask(
             batch_size,
             #capacity=128+5, # keep capacity small to move faster?
             capacity=batch_size*10 + 100,
-            num_threads=2, # 2
+            num_threads=4, # 2
             enqueue_many=True,
             name="filtering_queue")
     else:
@@ -106,7 +107,7 @@ def filter_by_accuracy(features, labels, config, is_training=False):
     """Filter by accuracy
     """
     # get params needed
-    probs = config.get("filter_probs")
+    probs = config["outputs"].get("probs")
     task_indices = config.get("importance_task_indices")
     batch_size = config.get("batch_size")
     acc_threshold = config.get("acc_threshold", 0.8)
@@ -140,7 +141,7 @@ def filter_by_accuracy(features, labels, config, is_training=False):
     # filter
     with tf.variable_scope("accuracy_filter"):
         features, labels, config = filter_through_mask(
-            features, labels, config, condition_mask, use_queue=False)
+            features, labels, config, condition_mask, use_queue=True)
 
     return features, labels, config
 
