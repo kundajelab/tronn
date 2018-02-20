@@ -47,6 +47,7 @@ def filter_through_mask(
         labels,
         config,
         condition_mask,
+        num_threads=1,
         use_queue=True):
     """Given a precalculated condition mask, filter variables
     """
@@ -76,8 +77,9 @@ def filter_through_mask(
             tensors,
             batch_size,
             #capacity=128+5, # keep capacity small to move faster?
-            capacity=batch_size*10 + 100,
-            num_threads=4, # 2
+            capacity=100000,
+            #capacity=batch_size*10 + 100,
+            num_threads=num_threads,
             enqueue_many=True,
             name="filtering_queue")
     else:
@@ -131,8 +133,8 @@ def filter_by_accuracy(features, labels, config, is_training=False):
 
     # calculate accuracy
     correct_predictions = tf.logical_not(tf.logical_xor(
-        tf.cast(labels, tf.bool),
-        tf.greater_equal(probs, 0.5))) # {N, tasks}
+        tf.cast(filter_labels, tf.bool),
+        tf.greater_equal(filter_probs, 0.5))) # {N, tasks}
     accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32), axis=1) # {N}
     
     # set condition
@@ -141,7 +143,7 @@ def filter_by_accuracy(features, labels, config, is_training=False):
     # filter
     with tf.variable_scope("accuracy_filter"):
         features, labels, config = filter_through_mask(
-            features, labels, config, condition_mask, use_queue=True)
+            features, labels, config, condition_mask, use_queue=True, num_threads=1)
 
     return features, labels, config
 
@@ -177,7 +179,7 @@ def filter_by_importance(features, labels, config, is_training=False):
     # filter
     with tf.variable_scope("importance_filter"):
         features, labels, config = filter_through_mask(
-            features, labels, config, condition_mask)
+            features, labels, config, condition_mask, num_threads=1)
     
     return features, labels, config
 

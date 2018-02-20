@@ -47,6 +47,7 @@ def integrated_gradients(features, labels, config, is_training=False):
     # for features, reduce mean
     features = tf.reduce_mean(features, axis=0, keep_dims=True)
 
+    # NOTE: DONT adjust here, it references the original dict
     # for everything else, just grab the LAST of the batch (which is the non-scaled sequence)
     labels = tf.expand_dims(tf.unstack(labels, axis=0)[-1], axis=0)
     for key in config["outputs"].keys():
@@ -82,7 +83,8 @@ def multitask_importances(features, labels, config, is_training=False):
     print importances_fn
     
     # split out anchors by task
-    anchors = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(anchors, axis=1)] # {N, 1, pos, C}
+    anchors = [tf.expand_dims(tensor, axis=1)
+               for tensor in tf.unstack(anchors, axis=1)] # {N, 1}
 
     # get task specific importances
     task_importances = []
@@ -93,7 +95,8 @@ def multitask_importances(features, labels, config, is_training=False):
         task_importances.append(task_importance)
 
     features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
-
+    
+    # tODO check the config here?
     # adjust labels and configs as needed here
     if backprop == "integrated_gradients":
         labels = tf.expand_dims(tf.unstack(labels, axis=0)[-1], axis=0)
@@ -101,8 +104,14 @@ def multitask_importances(features, labels, config, is_training=False):
             config["outputs"][key] = tf.expand_dims(
                 tf.unstack(config["outputs"][key], axis=0)[-1], axis=0)
 
-        features, labels, config = rebatch(features, labels, config)
+        # NOTE: rebatch might be the issue?
+        #features, labels, config = rebatch(features, labels, config)
 
+        #print features
+        #print labels
+        #print config["outputs"]
+        #quit()
+        
     return features, labels, config
 
 

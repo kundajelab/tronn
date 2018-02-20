@@ -468,29 +468,35 @@ def load_step_scaled_data_from_filename_list(
         scaled_features = tf.concat(
             [(float(i)/steps) * features[example_idx]
              for i in xrange(1, steps+1)], axis=0)
+        new_features.append(scaled_features)
+        
         scaled_labels = tf.concat(
             [labels[example_idx]
              for i in xrange(1, steps+1)], axis=0)
+        new_labels.append(scaled_labels)
+        
         scaled_metadata = tf.concat(
             [metadata[example_idx]
              for i in xrange(1, steps+1)], axis=0)
+        new_metadata.append(scaled_metadata)
 
-        join_list.append((scaled_features, scaled_labels, scaled_metadata))
+        #join_list.append((scaled_features, scaled_labels, scaled_metadata))
         
     # try batch join
-    features, labels, metadata = tf.train.batch_join(
-        join_list,
-        batch_size,
-        capacity=100000,
-        enqueue_many=True,
-        name="scaled_data_batcher")
-        
     if False:
+        features, labels, metadata = tf.train.batch_join(
+            join_list,
+            batch_size,
+            capacity=100000,
+            enqueue_many=True,
+            name="scaled_data_batcher")
+        
+    if True:
         # concatenate all
         features = tf.concat(new_features, axis=0)
         labels = tf.concat(new_labels, axis=0)
         metadata = tf.concat(new_metadata, axis=0)
-
+        
         # put these into an ordered queue    
         features, labels, metadata = tf.train.batch(
             [features, labels, metadata],

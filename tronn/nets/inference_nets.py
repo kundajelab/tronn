@@ -76,7 +76,6 @@ def sequence_to_importance_scores(
         is_training=False):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
-
     method = config.get("importances_fn")
     
     inference_stack = [
