@@ -5,9 +5,18 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 # TODO(dk)
-
-
 def threshold_shufflenull(features, labels, config, is_training=False):
+    """Pick out the distribution from the shuffled vals to get threshold
+    """
+    
+
+    
+
+    return
+
+
+
+def threshold_shufflenull_old(features, labels, config, is_training=False):
     """Shuffle values to get a null distribution at each position
     """
     assert is_training == False

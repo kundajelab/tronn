@@ -21,6 +21,7 @@ from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.datalayer import load_step_scaled_data_from_filename_list
+from tronn.datalayer import load_data_with_shuffles_from_filename_list
 from tronn.nets.nets import net_fns
 
 from tronn.interpretation.interpret import interpret
@@ -692,6 +693,8 @@ def run(args):
     # set up file loader, dependent on importance fn
     if args.backprop == "integrated_gradients":
         data_loader_fn = load_step_scaled_data_from_filename_list
+    elif args.backprop == "deeplift":
+        data_loader_fn = load_data_with_shuffles_from_filename_list
     else:
         data_loader_fn = load_data_from_filename_list
     

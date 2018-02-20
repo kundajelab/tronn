@@ -532,7 +532,7 @@ def load_data_with_shuffles_from_filename_list(
         filter_tasks=filter_tasks)
 
     # separate out to individual real examples
-    features = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features, axis=0)]
+    features = [tensor for tensor in tf.unstack(features, axis=0)]
     labels = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(labels, axis=0)]
     metadata = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(metadata, axis=0)]
     
@@ -541,30 +541,34 @@ def load_data_with_shuffles_from_filename_list(
     new_labels = []
     new_metadata = []
     for example_idx in xrange(batch_size):
-        features_w_shuffles = [features[example_idx]]
+        features_w_shuffles = [tf.expand_dims(features[example_idx], axis=0)]
         for shuffle_idx in xrange(shuffles):
+            # TODO this should really be a dinucleotide shuffle - implement
             shuffled_features = tf.expand_dims(
                 tf.expand_dims(
                     tf.random_shuffle(
-                        tf.squeeze(features[example_idx]))))
+                        tf.squeeze(features[example_idx])),
+                    axis=0),
+                axis=0)
             features_w_shuffles.append(shuffled_features)
+        features_w_shuffles = tf.concat(features_w_shuffles, axis=0)
         new_features.append(features_w_shuffles)
             
         labels_w_shuffles = tf.concat(
             [labels[example_idx]
-             for i in xrange(shuffles)], axis=0)
-        new_labels.append(scaled_labels)
+             for i in xrange(shuffles+1)], axis=0)
+        new_labels.append(labels_w_shuffles)
         
-        scaled_metadata = tf.concat(
+        metadata_w_shuffles = tf.concat(
             [metadata[example_idx]
-             for i in xrange(shuffles)], axis=0)
-        new_metadata.append(scaled_metadata)
+             for i in xrange(shuffles+1)], axis=0)
+        new_metadata.append(metadata_w_shuffles)
 
     # concatenate all
     features = tf.concat(new_features, axis=0)
     labels = tf.concat(new_labels, axis=0)
     metadata = tf.concat(new_metadata, axis=0)
-        
+    
     # put these into an ordered queue    
     features, labels, metadata = tf.train.batch(
         [features, labels, metadata],
