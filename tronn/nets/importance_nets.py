@@ -4,6 +4,7 @@
 import tensorflow as tf
 
 from tronn.nets.filter_nets import rebatch
+from tronn.nets.filter_nets import remove_shuffles
 
 
 def input_x_grad(features, labels, config, is_training=False):
@@ -57,7 +58,94 @@ def integrated_gradients(features, labels, config, is_training=False):
     return features, labels, config
 
 
-# TODO basic deeplift
+def get_diff_from_ref(features, shuffle_num=7):
+    """Get the diff from reference, but maintain batch
+    only remove shuffles at the end of the process. For deeplift
+    """
+    batch_size = features.get_shape().as_list()[0]
+    assert batch_size % (shuffle_num + 1) == 0
+
+    example_num = batch_size / (shuffle_num + 1)
+
+    # unstack to get diff from ref
+    features = [tf.expand_dims(example, axis=0)
+                for example in tf.unstack(features, axis=0)]
+    for i in xrange(example_num):
+        idx = (shuffle_num + 1) * (i)
+        actual = features[idx]
+        references = features[idx+1:idx+shuffle_num+1]
+        diff = tf.subtract(actual, tf.reduce_mean(references, axis=0))
+        features[idx] = diff
+
+    # restack
+    features = tf.concat(features, axis=0)
+    
+    return features
+
+
+def build_deeplift_multiplier(x, y, multiplier=None, shuffle_num=7):
+    """Takes input and activations to pass down
+    """
+    # TODO figure out how to use sets for name matching
+    linear_names = set(["Conv", "conv", "fc"])
+    nonlinear_names = set(["Relu", "relu"])
+
+    if "Relu" in y.name:
+        # rescale rule
+        delta_y = get_diff_from_ref(y, shuffle_num=shuffle_num)
+        delta_x = get_diff_from_ref(x, shuffle_num=shuffle_num)
+        multiplier = tf.divide(
+            delta_y, delta_x)
+    elif "Conv" in y.name or "fc" in y.name:
+        # linear rule
+        [weights] = tf.gradients(y, x, grad_ys=multiplier)
+        #delta_x = get_diff_from_ref(x, shuffle_num=shuffle_num)
+        #multiplier = tf.multiply(
+        #    weights, delta_x)
+        multiplier = weights
+    else:
+        print y.name, "not recognized"
+        quit()
+
+    return multiplier
+
+
+def deeplift(features, labels, config, is_training=False):
+    """Basic deeplift in raw tensorflow
+    """
+    assert is_training == False
+    assert config.get("anchor") is not None
+    anchor = config.get("anchor")
+    shuffle_num = config.get("shuffle_num", 7)
+    
+    # deepnet needs to be adding activations (for EVERY layer)
+    # to the DEEPLIFT_ACTIVATIONS collection
+    activations = tf.get_collection("DEEPLIFT_ACTIVATIONS")
+    activations = [features] + activations
+    
+    # go backwards through the variables
+    activations.reverse()
+    for i in xrange(len(activations)):
+        current_activation = activations[i]
+        
+        if i == 0:
+            previous_activation = tf.identity(
+                anchor, name="fc.anchor")
+            multiplier = None
+        else:
+            previous_activation = activations[i-1]
+
+        # function here to build multiplier and pass down
+        multiplier = build_deeplift_multiplier(
+            current_activation,
+            previous_activation,
+            multiplier=multiplier,
+            shuffle_num=shuffle_num)
+        
+    features = multiplier
+ 
+    return features, labels, config
+
 
 def multitask_importances(features, labels, config, is_training=False):
     """Set up importances coming from multiple tasks
@@ -73,6 +161,8 @@ def multitask_importances(features, labels, config, is_training=False):
         importances_fn = input_x_grad
     elif backprop == "integrated_gradients":
         importances_fn = integrated_gradients
+    elif backprop == "deeplift":
+        importances_fn = deeplift
     else:
         print "method does not exist/not implemented!"
         quit()
@@ -96,21 +186,17 @@ def multitask_importances(features, labels, config, is_training=False):
 
     features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
     
-    # tODO check the config here?
     # adjust labels and configs as needed here
     if backprop == "integrated_gradients":
         labels = tf.expand_dims(tf.unstack(labels, axis=0)[-1], axis=0)
         for key in config["outputs"].keys():
             config["outputs"][key] = tf.expand_dims(
                 tf.unstack(config["outputs"][key], axis=0)[-1], axis=0)
-
-        # NOTE: rebatch might be the issue?
-        #features, labels, config = rebatch(features, labels, config)
-
-        #print features
-        #print labels
-        #print config["outputs"]
-        #quit()
+        features, labels, config = rebatch(features, labels, config)
+    elif backprop == "deeplift":
+        # TODO - actually remove shuffles later, make dependent on shuffle null and data input loader
+        features, labels, config = remove_shuffles(features, labels, config)
+        features, labels, config = rebatch(features, labels, config)
         
     return features, labels, config
 

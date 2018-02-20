@@ -121,12 +121,14 @@ def mlp_module_v2(
                 input_tensor,
                 fc_dim,
                 biases_initializer=None)
+            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.batch_norm(
                 net,
                 center=True,
                 scale=True,
                 activation_fn=tf.nn.relu,
                 is_training=is_training)
+            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.dropout(
                 net,
                 keep_prob=1.0-dropout,
@@ -307,16 +309,24 @@ def basset_conv_module(features, is_training=True, width_factor=1):
                 weights_initializer=layers.variance_scaling_initializer(),
                 biases_initializer=None):
             net = slim.conv2d(features, int(width_factor*300), [1, 19])
+            # need to do this for tf_deeplift
+            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.batch_norm(net)
+            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
 
             net = slim.conv2d(net, int(width_factor*200), [1, 11])
+            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.batch_norm(net)
+            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
 
             net = slim.conv2d(net, int(width_factor*200), [1, 7])
+            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.batch_norm(net)
+            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
+            
     return net
 
 

@@ -130,6 +130,10 @@ def interpret(
         viz_bp_cutoff=25):
     """Set up a graph and run inference stack
     """
+    # TODO: if running deeplift, need to set up reference activations
+    # run the references here as needed.
+
+    
     with tf.Graph().as_default() as g:
 
         # build graph

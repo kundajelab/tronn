@@ -553,7 +553,7 @@ def run_apriori(regions_x_pwm_mat_file, pwm_x_pwm_corr_file, pwm_name_to_hgnc, p
     return None
 
 
-def enumerate_trajectory_communities(community_files, indices, sig_threshold=0.005):
+def enumerate_trajectory_communities(community_files, indices, prefix, sig_threshold=0.005):
     """given communities for each timepoint, merge into one file and enumerate along start to finish
     """
     data = pd.DataFrame()
@@ -599,7 +599,7 @@ def enumerate_trajectory_communities(community_files, indices, sig_threshold=0.0
                 pattern, ignore_index=True)[pattern.index.tolist()]
 
     #community_patterns = community_patterns.drop("enumerated", axis=1)
-    community_patterns.to_csv("testing.communities.timeseries.txt", sep="\t")
+    community_patterns.to_csv("{}.txt".format(prefix), sep="\t")
 
 
     # TODO - here, write a kmeans method to better cluster from the enumeration derived means
@@ -610,9 +610,9 @@ def enumerate_trajectory_communities(community_files, indices, sig_threshold=0.0
     for pattern_idx in xrange(community_patterns.shape[0]):
         print pattern_idx
         timeseries_motif_scores = pd.DataFrame()
-        timeseries_motif_file = "testing.communities.timeseries.pattern_{}.txt".format(pattern_idx)
-        timeseries_region_ids_file = "testing.communities.timeseries.pattern_{}.region_ids.txt".format(pattern_idx)
-        timeseries_bed_file = "testing.communities.timeseries.pattern_{}.region_ids.bed".format(pattern_idx)
+        timeseries_motif_file = "{}.pattern_{}.txt".format(prefix, pattern_idx)
+        timeseries_region_ids_file = "{}.pattern_{}.region_ids.txt".format(prefix, pattern_idx)
+        timeseries_bed_file = "{}.pattern_{}.region_ids.bed".format(prefix, pattern_idx)
         
         # get the related regions
         regions = data[data["enumerated"] == community_patterns["enumerated"].iloc[pattern_idx]]
@@ -735,9 +735,6 @@ def run(args):
             filter_by_prediction=True)
             #method=args.backprop if args.backprop is not None else "input_x_grad")
 
-    import ipdb
-    ipdb.set_trace()
-        
     # now for each timepoint task, go through and calculate communities
     for i in xrange(len(args.importances_tasks)):
 
@@ -780,11 +777,14 @@ def run(args):
     # and then enumerate
     community_files = [
         #"grammars/{}.task-{}.region_x_pwm.phenograph_sorted.recalc.phenograph.adjusted.txt".format(
-        "grammars/{}.task-{}.region_x_pwm.phenograph_sorted.txt".format(
-            args.prefix, i)
+        "{0}/{1}.task-{2}.region_x_pwm.phenograph_sorted.txt".format(
+            args.out_dir, args.prefix, i)
         for i in args.importances_tasks]
 
-    enumerate_trajectory_communities(community_files, args.importances_tasks)
+    enumerate_trajectory_communities(
+        community_files,
+        args.importances_tasks,
+        "{}/{}.patterns".format(args.out_dir, args.prefix, i))
     quit()
 
 

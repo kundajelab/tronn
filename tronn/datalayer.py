@@ -443,7 +443,8 @@ def load_step_scaled_data_from_filename_list(
     will be scaled by.
     """
     steps = batch_size
-    
+
+    # run core data loader
     features, labels, metadata = load_data_from_filename_list(
         hdf5_files,
         batch_size,
@@ -455,7 +456,7 @@ def load_step_scaled_data_from_filename_list(
         fake_task_num=fake_task_num,
         filter_tasks=filter_tasks)
 
-    # separate out to individuals
+    # separate out to individual real examples
     features = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features, axis=0)]
     labels = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(labels, axis=0)]
     metadata = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(metadata, axis=0)]
@@ -480,31 +481,98 @@ def load_step_scaled_data_from_filename_list(
              for i in xrange(1, steps+1)], axis=0)
         new_metadata.append(scaled_metadata)
 
-        #join_list.append((scaled_features, scaled_labels, scaled_metadata))
+    # concatenate all
+    features = tf.concat(new_features, axis=0)
+    labels = tf.concat(new_labels, axis=0)
+    metadata = tf.concat(new_metadata, axis=0)
         
-    # try batch join
-    if False:
-        features, labels, metadata = tf.train.batch_join(
-            join_list,
-            batch_size,
-            capacity=100000,
-            enqueue_many=True,
-            name="scaled_data_batcher")
+    # put these into an ordered queue    
+    features, labels, metadata = tf.train.batch(
+        [features, labels, metadata],
+        batch_size,
+        capacity=100000,
+        num_threads=1, # adjust as needed
+        enqueue_many=True,
+        name="scaled_data_batcher")
+    
+    return features, labels, metadata
+
+
+def load_data_with_shuffles_from_filename_list(
+        hdf5_files,
+        batch_size,
+        task_indices=[],
+        features_key='features',
+        shuffle=True,
+        shuffle_seed=0,
+        ordered_num_epochs=1,
+        fake_task_num=0,
+        filter_tasks=[]):
+    """Wrapper around the usual loader that then takes the input and scales it
+    in this case, the batch size corresponds to the num steps that the features
+    will be scaled by.
+    """
+    # for now assert a certain batch size since
+    # downstream processing will assume a certain shape
+    assert batch_size == 64
+
+    shuffles = 7
+    assert batch_size % (shuffles + 1) == 0
+
+    # run core data loader
+    features, labels, metadata = load_data_from_filename_list(
+        hdf5_files,
+        batch_size,
+        task_indices=task_indices,
+        features_key=features_key,
+        shuffle=shuffle,
+        shuffle_seed=shuffle_seed,
+        ordered_num_epochs=ordered_num_epochs,
+        fake_task_num=fake_task_num,
+        filter_tasks=filter_tasks)
+
+    # separate out to individual real examples
+    features = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features, axis=0)]
+    labels = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(labels, axis=0)]
+    metadata = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(metadata, axis=0)]
+    
+    # for now, assume 1 real example every 8 (so 8 examples in a batch)
+    new_features = []
+    new_labels = []
+    new_metadata = []
+    for example_idx in xrange(batch_size):
+        features_w_shuffles = [features[example_idx]]
+        for shuffle_idx in xrange(shuffles):
+            shuffled_features = tf.expand_dims(
+                tf.expand_dims(
+                    tf.random_shuffle(
+                        tf.squeeze(features[example_idx]))))
+            features_w_shuffles.append(shuffled_features)
+        new_features.append(features_w_shuffles)
+            
+        labels_w_shuffles = tf.concat(
+            [labels[example_idx]
+             for i in xrange(shuffles)], axis=0)
+        new_labels.append(scaled_labels)
         
-    if True:
-        # concatenate all
-        features = tf.concat(new_features, axis=0)
-        labels = tf.concat(new_labels, axis=0)
-        metadata = tf.concat(new_metadata, axis=0)
+        scaled_metadata = tf.concat(
+            [metadata[example_idx]
+             for i in xrange(shuffles)], axis=0)
+        new_metadata.append(scaled_metadata)
+
+    # concatenate all
+    features = tf.concat(new_features, axis=0)
+    labels = tf.concat(new_labels, axis=0)
+    metadata = tf.concat(new_metadata, axis=0)
         
-        # put these into an ordered queue    
-        features, labels, metadata = tf.train.batch(
-            [features, labels, metadata],
-            batch_size,
-            capacity=100000,
-            num_threads=1, # adjust as needed
-            enqueue_many=True,
-            name="scaled_data_batcher")
+    # put these into an ordered queue    
+    features, labels, metadata = tf.train.batch(
+        [features, labels, metadata],
+        batch_size,
+        capacity=100000,
+        num_threads=1, # adjust as needed
+        enqueue_many=True,
+        name="data_w_shuffles_batcher")
     
     return features, labels, metadata
 
