@@ -498,6 +498,60 @@ def load_step_scaled_data_from_filename_list(
     return features, labels, metadata
 
 
+def dinucleotide_shuffle_old(features):
+    """shuffle by dinucleotides
+    this is too slow
+    """
+    # make sure feature shape is {bp, 4}
+    assert features.get_shape().as_list()[1] == 4
+    num_bp = features.get_shape().as_list()[0]
+    
+    # stack dinucleotides to keep them together
+    features = tf.unstack(features, axis=0)
+    paired_features = []
+    for i in xrange(num_bp / 2):
+        idx1 = 2*i
+        idx2 = 2*i+1
+        dinuc = tf.stack([features[idx1], features[idx2]], axis=1) # {4, 2}
+        paired_features.append(dinuc)
+    paired_features = tf.stack(paired_features, axis=0) # {500, 4, 2}
+    
+    # shuffle
+    paired_features_shuffled = tf.random_shuffle(paired_features)
+    paired_features_shuffled = tf.unstack(paired_features_shuffled, axis=0)
+    
+    # unstack dinucleotides
+    unpaired_features = []
+    for i in xrange(num_bp / 2):
+        dinuc = tf.stack(tf.unstack(paired_features_shuffled[i], axis=1), axis=0)
+        unpaired_features.append(dinuc)
+    features = tf.concat(unpaired_features, axis=0)
+    
+    return features
+
+
+def dinucleotide_shuffle(features):
+    """shuffle by dinucleotides
+    """
+    # make sure feature shape is {bp, 4}
+    assert features.get_shape().as_list()[1] == 4
+    num_bp = features.get_shape().as_list()[0]
+
+    # shuffle the indices
+    positions = tf.range(num_bp, delta=2)
+    shuffled_first_positions = tf.random_shuffle(positions)
+    shuffled_second_positions = tf.add(shuffled_first_positions, [1])
+
+    first_bps = tf.gather(features, shuffled_first_positions)
+    second_bps = tf.gather(features, shuffled_second_positions)
+
+    # interleave by concatenating on second axis, and then reshaping
+    pairs = tf.concat([first_bps, second_bps], axis=1)
+    features = tf.reshape(pairs, [num_bp, -1])
+    
+    return features
+
+
 def load_data_with_shuffles_from_filename_list(
         hdf5_files,
         batch_size,
@@ -543,11 +597,9 @@ def load_data_with_shuffles_from_filename_list(
     for example_idx in xrange(batch_size):
         features_w_shuffles = [tf.expand_dims(features[example_idx], axis=0)]
         for shuffle_idx in xrange(shuffles):
-            # TODO this should really be a dinucleotide shuffle - implement
             shuffled_features = tf.expand_dims(
                 tf.expand_dims(
-                    tf.random_shuffle(
-                        tf.squeeze(features[example_idx])),
+                    dinucleotide_shuffle(tf.squeeze(features[example_idx])),
                     axis=0),
                 axis=0)
             features_w_shuffles.append(shuffled_features)
