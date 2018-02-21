@@ -8,11 +8,35 @@ import tensorflow.contrib.slim as slim
 def threshold_shufflenull(features, labels, config, is_training=False):
     """Pick out the distribution from the shuffled vals to get threshold
     """
-    
+    assert is_training == False
+    shuffle_num = config.get("shuffle_num", 7)
+    batch_size = config.get("batch_size")
+    assert batch_size is not None
+    assert shuffle_num is not None
+    assert batch_size % (shuffle_num + 1) == 0
 
-    
+    example_num = batch_size / (shuffle_num + 1)
 
-    return
+    # separate by tasks
+    all_task_features = [tf.expand_dims(example, axis=1)
+                     for example in tf.unstack(features, axis=1)]
+
+    for task_features in all_task_features:
+        # determine threshold using the shuffles as empirical null
+        task_features = [tf.expand_dims(example, axis=0)
+                    for example in tf.unstack(task_features, axis=0)]
+        for i in xrange(example_num):
+            idx = (shuffle_num + 1) * i
+            actual = task_features[idx]
+            shuffles = task_features[idx+1:idx+shuffle_num+1]
+
+            # TODO get a distribution on shuffles, get threshold
+
+
+            # threshold actual
+        
+        
+    return features, labels, config
 
 
 
