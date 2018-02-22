@@ -10,7 +10,98 @@ from tronn.util.tf_utils import get_fan_in
 from tronn.util.initializers import pwm_simple_initializer
 
 
+# write a single task version, then compile into multitask
 def score_grammars(features, labels, config, is_training=False):
+    """load in grammar
+    """
+    grammars = config.get("grammars")
+    pwms = config.get("pwms")
+    assert grammars is not None
+    assert pwms is not None
+    
+    # input - {N, 1, M}, ie 1 cell state
+    # generate two array maps - (1, 1, M, G), and (1, 1, M, M, G)
+    pointwise_weights = np.zeros((1, 1, len(pwms), len(grammars)))
+    pairwise_weights = np.zeros((1, 1, len(pwms), len(pwms), len(grammars)))
+
+    # TODO assertions to make sure grammars were created in the same ways
+    for grammar_idx in xrange(len(grammars)):
+        # add pointwise weights
+        pointwise_weights[:,:,:,grammar_idx] = grammars[grammar_idx].pwm_vector
+
+        # add pairwise weights
+        pairwise_weights[:,:,:,:,grammar_idx] = grammars[grammar_idx].adjacency_matrix
+        
+    # convert to tensors
+    pointwise_weights = tf.convert_to_tensor(pointwise_weights, dtype=tf.float32)
+    pairwise_weights = tf.convert_to_tensor(pairwise_weights, dtype=tf.float32)
+
+    # adjust feature tensor dimensions
+    pointwise_features = tf.expand_dims(features, axis=3) # {N, 1, M, 1}
+    pairwise_features = tf.expand_dims(
+        tf.multiply(
+            tf.expand_dims(features, axis=3),
+            tf.expand_dims(features, axis=2)), axis=4) # {N, 1, M, M, 1}
+    
+    # linear model
+    pointwise_scores = tf.reduce_sum(
+        tf.multiply(
+            pointwise_weights,
+            pointwise_features), axis=2) # {N, 1, G}
+    pairwise_scores = tf.reduce_sum(
+        tf.multiply(
+            pairwise_weights,
+            pairwise_features), axis=[2, 3]) # {N, 1, G}
+    features = tf.add(pointwise_scores, pairwise_scores) # {N, 1, G}
+
+    # only give it a score if it had presence of all key motifs
+    grammar_motif_presence = tf.cast(tf.greater(pointwise_weights, [0]), tf.float32) #  {1, 1, M, G}
+    grammar_motif_count = tf.reduce_sum(grammar_motif_presence, axis=2) # {1, 1, G}
+    pointwise_presence = tf.cast(tf.greater(
+        tf.multiply(
+            grammar_motif_presence,
+            pointwise_features), [0]), tf.float32) # {N, 1, M, G}
+    motif_present_counts = tf.reduce_sum(pointwise_presence, axis=2) #  {N, 1, G}
+    score_mask = tf.cast(tf.equal(motif_present_counts, grammar_motif_count), tf.float32) # {N, 1, G}
+    
+    # pass through mask
+    features = tf.multiply(score_mask, features)
+
+    return features, labels, config
+
+
+def multitask_score_grammars(features, labels, config, is_training=False):
+    """Run multitask version
+    """
+    grammar_sets = config.get("grammars")
+    assert grammar_sets is not None
+    
+    # split features by task
+    features = [tf.expand_dims(tensor, axis=1)
+                for tensor in tf.unstack(features, axis=1)] # {N, 1, M}
+
+    # score grammars by task
+    grammar_scores = []
+    for i in xrange(len(features)):
+        # get the right grammars
+        task_grammars = []
+        for grammar_set in grammar_sets:
+            task_grammars.append(grammar_set[i])
+        # set up config
+        task_config = {
+            "pwms": config["pwms"],
+            "grammars": task_grammars}
+        # score
+        scores, _, _ = score_grammars(features[i], labels, task_config, is_training=is_training)
+        grammar_scores.append(scores)
+
+    # stack
+    features = tf.concat(grammar_scores, axis=1)
+
+    return features, labels, config
+
+
+def score_grammars_old(features, labels, config, is_training=False):
     """load in grammar
     """
     grammars = config.get("grammars")

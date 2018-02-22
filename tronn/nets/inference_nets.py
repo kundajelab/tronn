@@ -31,7 +31,7 @@ from tronn.nets.motif_nets import pwm_match_filtered_convolve
 from tronn.nets.motif_nets import multitask_motif_assignment
 from tronn.nets.motif_nets import motif_assignment
 
-from tronn.nets.grammar_nets import score_grammars
+from tronn.nets.grammar_nets import multitask_score_grammars
 
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_by_importance
@@ -154,25 +154,28 @@ def sequence_to_grammar_scores(
 
     """
     # first go from sequence to motifs
-    # TODO - make sure to keep importance scores to run modisco
     features, labels, config = sequence_to_motif_scores(
         features, labels, config, is_training=is_training)
 
+    # layers:
+    # setup grammar scan layer: (1) all motifs required must be present,
+    #     (2) and just sum up scores. (potentially calculate jaccard for motifset? probs with redundants)
+    #     this gives you a score per task - {N, task, G} <- keep grammar sets in a list of lists
+    # just do an average across tasks - {N, G}
+    # do not filter, but give option if an optimized threshold comes with the sequence set.
+    # give back matrix of motif scores for the motifs needed - {N, task, pos, motif}
+    
     # for grammar scan, want to start from an intermediate
+    # ^ why?
     features = config["outputs"]["pwm-scores-full"] # (N, task, pos, motif) <- keep this output (for visualizing positions)
     del config["outputs"]["pwm-scores-full"] # remove after setting up as features
     
     # set up inference stack
     inference_stack = [
-        # TODO - may need to zero out the hits that overlap by N bp (they are covering the same importance scores)
-        
         (pwm_position_squeeze, {"squeeze_type": "max"}), # squeeze = (N, task, M)
-        # TODO - this is actually a really bad filter, bc it will grab all the motifs around the top sequence
-        # really want to do something more spaced out - like assign the importances to just one motif....
-        (multitask_threshold_topk_by_example, {}), # cutoff for top 10 motifs to reduce noise
-        (score_grammars, {"grammars": config["grammars"], "pwms": config["pwms"]}), #  {N, task, G} 
-        (multitask_global_importance, {"append": True, "reduce_type": "max"}), # N, task+1, G <- keep this output (when does grammar turn on)
-        (filter_by_grammar_presence, {}) # filter stage, keeps last outputs (N, task+1, G)
+        (multitask_score_grammars, {}),
+        (multitask_global_importance, {"append": True, "reduce_type": "mean"}), # N, task+1, G <- keep this output (when does grammar turn on)
+        #(filter_by_grammar_presence, {}) # filter stage, keeps last outputs (N, task+1, G) DO NOT FILTER ALWAYS
     ]
 
     # build inference stack

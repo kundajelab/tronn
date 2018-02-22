@@ -83,8 +83,9 @@ def read_grammar_file(grammar_file, pwm_file, as_dict=False):
     return grammars
 
 
-
 class Grammar(object):
+    """This grammar is a linear model with pairwise interactions.
+    """
 
     def __init__(self, pwm_file, node_dict, edge_dict, param_string, name=None, threshold=None):
         self.name = name
@@ -137,6 +138,27 @@ class Grammar(object):
 
         
         return
+
+    def to_file(self, filename, filemode="a"):
+        """Write out grammar to file
+        """
+        with open(filename, filemode) as out:
+            out.write(">{}\n".format(self.name))
+            out.write("#params {}\n".format(self.param_string))
+            
+            # first write out nodes
+            out.write("#nodes\n")
+            for node in self.nodes.keys():
+                out.write("{0}\t{1}\n".format(
+                    node, self.nodes[node]))
+                
+            # then write out edges
+            out.write("#edges\n")
+            for edge in self.edges.keys():
+                out.write("{0}\t{1}\t{2}\n".format(
+                    edge[0], edge[1], self.edges[edge]))
+            
+        return None
 
 
 def get_significant_correlations(motif_mat, corr_method="pearson", pval_thresh=0.05, corr_min=0.4):

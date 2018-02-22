@@ -235,17 +235,19 @@ def multitask_global_importance(features, labels, config, is_training=False):
     reduce_type = config.get("reduce_type", "sum")
 
     if reduce_type == "sum":
-        features_max = tf.reduce_sum(features, axis=1, keep_dims=True) # TODO add abs? probably not
+        features_max = tf.reduce_sum(features, axis=1, keep_dims=True)
     elif reduce_type == "max":
         features_max = tf.reduce_max(features, axis=1, keep_dims=True)
-    
-    #features_max = tf.reduce_max(tf.abs(features), axis=1, keep_dims=True)
+    elif reduce_type == "mean":
+        features_max = tf.reduce_mean(features, axis=1, keep_dims=True)
 
+    # append or replace
     if append:
         features = tf.concat([features, features_max], axis=1)
     else:
         features = features_max
 
+    # things to keep
     if config.get("keep_global_pwm_scores") is not None:
         # attach to config
         config["outputs"][config["keep_global_pwm_scores"]] = features_max #{N, pos, motif}

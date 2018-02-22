@@ -123,46 +123,33 @@ def interpret(
         keep_negatives=False,
         filter_by_prediction=True,
         h5_batch_size=128,
-        visualize_only=False,
+        visualize=False,
         num_to_visualize=10,
         scan_grammars=False,
         validate_grammars=False,
         viz_bp_cutoff=25):
     """Set up a graph and run inference stack
     """
-    # TODO: if running deeplift, need to set up reference activations
-    # run the references here as needed.
-
-    
+    logger = logging.getLogger(__name__)
+    logger.info("Running interpretation")
     with tf.Graph().as_default() as g:
 
-        # build graph
-        #if method == "input_x_grad":
-        #    print "using input_x_grad"
+        # set up inference graph
         outputs = tronn_graph.build_inference_graph(
             inference_params,
             scan_grammars=scan_grammars,
             validate_grammars=validate_grammars)
-        #elif method == "guided_backprop":
-        #    with g.gradient_override_map({'Relu': 'GuidedRelu'}):
-        #        print "using guided backprop"
-        #        outputs = tronn_graph.build_inference_graph(pwm_list=pwm_list)
-        #else:
-        #    print "unsupported method"
-        #    quit()
                 
         # set up session
         sess, coord, threads = setup_tensorflow_session()
                     
-        # restore
+        # restore from checkpoint as needed
         if model_checkpoint is not None:
             init_assign_op, init_feed_dict = restore_variables_op(
                 model_checkpoint, skip=["pwm"])
             sess.run(init_assign_op, init_feed_dict)
         else:
-            print "WARNING"
-            print "WARNING"
-            print "WARNING: did not use checkpoint. are you sure? this should only happen for empty_net"
+            print "WARNING WARNING WARNING: did not use checkpoint. are you sure?"
 
         # set up hdf5 file to store outputs
         with h5py.File(h5_file, 'w') as hf:
@@ -201,7 +188,7 @@ def interpret(
                     except:
                         num_pos_impt_bps = viz_bp_cutoff
 
-                    if visualize_only:
+                    if visualize:
                         if np.max(logits) > 0 and num_pos_impt_bps >= viz_bp_cutoff and total_visualized < num_to_visualize:
                             out_dir = "{}/viz".format(os.path.dirname(h5_file))
                             os.system("mkdir -p {}".format(out_dir))
@@ -243,10 +230,10 @@ def interpret(
     return None
 
 
+# BUT NOT YET - this is used in the other viz module, where you have specific sequences
 # TODO remove this. eventually will want to visualize random samples on occasion
 # or under a condition, but during the normal running of interpret - therefore will
 # still want to save outputs to hdf5
-# BUT NOT YET - this is used in the other viz module, where you have specific sequences
 # that you are quickly checking.
 def interpret_and_viz(
         tronn_graph,
@@ -327,45 +314,3 @@ def interpret_and_viz(
 
     return None
 
-
-
-def run(args):
-
-    # find data files
-    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
-    print 'Found {} chrom files'.format(len(data_files))
-
-    # checkpoint file
-    checkpoint_path = tf.train.latest_checkpoint('{}/train'.format(args.model_dir))
-    print checkpoint_path
-
-    # set up scratch_dir
-    os.system('mkdir -p {}'.format(args.scratch_dir))
-
-    # load external data files
-    with open(args.annotations, 'r') as fp:
-        annotation_files = json.load(fp)
-
-    # current manual choices
-    task_nums = [0, 9, 10, 14]
-    dendro_cutoffs = [7, 6, 7, 7]
-    
-    interpret(args,
-              load_data_from_filename_list,
-              data_files,
-              models[args.model['name']],
-              tf.losses.sigmoid_cross_entropy,
-              args.prefix,
-              args.out_dir,
-              task_nums, 
-              dendro_cutoffs, 
-              annotation_files["motif_file"],
-              annotation_files["motif_sim_file"],
-              annotation_files["motif_offsets_file"],
-              annotation_files["rna_file"],
-              annotation_files["rna_conversion_file"],
-              checkpoint_path,
-              scratch_dir=args.scratch_dir,
-              sample_size=args.sample_size)
-
-    return

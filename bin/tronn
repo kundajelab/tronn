@@ -17,7 +17,7 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(
         description='TRONN: Transcriptional Regulation Optimized Neural Nets')
-    parser.add_argument(
+    parser.add_argument( # TODO eventually probably remove this
         "--cluster", default="kundaje",
         help="what cluster you're on (get annotations)")
     subparsers = parser.add_subparsers(dest='subcommand_name')
@@ -31,24 +31,34 @@ def parse_args():
     # command for evaluation
     add_evaluate_parser(subparsers)
 
-    # command for prediction/scanning
+    # command for prediction
     add_predict_parser(subparsers)
 
+    # command for motif scan
+    add_scanmotifs_parser(subparsers)
+    
+    # TODO:    
+    # validatemotifsets
+    # modisco
+    # mism
+    # scangrammars
+    # validategrammars
+
+
+
+    
     # command for making motifs with wkm
-    add_wkm_parser(subparsers)
+    #add_wkm_parser(subparsers)
 
     # command for grouping motifs
-    add_bagmotifs_parser(subparsers)
+    #add_bagmotifs_parser(subparsers)
 
     # command for in silico mutagenesis
-    add_ism_parser(subparsers)
+    #add_ism_parser(subparsers)
 
     # command for testing multitask interpretation
-    add_multitask_interpretation_parser(subparsers)
+    #add_multitask_interpretation_parser(subparsers)
     
-    # TODO(dk) add in a function to do
-    # all grammar work (group motifs, ISM)
-
     # findgrammar test bed
     add_findgrammars_parser(subparsers)
     
@@ -56,15 +66,19 @@ def parse_args():
     add_scangrammars_parser(subparsers)
     
     # get motifs test bed
-    add_getmotifs_parser(subparsers)
+    #add_getmotifs_parser(subparsers)
 
-    add_vizimpts_parser(subparsers)
+    #add_vizimpts_parser(subparsers)
 
     # load data jsons
     #load_data_files(parser)
 
     add_baseline_parser(subparsers)
 
+    # TODO consider a model import function?
+    
+    # TODO maybe call this model export?
+    # important to allow export to keras and pytorch probs
     add_extract_params_parser(subparsers)
 
     add_preprocess_variants_parser(subparsers)
@@ -569,6 +583,68 @@ def add_multitask_interpretation_parser(subparsers):
     return
 
 
+def add_scanmotifs_parser(subparsers):
+    """Scan motifs
+    """
+    cmd_argparser = subparsers.add_parser(
+        "scanmotifs",
+        help="Scan sequence with motifs from a PWM file")
+    
+    # group for input files
+    group_input = cmd_argparser.add_argument_group(
+    	"Input files and folders")
+    add_hdf5_data_options(group_input)
+    group_input.add_argument(
+        "--inference_tasks", nargs="+", required=True, type=int,
+        help="tasks to extract motif maps")
+    group_input.add_argument(
+        "--filter_tasks", nargs="+", default=[], type=int,
+        help="tasks to filter on")
+
+    # add in PWM information
+    group_input.add_argument(
+        "--pwm_file", help="pwm_file")
+    group_input.add_argument(
+        "--pwm_metadata_file", help="pwm_metadata_file")
+    
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model definition")
+    add_trained_nn_model_options(group_model)
+    group_model.add_argument(
+        "--backprop", default="input_x_grad",
+        help="what method to use for interpretation")
+    group_model.add_argument(
+        "--inference_fn", help="inference stack")
+
+    # group for parameters
+    group_params = cmd_argparser.add_argument_group(
+        "Interpretation hyperparameters")
+    group_params.add_argument(
+        '--batch_size', default=64, type=int,
+        help='batch size')
+    group_params.add_argument(
+        '--sample_size', default=100000, type=int,
+        help='number of regions to scan')
+    group_params.add_argument(
+        "--no_groups", action="store_true",
+        help="don't run region clustering/motif sets")
+
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="motifs")
+    group_output.add_argument(
+        '--tmp_dir',
+        help='temporary scratch directory as needed')
+    group_output.add_argument(
+        '--plot_importance_sample', action='store_true',
+        help='plot some sample importance score weighted samples')
+
+    return
+
+
+
 def add_findgrammars_parser(subparsers):
     """
     """
@@ -634,18 +710,18 @@ def add_scangrammars_parser(subparsers):
     """
     argparser_multitask = subparsers.add_parser(
         "scangrammars",
-        help="score sequences for grammar presence")
+        help="score sequences for grammars")
     
     # group for input files
     group_input = argparser_multitask.add_argument_group(
     	"Input files and folders")
     add_hdf5_data_options(group_input)
     group_input.add_argument(
-        "--importances_tasks", nargs="+", required=True, type=int,
+        "--inference_tasks", nargs="+", required=True, type=int,
         help="tasks to interpret on")
     group_input.add_argument( # TODO decide, need this or not?
-        "--interpretation_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
+        "--filter_tasks", nargs="+", required=True, type=int,
+        help="tasks to filter on")
 
     # add in grammar information
     group_input.add_argument(
@@ -653,9 +729,7 @@ def add_scangrammars_parser(subparsers):
     group_input.add_argument(
         "--pwm_metadata_file", help="pwm_metadata_file")
     group_input.add_argument(
-        "--motif_dir", help="where the motif files are") # do i need this?
-    group_input.add_argument(
-        "--grammar_file", help="pwm_file")
+        "--grammar_files", nargs="+", help="pwm_file")
     
     # group for model
     group_model = argparser_multitask.add_argument_group(
@@ -670,10 +744,10 @@ def add_scangrammars_parser(subparsers):
     group_params = argparser_multitask.add_argument_group(
         "Interpretation hyperparameters")
     group_params.add_argument(
-        '--batch_size', default=128, type=int,
+        '--batch_size', default=64, type=int,
         help='batch size')
     group_params.add_argument(
-        '--sample_size', default=220000, type=int,
+        '--sample_size', default=100000, type=int,
         help='number of regions to get importance scores')
 
     # group for output files
@@ -681,11 +755,11 @@ def add_scangrammars_parser(subparsers):
         "Output files and folders")
     add_output_options(group_output, out_dir="importances")
     group_output.add_argument(
-        '--tmp_dir', default='importances_tmp',
+        '--tmp_dir',
         help='temporary scratch directory')
     group_output.add_argument(
-        '--plot_samples', action='store_true',
-        help='plot some sample sequences weighted by importance scores')
+        '--plot_importance_sample', action='store_true',
+        help='plot some sample importance score weighted samples')
 
     return
 
@@ -891,11 +965,21 @@ def track_runs(args):
 def main():
     """Main function for running TRoNN functions
     """
+    # parse args
     args = parse_args()
-    print "out_dir: %s" % args.out_dir
     os.system("mkdir -p {}".format(args.out_dir))
+
+    # set up logging
     logging_file = track_runs(args)
-    #logging.basicConfig(filename=logging_file, level=logging.INFO)
+    reload(logging)
+    logging.basicConfig(
+        filename=logging_file,
+        level=logging.INFO,
+        format='%(message)s')
+    logging.getLogger().addHandler(logging.StreamHandler())
+    for arg in sorted(vars(args)):
+        logging.info("{}: {}".format(arg, getattr(args, arg)))
+    logging.info("")
 
     # get subcommand run function and run
     subcommand = args.subcommand_name
@@ -924,20 +1008,24 @@ def main():
             print "model args: %s" % args.model
         from tronn.run_predict import run
         run(args)
-    elif subcommand == "makemotifs": # this is modisco - TODO (on kmers)
-        from tronn.run_wkm import run
+    elif subcommand == "scanmotifs":
+        add_model_params(args)
+        from tronn.run_scanmotifs import run
         run(args)
-    elif subcommand == "bagmotifs": # this... could be deleted?
-    	from tronn.run_bagmotifs import run
-    	run(args)
+    #elif subcommand == "makemotifs": # this is modisco - TODO (on kmers)
+    #    from tronn.run_wkm import run
+    #    run(args)
+    #elif subcommand == "bagmotifs": # this... could be deleted?
+   # 	from tronn.run_bagmotifs import run
+   # 	run(args)
     elif subcommand == "ism": # this checks dependencies
     	add_model_params(args)
     	from tronn.run_ism import run
     	run(args)
-    elif subcommand == "interpret_multitask": # this is modisco on seqlets - merge with makemotifs with option of kmer vs seqlet
-        add_model_params(args)
-        from tronn.run_multitask_interpretation import run
-        run(args)
+    #elif subcommand == "interpret_multitask": # this is modisco on seqlets - merge with makemotifs with option of kmer vs seqlet
+     #   add_model_params(args)
+     #   from tronn.run_multitask_interpretation import run
+    #    run(args)
     elif subcommand == "findgrammars":
         add_model_params(args)
         from tronn.run_findgrammars import run
