@@ -548,7 +548,10 @@ def add_scanmotifs_parser(subparsers):
         help='plot some sample importance score weighted samples')
     group_output.add_argument(
         "--validate", action="store_true",
-        help="provide helpful diagnostic/validation plots")
+        help="provide helpful plots")
+    group_output.add_argument(
+        "--diagnose", action="store_true",
+        help="provide helpful diagnostics")
 
     return
 

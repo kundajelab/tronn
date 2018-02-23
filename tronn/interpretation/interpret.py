@@ -56,11 +56,16 @@ def visualize_region(
         global_idx=10):
     """Given a dict representing a region, plot necessary things
     """
+    # set up
     region_string = region.strip("\x00").split(";")[0].split("=")[1].replace(":", "-")
     region_prefix = "{}.{}".format(prefix, region_string)
 
     pwm_list = viz_params.get("pwms")
     grammars = viz_params.get("grammars")
+    assert pwm_list is not None
+
+    pwm_x_pos_scores_file = None
+    global_pwm_scores_file = None
     
     for key in region_arrays.keys():
 
@@ -69,45 +74,59 @@ def visualize_region(
             # squeeze and visualize!
             plot_name = "{}.{}.pdf".format(region_prefix, key)
             print plot_name
-            #plot_weights(np.squeeze(region_arrays[key][400:600,:]), plot_name) # array, fig name
             plot_weights(np.squeeze(region_arrays[key]), plot_name) # array, fig name
             
         elif "global-pwm-scores" in key:
             # save out to matrix
-            # save it out with pwm names...
-            all_pwm_scores_file = "{}.{}.txt".format(region_prefix, key)
+            pwm_x_pos_scores_file = "{}.{}.txt".format(region_prefix, key)
             motif_pos_scores = np.transpose(np.squeeze(region_arrays[key]))
+            
+            # pad here as well to match the importance score array
+            full_length = region_arrays["importances.taskidx-0"].shape[0]
+            score_length = motif_pos_scores.shape[1]
+            edge_pad_length = (full_length - score_length) / 2
+            left_zero_pad = np.zeros((motif_pos_scores.shape[0], edge_pad_length))
+            right_zero_pad = np.zeros(
+                (motif_pos_scores.shape[0],
+                 full_length - score_length - edge_pad_length))
+            motif_pos_scores = np.concatenate(
+                [left_zero_pad, motif_pos_scores, right_zero_pad], axis=1)
             motif_pos_scores_df = pd.DataFrame(
                 motif_pos_scores,
                 index=[pwm.name for pwm in pwm_list])
-            motif_pos_scores_df.to_csv(all_pwm_scores_file, header=False, sep="\t")
-            
-            # and also save out version with just the motifs in the grammar
-            for grammar in grammars:
-                grammar_pwm_scores_file = "{}.{}.txt".format(
-                    all_pwm_scores_file.split(".txt")[0],
-                    grammar.name.replace(".", "-"))
-                grammar_pwm_scores_df = motif_pos_scores_df.loc[grammar.nodes]
-                grammar_pwm_scores_df.to_csv(grammar_pwm_scores_file, header=False, sep="\t")
-                
+            motif_pos_scores_df.to_csv(pwm_x_pos_scores_file, header=False, sep="\t")
+
+            if grammars is not None:
+                # and also save out version with just the motifs in the grammar
+                for grammar in grammars:
+                    grammar_pwm_scores_file = "{}.{}.txt".format(
+                        all_pwm_scores_file.split(".txt")[0],
+                        grammar.name.replace(".", "-"))
+                    grammar_pwm_scores_df = motif_pos_scores_df.loc[grammar.nodes]
+                    grammar_pwm_scores_df.to_csv(grammar_pwm_scores_file, header=False, sep="\t")
             
         elif "pwm-scores.taskidx-{}".format(global_idx) in key:
             # save out to matrix
-            file_name = "{}.{}.txt".format(region_prefix, key)
+            global_pwm_scores_file = "{}.{}.txt".format(region_prefix, key)
             motif_pos_scores = np.transpose(np.squeeze(region_arrays[key]))
             motif_pos_scores_df = pd.DataFrame(
                 motif_pos_scores,
                 index=[pwm.name for pwm in pwm_list])
-            motif_pos_scores_df.to_csv(file_name, header=False, sep="\t")
-
+            motif_pos_scores_df.to_csv(global_pwm_scores_file, header=False, sep="\t")
+            
         elif "prob" in key:
             print "probs:", region_arrays[key][0:12]
 
         elif "logit" in key:
             print "logits:", region_arrays[key][0:12]
-            
-    # after this, collect the global and pwm max scores and plot with R
-    # TODO
+
+    # and plot
+    print pwm_x_pos_scores_file
+    print global_pwm_scores_file
+    if (pwm_x_pos_scores_file is not None) and (global_pwm_scores_file is not None):
+        plot_motif_x_pos = "plot.pwm_x_position.R {} {}".format(pwm_x_pos_scores_file, global_pwm_scores_file)
+        print plot_motif_x_pos
+        os.system(plot_motif_x_pos)
 
     return None
 
@@ -132,6 +151,11 @@ def interpret(
     """
     logger = logging.getLogger(__name__)
     logger.info("Running interpretation")
+
+    if visualize:
+        viz_dir = "{}/viz".format(os.path.dirname(h5_file))
+        os.system("mkdir -p {}".format(viz_dir))
+        
     with tf.Graph().as_default() as g:
 
         # set up inference graph
@@ -178,17 +202,15 @@ def interpret(
 
                     h5_handler.store_example(region_arrays)
                     total_examples += 1
-
-                    # conditions for visualization: logits > 0,
-                    # and mean(importances) > 0, AND not empty net
-                    # set up real condition
+                    
                     logits = region_arrays["logits"][0:12]
                     try:
                         num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
                     except:
                         num_pos_impt_bps = viz_bp_cutoff
-
+                        
                     if visualize:
+                        # only visualize if logits > 0, enough impt bps, and under num to vis cutoff
                         if np.max(logits) > 0 and num_pos_impt_bps >= viz_bp_cutoff and total_visualized < num_to_visualize:
                             out_dir = "{}/viz".format(os.path.dirname(h5_file))
                             os.system("mkdir -p {}".format(out_dir))
@@ -196,15 +218,16 @@ def interpret(
                             visualize_region(
                                 region,
                                 region_arrays,
-                                {"pwms": inference_params["pwms"],
-                                 "grammars": inference_params["grammars"]},
-                                prefix="{}/viz".format(out_dir),
+                                {"pwms": inference_params.get("pwms"),
+                                 "grammars": inference_params.get("grammars")},
+                                prefix="{}/viz".format(viz_dir),
                                 global_idx=10)
                             total_visualized += 1
                             
                         # check viz condition
-                        if total_visualized >= num_to_visualize:
-                            break
+                        # TODO maybe provide an option to just visualize?
+                        #if total_visualized >= num_to_visualize:
+                        #    break
                             
                     # check condition
                     if (sample_size is not None) and (total_examples >= sample_size):

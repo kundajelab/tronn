@@ -1,5 +1,4 @@
-# description: test function for a multitask interpretation pipeline
-
+# description: scan motifs and get motif sets (co-occurring motifs) back
 
 import matplotlib
 matplotlib.use("Agg")
@@ -8,6 +7,8 @@ import os
 import h5py
 import glob
 import logging
+
+import phenograph
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,7 @@ from scipy.spatial.distance import squareform
 
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
+
 from tronn.datalayer import load_data_from_filename_list
 from tronn.datalayer import load_step_scaled_data_from_filename_list
 from tronn.datalayer import load_data_with_shuffles_from_filename_list
@@ -36,13 +38,11 @@ from tronn.interpretation.motifs import setup_pwms
 from tronn.interpretation.motifs import setup_pwm_metadata
 
 from tronn.interpretation.grammars import get_significant_correlations
-from tronn.interpretation.grammars import reduce_corr_mat_by_motif_similarity
-from tronn.interpretation.grammars import get_significant_motifs
-
+#from tronn.interpretation.grammars import reduce_corr_mat_by_motif_similarity
+#from tronn.interpretation.grammars import get_significant_motifs
 #from tronn.interpretation.grammars import read_grammar_file
-from tronn.interpretation.grammars import Grammar
 
-import phenograph
+from tronn.interpretation.grammars import Grammar
 
 
 def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames):
@@ -56,7 +56,6 @@ def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames)
         dataset_df.to_csv(text_file, sep='\t')
 
     return None
-
 
 
 def phenograph_cluster(mat_file, sorted_mat_file):
@@ -97,7 +96,6 @@ def get_correlation_file(
     corr_mat_df.to_csv(corr_file, sep="\t")
 
     return None
-
 
 
 def enumerate_motifspace_communities(
@@ -500,10 +498,12 @@ def run(args):
         checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
         
     # validation tools
-    if args.validate:
+    if args.diagnose:
         visualize = True
+        validate_grammars = True
     else:
         visualize = args.plot_importance_sample
+        validate_grammars = False
         
     # get pwm scores
     logger.info("calculating pwm scores...")
@@ -519,9 +519,10 @@ def run(args):
             {"importances_fn": args.backprop,
              "pwms": pwm_list},
             keep_negatives=False,
-            visualize=visualize, # TODO check this
+            visualize=visualize,
+            num_to_visualize=10, # TODO give a flag for this
             scan_grammars=False,
-            validate_grammars=False,
+            validate_grammars=validate_grammars,
             filter_by_prediction=True)
 
     # run region clustering/motif sets. default is true, but user can turn off
