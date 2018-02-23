@@ -419,27 +419,29 @@ def reduce_pwm_redundancy(
     cor_mat_file = "{}.cor.motifs.mat.txt".format(tmp_prefix)
     ncor_mat_file = "{}.ncor.motifs.mat.txt".format(tmp_prefix)
 
-    if True:
-        cor_filt_mat, ncor_filt_mat = correlate_pwms(
-            pwms,
-            cor_thresh=cor_thresh,
-            ncor_thresh=ncor_thresh,
-            num_threads=num_threads)
+    cor_filt_mat, ncor_filt_mat = correlate_pwms(
+        pwms,
+        cor_thresh=cor_thresh,
+        ncor_thresh=ncor_thresh,
+        num_threads=num_threads)
         
-        # pandas and save out
-        cor_df = pd.DataFrame(cor_filt_mat, index=pwms_ids, columns=pwms_ids)
-        cor_df.to_csv(cor_mat_file, sep="\t")
-        ncor_df = pd.DataFrame(ncor_filt_mat, index=pwms_ids, columns=pwms_ids)
-        cor_df.to_csv(ncor_mat_file, sep="\t")
+    # pandas and save out
+    cor_df = pd.DataFrame(cor_filt_mat, index=pwms_ids, columns=pwms_ids)
+    cor_df.to_csv(cor_mat_file, sep="\t")
+    ncor_df = pd.DataFrame(ncor_filt_mat, index=pwms_ids, columns=pwms_ids)
+    cor_df.to_csv(ncor_mat_file, sep="\t")
 
-        # read in matrix to save time
-        pwm_subset = hagglom_pwms(
-            ncor_mat_file,
-            pwm_dict,
-            array,
-            ic_thresh=ic_thresh,
-            cor_thresh=cor_thresh,
-            ncor_thresh=ncor_thresh)
+    # read in matrix to save time
+    pwm_subset = hagglom_pwms(
+        ncor_mat_file,
+        pwm_dict,
+        array,
+        ic_thresh=ic_thresh,
+        cor_thresh=cor_thresh,
+        ncor_thresh=ncor_thresh)
+
+    # once done, clean up
+    os.system("rm {} {}".format(cor_mat_file, ncor_mat_file))
 
     return pwm_subset
 
@@ -496,7 +498,13 @@ def run(args):
         checkpoint_path = None
     else:
         checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
-
+        
+    # validation tools
+    if args.validate:
+        visualize = True
+    else:
+        visualize = args.plot_importance_sample
+        
     # get pwm scores
     logger.info("calculating pwm scores...")
     pwm_scores_h5 = '{0}/{1}.pwm-scores.h5'.format(
@@ -508,10 +516,10 @@ def run(args):
             args.batch_size,
             pwm_scores_h5,
             args.sample_size,
-            {"pwms": pwm_list,
-             "importances_fn": args.backprop},
+            {"importances_fn": args.backprop,
+             "pwms": pwm_list},
             keep_negatives=False,
-            visualize=args.plot_importance_sample, # TODO check this
+            visualize=visualize, # TODO check this
             scan_grammars=False,
             validate_grammars=False,
             filter_by_prediction=True)
@@ -545,6 +553,10 @@ def run(args):
             if not os.path.isfile(region_x_pwm_sorted_mat_file):
                 phenograph_cluster(region_x_pwm_mat_file, region_x_pwm_sorted_mat_file)
 
+            if args.validate:
+                # here, plot a example x pwm plot
+                pass
+            
             # get the correlation matrix to look at, not really necessary?
             pwm_x_pwm_corr_file = "{0}/{1}.task-{2}.pwm_x_pwm.corr.mat.txt".format(
                 args.tmp_dir, args.prefix, interpretation_task_idx)
@@ -564,33 +576,29 @@ def run(args):
         # maybe put these into separate folders?
         # TODO figure out how to get labels in these h5 files too
         logger.info("enumerating metacommunities")
-        if True:
+        metacommunity_files = sorted(
+            glob.glob("{}/{}.metacommunity_*.h5".format(
+                args.out_dir, args.prefix)))
+        if len(metacommunity_files) == 0:
             enumerate_motifspace_communities(
                 community_files,
                 args.inference_tasks,
                 "{}/{}".format(args.out_dir, args.prefix),
                 pwm_list)
 
-        # for below procedure, need (1) for each community, region x pwm x task
-        metacommunity_files = sorted(
-            glob.glob("{}/{}.metacommunity_*.h5".format(
-                args.out_dir, args.prefix)))
-
         # get the constrained motif set
         for i in xrange(len(metacommunity_files)):
 
             metacommunity_file = metacommunity_files[i]
-            print metacommunity_file
             metacommunity_prefix = os.path.basename(metacommunity_file).split(".h5")[0]
             metacommunity_region_file = "{}.region_ids.refined.txt".format(metacommunity_file.split(".h5")[0])
             metacommunity_bed_file = "{}.bed".format(metacommunity_region_file.split(".txt")[0])
+            metacommunity_regions = []
             #if os.path.isfile(metacommunity_bed_file):
             #    continue
-            
-            metacommunity_regions = []
+            print metacommunity_file
             
             with h5py.File(metacommunity_file, "r") as hf:
-                
                 for task_idx in xrange(len(args.inference_tasks)):
                     inference_task_idx = args.inference_tasks[task_idx]
 
@@ -622,9 +630,6 @@ def run(args):
                     regions = regions[region_keep_indices[0]]
 
                     # save out a grammar file of the core PWMs
-                    # note that for grammar scanning, set a high threshold for motif presence/score
-                    # after row norm, to make sure that it's the highest motif scores in group
-                    # or rather scan all sequences and then set an FDR on it after.
                     grammar_file = "{}.motifset.grammar".format(
                         metacommunity_file.split(".h5")[0])
                     node_dict = {}
@@ -643,13 +648,15 @@ def run(args):
                     # keep the UNION of set coverages (since the motif presence will have been seen somewhere)
                     # ^ purpose - a master bed file for this metacommunity, where ALL regions have a consistent grammar
                     # at minimally 1 cell state.
-
-                    # keep the region x pwm matrix (optionally) to visually show that all regions in group have motif
-                    # do this per task
                     metacommunity_regions += regions.tolist()
                     metacommunity_regions = list(set(metacommunity_regions))
 
-                # write out to file
+                    if args.validate:
+                        # keep the region x pwm matrix (optionally) to visually show that all regions in group have motif
+                        # do this per task
+                        pass
+
+                # write out master region set to file
                 with open(metacommunity_region_file, "w") as out:
                     for region in metacommunity_regions:
                         out.write("{}\n".format(region))

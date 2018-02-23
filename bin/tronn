@@ -36,34 +36,22 @@ def parse_args():
 
     # command for motif scan
     add_scanmotifs_parser(subparsers)
+
+    # command for grammar scan
+    add_scangrammars_parser(subparsers)
     
     # TODO:    
-    # validatemotifsets
     # modisco
     # mism
-    # scangrammars
-    # validategrammars
-
-
-
     
     # command for making motifs with wkm
     #add_wkm_parser(subparsers)
 
-    # command for grouping motifs
-    #add_bagmotifs_parser(subparsers)
-
     # command for in silico mutagenesis
     #add_ism_parser(subparsers)
 
-    # command for testing multitask interpretation
-    #add_multitask_interpretation_parser(subparsers)
-    
     # findgrammar test bed
-    add_findgrammars_parser(subparsers)
-    
-    # scangrammar test bed
-    add_scangrammars_parser(subparsers)
+    #add_findgrammars_parser(subparsers)
     
     # get motifs test bed
     #add_getmotifs_parser(subparsers)
@@ -76,7 +64,6 @@ def parse_args():
     add_baseline_parser(subparsers)
 
     # TODO consider a model import function?
-    
     # TODO maybe call this model export?
     # important to allow export to keras and pytorch probs
     add_extract_params_parser(subparsers)
@@ -456,40 +443,6 @@ def add_wkm_parser(subparsers):
     return
 
 
-def add_bagmotifs_parser(subparsers):
-    """Add argument parser for scanning motifs and clustering into motif bags
-    """
-    argparser_bagmotifs = subparsers.add_parser(
-        "bagmotifs",
-        help="Cluster motifs into groups")
-
-    # group for input files
-    group_input = argparser_bagmotifs.add_argument_group(
-    	"Input files and folders")
-    group_input.add_argument(
-        "--importance_file", required=True,
-        help="Importance files (ideally thresholded) to extract kmers")
-    group_input.add_argument(
-    	"--task_num", required=True, type=int,
-    	help="Task number currently running (to get correct importance scores)")
-    group_input.add_argument(
-        "--motif_file", required=True,
-        help="motif file for scanning")
-
-    # group for parameters
-    group_params = argparser_bagmotifs.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
-    
-    # group for output files
-    group_output = argparser_bagmotifs.add_argument_group(
-        "Output files and folders")
-    add_output_options(group_output, out_dir="motifclusters")
-    
-    return
-
 
 def add_ism_parser(subparsers):
     """Add argument parser for extracting dependencies using
@@ -532,53 +485,6 @@ def add_ism_parser(subparsers):
     group_output = argparser_ism.add_argument_group(
         "Output files and folders")
     add_output_options(group_output, out_dir="ism")
-
-    return
-
-
-def add_multitask_interpretation_parser(subparsers):
-    """Testing multitask interpretation
-    """
-    argparser_multitask = subparsers.add_parser(
-        "interpret_multitask",
-        help="Run multitask interpretation")
-
-    # group for input files
-    group_input = argparser_multitask.add_argument_group(
-    	"Input files and folders")
-    add_hdf5_data_options(group_input)
-    group_input.add_argument(
-        "--importances_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-    group_input.add_argument(
-        "--interpretation_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-
-    # group for model
-    group_model = argparser_multitask.add_argument_group(
-        "Model definition")
-    add_trained_nn_model_options(group_model)
-
-    # group for parameters
-    group_params = argparser_multitask.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
-    group_params.add_argument(
-        '--sample_size', default=220000, type=int,
-        help='number of regions to get importance scores')
-
-    # group for output files
-    group_output = argparser_multitask.add_argument_group(
-        "Output files and folders")
-    add_output_options(group_output, out_dir="importances")
-    group_output.add_argument(
-        '--tmp_dir', default='importances_tmp',
-        help='temporary scratch directory')
-    group_output.add_argument(
-        '--plot_samples', action='store_true',
-        help='plot some sample sequences weighted by importance scores')
 
     return
 
@@ -640,9 +546,11 @@ def add_scanmotifs_parser(subparsers):
     group_output.add_argument(
         '--plot_importance_sample', action='store_true',
         help='plot some sample importance score weighted samples')
+    group_output.add_argument(
+        "--validate", action="store_true",
+        help="provide helpful diagnostic/validation plots")
 
     return
-
 
 
 def add_findgrammars_parser(subparsers):
@@ -760,7 +668,10 @@ def add_scangrammars_parser(subparsers):
     group_output.add_argument(
         '--plot_importance_sample', action='store_true',
         help='plot some sample importance score weighted samples')
-
+    group_output.add_argument(
+        "--validate", action="store_true",
+        help="provides additional diagnostic/validation plots")
+    
     return
 
 

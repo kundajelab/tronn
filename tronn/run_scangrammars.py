@@ -1,4 +1,4 @@
-# description: test function for a multitask interpretation pipeline
+# description: scan for grammar scores
 
 import os
 import h5py
@@ -8,6 +8,8 @@ import logging
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+
+from tronn.util.h5_utils import h5_dataset_to_text_file
 
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
@@ -21,6 +23,7 @@ from tronn.interpretation.motifs import setup_pwms
 from tronn.interpretation.motifs import setup_pwm_metadata
 
 from tronn.interpretation.grammars import read_grammar_file
+
 
 
 def run(args):
@@ -50,14 +53,6 @@ def run(args):
     pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in pwm_names]
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
     logger.info("{} motifs used".format(len(pwm_list)))
-
-    # ==============
-    #for idx in xrange(len(grammars)):
-    #    grammars_tmp = [grammars[idx]]
-    #    print idx, [pwm_name_to_hgnc[name] for grammar in grammars_tmp for name in grammar.nodes]
-
-    #grammars = [grammars[0]]
-    #print "DEBUG: using", [pwm_name_to_hgnc[name] for grammar in grammars for name in grammar.nodes]
     
     # set up file loader, dependent on importance fn
     if args.backprop == "integrated_gradients":
@@ -89,6 +84,14 @@ def run(args):
     else:
         checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
     logging.info("Checkpoint: {}".format(checkpoint_path))
+
+    # check if validation flag is set
+    if args.validate:
+        visualize = True
+        validate_grammars = True
+    else:
+        visualize = args.plot_importance_sample
+        validate_grammars = False
     
     # run interpret on the graph
     # this should give you back everything with scores, then set the cutoff after
@@ -105,20 +108,39 @@ def run(args):
              "pwms": pwm_list,
              "grammars": grammar_sets},
             keep_negatives=False,
-            visualize=args.plot_importance_sample,
+            visualize=visualize,
             scan_grammars=True,
-            validate_grammars=False,
+            validate_grammars=validate_grammars,
             filter_by_prediction=True)
-        
-    # here always give back position plot, so can look at where the motifs are
-    # relative to each other
 
-    # NOTE: this is a larger general function - use labels in h5 file in conjunction with
-    # example information
-    # TODO - confusion matrix - what timepoints and what tasks are most enriched? should be able to
-    # recover expected timepoints and tasks.
-    # make a region x timepoint (for 1 grammar) matrix - pull from the hdf5 file
-    # make a grammar x timepoint (collapse the regions grammar)
-    # make a grammar x task matrix (tasks ordered by waves of accessibility)
+    # save out text version of score file
+    score_mat_file = "{}/{}.grammar-scores.txt".format(args.out_dir, args.prefix)
+    if not os.path.isfile(score_mat_file):
+        h5_dataset_to_text_file(
+            score_mat_h5,
+            "grammar-scores.taskidx-10",
+            score_mat_file,
+            xrange(len(grammar_sets)),
+            [os.path.basename(grammar_file) for grammar_file in args.grammar_files])
+        
+    # validation - give a confusion matrix after re-scanning, if metacommunity bed files available
+    
+    
+
+    # give an option here to optimize thresholds and save into new grammar files
+    
+
+    if args.validate:
+        # here always give back position plot, so can look at where the motifs are
+        # relative to each other
+
+        # NOTE: this is a larger general function - use labels in h5 file in conjunction with
+        # example information
+        # TODO - confusion matrix - what timepoints and what tasks are most enriched? should be able to
+        # recover expected timepoints and tasks.
+        # make a region x timepoint (for 1 grammar) matrix - pull from the hdf5 file
+        # make a grammar x timepoint (collapse the regions grammar)
+        # make a grammar x task matrix (tasks ordered by waves of accessibility)
+        pass
     
     return None
