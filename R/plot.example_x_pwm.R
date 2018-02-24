@@ -40,8 +40,8 @@ mylhei = c(0.5,12,1.5)
 
 # heatmap
 #heatmap_file <- paste(prefix, ".example_x_pwm.hclust.pdf", sep="")
-heatmap_file <- sub("txt", "example_x_pwm.pdf")
-pdf(heatmap_file, height=18, width=20)
+#heatmap_file <- sub("txt", "example_x_pwm.pdf")
+pdf(plot_file, height=18, width=20)
 heatmap.2(
     as.matrix(data_ordered),
     Rowv=FALSE,

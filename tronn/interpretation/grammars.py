@@ -72,7 +72,6 @@ def read_grammar_file(grammar_file, pwm_file, as_dict=False):
                 fields = line.split()
                 edge_dict[(fields[0], fields[1])] = float(fields[2])
 
-            print header
             grammar = Grammar(pwm_file, node_dict, edge_dict, param_string, name=header)
 
             if as_dict:

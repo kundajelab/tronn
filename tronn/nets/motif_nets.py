@@ -10,13 +10,6 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 
-# next iteration:
-# maybe just do a vector projection multiplied by a jaccard distance
-# TODO deal with length issue for cross correlation
-
-
-
-# TODO - change to different convolve method?
 def pwm_convolve_new(features, labels, config, is_training=False):
     """Inspired by Av's jaccard-like distance
     """

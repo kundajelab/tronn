@@ -4,6 +4,21 @@ Transcriptional Regulation (Optimized) Neural Nets (TRONN) - neural network tool
 ---
 ### Installation
 
+Easiest way is to first install anaconda, and set up an environment.
+
+```
+conda create -n tronn python=2 anaconda
+```
+
+Within the environment, install tensorflow according to tensorflow instructions for installing in Anaconda
+(NOTE: I believe tronn is compatible with 1.5.0, but we're currently missing CUDA 9.0)
+
+```
+pip install --ignore-installed --upgrade https://storage.googleapis.com/tensorflow/linux/gpu/tensorflow_gpu-1.4.0-cp27-none-linux_x86_64.whl
+```
+
+Then, install tronn.
+
 ```
 python setup.py develop
 ```

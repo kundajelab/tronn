@@ -25,10 +25,13 @@ def score_grammars(features, labels, config, is_training=False):
     pairwise_weights = np.zeros((1, 1, len(pwms), len(pwms), len(grammars)))
 
     # TODO assertions to make sure grammars were created in the same ways
+    motif_counts_by_grammar = []
     for grammar_idx in xrange(len(grammars)):
         # add pointwise weights
         pointwise_weights[:,:,:,grammar_idx] = grammars[grammar_idx].pwm_vector
-
+        motif_counts_by_grammar.append(
+            np.sum(grammars[grammar_idx].pwm_vector).astype(np.int32))
+        
         # add pairwise weights
         pairwise_weights[:,:,:,:,grammar_idx] = grammars[grammar_idx].adjacency_matrix
         
@@ -67,7 +70,26 @@ def score_grammars(features, labels, config, is_training=False):
     # pass through mask
     features = tf.multiply(score_mask, features)
 
-    return features, labels, config
+    # ALSO, take union of motifs and only keep those in motif mat
+    # at this stage, append to config and keep separate
+    output_maps = {}
+    if config.get("pos_x_pwm") is not None:
+        position_map = config["pos_x_pwm"] # {N, 1, pos, M}
+        task_idx = config["taskidx"]
+
+        motifs_present_by_grammar = tf.unstack(
+            tf.squeeze(grammar_motif_presence), axis=1)
+        
+        for grammar_idx in xrange(len(grammars)):
+            key = "grammaridx-{}.motif_x_pos.taskidx-{}".format(grammar_idx, task_idx)
+            keep_motifs = tf.greater(motifs_present_by_grammar[grammar_idx], [0])
+            motif_indices = tf.reshape(tf.where(keep_motifs), [-1])
+            position_map_filt = tf.reshape(
+                tf.gather(position_map, motif_indices, axis=3),
+                position_map.get_shape().as_list()[0:3] + [motif_counts_by_grammar[grammar_idx]])
+            output_maps[key] = position_map_filt
+
+    return features, labels, output_maps
 
 
 def multitask_score_grammars(features, labels, config, is_training=False):
@@ -79,7 +101,13 @@ def multitask_score_grammars(features, labels, config, is_training=False):
     # split features by task
     features = [tf.expand_dims(tensor, axis=1)
                 for tensor in tf.unstack(features, axis=1)] # {N, 1, M}
-
+    if config.get("keep_pwm_scores_full") is not None:
+        position_maps = [tf.expand_dims(tensor, axis=1)
+                         for tensor in tf.unstack(
+                                 config["outputs"][config["keep_pwm_scores_full"]], axis=1)]
+    else:
+        position_maps = None
+    
     # score grammars by task
     grammar_scores = []
     for i in xrange(len(features)):
@@ -90,19 +118,27 @@ def multitask_score_grammars(features, labels, config, is_training=False):
         # set up config
         task_config = {
             "pwms": config["pwms"],
-            "grammars": task_grammars}
+            "grammars": task_grammars,
+            "pos_x_pwm": position_maps[i],
+            "taskidx": i}
         # score
-        scores, _, _ = score_grammars(features[i], labels, task_config, is_training=is_training)
+        scores, _, output_maps = score_grammars(
+            features[i], labels, task_config, is_training=is_training)
         grammar_scores.append(scores)
+        config["outputs"].update(output_maps)
 
     # stack
     features = tf.concat(grammar_scores, axis=1)
 
+    # delete output
+    if config.get("keep_pwm_scores_full") is not None:
+        del config["outputs"][config["keep_pwm_scores_full"]]
+    
     return features, labels, config
 
 
 def score_grammars_old(features, labels, config, is_training=False):
-    """load in grammar
+    """load in grammars
     """
     grammars = config.get("grammars")
     pwms = config.get("pwms")

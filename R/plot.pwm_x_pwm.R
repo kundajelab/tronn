@@ -13,7 +13,7 @@ data <- read.table(filename, header=TRUE)
 data_cor <- data
 
 # hclust out here to be able to save out ordering
-if (FALSE) {
+if (TRUE) {
     hc <- hclust(as.dist(1-data_cor))
     order <- data.frame(order=hc$order, names=rownames(data_cor)[hc$order])
     dend <- as.dendrogram(hc)

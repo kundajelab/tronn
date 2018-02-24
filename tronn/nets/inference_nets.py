@@ -3,8 +3,8 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-from tronn.nets.importance_nets import input_x_grad
-from tronn.nets.importance_nets import integrated_gradients
+#from tronn.nets.importance_nets import input_x_grad
+#from tronn.nets.importance_nets import integrated_gradients
 from tronn.nets.importance_nets import multitask_importances
 from tronn.nets.importance_nets import multitask_global_importance
 
@@ -12,14 +12,14 @@ from tronn.nets.normalization_nets import normalize_w_probability_weights
 from tronn.nets.normalization_nets import normalize_to_logits
 from tronn.nets.normalization_nets import zscore_and_scale_to_weights
 
-from tronn.nets.threshold_nets import threshold_topk_by_example
-from tronn.nets.threshold_nets import multitask_threshold_topk_by_example
-from tronn.nets.threshold_nets import add_per_example_kval
+#from tronn.nets.threshold_nets import threshold_topk_by_example
+#from tronn.nets.threshold_nets import multitask_threshold_topk_by_example
+#from tronn.nets.threshold_nets import add_per_example_kval
 from tronn.nets.threshold_nets import threshold_gaussian
 from tronn.nets.threshold_nets import threshold_shufflenull
 from tronn.nets.threshold_nets import clip_edges
 
-from tronn.nets.motif_nets import pwm_convolve_v3
+#from tronn.nets.motif_nets import pwm_convolve_v3
 from tronn.nets.motif_nets import pwm_convolve_inputxgrad
 from tronn.nets.motif_nets import pwm_maxpool
 from tronn.nets.motif_nets import pwm_consistency_check
@@ -28,8 +28,8 @@ from tronn.nets.motif_nets import pwm_position_squeeze
 from tronn.nets.motif_nets import pwm_relu
 from tronn.nets.motif_nets import pwm_match_filtered_convolve
 
-from tronn.nets.motif_nets import multitask_motif_assignment
-from tronn.nets.motif_nets import motif_assignment
+#from tronn.nets.motif_nets import multitask_motif_assignment
+#from tronn.nets.motif_nets import motif_assignment
 
 from tronn.nets.grammar_nets import multitask_score_grammars
 
@@ -37,6 +37,8 @@ from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_by_importance
 from tronn.nets.filter_nets import filter_singles_twotailed
 from tronn.nets.filter_nets import filter_by_grammar_presence
+
+from tronn.nets.util_nets import remove_global_task
 
 
 def build_inference_stack(features, labels, config, inference_stack):
@@ -139,7 +141,6 @@ def sequence_to_motif_scores(
     return features, labels, config
 
 
-# set up grammars net
 def sequence_to_grammar_scores(
         features,
         labels,
@@ -156,25 +157,12 @@ def sequence_to_grammar_scores(
     # first go from sequence to motifs
     features, labels, config = sequence_to_motif_scores(
         features, labels, config, is_training=is_training)
-
-    # layers:
-    # setup grammar scan layer: (1) all motifs required must be present,
-    #     (2) and just sum up scores. (potentially calculate jaccard for motifset? probs with redundants)
-    #     this gives you a score per task - {N, task, G} <- keep grammar sets in a list of lists
-    # just do an average across tasks - {N, G}
-    # do not filter, but give option if an optimized threshold comes with the sequence set.
-    # give back matrix of motif scores for the motifs needed - {N, task, pos, motif}
-    
-    # for grammar scan, want to start from an intermediate
-    # ^ why?
-    features = config["outputs"]["pwm-scores-full"] # (N, task, pos, motif) <- keep this output (for visualizing positions)
-    del config["outputs"]["pwm-scores-full"] # remove after setting up as features
     
     # set up inference stack
     inference_stack = [
-        (pwm_position_squeeze, {"squeeze_type": "max"}), # squeeze = (N, task, M)
+        (remove_global_task, {}),
         (multitask_score_grammars, {}),
-        (multitask_global_importance, {"append": True, "reduce_type": "mean"}), # N, task+1, G <- keep this output (when does grammar turn on)
+        (multitask_global_importance, {"append": True, "reduce_type": "mean"}), # for now, just average across tasks for final score
         #(filter_by_grammar_presence, {}) # filter stage, keeps last outputs (N, task+1, G) DO NOT FILTER ALWAYS
     ]
 

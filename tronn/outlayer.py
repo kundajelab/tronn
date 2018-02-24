@@ -176,8 +176,7 @@ class ExampleGenerator(object):
 
         while True:
             # debug check
-            #if self.all_examples % 1000 == 0:
-            if self.all_examples % 10 == 0:
+            if self.all_examples % 100 == 0:
                 print "all examples: {}".format(self.all_examples)
             
             # if necessary, get a new batch
@@ -296,8 +295,7 @@ class ExampleGenerator(object):
             self.region_tracker.merge(region, region_arrays)
 
             self.valid_examples += 1
-            #if self.valid_examples % 1000 == 0:
-            if self.valid_examples % 10 == 0:
+            if self.valid_examples % 100 == 0:
                 print "valid examples: {}".format(self.valid_examples)
             return out_region, out_region_arrays
 
