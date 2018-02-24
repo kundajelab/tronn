@@ -58,13 +58,13 @@ def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames)
     return None
 
 
-def phenograph_cluster(mat_file, sorted_mat_file):
+def phenograph_cluster(mat_file, sorted_mat_file, num_threads=24):
     """Use to quickly get a nicely clustered (sorted) output file to visualize examples
     """
     # read in file and adjust as needed
     mat_df = pd.read_table(mat_file, index_col=0)
     print "total examples used:", mat_df.shape    
-    communities, graph, Q = phenograph.cluster(mat_df)
+    communities, graph, Q = phenograph.cluster(mat_df, n_jobs=num_threads)
 
     # save out the sorted info into a new mat sorted by community
     mat_df["community"] = communities
