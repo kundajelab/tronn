@@ -92,7 +92,11 @@ def run(args):
     else:
         visualize = args.plot_importance_sample
         validate_grammars = False
-    
+
+    if visualize == True:
+        viz_dir = "{}/viz".format(args.out_dir)
+        os.system("mkdir -p {}".format(viz_dir))
+        
     # run interpret on the graph
     # this should give you back everything with scores, then set the cutoff after
     score_mat_h5 = '{0}/{1}.grammar-scores.h5'.format(
@@ -122,6 +126,10 @@ def run(args):
             score_mat_file,
             xrange(len(grammar_sets)),
             [os.path.basename(grammar_file) for grammar_file in args.grammar_files])
+
+    if visualize:
+        # TODO plot the matrix of scores
+        pass
         
     # validation - give a confusion matrix after re-scanning, if metacommunity bed files available
     

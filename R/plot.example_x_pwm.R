@@ -7,6 +7,7 @@ library(RColorBrewer)
 
 args <- commandArgs(trailingOnly=TRUE)
 filename <- args[1]
+plot_file <- args[2]
 
 # read in data
 data <- read.table(filename, header=TRUE, row.names=1)
@@ -54,7 +55,7 @@ heatmap.2(
     key.title=NA,
     key.xlab=NA,
     key.par=list(pin=c(4,0.1),
-        mar=c(6.1,0,5.1,0),
+        mar=c(9.1,0,2.1,0),
         mgp=c(3,2,0),
         cex.axis=2.0,
         font.axis=2),

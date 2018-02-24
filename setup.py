@@ -1,3 +1,4 @@
+import glob
 from setuptools import setup
 from setuptools import find_packages
 
@@ -13,9 +14,5 @@ if __name__== "__main__":
         install_requires=["numpy", "tensorflow-gpu", "six"],
         packages=find_packages(),
         package_data={"tronn":"data/*.json"},
-        scripts=[
-            'bin/tronn',
-            "R/plot.pwm_x_position.R",
-            "R/plot.example_x_pwm.R",
-            "R/plot_metrics_curves.R"]
+        scripts=['bin/tronn'] + glob.glob("R/*.R")
     )

@@ -103,7 +103,8 @@ def enumerate_motifspace_communities(
         indices,
         prefix,
         pwm_list,
-        sig_threshold=0.005):
+        sig_threshold=0.005,
+        visualize=False):
     """given communities for each timepoint, 
     merge into one file and enumerate along start to finish
     use the indices to extract subset of regions from h5 file to save
@@ -216,7 +217,15 @@ def enumerate_motifspace_communities(
             # save out mean vectors
             timeseries_motif_scores = timeseries_motif_scores.fillna(0)
             timeseries_motif_scores.to_csv(timeseries_motif_file, sep="\t")
-            
+
+            # visualize
+            if visualize:
+                viz_file = "{}.pdf".format(timeseries_motif_file.split(".txt")[0])
+                plot_pwm_x_task = "plot.pwm_x_task.R {} {}".format(
+                    timeseries_motif_file, viz_file)
+                print(plot_pwm_x_task)
+                os.system(plot_pwm_x_task)
+                
     return None
 
 
@@ -504,6 +513,10 @@ def run(args):
     else:
         visualize = args.plot_importance_sample
         validate_grammars = False
+
+    if visualize == True:
+        viz_dir = "{}/viz".format(args.out_dir)
+        os.system("mkdir -p {}".format(viz_dir))
         
     # get pwm scores
     logger.info("calculating pwm scores...")
@@ -520,7 +533,7 @@ def run(args):
              "pwms": pwm_list},
             keep_negatives=False,
             visualize=visualize,
-            num_to_visualize=10, # TODO give a flag for this
+            num_to_visualize=5, # TODO give a flag for this
             scan_grammars=False,
             validate_grammars=validate_grammars,
             filter_by_prediction=True)
@@ -554,10 +567,16 @@ def run(args):
             if not os.path.isfile(region_x_pwm_sorted_mat_file):
                 phenograph_cluster(region_x_pwm_mat_file, region_x_pwm_sorted_mat_file)
 
-            if args.validate:
+            if visualize:
                 # here, plot a example x pwm plot
-                pass
-            
+                viz_file = "{0}/{1}.pdf".format(
+                    viz_dir,
+                    os.path.basename(region_x_pwm_sorted_mat_file).split(".txt")[0])
+                plot_example_x_pwm = "plot.example_x_pwm.R {0} {1}".format(
+                    region_x_pwm_sorted_mat_file, viz_file)
+                print(plot_example_x_pwm)
+                os.system(plot_example_x_pwm)
+                
             # get the correlation matrix to look at, not really necessary?
             pwm_x_pwm_corr_file = "{0}/{1}.task-{2}.pwm_x_pwm.corr.mat.txt".format(
                 args.tmp_dir, args.prefix, interpretation_task_idx)
@@ -567,6 +586,16 @@ def run(args):
                     region_x_pwm_sorted_mat_file,
                     pwm_x_pwm_corr_file,
                     corr_method="continuous_jaccard")
+
+            if visualize:
+                # plot the correlation plot too
+                viz_file = "{0}/{1}.pdf".format(
+                    viz_dir,
+                    os.path.basename(pwm_x_pwm_corr_file).split(".mat.txt")[0])
+                plot_pwm_x_pwm = "plot.pwm_x_pwm.R {0} {1}".format(
+                    pwm_x_pwm_corr_file, viz_file)
+                print(plot_pwm_x_pwm)
+                os.system(plot_pwm_x_pwm)
 
         # and then enumerate
         community_files = [
@@ -587,6 +616,10 @@ def run(args):
                 "{}/{}".format(args.out_dir, args.prefix),
                 pwm_list)
 
+        if visualize:
+            # plot!
+            pass
+
         # get the constrained motif set
         for i in xrange(len(metacommunity_files)):
 
@@ -595,8 +628,9 @@ def run(args):
             metacommunity_region_file = "{}.region_ids.refined.txt".format(metacommunity_file.split(".h5")[0])
             metacommunity_bed_file = "{}.bed".format(metacommunity_region_file.split(".txt")[0])
             metacommunity_regions = []
-            #if os.path.isfile(metacommunity_bed_file):
-            #    continue
+            metacommunity_pwms = []
+            metacommunity_pwm_x_task_means_file = "{}.means.txt".format(
+                metacommunity_region_file.split(".txt")[0])
             print metacommunity_file
             
             with h5py.File(metacommunity_file, "r") as hf:
@@ -646,16 +680,47 @@ def run(args):
                             inference_task_idx))
                     metacommunity_task_grammar.to_file(grammar_file)
 
-                    # keep the UNION of set coverages (since the motif presence will have been seen somewhere)
-                    # ^ purpose - a master bed file for this metacommunity, where ALL regions have a consistent grammar
-                    # at minimally 1 cell state.
+                    # keep union of all regions
                     metacommunity_regions += regions.tolist()
                     metacommunity_regions = list(set(metacommunity_regions))
 
-                    if args.validate:
-                        # keep the region x pwm matrix (optionally) to visually show that all regions in group have motif
-                        # do this per task
-                        pass
+                    # keep union of all pwms
+                    metacommunity_pwms += pwm_subset
+                    metacommunity_pwms = list(set(metacommunity_pwms))
+                    
+                # use union of all regions and union of all pwms to get a pwm x task matrix
+                pwm_x_task_scores = pd.DataFrame()
+                for task_idx in xrange(len(args.inference_tasks)):
+                    inference_task_idx = args.inference_tasks[task_idx]
+                    
+                    # get arrays into a dataframe
+                    data_df = pd.DataFrame(
+                        hf["features"][:,:,task_idx],
+                        index=hf["example_metadata"][:],
+                        columns=hf["pwm_names"][:])
+
+                    # filter
+                    data_df = data_df.loc[metacommunity_pwms, metacommunity_pwms]
+
+                    # get the mean
+                    data_mean = data_df.mean(axis=0)
+                    
+                    # append
+                    pwm_x_task_scores = pwm_x_task_scores.append(
+                        data_mean, ignore_index=True)
+
+                # and save out
+                pwm_x_task_scores = pwm_x_task_scores.fillna(0)
+                pwm_x_task_scores.to_csv(metacommunity_pwm_x_task_means_file, sep="\t")
+                
+                # visualize
+                if visualize:
+                    viz_file = "{}.pdf".format(
+                        metacommunity_pwm_x_task_means_file.split(".txt")[0])
+                    plot_pwm_x_task = "plot.pwm_x_task.R {} {}".format(
+                        metacommunity_pwm_x_task_means_file, viz_file)
+                    print(plot_pwm_x_task)
+                    os.system(plot_pwm_x_task)
 
                 # write out master region set to file
                 with open(metacommunity_region_file, "w") as out:

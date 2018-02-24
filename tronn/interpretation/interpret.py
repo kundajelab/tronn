@@ -209,12 +209,9 @@ def interpret(
                     except:
                         num_pos_impt_bps = viz_bp_cutoff
                         
-                    if visualize:
+                    if visualize and (total_visualized < num_to_visualize):
                         # only visualize if logits > 0, enough impt bps, and under num to vis cutoff
-                        if np.max(logits) > 0 and num_pos_impt_bps >= viz_bp_cutoff and total_visualized < num_to_visualize:
-                            out_dir = "{}/viz".format(os.path.dirname(h5_file))
-                            os.system("mkdir -p {}".format(out_dir))
-                            
+                        if (np.max(logits) > 0) and (num_pos_impt_bps >= viz_bp_cutoff):
                             visualize_region(
                                 region,
                                 region_arrays,
