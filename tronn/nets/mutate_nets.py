@@ -9,6 +9,177 @@ import tensorflow.contrib.slim as slim
 from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
+
+from tronn.nets.filter_nets import rebatch
+
+
+def mutate_motif(features, labels, config, is_training=False):
+    """Find max motif positions and mutate
+    """
+    positions = config.get("pos")
+    filter_width = config.get("filter_width")
+    assert positions is not None
+    assert filter_width is not None
+
+    # use gather, with an index tensor that part of it gets shuffled
+    features = features[0,0] # {1000, 4}
+
+    for pwm_idx, position in positions:
+        # set up start and end positions
+        start_pos = position - filter_width
+        end_pos = position + filter_width
+        
+        # get the indices that are LEFT of the shuffle region
+        # these do NOT get shuffled
+        left_indices = tf.range(start_pos)
+
+        # get the indices to shuffle
+        indices = tf.range(start_pos, end_pos)
+        shuffled_indices = tf.random_shuffle(indices)
+
+        # get the indices that are RIGHT of the shuffle region
+        # these do NOT get shuffled
+        right_indices = tf.range(end_pos, features.get_shape()[0])
+
+        # concat the indices, and set shape
+        all_indices = tf.concat([left_indices, shuffled_indices, right_indices], axis=0)
+        all_indices = tf.reshape(all_indices, [features.get_shape()[0]])
+
+        # and gather
+        features = tf.gather(features, all_indices)
+
+    # readjust dims before returning
+    features = tf.expand_dims(tf.expand_dims(features, axis=0), axis=0)
+        
+    return features, labels, config
+
+
+def repeat_config(config, repeat_num):
+    """Helper function to adjust config as needed
+    """
+    for key in config["outputs"].keys():
+        # adjust output
+        outputs = [tf.expand_dims(tensor, axis=0)
+                  for tensor in tf.unstack(config["outputs"][key], axis=0)]
+        new_outputs = []
+        for output in outputs:
+            new_outputs += [output for i in xrange(repeat_num)]
+        config["outputs"][key] = tf.concat(new_outputs, axis=0)
+
+    return config
+
+
+def motif_ism(features, labels, config, is_training=False):
+    """
+    """
+    # TODO filter for nonzero hits
+    
+    # get the motifs desired for the grammar, for each task.
+    grammar_sets = config.get("grammars")
+    position_maps = config["outputs"].get(config["keep_pwm_scores_full"]) # {N, task, pos, M}
+    raw_sequence = config["outputs"].get("onehot_sequence") # {N, 1, 1000, 4}
+    assert grammar_sets is not None
+    assert position_maps is not None
+    assert raw_sequence is not None
+
+    print position_maps
+    
+    # do it at the global level
+    motif_max_positions = tf.argmax(
+        tf.reduce_max(position_maps, axis=1), axis=1) # {N, 1, 1, M}
+    print motif_max_positions
+
+    # get indices at global level
+    pwm_vector = np.zeros((grammar_sets[0][0].pwm_vector.shape[0]))
+    for i in xrange(len(grammar_sets[0])):
+        pwm_vector += grammar_sets[0][i].pwm_vector
+        
+    pwm_indices = np.where(pwm_vector)
+    total_pwms = pwm_indices[0].shape[0]
+    mutation_batch_size = (total_pwms**2 - total_pwms) / 2 + total_pwms + 1 # +1 for original sequence
+    print pwm_indices
+    print mutation_batch_size
+
+    # now do the following for each example
+    features = [tf.expand_dims(tensor, axis=0)
+                for tensor in tf.unstack(raw_sequence, axis=0)]
+    labels = [tf.expand_dims(tensor, axis=0)
+                for tensor in tf.unstack(labels, axis=0)]
+    
+    features_w_mutated = []
+    labels_w_mutated = []
+    for i in xrange(len(features)):
+        features_w_mutated.append(features[i]) # first is always the original
+        labels_w_mutated.append(labels[i])
+        # single mutation
+        for pwm1_idx in pwm_indices[0]:
+            new_config = {
+                "pos": [
+                    (pwm1_idx, motif_max_positions[i,pwm1_idx])]}
+            config.update(new_config)
+            mutated_features, _, _ = mutate_motif(features[i], labels, config)
+            features_w_mutated.append(mutated_features) # append mutated sequences
+            labels_w_mutated.append(labels[i])
+        # double mutated
+        for pwm1_idx in pwm_indices[0]:
+            for pwm2_idx in pwm_indices[0]:
+                if pwm1_idx < pwm2_idx:
+                    new_config = {
+                        "pos": [
+                            (pwm1_idx, motif_max_positions[i,pwm1_idx]),
+                            (pwm2_idx, motif_max_positions[i,pwm2_idx])]}
+                    config.update(new_config)
+                    mutated_features, _, _ = mutate_motif(features[i], labels, config)
+                    features_w_mutated.append(mutated_features) # append mutated sequences
+                    labels_w_mutated.append(labels[i])
+
+    # concat all. this is very big, so rebatch
+    features = tf.concat(features_w_mutated, axis=0) # {N, 1, 1000, 4}
+    labels = tf.concat(labels_w_mutated, axis=0) 
+    config = repeat_config(config, mutation_batch_size)
+
+    old_batch_size = config.get("batch_size")
+    new_config = {"batch_size": mutation_batch_size}
+    config.update(new_config)
+    features, labels, _ = rebatch(features, labels, config)
+
+
+    print tf.
+    
+    # adjust batch size here to be whatever the total mutations are
+    # push this batch through the model
+    # {N_mutations, tasks}
+    # TODO get model
+    # TODO in deep nets, need to SPECIFICALLY name layers, dont rely on auto naming
+    # since it wont work with reuse.
+    #with tf.variable_scope("", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope("", reuse=True):
+        model = config.get("model")
+        logits = model(features, labels, config, is_training=False) # {N_mutations, task}
+    
+    # get delta from normal and
+    # reduce the outputs {1, task, N_mutations}
+    features = tf.expand_dims(
+        tf.transpose(logits, perm=[1, 0]),
+        axis=0) # {1, task, mutations}
+
+    # TODO readjust the labels and config
+    labels = tf.expand_dims(tf.unstack(labels, axis=0)[0], axis=0)
+    
+    for key in config["outputs"].keys():
+        config["outputs"][key] = tf.expand_dims(
+            tf.unstack(config["outputs"][key], axis=0)[0], axis=0)
+    
+    # put through filter to rebatch
+    config.update({"batch_size": old_batch_size})
+    features, labels, config = rebatch(features, labels, config)
+
+    quit()
+    
+    return features, labels, config
+
+
+
 def _mutate(feature_tensor, position_tensor, zero_out_ref=False):
     """Small module to perform 3 mutations from reference base pair
     Input goes from

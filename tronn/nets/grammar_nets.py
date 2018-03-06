@@ -78,7 +78,7 @@ def score_grammars(features, labels, config, is_training=False):
         task_idx = config["taskidx"]
 
         motifs_present_by_grammar = tf.unstack(
-            tf.squeeze(grammar_motif_presence), axis=1)
+            tf.squeeze(grammar_motif_presence, axis=0), axis=1)
         
         for grammar_idx in xrange(len(grammars)):
             key = "grammaridx-{}.motif_x_pos.taskidx-{}".format(grammar_idx, task_idx)
@@ -132,7 +132,8 @@ def multitask_score_grammars(features, labels, config, is_training=False):
 
     # delete output
     if config.get("keep_pwm_scores_full") is not None:
-        del config["outputs"][config["keep_pwm_scores_full"]]
+        pass
+        #del config["outputs"][config["keep_pwm_scores_full"]]
     
     return features, labels, config
 

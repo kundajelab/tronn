@@ -184,7 +184,11 @@ def pwm_convolve(features, labels, config, is_training=False):
             padding='VALID',
             activation_fn=None,
             weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features), unit_vector=True, length_norm=False),
+                conv1_filter_size,
+                pwm_list,
+                get_fan_in(features),
+                unit_vector=True,
+                length_norm=False),
             biases_initializer=None,
             trainable=False):
         # pwm cross correlation
@@ -198,8 +202,6 @@ def pwm_convolve(features, labels, config, is_training=False):
 def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
     """Convolve both pos and negative scores with PWMs. Prevents getting scores
     when the negative correlation is stronger.
-    
-    NOTE: this is wrong. breaks the shape of the sequence
     """
     # do positive sequence. ignore negative scores. only keep positive results
     with tf.variable_scope("pos_seq_pwm"):
@@ -218,15 +220,9 @@ def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
     pos_scores_masked = tf.multiply(
         pos_seq_scores,
         tf.cast(tf.equal(pos_seq_scores, max_seq_scores), tf.float32))
-    #pos_scores_masked = tf.multiply(
-    #    pos_scores_masked,
-    #    tf.cast(tf.not_equal(max_seq_scores, 0), tf.float32))
     neg_scores_masked = tf.multiply(
         -neg_seq_scores,
         tf.cast(tf.equal(neg_seq_scores, max_seq_scores), tf.float32))
-    #neg_scores_masked = tf.multiply(
-    #    neg_scores_masked,
-    #    tf.cast(tf.not_equal(max_seq_scores, 0), tf.float32))
 
     features = tf.add(pos_scores_masked, neg_scores_masked)
     
@@ -262,43 +258,28 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     Choose max for motif across positions using raw sequence
     """
     raw_sequence = config["outputs"].get("onehot_sequence")
+    assert raw_sequence is not None
 
+    # run on raw sequence
     if raw_sequence is not None:
-        # run on raw sequence
         binarized_features = raw_sequence
-        del config["outputs"]["onehot_sequence"] # remove this from outputs now
-    else:
-        # run on binarized importance scores
-        pos_features_present = tf.cast(tf.greater(features, [0]), tf.float32)
-        neg_features_present = -tf.cast(tf.less(features, [0]), tf.float32)
-        binarized_features = tf.add(pos_features_present, neg_features_present)
+        #del config["outputs"]["onehot_sequence"] # remove this from outputs now
+        print "WARNING DID NOT DELETE RAW SEQUENCE"
     
     with tf.variable_scope("binarize_filt"):
         pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
             binarized_features, labels, config, is_training=is_training) # {N, task, pos, M}
         
-    # get max per motif to filter the importance weighted scores
-    # note that this max is across positions....
-    # TODO filtering for max hit immediately may be overfiltering.
-    # counter example - two locations with similar hit strengths, but NN highlights
-    # the lower scoring one (on raw sequence) - that information is lost.
-    # just run the max at the very end.
-    if raw_sequence is None:
-        print "dont use anymore"
-        quit()
-        max_scores_from_binarized, _, _ = pwm_motif_max(
-            pwm_binarized_feature_scores, labels, config, is_training=is_training)
-        pwm_binarized_feature_maxfilt_mask = tf.cast(
-            tf.not_equal(max_scores_from_binarized, [0]), tf.float32)
-    else:
-        pwm_binarized_feature_maxfilt_mask = tf.cast(
-            tf.greater(pwm_binarized_feature_scores, [0]), tf.float32)
+    # multiply by raw sequence matches
+    pwm_binarized_feature_maxfilt_mask = tf.cast(
+        tf.greater(pwm_binarized_feature_scores, [0]), tf.float32)
     
     # run on impt weighted features
     pwm_impt_weighted_scores, _, _ = pwm_convolve_inputxgrad(
         features, labels, config, is_training=is_training)
-
+    
     # and filter through mask
+    # TODO consider multiplying by actual score on raw sequence for more weighting
     filt_features = tf.multiply(
         pwm_binarized_feature_maxfilt_mask,
         pwm_impt_weighted_scores)
@@ -323,7 +304,7 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     if config.get("keep_pwm_scores_full") is not None:
         # attach to config
         config["outputs"][config["keep_pwm_scores_full"]] = features # {N, task, pos, M}
-
+        
     return features, labels, config
 
 

@@ -113,7 +113,14 @@ class Grammar(object):
                     self.adjacency_matrix[pwm1_idx, pwm2_idx] = val
                 except:
                     pass
-                
+
+        # set up a pandas edge list
+        self.edge_list = pd.DataFrame(edge_dict)
+        #print self.edge_list
+
+        #import ipdb
+        #ipdb.set_trace()
+        
         return
 
     
@@ -158,7 +165,65 @@ class Grammar(object):
                     edge[0], edge[1], self.edges[edge]))
             
         return None
+    
+    def plot(self, plot_file, positions=None):
+        """Plot out the grammar. Use positions if given
+        """
+        # build a networkx graph
 
+        
+        # build a networkx graph
+        links = self.adjacency_matrix.stack().reset_index()
+        links.columns = ["var1", "var2", "value"]
+        
+        # remove self correlation and zeros
+        links_filtered = links.loc[ (links["value"] > corr_thresh) & (links["var1"] !=  links["var2"]) ]
+        links_filtered = links_filtered.loc[links_filtered["var1"] != "UNK"]
+        links_filtered = links_filtered.loc[links_filtered["var2"] != "UNK"]
+
+        # make graph
+        #G = nx.from_pandas_dataframe(links_filtered, "var1", "var2")
+        G = nx.from_pandas_edgelist(links_filtered, "var1", "var2", edge_attr="value")
+
+
+        
+        #G = get_networkx_graph(corr_mat, corr_thresh=corr_thresh)
+
+        # set up node sizes
+        if node_size_dict is None:
+            node_size = 50
+        else:
+            node_size = [node_size_dict[node]*0.5 for node in G.nodes]
+        print node_size
+
+        # set up edge weights
+        edge_to_weight = nx.get_edge_attributes(G, "value")
+        edge_weights = [edge_to_weight[edge]*0.01 for edge in G.edges]
+        print edge_weights
+
+        # plot
+        f = plt.figure()
+        nx.draw(
+            G,
+            pos=positions,
+            with_labels=True,
+            node_color="orange",
+            node_size=node_size,
+            edge_color="black",
+            linewidths=edge_weights,
+            font_size=3)
+        plt.xlim(-1,1)
+        plt.ylim(-1,1)
+        f.savefig("{}.network.pdf".format(prefix))
+        
+
+        
+        
+
+        
+        return
+    
+    
 
 def get_significant_correlations(motif_mat, corr_method="pearson", pval_thresh=0.05, corr_min=0.4):
     """Given a matrix, calculate pearson correlation for each pair of 

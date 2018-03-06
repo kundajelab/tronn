@@ -46,6 +46,8 @@ def run(args):
     for grammar_file in args.grammar_files:
         grammar_sets.append(read_grammar_file(grammar_file, args.pwm_file))
 
+    quit()
+
     # pull in motif annotation
     pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
     pwm_list = read_pwm_file(args.pwm_file)
@@ -131,7 +133,8 @@ def run(args):
         # TODO plot the matrix of scores
         pass
         
-    # validation - give a confusion matrix after re-scanning, if metacommunity bed files available
+    # validation - give a confusion matrix after re-scanning, if metacommunity bed files available?
+    # TODO probably just write a separate bit of code to check this
     
     
 

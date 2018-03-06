@@ -39,6 +39,10 @@ def parse_args():
 
     # command for grammar scan
     add_scangrammars_parser(subparsers)
+
+    # command for ISM tuning
+    add_ism_parser(subparsers)
+
     
     # TODO:    
     # modisco
@@ -46,9 +50,6 @@ def parse_args():
     
     # command for making motifs with wkm
     #add_wkm_parser(subparsers)
-
-    # command for in silico mutagenesis
-    #add_ism_parser(subparsers)
 
     # findgrammar test bed
     #add_findgrammars_parser(subparsers)
@@ -444,7 +445,7 @@ def add_wkm_parser(subparsers):
 
 
 
-def add_ism_parser(subparsers):
+def add_ism_parser_old(subparsers):
     """Add argument parser for extracting dependencies using
     in silico mutagenesis (ISM)
     """
@@ -676,6 +677,69 @@ def add_scangrammars_parser(subparsers):
         help="provides additional diagnostic/validation plots")
     
     return
+
+
+def add_ism_parser(subparsers):
+    """scan grammars from a grammar file
+    """
+    cmd_argparser = subparsers.add_parser(
+        "ism",
+        help="finetune grammars using ISM information")
+    
+    # group for input files
+    group_input = cmd_argparser.add_argument_group(
+    	"Input files and folders")
+    add_hdf5_data_options(group_input)
+    group_input.add_argument(
+        "--inference_tasks", nargs="+", required=True, type=int,
+        help="tasks to interpret on")
+    group_input.add_argument(
+        "--filter_tasks", nargs="+", default=[], type=int,
+        help="tasks to filter on")
+
+    # add in grammar information
+    group_input.add_argument(
+        "--pwm_file", help="pwm_file")
+    group_input.add_argument(
+        "--pwm_metadata_file", help="pwm_metadata_file")
+    group_input.add_argument(
+        "--grammar_files", nargs="+", help="pwm_file")
+    
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model definition")
+    add_trained_nn_model_options(group_model)
+    group_model.add_argument(
+        "--backprop", help="what method to use for interpretation")
+    group_model.add_argument(
+        "--inference_fn", help="inference stack")
+
+    # group for parameters
+    group_params = cmd_argparser.add_argument_group(
+        "Interpretation hyperparameters")
+    group_params.add_argument(
+        '--batch_size', default=64, type=int,
+        help='batch size')
+    group_params.add_argument(
+        '--sample_size', default=100000, type=int,
+        help='number of regions to get importance scores')
+
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="importances")
+    group_output.add_argument(
+        '--tmp_dir',
+        help='temporary scratch directory')
+    group_output.add_argument(
+        '--plot_importance_sample', action='store_true',
+        help='plot some sample importance score weighted samples')
+    group_output.add_argument(
+        "--validate", action="store_true",
+        help="provides additional diagnostic/validation plots")
+    
+    return
+
 
 
 def add_getmotifs_parser(subparsers):

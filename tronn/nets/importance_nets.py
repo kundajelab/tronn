@@ -211,7 +211,8 @@ def multitask_global_importance(features, labels, config, is_training=False):
     count_thresh = config.get("count_thresh", 2)
     
     # per example, only keep positions that have been seen more than once
-    features_by_example = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features)] # {1, task, M}
+    features_by_example = [tf.expand_dims(tensor, axis=0)
+                           for tensor in tf.unstack(features)] # {1, task, M}
 
     # for each example, get sum across tasks
     # TODO separate this out as different function

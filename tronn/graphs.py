@@ -215,6 +215,7 @@ class TronnNeuralNetGraph(TronnGraph):
         # NOTE: if filtering, need to pass through everything associated with example that is coming back out
         # as such, everything in config needs to be in batch format to quickly filter things
         config = {
+            "model": self.model_fn,
             "batch_size": self.batch_size,
             "pwms": inference_params.get("pwms"),
             "grammars": inference_params.get("grammars"),
