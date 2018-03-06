@@ -308,22 +308,22 @@ def basset_conv_module(features, is_training=True, width_factor=1):
                 activation_fn=None,
                 weights_initializer=layers.variance_scaling_initializer(),
                 biases_initializer=None):
-            net = slim.conv2d(features, int(width_factor*300), [1, 19])
+            net = slim.conv2d(features, int(width_factor*300), [1, 19], scope="Conv_0")
             # need to do this for tf_deeplift
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
-            net = slim.batch_norm(net)
+            net = slim.batch_norm(net, scope="BatchNorm_1")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
 
-            net = slim.conv2d(net, int(width_factor*200), [1, 11])
+            net = slim.conv2d(net, int(width_factor*200), [1, 11], scope="Conv_1")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
-            net = slim.batch_norm(net)
+            net = slim.batch_norm(net, scope="BatchNorm_2")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
 
-            net = slim.conv2d(net, int(width_factor*200), [1, 7])
+            net = slim.conv2d(net, int(width_factor*200), [1, 7], scope="Conv_2")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
-            net = slim.batch_norm(net)
+            net = slim.batch_norm(net, scope="BatchNorm_3")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
             
@@ -343,35 +343,36 @@ def basset(features, labels, config, is_training=True):
     config["logit_drop"] = config.get("logit_drop", 0.0)
     config["split_before"] = config.get("split_before", None)
 
-    # convolutional layers
-    net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
-    
-    # recurrent layers (if any)
-    if config["recurrent"]:
-        net = lstm_module(net, is_training)
-    else:
-        net = final_pool(net, config['final_pool'])
-
-    # logits
-    if config['temporal']:
-        logits = temporal_pred_module(
-            net,
-            int(labels.get_shape()[-1]),
-            share_logistic_weights=True,
-            is_training=is_training)
-    else:
-        logits = mlp_module_v2(
-            net, 
-            num_tasks = int(labels.get_shape()[-1]), 
-            fc_dim = config['fc_dim'], 
-            fc_layers = config['fc_layers'],
-            dropout=config['drop'],
-            logit_dropout=config["logit_drop"],
-            split_before=config["split_before"],
-            is_training=is_training)
+    with tf.variable_scope("basset"):
+        # convolutional layers
+        net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
         
-    # Torch7 style maxnorm
-    maxnorm(norm_val=7)
+        # recurrent layers (if any)
+        if config["recurrent"]:
+            net = lstm_module(net, is_training)
+        else:
+            net = final_pool(net, config['final_pool'])
+            
+        # logits
+        if config['temporal']:
+            logits = temporal_pred_module(
+                net,
+                int(labels.get_shape()[-1]),
+                share_logistic_weights=True,
+                is_training=is_training)
+        else:
+            logits = mlp_module_v2(
+                net, 
+                num_tasks = int(labels.get_shape()[-1]), 
+                fc_dim = config['fc_dim'], 
+                fc_layers = config['fc_layers'],
+                dropout=config['drop'],
+                logit_dropout=config["logit_drop"],
+                split_before=config["split_before"],
+                is_training=is_training)
+        
+        # Torch7 style maxnorm
+        maxnorm(norm_val=7)
 
     return logits
 

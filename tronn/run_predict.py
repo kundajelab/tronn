@@ -36,6 +36,8 @@ def load_pwms(pwm_file_list):
     return pwms
 
 
+# TODO - change this to basically run inference graph instead, as needed.
+# but i guess arent motifs and grammars taken care of now by scanmotifs and scangrammars?
 def setup_model(args):
     """setup model params for various types of nets
     """
@@ -176,6 +178,10 @@ def split_single_label_set_by_prediction(
 
 def run(args):
     """Pipeline to output predictions for regions.
+    
+    Adjust this, only do predictions from the neural net.
+    Can have different dataloaders to have different inputs, and/or using grammars
+    to filter before checking prediction (ie, provide an option for using intepret output?)
     
     Sets up a graph and then runs the graph for some number of batches
     to get predictions. Then, per task, these are saved out into 

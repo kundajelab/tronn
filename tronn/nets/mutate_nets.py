@@ -143,9 +143,6 @@ def motif_ism(features, labels, config, is_training=False):
     config.update(new_config)
     features, labels, _ = rebatch(features, labels, config)
 
-
-    print tf.
-    
     # adjust batch size here to be whatever the total mutations are
     # push this batch through the model
     # {N_mutations, tasks}
@@ -173,8 +170,6 @@ def motif_ism(features, labels, config, is_training=False):
     # put through filter to rebatch
     config.update({"batch_size": old_batch_size})
     features, labels, config = rebatch(features, labels, config)
-
-    quit()
     
     return features, labels, config
 
