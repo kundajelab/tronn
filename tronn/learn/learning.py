@@ -321,6 +321,7 @@ def predict(
         
         # restore if given model (option to NOT restore because of models
         # that do not use restore, like PWM convolutions)
+        # TODO adjust here to use the restore op procedure
         if model_checkpoint is not None:
             saver = tf.train.Saver()
             saver.restore(sess, model_checkpoint)

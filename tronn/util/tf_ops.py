@@ -102,11 +102,11 @@ def order_preserving_k_max(input_tensor, k):
     return output
 
 
-def restore_variables_op(checkpoint, skip=[]):
+def restore_variables_op(checkpoint, skip=[], scope_change=None):
     """Builds a function that can be run to restore from a checkpoint
     """
     variables_to_restore = slim.get_model_variables()
-    variables_to_restore.append(tf.train.get_or_create_global_step()) # TODO is global step not being saved??
+    variables_to_restore.append(tf.train.get_or_create_global_step())
     if None in variables_to_restore:
         variables_to_restore.remove(None)
     
@@ -118,6 +118,23 @@ def restore_variables_op(checkpoint, skip=[]):
 
     logging.info(str(variables_to_restore))
 
+    # TODO adjust variable names as needed (if ensembling, etc etc)
+    scope_change = ["", "basset/"]
+    #scope_change = None
+    
+    if scope_change is not None:
+        start_scope, end_scope = scope_change
+        checkpoint_name_to_var = {}
+        for v in variables_to_restore:
+            checkpoint_var_name = "{}".format(
+                v.name.split(end_scope)[-1].split(":")[0])
+            checkpoint_name_to_var[checkpoint_var_name] = v
+        variables_to_restore = checkpoint_name_to_var
+
+    # tool for debug as needed
+    #from tensorflow.python.tools import inspect_checkpoint as chkp
+    #chkp.print_tensors_in_checkpoint_file(checkpoint, tensor_name='', all_tensors=True)
+    
     # create assign op
     init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
         checkpoint,

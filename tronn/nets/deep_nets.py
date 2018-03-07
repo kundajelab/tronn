@@ -1,11 +1,11 @@
-"""contains nets for training
+"""description: contains nets for training
 """
 
 import math
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-import tensorflow.contrib.layers as layers # TODO(dk) at some point convert to tf.layers module
+import tensorflow.contrib.layers as layers
 
 from tronn.nets.tfslim import inception_v3
 from tronn.nets.tfslim import resnet_v2
@@ -14,9 +14,9 @@ from tronn.util.tf_ops import maxnorm
 
 
 def empty_net(features, labels, config, is_training=False):
-    """Placeholder model to pass through features
+    """Placeholder model to pass through features without modifying them
     """
-    # for all outputs, return 0 as logit
+    # for all outputs, return 0 as logit - average prediction
     logits = tf.zeros(labels.get_shape())
     
     return logits
@@ -145,7 +145,12 @@ def mlp_module_v2(
 
         # first generate shared FC layers
         for i in xrange(fc_layers):
-            net = mlp_fc(net, fc_dim, dropout, is_training, "{}fc{}".format(prefix, i))
+            net = mlp_fc(
+                net,
+                fc_dim,
+                dropout,
+                is_training,
+                "{}fc{}".format(prefix, i))
 
         # then generate split FC layers (if any). If none, continue to logits
         task_specific_outputs = []
@@ -153,7 +158,12 @@ def mlp_module_v2(
             task_specific_net = net
             for j in xrange(split_layers):
                 # same as above
-                task_specific_net = mlp_fc(task_specific_net, fc_dim, dropout, is_training, "{}task{}-fc{}".format(prefix, i, j+fc_layers))
+                task_specific_net = mlp_fc(
+                    task_specific_net,
+                    fc_dim,
+                    dropout,
+                    is_training,
+                    "{}task{}-fc{}".format(prefix, i, j+fc_layers))
             task_specific_outputs.append(task_specific_net)
 
         # adjust logits based on if any split layers
@@ -181,7 +191,6 @@ def mlp_module_v2(
     return logits
 
 
-
 def temporal_pred_module(
         features,
         num_days,
@@ -207,6 +216,7 @@ def temporal_pred_module(
                       for day_net in day_nets]
         logits = tf.concat(day_logits, 1)
     return logits
+
 
 def basset_conv_factorized_module(features, is_training=True, width_factor=1):
     with slim.arg_scope(
@@ -244,6 +254,7 @@ def basset_conv_factorized_module(features, is_training=True, width_factor=1):
 	 
     return net
 
+
 def fbasset(features, labels, config, is_training=True):
     '''
     Basset - Kelley et al Genome Research 2016
@@ -277,6 +288,7 @@ def fbasset(features, labels, config, is_training=True):
 
     return logits
 
+
 def lstm_module(features, is_training):
     """LSTM module, can pop on top of CNN
     """
@@ -308,29 +320,29 @@ def basset_conv_module(features, is_training=True, width_factor=1):
                 activation_fn=None,
                 weights_initializer=layers.variance_scaling_initializer(),
                 biases_initializer=None):
-            net = slim.conv2d(features, int(width_factor*300), [1, 19], scope="Conv_0")
+            net = slim.conv2d(features, int(width_factor*300), [1, 19], scope="Conv")
             # need to do this for tf_deeplift
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
-            net = slim.batch_norm(net, scope="BatchNorm_1")
+            net = slim.batch_norm(net, scope="BatchNorm")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
 
             net = slim.conv2d(net, int(width_factor*200), [1, 11], scope="Conv_1")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
-            net = slim.batch_norm(net, scope="BatchNorm_2")
+            net = slim.batch_norm(net, scope="BatchNorm_1")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
 
             net = slim.conv2d(net, int(width_factor*200), [1, 7], scope="Conv_2")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
-            net = slim.batch_norm(net, scope="BatchNorm_3")
+            net = slim.batch_norm(net, scope="BatchNorm_2")
             tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
             
     return net
 
 
-def basset(features, labels, config, is_training=True):
+def basset(features, labels, config, is_training=True, variable_scope="basset"):
     """Basset - Kelley et al Genome Research 2016
     """
     config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
@@ -343,16 +355,19 @@ def basset(features, labels, config, is_training=True):
     config["logit_drop"] = config.get("logit_drop", 0.0)
     config["split_before"] = config.get("split_before", None)
 
-    with tf.variable_scope("basset"):
+    with tf.variable_scope(variable_scope):
         # convolutional layers
-        net = basset_conv_module(features, is_training, width_factor=config['width_factor'])
-        
+        net = basset_conv_module(
+            features,
+            is_training,
+            width_factor=config['width_factor'])
+
         # recurrent layers (if any)
         if config["recurrent"]:
             net = lstm_module(net, is_training)
         else:
             net = final_pool(net, config['final_pool'])
-            
+
         # logits
         if config['temporal']:
             logits = temporal_pred_module(
@@ -370,7 +385,7 @@ def basset(features, labels, config, is_training=True):
                 logit_dropout=config["logit_drop"],
                 split_before=config["split_before"],
                 is_training=is_training)
-        
+
         # Torch7 style maxnorm
         maxnorm(norm_val=7)
 
