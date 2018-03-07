@@ -23,11 +23,11 @@ def mutate_motif(features, labels, config, is_training=False):
 
     # use gather, with an index tensor that part of it gets shuffled
     features = features[0,0] # {1000, 4}
-
+    
     for pwm_idx, position in positions:
         # set up start and end positions
-        start_pos = position - filter_width
-        end_pos = position + filter_width
+        start_pos = tf.maximum(position - filter_width, 0)
+        end_pos = tf.minimum(position + filter_width, features.get_shape()[0])
         
         # get the indices that are LEFT of the shuffle region
         # these do NOT get shuffled
@@ -44,7 +44,7 @@ def mutate_motif(features, labels, config, is_training=False):
         # concat the indices, and set shape
         all_indices = tf.concat([left_indices, shuffled_indices, right_indices], axis=0)
         all_indices = tf.reshape(all_indices, [features.get_shape()[0]])
-
+        
         # and gather
         features = tf.gather(features, all_indices)
 
@@ -86,7 +86,7 @@ def motif_ism(features, labels, config, is_training=False):
     
     # do it at the global level
     motif_max_positions = tf.argmax(
-        tf.reduce_max(position_maps, axis=1), axis=1) # {N, 1, 1, M}
+        tf.reduce_max(position_maps, axis=1), axis=1) # {N, M}
     print motif_max_positions
 
     # get indices at global level
@@ -138,21 +138,37 @@ def motif_ism(features, labels, config, is_training=False):
     labels = tf.concat(labels_w_mutated, axis=0) 
     config = repeat_config(config, mutation_batch_size)
 
+    # note - if rebatching, keep the queue size SMALL for speed
     old_batch_size = config.get("batch_size")
-    new_config = {"batch_size": mutation_batch_size}
-    config.update(new_config)
-    features, labels, _ = rebatch(features, labels, config)
-
+    with tf.variable_scope("ism_mutation_rebatch"): # for the rebatch queue
+        new_config = {"batch_size": mutation_batch_size}
+        config.update(new_config)
+        features, labels, _ = rebatch(features, labels, config)
+    
     # adjust batch size here to be whatever the total mutations are
     # push this batch through the model
     # {N_mutations, tasks}
-    # TODO get model
-    # TODO in deep nets, need to SPECIFICALLY name layers, dont rely on auto naming
+    # note that model needs to SPECIFICALLY name layers, dont rely on auto naming
     # since it wont work with reuse.
-    #with tf.variable_scope("", reuse=tf.AUTO_REUSE):
     with tf.variable_scope("", reuse=True):
         model = config.get("model")
         logits = model(features, labels, config, is_training=False) # {N_mutations, task}
+
+    # TODO need to adjust the logits for the ones we care about
+    # ie, the timepoint tasks
+    importance_task_indices = config.get("importance_task_indices")
+    assert importance_task_indices is not None
+    logits = [tf.expand_dims(tensor, axis=1)
+              for tensor in tf.unstack(logits, axis=1)]
+    importance_logits = []
+    for task_idx in importance_task_indices:
+        importance_logits.append(logits[task_idx])
+    logits = tf.concat(importance_logits, axis=1)
+
+    # set up delta from normal
+    logits = tf.subtract(logits, tf.expand_dims(logits[0,:], axis=0))
+    
+    print logits
     
     # get delta from normal and
     # reduce the outputs {1, task, N_mutations}
@@ -160,19 +176,29 @@ def motif_ism(features, labels, config, is_training=False):
         tf.transpose(logits, perm=[1, 0]),
         axis=0) # {1, task, mutations}
 
-    # TODO readjust the labels and config
+    # readjust the labels and config
     labels = tf.expand_dims(tf.unstack(labels, axis=0)[0], axis=0)
-    
     for key in config["outputs"].keys():
         config["outputs"][key] = tf.expand_dims(
             tf.unstack(config["outputs"][key], axis=0)[0], axis=0)
     
     # put through filter to rebatch
     config.update({"batch_size": old_batch_size})
-    features, labels, config = rebatch(features, labels, config)
+    with tf.variable_scope("ism_final_rebatch"): # for the rebatch queue
+        features, labels, config = rebatch(features, labels, config)
     
     return features, labels, config
 
+
+
+
+
+
+
+
+
+
+# OLD
 
 
 def _mutate(feature_tensor, position_tensor, zero_out_ref=False):

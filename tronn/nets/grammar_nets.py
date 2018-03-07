@@ -84,10 +84,11 @@ def score_grammars(features, labels, config, is_training=False):
             key = "grammaridx-{}.motif_x_pos.taskidx-{}".format(grammar_idx, task_idx)
             keep_motifs = tf.greater(motifs_present_by_grammar[grammar_idx], [0])
             motif_indices = tf.reshape(tf.where(keep_motifs), [-1])
-            position_map_filt = tf.reshape(
-                tf.gather(position_map, motif_indices, axis=3),
-                position_map.get_shape().as_list()[0:3] + [motif_counts_by_grammar[grammar_idx]])
-            output_maps[key] = position_map_filt
+            # TODO fix this?
+            #position_map_filt = tf.reshape(
+            #    tf.gather(position_map, motif_indices, axis=3),
+            #    position_map.get_shape().as_list()[0:3] + [motif_counts_by_grammar[grammar_idx]])
+            #output_maps[key] = position_map_filt
 
     return features, labels, output_maps
 

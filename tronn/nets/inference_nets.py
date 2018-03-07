@@ -184,10 +184,7 @@ def sequence_to_grammar_ism(features, labels, config, is_training=False):
         
     ]
 
-    # then with the set of positive hits, run ISM centered on a key motif
-    # 1) break the motif, using info from the motif x pos matrix info
-    # 2) pass through and get importances -
-    #    probably need to change variable scope to prevent tensorflow confusion
+    # TODO - deltadeeplift is probably a separate function?
     # 3) then subtract reference from broken - this is the delta deeplift part
     # 4) then run the motif scan again. {N, M}. positive AND negative are informative
     # 5) reduce_sum to calculate the summed delta for each motif (relative to the master motif) {N, M}
@@ -198,9 +195,6 @@ def sequence_to_grammar_ism(features, labels, config, is_training=False):
         features, labels, config, inference_stack)
 
     config = unstack_tasks(features, labels, config, prefix="grammar-scores")
-
-
-    quit()
     
     return features, labels, config
 

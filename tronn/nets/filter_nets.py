@@ -22,9 +22,8 @@ def rebatch(features, labels, config, is_training=False):
     outputs = tf.train.batch(
         tensors,
         batch_size,
-        capacity=100000,
-        #capacity=batch_size*10 + 100,
-        num_threads=4,
+        capacity=100,
+        num_threads=1,
         enqueue_many=True,
         name="rebatch_queue")
 
