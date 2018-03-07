@@ -20,7 +20,7 @@ def get_total_num_examples(hdf5_filename_list, feature_key="features"):
     """
     num_examples = 0
     for filename in hdf5_filename_list:
-        with h5py.File(filename,'r') as hf:
+        with h5py.File(filename, 'r') as hf:
             num_examples += hf[feature_key].shape[0]
 
     return num_examples
@@ -180,7 +180,7 @@ def hdf5_to_tensors(
     """
     # get hdf5 file params
     logging.info("loading {}".format(hdf5_file))
-    h5_handle = h5py.File(hdf5_file)
+    h5_handle = h5py.File(hdf5_file, "r")
     if len(task_indices) == 0:
         task_indices = range(h5_handle[labels_key].shape[1])
     
@@ -256,7 +256,7 @@ def hdf5_list_to_ordered_tensors(
     """
     # get hdf5 file params
     logging.info("loading {}".format(" ".join(hdf5_files)))
-    h5_handles = [h5py.File(hdf5_file) for hdf5_file in hdf5_files]
+    h5_handles = [h5py.File(hdf5_file, "r") for hdf5_file in hdf5_files]
     num_examples_per_file = [get_total_num_examples([hdf5_file]) for hdf5_file in hdf5_files]
     total_batches_per_file = [int(math.ceil(num_examples) / float(batch_size))
                               for num_examples in num_examples_per_file ]
@@ -655,7 +655,7 @@ def hdf5_kmers_to_slices(hdf5_file, batch_size, tasks=[], features_key='features
     """
     # Extract hdf5 file params (number of examples, max batches, batch IDs)
     print "Data layer: loading {}".format(hdf5_file)
-    h5py_handle = h5py.File(hdf5_file)
+    h5py_handle = h5py.File(hdf5_file, "r")
     num_examples = h5py_handle[features_key].shape[0]
     max_batches = num_examples/batch_size
     batch_id_queue = tf.train.range_input_producer(max_batches, shuffle=shuffle, seed=0)

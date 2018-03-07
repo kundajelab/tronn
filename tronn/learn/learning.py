@@ -82,6 +82,7 @@ def train(
             out_dir,
             init_fn=restoreFn,
             number_of_steps=stop_step,
+            log_every_n_steps=1000,
             summary_op=summary_op,
             save_summaries_secs=60,
             saver=tf.train.Saver(max_to_keep=None),
