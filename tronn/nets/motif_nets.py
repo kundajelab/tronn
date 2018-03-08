@@ -288,7 +288,7 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     # do an avg pool
     if True:
         features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
-        max_size = 2*config.get("filter_width") # NOTE: this is because of max centering in the initializer
+        max_size = config.get("filter_width")
         assert max_size is not None
         nonzero_bp_fraction_per_window = tf.reduce_sum(
             slim.avg_pool2d(

@@ -17,7 +17,8 @@ def mutate_motif(features, labels, config, is_training=False):
     """Find max motif positions and mutate
     """
     positions = config.get("pos")
-    filter_width = config.get("filter_width")
+    filter_width = config.get("filter_width") / 2 # 14 ish
+    filter_width = 5
     assert positions is not None
     assert filter_width is not None
 
@@ -70,10 +71,12 @@ def repeat_config(config, repeat_num):
 
 
 def motif_ism(features, labels, config, is_training=False):
+    """run motif level in silico mutagenesis (ISM) to extract
+    dependencies
+
+    Note that you should return all sequences WITH the grammar scores,
+    and then only use the top scoring regions to merge the deltas
     """
-    """
-    # TODO filter for nonzero hits
-    
     # get the motifs desired for the grammar, for each task.
     grammar_sets = config.get("grammars")
     position_maps = config["outputs"].get(config["keep_pwm_scores_full"]) # {N, task, pos, M}
@@ -167,8 +170,6 @@ def motif_ism(features, labels, config, is_training=False):
 
     # set up delta from normal
     logits = tf.subtract(logits, tf.expand_dims(logits[0,:], axis=0))
-    
-    print logits
     
     # get delta from normal and
     # reduce the outputs {1, task, N_mutations}

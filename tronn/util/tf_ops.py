@@ -119,6 +119,7 @@ def restore_variables_op(checkpoint, skip=[], scope_change=None):
     logging.info(str(variables_to_restore))
 
     # TODO adjust variable names as needed (if ensembling, etc etc)
+    # TODO figure out how to deal with scope changes well
     scope_change = ["", "basset/"]
     #scope_change = None
     

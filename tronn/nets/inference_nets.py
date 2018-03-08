@@ -27,7 +27,7 @@ from tronn.nets.grammar_nets import multitask_score_grammars
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_by_importance
 from tronn.nets.filter_nets import filter_singles_twotailed
-from tronn.nets.filter_nets import filter_by_grammar_presence
+from tronn.nets.filter_nets import filter_by_motifset_presence
 
 from tronn.nets.mutate_nets import motif_ism
 
@@ -169,34 +169,53 @@ def sequence_to_grammar_scores(
 
 
 def sequence_to_grammar_ism(features, labels, config, is_training=False):
-    """Go from sequence (N, 1, pos, 4) to ism/deltadeeplift results (N, 1, motif), where 1=1 motif
-
-    Use this inference stack to get:
-      -- deltadeeplift
-
+    """Go from sequence (N, 1, pos, 4) to ism results (N, task, mutation)
     """
     # use sequence_to_grammar_scores above
     features, labels, config = sequence_to_grammar_scores(
         features, labels, config, is_training=is_training)
 
+    # set up inference stack
     inference_stack = [
+        (filter_by_motifset_presence, {}), # filter to only get results on relevant sequence
         (motif_ism, {})
-        
     ]
-
-    # TODO - deltadeeplift is probably a separate function?
-    # 3) then subtract reference from broken - this is the delta deeplift part
-    # 4) then run the motif scan again. {N, M}. positive AND negative are informative
-    # 5) reduce_sum to calculate the summed delta for each motif (relative to the master motif) {N, M}
-
 
     # build inference stack
     features, labels, config = build_inference_stack(
         features, labels, config, inference_stack)
 
-    config = unstack_tasks(features, labels, config, prefix="grammar-scores")
+    if config.get("keep_ism_results") is not None:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_ism_results"])
     
     return features, labels, config
+
+
+def sequence_to_delta_deeplift(features, labels, config, is_training=False):
+    """For a grammar, get back the delta deeplift results on motifs, another way
+    to extract dependencies at the motif level
+    """
+    # get grammar scores
+    features, labels, config = sequence_to_grammar_scores(
+        features, labels, config, is_training=is_training)
+
+    # set up inference stack
+    inference_stack = [
+        (filter_by_motifset_presence, {}),
+        # TODO - build a mutation function and give back importance scores, subtract
+        # out the reference, return the sequences
+        (sequence_to_motif_scores, {}) # rerun sequence to motif scores
+    ]
+
+    # build inference stack
+    features, labels, config = build_inference_stack(
+        features, labels, config, inference_stack)
+
+    if config.get("keep_delta_deeplift_scores") is not None:
+        config = unstack_tasks(features, labels, config, prefix="deltadeeplift-results")
+    
+    return features, labels, config
+
 
 # TODO - somewhere (datalayer?) build module for generating synthetic sequences
 

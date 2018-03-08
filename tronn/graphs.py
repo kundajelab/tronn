@@ -228,6 +228,7 @@ class TronnNeuralNetGraph(TronnGraph):
             "keep_pwm_scores": "pwm-scores" if True else None, # always used
             "keep_grammar_scores": "grammar-scores" if True else None, # always used
             "keep_grammar_scores_full": "grammar-scores-full" if True else None, # always used
+            "keep_ism_results": "ism-results" if True else None, # adjust this later
             "outputs": { # these are all the batch results that must stay with their corresponding example
                 "logits": self.logits,
                 "probs": self.probs,

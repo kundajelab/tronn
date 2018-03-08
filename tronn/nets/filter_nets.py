@@ -112,9 +112,8 @@ def filter_through_mask(
         outputs = tf.train.batch(
             tensors,
             batch_size,
-            #capacity=128+5, # keep capacity small to move faster?
-            capacity=100000,
-            #capacity=batch_size*10 + 100,
+            #capacity=100000,
+            capacity=1000,
             num_threads=num_threads,
             enqueue_many=True,
             name="filtering_queue")
@@ -256,17 +255,15 @@ def filter_by_motif_presence(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def filter_by_grammar_presence(features, labels, config, is_training=False):
+def filter_by_motifset_presence(features, labels, config, is_training=False):
     """given grammar vector, filter. here, want to filter by presence of key motifs
+    Note that this is motif set based only
     """
-    grammars_present = config["outputs"].get("grammars_present") #{N}
-    assert grammars_present is not None
-    
     # reduce sum
-    condition_mask = tf.greater(tf.squeeze(grammars_present), [0]) # {N}
+    condition_mask = tf.greater(tf.reduce_sum(features, axis=[1,2]), [0]) # {N}
     
     # and run filter
-    with tf.variable_scope("grammar_filter"):
+    with tf.variable_scope("motifset_filter"):
         features, labels, config = filter_through_mask(
             features, labels, config, condition_mask)
 

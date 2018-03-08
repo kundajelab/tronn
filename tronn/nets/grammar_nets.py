@@ -10,6 +10,10 @@ from tronn.util.tf_utils import get_fan_in
 from tronn.util.initializers import pwm_simple_initializer
 
 
+# TODO write a function to filter for presence of ALL motifs in grammar
+# ie, after grammar scoring, remove zeros.
+
+
 # write a single task version, then compile into multitask
 def score_grammars(features, labels, config, is_training=False):
     """load in grammar
