@@ -44,6 +44,9 @@ from tronn.interpretation.grammars import get_significant_correlations
 
 from tronn.interpretation.grammars import Grammar
 
+from tronn.interpretation.clustering import cluster_by_task
+from tronn.interpretation.clustering import enumerate_metaclusters
+from tronn.interpretation.clustering import refine_clusters
 
 def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames):
     """Grab a dataset out of h5 (2D max) and save out to a text file
@@ -469,6 +472,7 @@ def run(args):
     logger.info("Found {} chrom files".format(len(data_files)))
     
     # motif annotations
+    # TODO - clean this up
     pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
     pwm_list = read_pwm_file(args.pwm_file)
     pwm_names = [pwm.name for pwm in pwm_list]
@@ -525,8 +529,8 @@ def run(args):
     if not os.path.isfile(pwm_scores_h5):
         interpret(
             tronn_graph,
-            checkpoint_path,
-            args.batch_size,
+            checkpoint_path, # keep with graph?
+            args.batch_size, # keep with graph?
             pwm_scores_h5,
             args.sample_size,
             {"importances_fn": args.backprop,
@@ -539,6 +543,56 @@ def run(args):
             filter_by_prediction=True)
 
     # run region clustering/motif sets. default is true, but user can turn off
+    # TODO split this out into another function
+    if not args.no_groups:
+        
+        # 1) cluster communities 
+        cluster_key = "louvain_clusters" # later, change to pwm-louvain-clusters
+        if cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+            dataset_keys = ["pwm-scores.taskidx-{}".format(i)
+                            for i in xrange(len(args.inference_tasks))]
+            cluster_by_task(pwm_scores_h5, dataset_keys, cluster_key, visualize=visualize)
+
+        # refine - remove small clusters
+        refined_cluster_key = "task-clusters-refined"
+        if refined_cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+            refine_clusters(pwm_scores_h5, cluster_key, refined_cluster_key)
+
+        # 2) optional - correlation matrix. handle by producing a text file and plotting
+        correlations_key = "pwm-correlations"
+    
+        # 3) enumerate metaclusters
+        # if bed - save out bed files
+        # if visualize - save out mean vector as text file and plot
+        metacluster_key = "metaclusters"
+        if cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+            enumerate_metaclusters(pwm_scores_h5, cluster_key, metacluster_key)
+
+        # refine - remove small clusters
+        refined_metacluster_key = "metaclusters-refined"
+        #if refined_metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+        refine_clusters(pwm_scores_h5, metacluster_key, refined_metacluster_key)
+
+        # 4) extract the constrained motif set for each metacommunity, for each task
+        # new pwm vectors for each dataset..
+        # save out initial grammar file, use labels to set a threshold
+        # if visualize - save out mean vector and plot, also network vis?
+        metacluster_motifs_key = "metaclusters-motifs"
+        if metacluster_motifs_key not in h5py.File(pwm_scores_h5, "r").keys():
+            dataset_keys = ["pwm-scores.taskidx-{}".format(i)
+                            for i in xrange(len(args.inference_tasks))]
+            get_minimal_motifset(
+                pwm_scores_h5,
+                dataset_keys,
+                refined_metacluster_key,
+                metacluster_motifs_key,
+                pwm_list)
+        
+    # EVENTUALLY - consider adjusting R scripts to work on h5 file
+
+
+    quit()
+    
     if not args.no_groups:
         logger.info("Clustering regions per task.")
     
@@ -561,6 +615,7 @@ def run(args):
                     pwm_names)
 
             # get a sorted (ie clustered) version of the motif mat using phenograph (Louvain)
+            # TODO somehow need to get the labels to exist with this file also....
             region_x_pwm_sorted_mat_file = "{0}.phenograph_sorted.txt".format(
                 region_x_pwm_mat_file.split(".txt")[0])
             logger.info("using louvain communities to cluster regions")
@@ -615,6 +670,9 @@ def run(args):
                 args.inference_tasks,
                 "{}/{}".format(args.out_dir, args.prefix),
                 pwm_list)
+        metacommunity_files = sorted(
+            glob.glob("{}/{}.metacommunity_*.h5".format(
+                args.out_dir, args.prefix)))
 
         if visualize:
             # plot!
@@ -645,11 +703,11 @@ def run(args):
                     # threshold motifs                    
                     pwm_keep_indices = threshold_motifs(data_tmp)
                     data_tmp = data_tmp[:, pwm_keep_indices[0]]
-                    pwm_names = pwm_names[pwm_keep_indices[0]]
+                    pwm_names_thresh = pwm_names[pwm_keep_indices[0]]
                     
                     # reduce by motif similarity
                     if len(pwm_names) > 1:
-                        task_pwms = [pwm_dict[pwm_name] for pwm_name in pwm_names]
+                        task_pwms = [pwm_dict[pwm_name] for pwm_name in pwm_names_thresh]
                         pwm_subset = reduce_pwm_redundancy(task_pwms, pwm_dict, data_tmp)
                         pwm_subset = [pwm.name for pwm in pwm_subset]
                         pwm_keep_indices = np.where([True if pwm.name in pwm_subset else False
@@ -664,6 +722,14 @@ def run(args):
                     data_tmp = data_tmp[region_keep_indices[0],:]                    
                     regions = regions[region_keep_indices[0]]
 
+                    # TODO - set up thresholds here. threshold at FDR 0.05?
+                    # get back TPR and FPR
+                    # now need a label matrix
+                    global_pwm_keep_indices = np.where([True if pwm_name in pwm_subset else False
+                                                        for pwm_name in pwm_names])
+                    scores = np.sum(hf["features"][:,:,task_idx][:, global_pwm_keep_indices[0]], axis=1) # {N}
+                    
+                    
                     # save out a grammar file of the core PWMs
                     grammar_file = "{}.motifset.grammar".format(
                         metacommunity_file.split(".h5")[0])
@@ -744,16 +810,3 @@ def run(args):
 
     return None
 
-
-        # a procedure for increasong community membership:
-        # NOTE: the below may not be necessary or helpful? you lose some edges but may be better to be more conservative in approach
-        # the means of the enumerated communities (mean vector: motif x task)
-        # are the seed points
-        # for each enumerated community, calculate jaccard from the mean vector
-        # to all others in community. this gives you a dist x task for each example.
-        # calculate a covariance matrix, and throw the mean and covariance into multivariate normal
-
-        # now for each unassigned region, get dists to each community
-        # see which groups it gets assigned to.
-        # assign to the community it is closest to.
-        

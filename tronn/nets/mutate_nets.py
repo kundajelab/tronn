@@ -84,7 +84,8 @@ def motif_ism(features, labels, config, is_training=False):
     assert grammar_sets is not None
     assert position_maps is not None
     assert raw_sequence is not None
-
+    del config["outputs"]["onehot_sequence"]
+    
     print position_maps
     
     # do it at the global level

@@ -204,9 +204,6 @@ def interpret(
                     total_examples += 1
                     
                     logits = region_arrays["logits"][0:12]
-
-                    import ipdb
-                    ipdb.set_trace()
                     
                     try:
                         num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
@@ -250,6 +247,16 @@ def interpret(
             close_tensorflow_session(coord, threads)
         except:
             pass
+
+        # extra - attach relevant attributes to the output file
+        with h5py.File(h5_file, "a") as hf:
+            # add in PWM names to the datasets
+            for dataset_key in hf.keys():
+                if "pwm-scores" in dataset_key:
+                    hf[dataset_key].attrs["pwm_names"] = [
+                        pwm.name
+                        for pwm in inference_params["pwms"]]
+            # TODO add label metadata
 
     return None
 

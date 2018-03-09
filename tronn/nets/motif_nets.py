@@ -263,8 +263,10 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     # run on raw sequence
     if raw_sequence is not None:
         binarized_features = raw_sequence
-        #del config["outputs"]["onehot_sequence"] # remove this from outputs now
-        print "WARNING DID NOT DELETE RAW SEQUENCE"
+        if config["keep_ism_results"] is None:
+            del config["outputs"]["onehot_sequence"] # remove this from outputs now
+        else:
+            print "WARNING DID NOT DELETE RAW SEQUENCE"
     
     with tf.variable_scope("binarize_filt"):
         pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
