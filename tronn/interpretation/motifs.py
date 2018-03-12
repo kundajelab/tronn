@@ -9,13 +9,19 @@ import pandas as pd
 
 import tensorflow as tf
 
-#import scipy.stats
 from scipy.stats import pearsonr
 from scipy.signal import correlate2d
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
 from scipy.spatial.distance import squareform
 
+from sklearn.metrics import precision_recall_curve
+
 from tronn.visualization import plot_weights
+
+from tronn.interpretation.clustering import get_distance_matrix
+from tronn.interpretation.clustering import sd_cutoff
+
+
 
 
 def read_pwm_file(pwm_file, value_type="log_likelihood", as_dict=False):
@@ -426,58 +432,518 @@ def setup_pwm_metadata(metadata_file):
 
 
 
+
+def make_threshold_at_fdr(fdr):
+    """Construct function to get recall at FDR
     
-def get_minimal_motifset(
+    Args:
+      fdr: FDR value for precision cutoff
+
+    Returns:
+      recall_at_fdr: Function to generate the recall at
+        fdr fraction (number of positives
+        correctly called as positives out of total 
+        positives, at a certain FDR value)
+    """
+    def threshold_at_fdr(labels, probs):
+        pr_curve = precision_recall_curve(labels, probs)
+        precision, recall, thresholds = pr_curve
+
+        threshold_index = np.searchsorted(precision - fdr, 0)
+        #print "precision at thresh", precision[index]
+        print "recall at thresh", recall[threshold_index]
+        try:
+            print "threshold val", thresholds[threshold_index]
+            return thresholds[threshold_index]
+        except:
+            return 0 # TODO figure out what to do here...
+        
+    return threshold_at_fdr
+
+    
+def get_minimal_motifsets( # minimal feature sets?
         h5_file,
         dataset_keys,
         cluster_key,
+        refined_cluster_key,
         out_key,
         pwm_list,
+        pwm_dict,
+        pwm_file=None,
         grammar_files=True,
         visualize=False):
     """Given clusters, get the subset and determine minimal motifset
-    that explains the max of the cluster. Greedy algorithm.
+    by reducing motif redundancy and motifs with low signal
     """
-    with h5py.File(h5_file, "a"):
-        num_examples = hf["example_metadata"].shape[0]
-        num_motifs = hf[dataset_keys[0]].shape[1]
+    from tronn.interpretation.grammars import Grammar
+    
+    with h5py.File(h5_file, "a") as hf:
+        num_examples, num_motifs = hf[dataset_keys[0]].shape
 
-        # get metaclusters
+        # set up a new cluster dataset, refined by the minimal motif set
+        del hf[refined_cluster_key]
+        refined_clusters_hf = hf.create_dataset(
+            refined_cluster_key, hf[cluster_key].shape, dtype=int)
+
+        # get metaclusters and ignore the non-clustered set (highest ID value)
         metacluster_by_region = hf[cluster_key][:,0]
         metaclusters = list(set(hf[cluster_key][:,0].tolist()))
-        
+        max_id = max(metaclusters)
+        metaclusters.remove(max_id)
+
         # set up out matrix {metacluster, task, M} <- save as motif vector
+        del hf[out_key]
         metacluster_motifs_hf = hf.create_dataset(
             out_key, (len(metaclusters), len(dataset_keys), num_motifs))
         metacluster_motifs_hf.attrs["pwm_names"] = hf[dataset_keys[0]].attrs["pwm_names"]
-
+        # finish filling out attributes first, then append to dataset
+        thresholds = np.zeros((
+            len(metaclusters), len(dataset_keys), 1))
+        
         # for each metacluster, for each dataset, get matrix
         for i in xrange(len(metaclusters)):
+            metacluster_id = metaclusters[i]
+            print"metacluster:", metacluster_id
+            metacluster_thresholds = np.zeros((len(dataset_keys), 1))
+            
             for j in xrange(len(dataset_keys)):
-
-                metacluster_id = metaclusters[i]
+                print "task:", j
                 dataset_key = dataset_keys[j]
                 
+                # get subset
                 sub_dataset = hf[dataset_key][:][
-                    np.where(metacluster_by_region == metacluster_id),:]
-        
-                # try hagglom first, and then plot out - might see bimodal situation
+                    np.where(metacluster_by_region == metacluster_id)[0],:]
+                print "total examples used:", sub_dataset.shape
                 
-                # after hagglom, determine a threshold and reduce
-                motif_vector = None
+                # reduce pwms by signal similarity - a hierarchical clustering
+                pwm_vector = reduce_pwms_by_signal_similarity(
+                    sub_dataset, pwm_list, pwm_dict)
 
-            # then save out
-            metacluster_motifs_hf[i, j, :] = motif_vector
+                # then set a cutoff
+                pwm_vector = sd_cutoff(sub_dataset, pwm_vector)
+                print "final pwm count:", np.sum(pwm_vector)
 
+                # reduce the cluster size to those that have
+                # all of the motifs in the pwm vector
+                refined_clusters_hf[metacluster_by_region==metacluster_id, 0] = max_id
+                masked_data = np.multiply(
+                    hf[dataset_key][:],
+                    np.expand_dims(pwm_vector, axis=0))
+                minimal_motif_mask = np.sum(masked_data > 0, axis=1) >= np.sum(pwm_vector)
+                metacluster_mask = metacluster_by_region == metacluster_id
+                final_mask = np.multiply(minimal_motif_mask, metacluster_mask)
+                refined_clusters_hf[final_mask > 0, 0] = metacluster_id
+
+                # save out the pwm vector
+                metacluster_motifs_hf[i, j, :] = pwm_vector
+
+                # determine best threshold and save out to attribute, set at 5% FDR
+                scores = np.sum(
+                    np.multiply(
+                        masked_data,
+                        np.expand_dims(minimal_motif_mask, axis=1)),
+                    axis=1)
+                labels = metacluster_mask
+                get_threshold = make_threshold_at_fdr(0.05)
+                threshold = get_threshold(labels, scores)
+                metacluster_thresholds[j, 0] = threshold
+                
+            # after finishing all tasks, save out to grammar file
             if grammar_files:
-                # save out grammar files
-                pass
-
+                grammar_file = "{0}.metacluster-{1}.motifset.grammar".format(
+                    h5_file.split(".h5")[0], metacluster_id)
+                for j in xrange(len(dataset_keys)):
+                    pwm_vector = metacluster_motifs_hf[i,j,:]
+                    pwm_names = np.array(metacluster_motifs_hf.attrs["pwm_names"])
+                    pwm_names = pwm_names[np.where(pwm_vector)]
+                    threshold = metacluster_thresholds[j,0]
+                    print threshold
+                    print pwm_names
+                    node_dict = {}
+                    for pwm in pwm_names:
+                        node_dict[pwm] = 1.0
+                    task_grammar = Grammar(
+                        pwm_file,
+                        node_dict,
+                        {},
+                        ("taskidx={0};"
+                         "type=metacluster;"
+                         "directed=no;"
+                         "threshold={1}").format(j, threshold),
+                        "metacluster-{0}.taskidx-{1}".format(
+                            metacluster_id, j)) # TODO consider adjusting the taskidx here
+                    task_grammar.to_file(grammar_file)
+                    
             if visualize:
                 # network plots?
                 pass
+                    
+            # add thresholds    
+            thresholds[i,:,:] = metacluster_thresholds
+
+        # append
+        metacluster_motifs_hf.attrs["thresholds"] = thresholds                    
+
+        import ipdb
+        ipdb.set_trace()
 
     return None
+
+
+def threshold_motifs(array, std_thresh=3):
+    """Given a matrix, threshold out motifs (columns) that are low in signal
+    """
+    # opt 1 - just get top k
+    # opt 2 - fit a normal distr and use standard dev cutoff
+    # opt 3 - shuffled vals?
+
+    # row normalize
+    array_norm = np.divide(array, np.max(array, axis=1, keepdims=True))
+    array_means = np.mean(array_norm, axis=0)
+    
+    # for now - across all vals, get a mean and standard dev
+    mean_val = np.mean(array_means)
+    std_val = np.std(array_means)
+
+    # and threshold
+    keep_indices = np.where(array_means > (mean_val + (std_val * std_thresh)))
+    
+    return keep_indices
+
+
+def correlate_pwm_pair(input_list):
+    """get cor and ncor for pwm1 and pwm2
+    Set up this way because multiprocessing pool only takes 1
+    input
+    """
+    i = input_list[0]
+    j = input_list[1]
+    pwm1 = input_list[2]
+    pwm2 = input_list[3]
+    
+    motif_cor = pwm1.rsat_cor(pwm2)
+    motif_ncor = pwm1.rsat_cor(pwm2, ncor=True)
+
+    return i, j, motif_cor, motif_ncor
+
+
+
+def correlate_pwms(
+        pwms,
+        cor_thresh=0.6,
+        ncor_thresh=0.4,
+        num_threads=24):
+    """Correlate PWMS
+    """
+    # set up
+    num_pwms = len(pwms)
+    cor_mat = np.zeros((num_pwms, num_pwms))
+    ncor_mat = np.zeros((num_pwms, num_pwms))
+
+    pool = Pool(processes=num_threads)
+    pool_inputs = []
+    # for each pair of motifs, get correlation information
+    for i in xrange(num_pwms):
+        for j in xrange(num_pwms):
+
+            # only calculate upper triangle
+            if i > j:
+                continue
+
+            pwm_i = pwms[i]
+            pwm_j = pwms[j]
+            
+            pool_inputs.append((i, j, pwm_i, pwm_j))
+
+    # run multiprocessing
+    pool_outputs = pool.map(correlate_pwm_pair, pool_inputs)
+
+    for i, j, motif_cor, motif_ncor in pool_outputs:
+        # if passes cutoffs, save out to matrix
+        if (motif_cor >= cor_thresh) and (motif_ncor >= ncor_thresh):
+            cor_mat[i,j] = motif_cor
+            ncor_mat[i,j] = motif_ncor        
+
+    # and reflect over the triangle
+    lower_triangle_indices = np.tril_indices(cor_mat.shape[0], -1)
+    cor_mat[lower_triangle_indices] = cor_mat.T[lower_triangle_indices]
+    ncor_mat[lower_triangle_indices] = ncor_mat.T[lower_triangle_indices]
+
+    # multiply each by the other to double threshold
+    cor_present = (cor_mat > 0).astype(float)
+    ncor_present = (ncor_mat > 0).astype(float)
+
+    # and mask
+    cor_filt_mat = cor_mat * ncor_present
+    ncor_filt_mat = ncor_mat * cor_present
+
+    return cor_filt_mat, ncor_filt_mat
+
+
+
+def hagglom_pwms(
+        array,
+        cor_mat_file,
+        pwm_dict,
+        ic_thresh=0.4,
+        cor_thresh=0.8,
+        ncor_thresh=0.65):
+    """hAgglom on the PWMs to reduce redundancy
+    """
+    # read in table
+    cor_df = pd.read_table(cor_mat_file, index_col=0)
+
+    # set up pwm lists
+    # set up (PWM, weight)
+    hclust_pwms = [(pwm_dict[key], 1.0) for key in cor_df.columns.tolist()]
+    non_redundant_pwms = []
+    pwm_position = {}
+    for i in xrange(len(hclust_pwms)):
+        pwm, _ = hclust_pwms[i]
+        pwm_position[pwm.name] = i
+
+    # hierarchically cluster
+    hclust = linkage(squareform(1 - cor_df.as_matrix()), method="ward")
+
+    # keep a list of pwms in hclust, when things get merged add to end
+    # (to match the scipy hclust structure)
+    # put a none if not merging
+    # if the motif did not successfully merge with its partner, pull out
+    # it and its partner. if there was a successful merge, keep in there
+    for i in xrange(hclust.shape[0]):
+        idx1, idx2, dist, cluster_size = hclust[i,:]
+
+        # check if indices are None
+        pwm1, pwm1_weight = hclust_pwms[int(idx1)]
+        pwm2, pwm2_weight = hclust_pwms[int(idx2)]
+
+        if (pwm1 is None) and (pwm2 is None):
+            hclust_pwms.append((None, None))
+            continue
+        elif (pwm1 is None):
+            # save out PWM 2
+            #print "saving out {}".format(pwm2.name)
+            non_redundant_pwms.append(pwm2)
+            hclust_pwms.append((None, None))
+            continue
+        elif (pwm2 is None):
+            # save out PWM1
+            #print "saving out {}".format(pwm1.name)
+            non_redundant_pwms.append(pwm1)
+            hclust_pwms.append((None, None))
+            continue
+
+        # try check
+        try:
+            cor_val, offset = pwm1.pearson_xcor(pwm2, ncor=False)
+            ncor_val, offset = pwm1.pearson_xcor(pwm2, ncor=True)
+        except:
+            import ipdb
+            ipdb.set_trace()
+
+        if (cor_val > cor_thresh) and (ncor_val >= ncor_thresh):
+            # if good match, now check the mat_df for which one
+            # is most represented across sequences, and keep that one
+            pwm1_presence = np.where(array[:,pwm_position[pwm1.name]] > 0)
+            pwm2_presence = np.where(array[:,pwm_position[pwm2.name]] > 0)
+
+            if pwm1_presence[0].shape[0] >= pwm2_presence[0].shape[0]:
+                # keep pwm1
+                #print "keep {} over {}".format(pwm1.name, pwm2.name)
+                hclust_pwms.append((pwm1, 1.0))
+            else:
+                # keep pwm2
+                #print "keep {} over {}".format(pwm2.name, pwm1.name)
+                hclust_pwms.append((pwm2, 1.0))
+        else:
+            #print "saving out {}".format(pwm1.name)
+            #print "saving out {}".format(pwm2.name)
+            non_redundant_pwms.append(pwm1)
+            non_redundant_pwms.append(pwm2)
+            hclust_pwms.append((None, None))
+
+    return non_redundant_pwms
+
+
+
+def reduce_pwm_redundancy(
+        pwms,
+        pwm_dict,
+        array,
+        tmp_prefix="motifs",
+        ic_thresh=0.4,
+        cor_thresh=0.6,
+        ncor_thresh=0.4,
+        num_threads=28):
+    """
+
+    Note that RSAT stringent thresholds were ncor 0.65, cor 0.8
+    Nonstringent is ncor 0.4 and cor 0.6
+    """
+    # trim pwms
+    pwms = [pwm.chomp(ic_thresh=ic_thresh) for pwm in pwms]
+    for key in pwm_dict.keys():
+        pwm_dict[key] = pwm_dict[key].chomp(ic_thresh=ic_thresh)
+    pwms_ids = [pwm.name for pwm in pwms]
+    
+    # correlate pwms - uses multiprocessing
+    cor_mat_file = "{}.cor.motifs.mat.txt".format(tmp_prefix)
+    ncor_mat_file = "{}.ncor.motifs.mat.txt".format(tmp_prefix)
+
+    cor_filt_mat, ncor_filt_mat = correlate_pwms(
+        pwms,
+        cor_thresh=cor_thresh,
+        ncor_thresh=ncor_thresh,
+        num_threads=num_threads)
+        
+    # pandas and save out
+    cor_df = pd.DataFrame(cor_filt_mat, index=pwms_ids, columns=pwms_ids)
+    cor_df.to_csv(cor_mat_file, sep="\t")
+    ncor_df = pd.DataFrame(ncor_filt_mat, index=pwms_ids, columns=pwms_ids)
+    cor_df.to_csv(ncor_mat_file, sep="\t")
+
+    # read in matrix to save time
+    pwm_subset = hagglom_pwms(
+        ncor_mat_file,
+        pwm_dict,
+        array,
+        ic_thresh=ic_thresh,
+        cor_thresh=cor_thresh,
+        ncor_thresh=ncor_thresh)
+
+    # once done, clean up
+    os.system("rm {} {}".format(cor_mat_file, ncor_mat_file))
+
+    return pwm_subset
+
+
+
+def hagglom_pwms_by_signal(
+        example_x_pwm_array,
+        pwm_list,
+        pwm_dict,
+        cor_thresh=0.6,
+        ncor_thresh=0.4):
+    """hAgglom on the PWMs to reduce redundancy
+    """
+    # get the distance matrix on the example_x_pwm array
+    # use continuous jaccard
+    distances, distance_pvals = get_distance_matrix(
+        example_x_pwm_array, corr_method="continuous_jaccard")
+
+    # set up pwm stuff
+    # set up (PWM, weight)
+    #hclust_pwms = [(pwm_dict[key], 1.0) for key in cor_df.columns.tolist()]
+    hclust_pwms = [(pwm, 1.0) for pwm in pwm_list]
+    pwm_mask = np.zeros((len(hclust_pwms)))
+    pwm_position = {}
+    for i in xrange(len(hclust_pwms)):
+        pwm, _ = hclust_pwms[i]
+        pwm_position[pwm.name] = i
+
+    # hierarchically cluster
+    hclust = linkage(squareform(1 - distances), method="ward")
+
+    # keep a list of pwms in hclust, when things get merged add to end
+    # (to match the scipy hclust structure)
+    # put a none if not merging
+    # if the motif did not successfully merge with its partner, pull out
+    # it and its partner. if there was a successful merge, keep in there
+    for i in xrange(hclust.shape[0]):
+        idx1, idx2, dist, cluster_size = hclust[i,:]
+
+        # check if indices are None
+        pwm1, pwm1_weight = hclust_pwms[int(idx1)]
+        pwm2, pwm2_weight = hclust_pwms[int(idx2)]
+
+        if (pwm1 is None) and (pwm2 is None):
+            hclust_pwms.append((None, None))
+            continue
+        elif (pwm1 is None):
+            # mark PWM 2
+            pwm_mask[pwm_position[pwm2.name]] = 1
+            hclust_pwms.append((None, None))
+            continue
+        elif (pwm2 is None):
+            # mark PWM 1
+            pwm_mask[pwm_position[pwm1.name]] = 1
+            hclust_pwms.append((None, None))
+            continue
+
+        # try check
+        try:
+            cor_val, offset = pwm1.pearson_xcor(pwm2, ncor=False)
+            ncor_val, offset = pwm1.pearson_xcor(pwm2, ncor=True)
+        except:
+            print "something unexpected happened"
+            import ipdb
+            ipdb.set_trace()
+
+        if (cor_val > cor_thresh) and (ncor_val >= ncor_thresh):
+            # if good match, now check the mat_df for which one
+            # is most represented across sequences, and keep that one
+            pwm1_signal = np.sum(example_x_pwm_array[:,pwm_position[pwm1.name]])
+            pwm2_signal = np.sum(example_x_pwm_array[:,pwm_position[pwm2.name]])
+            
+            #pwm1_presence = np.where(example_x_pwm_array[:,pwm_position[pwm1.name]] > 0)[0].shape[0]
+            #pwm2_presence = np.where(example_x_pwm_array[:,pwm_position[pwm2.name]] > 0)[0].shape[0]
+
+            if pwm1_signal >= pwm2_signal:
+                # keep pwm1 in the running
+                hclust_pwms.append((pwm1, 1.0))
+            else:
+                # keep pwm2 in the running
+                hclust_pwms.append((pwm2, 1.0))
+        else:
+            # mark out both
+            pwm_mask[pwm_position[pwm1.name]] = 1
+            pwm_mask[pwm_position[pwm2.name]] = 1
+            hclust_pwms.append((None, None))
+
+    return pwm_mask
+
+
+
+def reduce_pwms_by_signal_similarity(
+        example_x_pwm_array,
+        pwms,
+        pwm_dict,
+        tmp_prefix="motifs",
+        ic_thresh=0.4,
+        cor_thresh=0.6,
+        ncor_thresh=0.4,
+        num_threads=24):
+    """
+    Takes in the example x pwm signal matrix, does an hclust on it.
+    Then goes up the hclust, "merging" if pwms pass motif similarity
+    The "merge" is actually just choosing the pwm with the higher
+    signal.
+
+    Note that RSAT stringent thresholds were ncor 0.65, cor 0.8
+    Nonstringent is ncor 0.4 and cor 0.6
+    """
+    # trim pwms
+    pwms = [pwm.chomp(ic_thresh=ic_thresh) for pwm in pwms]
+    for key in pwm_dict.keys():
+        pwm_dict[key] = pwm_dict[key].chomp(ic_thresh=ic_thresh)
+    pwms_ids = [pwm.name for pwm in pwms]
+
+    # choose motifs by hierarchical choice (hclust on signal)
+    # and only merging if the motifs are similar. Only keep one
+    # with strongest signal, doesn't merge the pwms.
+    pwm_mask = hagglom_pwms_by_signal(
+        example_x_pwm_array,
+        pwms,
+        pwm_dict,
+        cor_thresh=cor_thresh,
+        ncor_thresh=ncor_thresh)
+
+    return pwm_mask
+
+
+
+
+
 
 
 

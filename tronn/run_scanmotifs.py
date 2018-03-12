@@ -1,8 +1,5 @@
 # description: scan motifs and get motif sets (co-occurring motifs) back
 
-import matplotlib
-matplotlib.use("Agg")
-
 import os
 import h5py
 import glob
@@ -14,13 +11,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-import matplotlib.pyplot as plt
-
 from collections import Counter
-from multiprocessing import Pool
-
-from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
-from scipy.spatial.distance import squareform
 
 from tronn.graphs import TronnGraph
 from tronn.graphs import TronnNeuralNetGraph
@@ -34,19 +25,20 @@ from tronn.interpretation.interpret import interpret
 
 from tronn.interpretation.motifs import PWM
 from tronn.interpretation.motifs import read_pwm_file
-from tronn.interpretation.motifs import setup_pwms
-from tronn.interpretation.motifs import setup_pwm_metadata
+#from tronn.interpretation.motifs import setup_pwms
+#from tronn.interpretation.motifs import setup_pwm_metadata
 
-from tronn.interpretation.grammars import get_significant_correlations
-#from tronn.interpretation.grammars import reduce_corr_mat_by_motif_similarity
-#from tronn.interpretation.grammars import get_significant_motifs
-#from tronn.interpretation.grammars import read_grammar_file
-
-from tronn.interpretation.grammars import Grammar
+from tronn.interpretation.motifs import get_minimal_motifsets
+from tronn.interpretation.motifs import threshold_motifs
+from tronn.interpretation.motifs import reduce_pwm_redundancy
 
 from tronn.interpretation.clustering import cluster_by_task
 from tronn.interpretation.clustering import enumerate_metaclusters
 from tronn.interpretation.clustering import refine_clusters
+from tronn.interpretation.clustering import visualize_clusters
+
+from tronn.interpretation.clustering import get_correlation_file
+
 
 def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames):
     """Grab a dataset out of h5 (2D max) and save out to a text file
@@ -74,29 +66,6 @@ def phenograph_cluster(mat_file, sorted_mat_file, num_threads=24):
     mat_df = mat_df.sort_values("community", axis=0)
     mat_df.to_csv(sorted_mat_file, sep='\t')
     mat_df = mat_df.drop(["community"], axis=1)
-
-    return None
-
-
-def get_correlation_file(
-        mat_file,
-        corr_file,
-        corr_method="intersection_size", # continuous_jaccard, pearson
-        corr_min=0.4,
-        pval_thresh=0.05):
-    """Given a matrix file, calculate correlations across the columns
-    """
-    mat_df = pd.read_table(mat_file, index_col=0)
-    mat_df = mat_df.drop(["community"], axis=1)
-            
-    corr_mat, pval_mat = get_significant_correlations(
-        mat_df.as_matrix(),
-        corr_method=corr_method,
-        corr_min=corr_min,
-        pval_thresh=pval_thresh)
-    
-    corr_mat_df = pd.DataFrame(corr_mat, index=mat_df.columns, columns=mat_df.columns)
-    corr_mat_df.to_csv(corr_file, sep="\t")
 
     return None
 
@@ -232,230 +201,6 @@ def enumerate_motifspace_communities(
     return None
 
 
-def threshold_motifs(array, std_thresh=3):
-    """Given a matrix, threshold out motifs (columns) that are low in signal
-    """
-    # opt 1 - just get top k
-    # opt 2 - fit a normal distr and use standard dev cutoff
-    # opt 3 - shuffled vals?
-
-    # row normalize
-    array_norm = np.divide(array, np.max(array, axis=1, keepdims=True))
-    array_means = np.mean(array_norm, axis=0)
-    
-    # for now - across all vals, get a mean and standard dev
-    mean_val = np.mean(array_means)
-    std_val = np.std(array_means)
-
-    # and threshold
-    keep_indices = np.where(array_means > (mean_val + (std_val * std_thresh)))
-    
-    return keep_indices
-
-
-def correlate_pwm_pair(input_list):
-    """get cor and ncor for pwm1 and pwm2
-    Set up this way because multiprocessing pool only takes 1
-    input
-    """
-    i = input_list[0]
-    j = input_list[1]
-    pwm1 = input_list[2]
-    pwm2 = input_list[3]
-    
-    motif_cor = pwm1.rsat_cor(pwm2)
-    motif_ncor = pwm1.rsat_cor(pwm2, ncor=True)
-
-    return i, j, motif_cor, motif_ncor
-
-
-def correlate_pwms(
-        pwms,
-        cor_thresh=0.6,
-        ncor_thresh=0.4,
-        num_threads=24):
-    """Correlate PWMS
-    """
-    # set up
-    num_pwms = len(pwms)
-    cor_mat = np.zeros((num_pwms, num_pwms))
-    ncor_mat = np.zeros((num_pwms, num_pwms))
-
-    pool = Pool(processes=num_threads)
-    pool_inputs = []
-    # for each pair of motifs, get correlation information
-    for i in xrange(num_pwms):
-        for j in xrange(num_pwms):
-
-            # only calculate upper triangle
-            if i > j:
-                continue
-
-            pwm_i = pwms[i]
-            pwm_j = pwms[j]
-            
-            pool_inputs.append((i, j, pwm_i, pwm_j))
-
-    # run multiprocessing
-    pool_outputs = pool.map(correlate_pwm_pair, pool_inputs)
-
-    for i, j, motif_cor, motif_ncor in pool_outputs:
-        # if passes cutoffs, save out to matrix
-        if (motif_cor >= cor_thresh) and (motif_ncor >= ncor_thresh):
-            cor_mat[i,j] = motif_cor
-            ncor_mat[i,j] = motif_ncor        
-
-    # and reflect over the triangle
-    lower_triangle_indices = np.tril_indices(cor_mat.shape[0], -1)
-    cor_mat[lower_triangle_indices] = cor_mat.T[lower_triangle_indices]
-    ncor_mat[lower_triangle_indices] = ncor_mat.T[lower_triangle_indices]
-
-    # multiply each by the other to double threshold
-    cor_present = (cor_mat > 0).astype(float)
-    ncor_present = (ncor_mat > 0).astype(float)
-
-    # and mask
-    cor_filt_mat = cor_mat * ncor_present
-    ncor_filt_mat = ncor_mat * cor_present
-
-    return cor_filt_mat, ncor_filt_mat
-
-
-def hagglom_pwms(
-        cor_mat_file,
-        pwm_dict,
-        array,
-        ic_thresh=0.4,
-        cor_thresh=0.8,
-        ncor_thresh=0.65):
-    """hAgglom on the PWMs to reduce redundancy
-    """
-    # read in table
-    cor_df = pd.read_table(cor_mat_file, index_col=0)
-
-    # set up pwm lists
-    # set up (PWM, weight)
-    hclust_pwms = [(pwm_dict[key], 1.0) for key in cor_df.columns.tolist()]
-    non_redundant_pwms = []
-    pwm_position = {}
-    for i in xrange(len(hclust_pwms)):
-        pwm, _ = hclust_pwms[i]
-        pwm_position[pwm.name] = i
-
-    # hierarchically cluster
-    hclust = linkage(squareform(1 - cor_df.as_matrix()), method="ward")
-
-    # keep a list of pwms in hclust, when things get merged add to end
-    # (to match the scipy hclust structure)
-    # put a none if not merging
-    # if the motif did not successfully merge with its partner, pull out
-    # it and its partner. if there was a successful merge, keep in there
-    for i in xrange(hclust.shape[0]):
-        idx1, idx2, dist, cluster_size = hclust[i,:]
-
-        # check if indices are None
-        pwm1, pwm1_weight = hclust_pwms[int(idx1)]
-        pwm2, pwm2_weight = hclust_pwms[int(idx2)]
-
-        if (pwm1 is None) and (pwm2 is None):
-            hclust_pwms.append((None, None))
-            continue
-        elif (pwm1 is None):
-            # save out PWM 2
-            #print "saving out {}".format(pwm2.name)
-            non_redundant_pwms.append(pwm2)
-            hclust_pwms.append((None, None))
-            continue
-        elif (pwm2 is None):
-            # save out PWM1
-            #print "saving out {}".format(pwm1.name)
-            non_redundant_pwms.append(pwm1)
-            hclust_pwms.append((None, None))
-            continue
-
-        # try check
-        try:
-            cor_val, offset = pwm1.pearson_xcor(pwm2, ncor=False)
-            ncor_val, offset = pwm1.pearson_xcor(pwm2, ncor=True)
-        except:
-            import ipdb
-            ipdb.set_trace()
-
-        if (cor_val > cor_thresh) and (ncor_val >= ncor_thresh):
-            # if good match, now check the mat_df for which one
-            # is most represented across sequences, and keep that one
-            pwm1_presence = np.where(array[:,pwm_position[pwm1.name]] > 0)
-            pwm2_presence = np.where(array[:,pwm_position[pwm2.name]] > 0)
-
-            if pwm1_presence[0].shape[0] >= pwm2_presence[0].shape[0]:
-                # keep pwm1
-                #print "keep {} over {}".format(pwm1.name, pwm2.name)
-                hclust_pwms.append((pwm1, 1.0))
-            else:
-                # keep pwm2
-                #print "keep {} over {}".format(pwm2.name, pwm1.name)
-                hclust_pwms.append((pwm2, 1.0))
-        else:
-            #print "saving out {}".format(pwm1.name)
-            #print "saving out {}".format(pwm2.name)
-            non_redundant_pwms.append(pwm1)
-            non_redundant_pwms.append(pwm2)
-            hclust_pwms.append((None, None))
-
-    return non_redundant_pwms
-
-
-def reduce_pwm_redundancy(
-        pwms,
-        pwm_dict,
-        array,
-        tmp_prefix="motifs",
-        ic_thresh=0.4,
-        cor_thresh=0.6,
-        ncor_thresh=0.4,
-        num_threads=28):
-    """
-
-    Note that RSAT stringent thresholds were ncor 0.65, cor 0.8
-    Nonstringent is ncor 0.4 and cor 0.6
-    """
-    # trim pwms
-    pwms = [pwm.chomp(ic_thresh=ic_thresh) for pwm in pwms]
-    for key in pwm_dict.keys():
-        pwm_dict[key] = pwm_dict[key].chomp(ic_thresh=ic_thresh)
-    pwms_ids = [pwm.name for pwm in pwms]
-    
-    # correlate pwms - uses multiprocessing
-    cor_mat_file = "{}.cor.motifs.mat.txt".format(tmp_prefix)
-    ncor_mat_file = "{}.ncor.motifs.mat.txt".format(tmp_prefix)
-
-    cor_filt_mat, ncor_filt_mat = correlate_pwms(
-        pwms,
-        cor_thresh=cor_thresh,
-        ncor_thresh=ncor_thresh,
-        num_threads=num_threads)
-        
-    # pandas and save out
-    cor_df = pd.DataFrame(cor_filt_mat, index=pwms_ids, columns=pwms_ids)
-    cor_df.to_csv(cor_mat_file, sep="\t")
-    ncor_df = pd.DataFrame(ncor_filt_mat, index=pwms_ids, columns=pwms_ids)
-    cor_df.to_csv(ncor_mat_file, sep="\t")
-
-    # read in matrix to save time
-    pwm_subset = hagglom_pwms(
-        ncor_mat_file,
-        pwm_dict,
-        array,
-        ic_thresh=ic_thresh,
-        cor_thresh=cor_thresh,
-        ncor_thresh=ncor_thresh)
-
-    # once done, clean up
-    os.system("rm {} {}".format(cor_mat_file, ncor_mat_file))
-
-    return pwm_subset
-
-
 def run(args):
     """Scan motifs from a PWM file
     """
@@ -473,10 +218,10 @@ def run(args):
     
     # motif annotations
     # TODO - clean this up
-    pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
+    #pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
     pwm_list = read_pwm_file(args.pwm_file)
     pwm_names = [pwm.name for pwm in pwm_list]
-    pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in pwm_names]
+    #pwm_names_clean = [pwm_name.split(".")[0].split("_")[1] for pwm_name in pwm_names]
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
     logger.info("{} motifs used".format(len(pwm_list)))
 
@@ -500,7 +245,7 @@ def run(args):
         inference_fn=net_fns[args.inference_fn],
         importances_tasks=args.inference_tasks,
         shuffle_data=True,
-        filter_tasks=args.filter_tasks) # example - filter for dynamic tasks, or H3K27ac tasks
+        filter_tasks=args.filter_tasks)
 
     # checkpoint file (unless empty net)
     if args.model_checkpoint is not None:
@@ -545,52 +290,89 @@ def run(args):
     # run region clustering/motif sets. default is true, but user can turn off
     # TODO split this out into another function
     if not args.no_groups:
+        visualize = True
+        dataset_keys = ["pwm-scores.taskidx-{}".format(i)
+                        for i in xrange(len(args.inference_tasks))]
         
         # 1) cluster communities 
         cluster_key = "louvain_clusters" # later, change to pwm-louvain-clusters
         if cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
-            dataset_keys = ["pwm-scores.taskidx-{}".format(i)
-                            for i in xrange(len(args.inference_tasks))]
-            cluster_by_task(pwm_scores_h5, dataset_keys, cluster_key, visualize=visualize)
+            cluster_by_task(pwm_scores_h5, dataset_keys, cluster_key)
+            if visualize:
+                for i in xrange(len(dataset_keys)):
+                    visualize_clusters(
+                        pwm_scores_h5,
+                        dataset_keys[i],
+                        cluster_key, i)
 
         # refine - remove small clusters
         refined_cluster_key = "task-clusters-refined"
         if refined_cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
             refine_clusters(pwm_scores_h5, cluster_key, refined_cluster_key)
-
-        # 2) optional - correlation matrix. handle by producing a text file and plotting
-        correlations_key = "pwm-correlations"
+            if visualize:
+                for i in xrange(len(dataset_keys)):
+                    visualize_clusters(
+                        pwm_scores_h5,
+                        dataset_keys[i],
+                        refined_cluster_key, i,
+                        remove_final_cluster=1)
+            
+        # 2) optional - correlation matrix.
+        correlations_key = "task-pwm_x_pwm-correlations"
+        if correlations_key not in h5py.File(pwm_scores_h5, "r").keys():
+            # TODO
+            pass
     
-        # 3) enumerate metaclusters
-        # if bed - save out bed files
-        # if visualize - save out mean vector as text file and plot
+        # 3) enumerate metaclusters. dont visualize here because you must refine first
         metacluster_key = "metaclusters"
-        if cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+        if metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
             enumerate_metaclusters(pwm_scores_h5, cluster_key, metacluster_key)
 
         # refine - remove small clusters
+        # TODO - put out BED files - write a separate function to pull BED from cluster set
         refined_metacluster_key = "metaclusters-refined"
-        #if refined_metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
-        refine_clusters(pwm_scores_h5, metacluster_key, refined_metacluster_key)
+        if refined_metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+            refine_clusters(pwm_scores_h5, metacluster_key, refined_metacluster_key)
+            if visualize:
+                for i in xrange(len(dataset_keys)):
+                    visualize_clusters(
+                        pwm_scores_h5,
+                        dataset_keys[i],
+                        refined_metacluster_key, 0,
+                        remove_final_cluster=1)
 
         # 4) extract the constrained motif set for each metacommunity, for each task
         # new pwm vectors for each dataset..
         # save out initial grammar file, use labels to set a threshold
         # if visualize - save out mean vector and plot, also network vis?
         metacluster_motifs_key = "metaclusters-motifs"
-        if metacluster_motifs_key not in h5py.File(pwm_scores_h5, "r").keys():
-            dataset_keys = ["pwm-scores.taskidx-{}".format(i)
-                            for i in xrange(len(args.inference_tasks))]
-            get_minimal_motifset(
+        motifset_metacluster_key = "metaclusters-motifset-refined"
+        if True:
+        #if metacluster_motifs_key not in h5py.File(pwm_scores_h5, "r").keys():
+            get_minimal_motifsets(
                 pwm_scores_h5,
                 dataset_keys,
                 refined_metacluster_key,
+                motifset_metacluster_key,
                 metacluster_motifs_key,
-                pwm_list)
+                pwm_list, pwm_dict,
+                pwm_file=args.pwm_file)
+            if visualize:
+                for i in xrange(len(dataset_keys)):
+                    visualize_clusters(
+                        pwm_scores_h5,
+                        dataset_keys[i],
+                        motifset_metacluster_key, 0,
+                        remove_final_cluster=1)
+
+        # 5) optional - separately, get metrics on all tasks and save out (AUPRC, etc)
+        # think of as a giant confusion matrix
         
-    # EVENTUALLY - consider adjusting R scripts to work on h5 file
+        
 
 
+
+    
     quit()
     
     if not args.no_groups:

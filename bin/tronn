@@ -429,8 +429,6 @@ def add_scanmotifs_parser(subparsers):
     # add in PWM information
     group_input.add_argument(
         "--pwm_file", help="pwm_file")
-    group_input.add_argument(
-        "--pwm_metadata_file", help="pwm_metadata_file")
     
     # group for model
     group_model = cmd_argparser.add_argument_group(
