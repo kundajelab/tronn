@@ -226,6 +226,7 @@ class TronnNeuralNetGraph(TronnGraph):
             "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
             "keep_global_pwm_scores": "global-pwm-scores" if validate_grammars else None,
             "keep_pwm_scores": "pwm-scores" if True else None, # always used
+            "keep_pwm_raw_scores": "pwm-scores-raw" if True else None,
             "keep_grammar_scores": "grammar-scores" if True else None, # always used
             "keep_grammar_scores_full": "grammar-scores-full" if True else None, # always used
             "keep_ism_results": "ism-results" if scan_grammars else None, # adjust this later

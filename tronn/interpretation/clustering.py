@@ -222,7 +222,7 @@ def get_correlation_file(
 
 
 # TODO - eventually try a multiple gaussians threshold
-def sd_cutoff(array, col_mask, std_thresh=3, axis=1):
+def sd_cutoff_old(array, col_mask, std_thresh=3, axis=1):
     """Current heuristic along the motif axis
     """
     # row normalize and mask
@@ -236,6 +236,30 @@ def sd_cutoff(array, col_mask, std_thresh=3, axis=1):
     std_val = np.std(nonzero_means)
 
     # threshold, and multiply with original mask for final mask
+    sd_mask = (array_means > (mean_val + (std_val * std_thresh))).astype(int)
+    final_mask = np.multiply(sd_mask, col_mask)
+    
+    return final_mask
+
+
+def sd_cutoff(array, col_mask, std_thresh=2, axis=1):
+    """Current heuristic along the motif axis
+    """
+    # row normalize and mask
+    array_norm = np.divide(array, np.max(array, axis=1, keepdims=True))
+    array_means = np.mean(array_norm, axis=0)
+    array_means_masked = np.multiply(col_mask, array_means)
+    nonzero_means = array_means_masked[np.nonzero(array_means_masked)]
+
+    # mirror it to get a full normal centered at zero
+    nonzero_means = np.hstack((nonzero_means, -nonzero_means))
+    
+    # across all vals, get a mean and standard dev
+    mean_val = np.mean(nonzero_means)
+    std_val = np.std(nonzero_means)
+
+    # threshold, and multiply with original mask for final mask
+    #sd_mask = (array_means > (mean_val + (std_val * std_thresh))).astype(int)
     sd_mask = (array_means > (mean_val + (std_val * std_thresh))).astype(int)
     final_mask = np.multiply(sd_mask, col_mask)
     

@@ -39,6 +39,7 @@ from tronn.interpretation.clustering import visualize_clusters
 
 from tronn.interpretation.clustering import get_correlation_file
 
+from tronn.interpretation.learning import build_lasso_regression_models
 
 def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames):
     """Grab a dataset out of h5 (2D max) and save out to a text file
@@ -340,6 +341,28 @@ def run(args):
                         dataset_keys[i],
                         refined_metacluster_key, 0,
                         remove_final_cluster=1)
+
+        # For each metacluster, build a regression model
+        # use lasso AFTER reducing motif redundancy. Should aim to have 3-6 motifs left.
+        # then improve the lasso by adding in the pairwise dependencies.
+        # then adjust the coefficients by considering fold change score over raw score, again using lasso
+        # this is the grammar output.
+        #print "here"
+        #regression_motifs_key = "regression-motifs"
+        #regression_clusters_key = "regression-model-clusters"
+        #build_lasso_regression_models(
+        #    pwm_scores_h5,
+        #    dataset_keys,
+        #    refined_metacluster_key,
+        #    regression_clusters_key,
+        #    regression_motifs_key,
+        #    pwm_list, pwm_dict)
+
+        #quit()
+                    
+        # 4) to consider - run a group lasso linear regression model to induce sparsity. Motifs get
+        # selected based on high scores.
+
 
         # 4) extract the constrained motif set for each metacommunity, for each task
         # new pwm vectors for each dataset..

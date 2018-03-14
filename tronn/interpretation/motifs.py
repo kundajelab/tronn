@@ -9,6 +9,8 @@ import pandas as pd
 
 import tensorflow as tf
 
+from multiprocessing import Pool
+
 from scipy.stats import pearsonr
 from scipy.signal import correlate2d
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
@@ -514,14 +516,24 @@ def get_minimal_motifsets( # minimal feature sets?
                 sub_dataset = hf[dataset_key][:][
                     np.where(metacluster_by_region == metacluster_id)[0],:]
                 print "total examples used:", sub_dataset.shape
-                
+
                 # reduce pwms by signal similarity - a hierarchical clustering
                 pwm_vector = reduce_pwms_by_signal_similarity(
                     sub_dataset, pwm_list, pwm_dict)
 
-                # then set a cutoff
+                # then set a cutoff - assume Gaussian noise, this controls
+                # false positive rate
                 pwm_vector = sd_cutoff(sub_dataset, pwm_vector)
+
+                # ignore long pwms...
+                current_indices = np.where(pwm_vector > 0)[0].tolist()
+                for idx in current_indices:
+                    if pwm_list[idx].weights.shape[1] > 15:
+                        pwm_vector[idx] = 0
+                
                 print "final pwm count:", np.sum(pwm_vector)
+                indices = np.where(pwm_vector > 0)[0].tolist()
+                print [pwm_list[k].name for k in indices]
 
                 # reduce the cluster size to those that have
                 # all of the motifs in the pwm vector
@@ -583,9 +595,6 @@ def get_minimal_motifsets( # minimal feature sets?
 
         # append
         metacluster_motifs_hf.attrs["thresholds"] = thresholds                    
-
-        import ipdb
-        ipdb.set_trace()
 
     return None
 
@@ -677,6 +686,10 @@ def correlate_pwms(
     cor_filt_mat = cor_mat * ncor_present
     ncor_filt_mat = ncor_mat * cor_present
 
+    # fill diagonal
+    np.fill_diagonal(cor_filt_mat, 1)
+    np.fill_diagonal(ncor_filt_mat, 1)
+    
     return cor_filt_mat, ncor_filt_mat
 
 
@@ -826,10 +839,19 @@ def hagglom_pwms_by_signal(
         ncor_thresh=0.4):
     """hAgglom on the PWMs to reduce redundancy
     """
+    # doing it by pwms
+    if True:
+        cor_filt_mat, distances = correlate_pwms(
+            pwm_list,
+            cor_thresh=cor_thresh,
+            ncor_thresh=ncor_thresh,
+            num_threads=24)
+    
     # get the distance matrix on the example_x_pwm array
     # use continuous jaccard
-    distances, distance_pvals = get_distance_matrix(
-        example_x_pwm_array, corr_method="continuous_jaccard")
+    if False:
+        distances, distance_pvals = get_distance_matrix(
+            example_x_pwm_array, corr_method="continuous_jaccard")
 
     # set up pwm stuff
     # set up (PWM, weight)

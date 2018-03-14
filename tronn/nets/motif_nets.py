@@ -253,6 +253,23 @@ def pwm_motif_max(features, labels, config, is_training=False):
     return features, labels, config
 
 
+def get_bp_overlap(features, labels, config, is_training=False):
+    """Re-weight by num of importance-weighted base pairs that are nonzero
+    """
+    features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
+    max_size = config.get("filter_width")
+    assert max_size is not None
+    nonzero_bp_fraction_per_window = tf.reduce_sum(
+        slim.avg_pool2d(
+            features_present, [1, max_size], stride=[1,1], padding="VALID"),
+        axis=3, keep_dims=True)
+    #features = tf.multiply(
+    #    features,
+    #    nonzero_bp_fraction_per_window)
+    
+    return nonzero_bp_fraction_per_window, labels, config
+
+
 def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     """Run pwm convolve twice, with importance scores and without.
     Choose max for motif across positions using raw sequence
@@ -270,7 +287,16 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     
     with tf.variable_scope("binarize_filt"):
         pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
-            binarized_features, labels, config, is_training=is_training) # {N, task, pos, M}
+            binarized_features, labels, config, is_training=is_training) # {N, 1, pos, M}
+
+        # adjust the raw scores and save out
+        if config.get("keep_pwm_raw_scores") is not None:
+            raw_bp_overlap, _, _ = get_bp_overlap(binarized_features, labels, config)
+            raw_scores = tf.multiply(
+                pwm_binarized_feature_scores,
+                raw_bp_overlap)
+            raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2)) # {N, M}
+            config["outputs"][config["keep_pwm_raw_scores"]] = raw_scores
         
     # multiply by raw sequence matches
     pwm_binarized_feature_maxfilt_mask = tf.cast(
@@ -281,26 +307,15 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
         features, labels, config, is_training=is_training)
     
     # and filter through mask
-    # TODO consider multiplying by actual score on raw sequence for more weighting
     filt_features = tf.multiply(
         pwm_binarized_feature_maxfilt_mask,
         pwm_impt_weighted_scores)
 
-    # TODO at this stage also need to perform the weighting by bp presence
-    # do an avg pool
-    if True:
-        features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
-        max_size = config.get("filter_width")
-        assert max_size is not None
-        nonzero_bp_fraction_per_window = tf.reduce_sum(
-            slim.avg_pool2d(
-                features_present, [1, max_size], stride=[1,1], padding="VALID"),
-            axis=3, keep_dims=True)
-        features = tf.multiply(
-            filt_features,
-            nonzero_bp_fraction_per_window)
-    else:
-        features = filt_features
+    # at this stage also need to perform the weighting by bp presence
+    impt_bp_overlap, _, _ = get_bp_overlap(features, labels, config)
+    features = tf.multiply(
+        filt_features,
+        impt_bp_overlap)
 
     # keep for grammars
     if config.get("keep_pwm_scores_full") is not None:

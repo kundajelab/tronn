@@ -204,7 +204,7 @@ def interpret(
                     total_examples += 1
                     
                     logits = region_arrays["logits"][0:12]
-                    
+
                     try:
                         num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
                     except:
