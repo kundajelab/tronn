@@ -163,40 +163,41 @@ def pwm_convolve(features, labels, config, is_training=False):
       projection = a dot b / | b |
     """
     pwm_list = config.get("pwms")
+    reuse = config.get("reuse_pwm_layer", False)
     # TODO options for running (1) FWD, (2) REV, (3) COMB
     
     assert pwm_list is not None
         
     # get various sizes needed to instantiate motif matrix
     num_filters = len(pwm_list)
-    logging.info("Total PWMs: {}".format(num_filters))
+    #logging.info("Total PWMs: {}".format(num_filters))
     
     max_size = 0
     for pwm in pwm_list:
         if pwm.weights.shape[1] > max_size:
             max_size = pwm.weights.shape[1]
-    logging.info("Filter size: {}".format(max_size))
+    #logging.info("Filter size: {}".format(max_size))
     config["filter_width"] = max_size
             
     # make the convolution net for dot product, normal filters
     # here, the pwms are already normalized to unit vectors for vector projection
     conv1_filter_size = [1, max_size]
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size,
-                pwm_list,
-                get_fan_in(features),
-                unit_vector=True,
-                length_norm=False),
-            biases_initializer=None,
-            trainable=False):
-        # pwm cross correlation
-        features = slim.conv2d(
-            features, num_filters, conv1_filter_size,
-            scope='pwm/conv')
+    with tf.variable_scope("pwm_layer", reuse=reuse):
+        with slim.arg_scope(
+                [slim.conv2d],
+                padding='VALID',
+                activation_fn=None,
+                weights_initializer=pwm_simple_initializer(
+                    conv1_filter_size,
+                    pwm_list,
+                    get_fan_in(features),
+                    unit_vector=True,
+                    length_norm=False),
+                biases_initializer=None,
+                trainable=False):
+            # pwm cross correlation
+            features = slim.conv2d(
+                features, num_filters, conv1_filter_size)
         
     return features, labels, config
 
@@ -206,14 +207,15 @@ def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
     when the negative correlation is stronger.
     """
     # do positive sequence. ignore negative scores. only keep positive results
-    with tf.variable_scope("pos_seq_pwm"):
-        pos_seq_scores, _, _ = pwm_convolve(tf.nn.relu(features), labels, config, is_training=is_training)
-        pos_seq_scores = tf.nn.relu(pos_seq_scores)
+    #with tf.variable_scope("pos_seq_pwm"):
+    pos_seq_scores, _, _ = pwm_convolve(tf.nn.relu(features), labels, config, is_training=is_training)
+    pos_seq_scores = tf.nn.relu(pos_seq_scores)
         
     # do negative sequence. ignore positive scores. only keep positive (ie negative) results
-    with tf.variable_scope("neg_seq_pwm"):
-        neg_seq_scores, _, _ = pwm_convolve(tf.nn.relu(-features), labels, config, is_training=is_training)
-        neg_seq_scores = tf.nn.relu(neg_seq_scores)
+    #with tf.variable_scope("neg_seq_pwm"):
+    config.update({"reuse_pwm_layer": True})
+    neg_seq_scores, _, _ = pwm_convolve(tf.nn.relu(-features), labels, config, is_training=is_training)
+    neg_seq_scores = tf.nn.relu(neg_seq_scores)
         
     # and then take max (best score, whether pos or neg) do not use abs; and keep sign
     max_seq_scores = tf.reduce_max(tf.stack([pos_seq_scores, neg_seq_scores], axis=0), axis=0) # {N, task, seq_len/pool_width, M}
@@ -276,7 +278,8 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
     """Run pwm convolve twice, with importance scores and without.
     Choose max for motif across positions using raw sequence
     """
-    raw_sequence = config["outputs"].get("onehot_sequence")
+    raw_sequence = config["outputs"].get("onehot_sequence_clipped")
+    #reuse = config.get("reuse_pwm_layer", False)
     assert raw_sequence is not None
 
     # run on raw sequence
@@ -287,24 +290,25 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
         else:
             print "WARNING DID NOT DELETE RAW SEQUENCE"
     
-    with tf.variable_scope("binarize_filt"):
-        pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
-            binarized_features, labels, config, is_training=is_training) # {N, 1, pos, M}
+    #with tf.variable_scope("binarize_filt"):
+    pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
+        binarized_features, labels, config, is_training=is_training) # {N, 1, pos, M}
 
-        # adjust the raw scores and save out
-        if config.get("keep_pwm_raw_scores") is not None:
-            raw_bp_overlap, _, _ = get_bp_overlap(binarized_features, labels, config)
-            raw_scores = tf.multiply(
-                pwm_binarized_feature_scores,
-                raw_bp_overlap)
-            raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2)) # {N, M}
-            config["outputs"][config["keep_pwm_raw_scores"]] = raw_scores
-        
+    # adjust the raw scores and save out
+    if config.get("keep_pwm_raw_scores") is not None:
+        raw_bp_overlap, _, _ = get_bp_overlap(binarized_features, labels, config)
+        raw_scores = tf.multiply(
+            pwm_binarized_feature_scores,
+            raw_bp_overlap)
+        raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2)) # {N, M}
+        config["outputs"][config["keep_pwm_raw_scores"]] = raw_scores
+
     # multiply by raw sequence matches
     pwm_binarized_feature_maxfilt_mask = tf.cast(
         tf.greater(pwm_binarized_feature_scores, [0]), tf.float32)
     
     # run on impt weighted features
+    #with tf.variable_scope("impt_weighted"):
     pwm_impt_weighted_scores, _, _ = pwm_convolve_inputxgrad(
         features, labels, config, is_training=is_training)
     

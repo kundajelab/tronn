@@ -232,6 +232,7 @@ class TronnNeuralNetGraph(TronnGraph):
             "keep_ism_results": "ism-results" if scan_grammars else None, # adjust this later
             "outputs": { # these are all the batch results that must stay with their corresponding example
                 "logits": self.logits,
+                "importance_logits": self.logits,
                 "probs": self.probs,
                 "example_metadata": self.metadata,
                 "subset_accuracy": self._add_task_subset_accuracy(),

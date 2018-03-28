@@ -31,7 +31,11 @@ from tronn.nets.filter_nets import filter_by_importance
 from tronn.nets.filter_nets import filter_singles_twotailed
 from tronn.nets.filter_nets import filter_by_motifset_presence
 
-from tronn.nets.mutate_nets import motif_ism
+from tronn.nets.mutate_nets import generate_mutation_batch
+from tronn.nets.mutate_nets import run_model_on_mutation_batch
+from tronn.nets.mutate_nets import dfim
+from tronn.nets.mutate_nets import motif_dfim
+from tronn.nets.mutate_nets import delta_logits
 
 from tronn.nets.util_nets import remove_global_task
 
@@ -114,6 +118,7 @@ def sequence_to_motif_scores(
     keep_key = config.get("keep_onehot_sequence")
     if keep_key is not None:
         config["outputs"][keep_key] = features
+        config["outputs"]["{}_clipped".format(keep_key)] = features
     
     # if using NN, convert features to importance scores first
     if use_importances:
@@ -183,46 +188,60 @@ def sequence_to_grammar_scores(
 def sequence_to_motif_ism(features, labels, config, is_training=False):
     """Go from sequence (N, 1, pos, 4) to ism results (N, task, mutation)
     """
-    # use sequence_to_grammar_scores above
+    # get motif scores
     features, labels, config = sequence_to_motif_scores(
         features, labels, config, is_training=is_training)
 
-    features = tf.expand_dims(config["outputs"]["pwm-scores-raw"], axis=1)
-
-    # set up inference stack
-    inference_stack = [
-        (filter_by_motifset_presence, {}), # filter to only get results on relevant sequence
-        (motif_ism, {})
-    ]
-
-    # build inference stack
-    features, labels, config = build_inference_stack(
-        features, labels, config, inference_stack)
-
-    if config.get("keep_ism_results") is not None:
-        config = unstack_tasks(features, labels, config, prefix=config["keep_ism_results"])
-    
-    return features, labels, config
-
-
-def sequence_to_delta_deeplift(features, labels, config, is_training=False):
-    """For a grammar, get back the delta deeplift results on motifs, another way
-    to extract dependencies at the motif level
-    """
-    # get grammar scores
-    features, labels, config = sequence_to_motif_scores(
-        features, labels, config, is_training=is_training)
-
+    # start from raw pwm scores to filter sequences
     features = tf.expand_dims(config["outputs"]["pwm-scores-raw"], axis=1)
 
     # set up inference stack
     inference_stack = [
         (score_distance_to_motifspace_point, {"filter_motifspace": True}),
         (check_motifset_presence, {"filter_motifset": True}),
-        (generate_mutation_batch, {}),
+        (generate_mutation_batch, {}), # note that these use importance weighted position maps
+        (run_model_on_mutation_batch, {"pairwise_mutate": True}),
+        # TODO from here just need to extract the logits
+        (delta_logits, {}),
+    ]
+
+    # build inference stack
+    features, labels, config = build_inference_stack(
+        features, labels, config, inference_stack)
+
+    #if config.get("keep_ism_results") is not None:
+    if True:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_ism_results"])
+
+    print config["outputs"].keys()
+
+    quit()
+        
+    return features, labels, config
+
+
+def sequence_to_dmim(features, labels, config, is_training=False):
+    """For a grammar, get back the delta deeplift results on motifs, another way
+    to extract dependencies at the motif level
+    """
+    # get motif scores
+    features, labels, config = sequence_to_motif_scores(
+        features, labels, config, is_training=is_training)
+
+    # start from the raw pwm scores to filter sequences
+    features = tf.expand_dims(config["outputs"]["pwm-scores-raw"], axis=1)
+
+    # set up inference stack
+    inference_stack = [
+        (score_distance_to_motifspace_point, {"filter_motifspace": True}),
+        (check_motifset_presence, {"filter_motifset": True}),
+        (generate_mutation_batch, {}), # note that these use importance weighted position maps
         (run_model_on_mutation_batch, {}), 
-        (sequence_to_motif_scores, {}), # reuse! <- this is best but may need to check the reuse arg
-        (dfim, {}) # {N, M, M}
+        (sequence_to_importance_scores, {}), # {N, task, 200, 4}
+        (dfim, {}), # {N, task, 200, 4}
+        (sequence_to_motif_scores, {"use_importances": False}),
+        (remove_global_task, {}),
+        (motif_dfim, {})
     ]
 
     # build inference stack
@@ -234,9 +253,14 @@ def sequence_to_delta_deeplift(features, labels, config, is_training=False):
         config = unstack_tasks(features, labels, config, prefix="deltadeeplift-results")
 
     del config["outputs"]["onehot_sequence"]
+
+    quit()
     
     return features, labels, config
 
+
+# TODO another function to take outputs from either dmim or motif_ism
+# and filter and then output sequences in original ACGT format
 
 # TODO - somewhere (datalayer?) build module for generating synthetic sequences
 

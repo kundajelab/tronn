@@ -14,10 +14,7 @@ from tronn.nets.inference_nets import sequence_to_importance_scores
 from tronn.nets.inference_nets import sequence_to_motif_scores
 from tronn.nets.inference_nets import sequence_to_grammar_scores
 from tronn.nets.inference_nets import sequence_to_motif_ism
-from tronn.nets.inference_nets import sequence_to_delta_deeplift
-
-
-from tronn.nets.mutate_nets import ism_for_grammar_dependencies
+from tronn.nets.inference_nets import sequence_to_dmim
 
 
 net_fns = {
@@ -32,8 +29,7 @@ net_fns = {
     "sequence_to_motif_scores": sequence_to_motif_scores,
     "sequence_to_grammar_scores": sequence_to_grammar_scores,
     "sequence_to_motif_ism": sequence_to_motif_ism,
-    "sequence_to_delta_deeplift": sequence_to_delta_deeplift,
-    "ism": ism_for_grammar_dependencies
+    "sequence_to_dmim": sequence_to_dmim,
 }
 
 

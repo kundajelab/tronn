@@ -154,7 +154,7 @@ def multitask_importances(features, labels, config, is_training=False):
     assert is_training == False
 
     # get configs
-    anchors = config["outputs"].get("logits")
+    anchors = config["outputs"].get("importance_logits")
     task_indices = config.get("importance_task_indices")
     backprop = config.get("backprop", "input_x_grad")
 
