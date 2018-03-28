@@ -195,6 +195,7 @@ def interpret(
             try:
                 total_examples = 0
                 total_visualized = 0
+                passed_cutoff = 0 # DEBUG REMOVE THIS LATER
                 while not coord.should_stop():
                     
                     region, region_arrays = example_generator.run()
@@ -204,6 +205,9 @@ def interpret(
                     total_examples += 1
                     
                     logits = region_arrays["logits"][0:12]
+
+                    import ipdb
+                    ipdb.set_trace()
 
                     try:
                         num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]

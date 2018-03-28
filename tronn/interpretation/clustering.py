@@ -6,7 +6,10 @@ import h5py
 import numpy as np
 import pandas as pd
 
+from numpy.linalg import norm
 from collections import Counter
+
+from tronn.interpretation.learning import threshold_at_recall
 
 import phenograph
 
@@ -17,10 +20,11 @@ def cluster_by_task(
         out_key,
         num_threads=24):
     """Get a clustering per task (ie, per cell state)
+    Currently set to a phenograph clustering
     """
     with h5py.File(h5_file, "a") as hf:
         num_examples = hf["example_metadata"].shape[0]
-        
+
         # generate a new dataset that is {N, len(h5_dataset_keys)}
         clusters_hf = hf.create_dataset(
             out_key, (num_examples, len(h5_dataset_keys)), dtype=int)
@@ -151,8 +155,6 @@ def visualize_cluster_means(
     return None
 
 
-
-
 def get_distance_matrix(
         motif_mat,
         corr_method="pearson",
@@ -218,6 +220,107 @@ def get_correlation_file(
     corr_mat_df.to_csv(corr_file, sep="\t")
 
     return None
+
+
+def generalized_jaccard_similarity(a, b):
+    """Calculates a jaccard on real valued vectors
+    """
+    assert np.all(a >= 0)
+    assert np.all(b >= 0)
+
+    # get min and max
+    min_vals = np.minimum(a, b)
+    max_vals = np.maximum(a, b)
+
+    # divide sum(min) by sum(max)
+    if np.sum(max_vals) != 0:
+        similarity = np.sum(min_vals) / np.sum(max_vals)
+    else:
+        similarity = 0
+        
+    return similarity
+
+
+def get_threshold_on_jaccard_similarity(
+        mean_vector, data, labels, recall_thresh=0.40):
+    """Given a mean vector and a dataset (with labels),
+    get back the threshold on jaccard similarity
+    """
+    assert mean_vector.shape[0] == data.shape[1]
+    assert data.shape[0] == labels.shape[0]
+
+    # set up similarity scores vector
+    scores = np.zeros((data.shape[0]))
+
+    # for each example, get score
+    for example_idx in xrange(data.shape[0]):
+        example_vector = data[example_idx,:]
+        scores[example_idx] = generalized_jaccard_similarity(
+            mean_vector, example_vector)
+        
+    # choose threshold
+    threshold = threshold_at_recall(
+        labels, scores, recall_thresh=recall_thresh)
+    print "Threshold for similarity: {}".format(threshold)
+    threshold_filter = scores >= threshold
+
+    return threshold, threshold_filter
+
+
+def get_threshold_on_dot_product(
+        mean_vector, data, labels, recall_thresh=0.40):
+    """Given a mean vector and a dataset (with labels),
+    get back the threshold on jaccard similarity
+    """
+    assert mean_vector.shape[0] == data.shape[1]
+    assert data.shape[0] == labels.shape[0]
+
+    # set up similarity scores vector
+    scores = np.zeros((data.shape[0]))
+
+    # for each example, get score
+    for example_idx in xrange(data.shape[0]):
+        example_vector = data[example_idx,:]
+        
+        scores[example_idx] = np.dot(
+            mean_vector, example_vector)
+        #scores[example_idx] = np.sum(np.multiply(
+        #    mean_vector, example_vector))
+        
+    # choose threshold
+    threshold = threshold_at_recall(
+        labels, scores, recall_thresh=recall_thresh)
+    print "Threshold for similarity: {}".format(threshold)
+    threshold_filter = scores >= threshold
+
+    return threshold, threshold_filter
+
+
+
+def get_threshold_on_euclidean_distance(
+        mean_vector, data, labels, recall_thresh=0.40):
+    """Given a mean vector and a dataset (with labels),
+    get back the threshold on jaccard similarity
+    """
+    assert mean_vector.shape[0] == data.shape[1]
+    assert data.shape[0] == labels.shape[0]
+
+    # set up similarity scores vector
+    scores = np.zeros((data.shape[0]))
+
+    # for each example, get score
+    for example_idx in xrange(data.shape[0]):
+        example_vector = data[example_idx,:]
+        scores[example_idx] = norm(
+            (example_vector - mean_vector), ord=2)
+        
+    # choose threshold
+    threshold = -threshold_at_recall(
+        labels, -scores, recall_thresh=recall_thresh)
+    print "Threshold for similarity: {}".format(threshold)
+    threshold_filter = scores <= threshold
+
+    return threshold, threshold_filter
 
 
 

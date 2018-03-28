@@ -50,18 +50,30 @@ def read_grammar_file(grammar_file, pwm_file, as_dict=False):
             # get params
             line = fp.readline().strip()
             param_string = line.strip("#params").strip()
+            motifspace_dict = {}
             node_dict = {}
             edge_dict = {}
 
-            # go through nodes TODO check for presence in pwm file?
             line = fp.readline().strip()
+            
+            # get motifspace vector
+            assert line.startswith("#motifspace")
+            motifspace_param_string = line.strip().split()[1]
+            while True:
+                line = fp.readline().strip()
+                if line.startswith("#nodes") or line == "": break
+
+                fields = line.split()
+                motifspace_dict[fields[0]] = (float(fields[1]), float(fields[2]))
+            
+            # go through nodes TODO check for presence in pwm file?
             assert line.startswith("#nodes")
             while True:
                 line = fp.readline().strip()
                 if line.startswith("#edges") or line == "": break
 
                 fields = line.split()
-                node_dict[fields[0]] = float(fields[1])
+                node_dict[fields[0]] = (float(fields[1]), float(fields[2]))
 
             # go through edges
             assert line.startswith("#edges")
@@ -72,7 +84,14 @@ def read_grammar_file(grammar_file, pwm_file, as_dict=False):
                 fields = line.split()
                 edge_dict[(fields[0], fields[1])] = float(fields[2])
 
-            grammar = Grammar(pwm_file, node_dict, edge_dict, param_string, name=header)
+            grammar = Grammar(
+                pwms,
+                node_dict,
+                edge_dict,
+                param_string,
+                motifspace_dict=motifspace_dict,
+                motifspace_param_string=motifspace_param_string,
+                name=header)
 
             if as_dict:
                 grammars[header] = grammar
@@ -86,20 +105,54 @@ class Grammar(object):
     """This grammar is a linear model with pairwise interactions.
     """
 
-    def __init__(self, pwm_file, node_dict, edge_dict, param_string, name=None, threshold=None):
+    def __init__(
+            self,
+            pwms,
+            node_dict,
+            edge_dict,
+            param_string,
+            motifspace_dict=None,
+            motifspace_param_string="",
+            name=None,
+            threshold=None):
         self.name = name
-        self.pwms = read_pwm_file(pwm_file)
+        self.pwms = pwms
         self.param_string = param_string
         self.nodes = node_dict
         self.edges = edge_dict
+        self.motifspace_dict = motifspace_dict
+        self.motifspace_param_string = motifspace_param_string
 
-        # set up 1D pwm vector
+        # set up motifspace vector
+        if self.motifspace_dict is not None:
+            self.motifspace_vector = np.zeros((len(self.pwms)))
+            self.motifspace_weights = np.zeros((len(self.pwms)))
+            for pwm_idx in xrange(len(self.pwms)):
+                pwm = self.pwms[pwm_idx]
+                try:
+                    val, weight = self.motifspace_dict[pwm.name]
+                    self.motifspace_vector[pwm_idx] = val
+                    self.motifspace_weights[pwm_idx] = weight
+                except:
+                    pass
+            motifspace_params = dict(
+                item.split("=")
+                for item in self.motifspace_param_string.split(";"))
+            self.motifspace_threshold = float(motifspace_params["threshold"])
+        else:
+            self.motifspace_vector = None
+            self.motifspace_threshold = None
+            
+        # set up 1D pwm vector with thresholds
+        # TODO
         self.pwm_vector = np.zeros((len(self.pwms)))
+        self.pwm_thresholds = np.zeros((len(self.pwms)))
         for pwm_idx in xrange(len(self.pwms)):
             pwm = self.pwms[pwm_idx]
             try:
-                val = self.nodes[pwm.name]
-                self.pwm_vector[pwm_idx] = val
+                threshold, coef = self.nodes[pwm.name]
+                self.pwm_vector[pwm_idx] = coef
+                self.pwm_thresholds[pwm_idx] = threshold
             except:
                 pass
         
@@ -113,13 +166,6 @@ class Grammar(object):
                     self.adjacency_matrix[pwm1_idx, pwm2_idx] = val
                 except:
                     pass
-
-        # set up a pandas edge list
-        self.edge_list = pd.DataFrame(edge_dict)
-        #print self.edge_list
-
-        #import ipdb
-        #ipdb.set_trace()
         
         return
 
@@ -151,12 +197,20 @@ class Grammar(object):
         with open(filename, filemode) as out:
             out.write(">{}\n".format(self.name))
             out.write("#params {}\n".format(self.param_string))
+
+            # write out motif space
+            out.write("#motifspace\t{}\n".format(self.motifspace_param_string))
+            for node in self.motifspace_dict.keys():
+                out.write("{0}\t{1}\t{2}\n".format(
+                    node,
+                    self.motifspace_dict[node][0],
+                    self.motifspace_dict[node][1]))
             
-            # first write out nodes
+            # write out nodes
             out.write("#nodes\n")
             for node in self.nodes.keys():
-                out.write("{0}\t{1}\n".format(
-                    node, self.nodes[node]))
+                out.write("{0}\t{1}\t{2}\n".format(
+                    node, self.nodes[node][0], self.nodes[node][1]))
                 
             # then write out edges
             out.write("#edges\n")

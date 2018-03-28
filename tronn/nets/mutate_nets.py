@@ -70,6 +70,117 @@ def repeat_config(config, repeat_num):
     return config
 
 
+def generate_mutation_batch(features, labels, config, is_training=False):
+    """Given motif map (x position), mutate at strongest hit position
+    and pass back a mutation batch, also track how big the batch is
+    """
+    # get the motifs desired for the grammar, for each task.
+    grammar_sets = config.get("grammars")
+    position_maps = config["outputs"].get(config["keep_pwm_scores_full"]) # {N, task, pos, M}
+    raw_sequence = config["outputs"].get("onehot_sequence") # {N, 1, 1000, 4}
+    pairwise_mutate = config.get("pairwise_mutate", False)
+    assert grammar_sets is not None
+    assert position_maps is not None
+    assert raw_sequence is not None
+    
+    # do it at the global level, on the importance score positions
+    motif_max_positions = tf.argmax(
+        tf.reduce_max(position_maps, axis=1), axis=1) # {N, M}
+    print motif_max_positions
+
+    # get indices at global level
+    pwm_vector = np.zeros((grammar_sets[0][0].pwm_vector.shape[0]))
+    for i in xrange(len(grammar_sets[0])):
+        pwm_vector += grammar_sets[0][i].pwm_vector
+        
+    pwm_indices = np.where(pwm_vector)
+    total_pwms = pwm_indices[0].shape[0]
+    if pairwise_mutate:
+        mutation_batch_size = (total_pwms**2 - total_pwms) / 2 + total_pwms + 1 # +1 for original sequence
+    else:
+        mutation_batch_size = total_pwms + 1 # +1 for original sequence
+    config["mutation_batch_size"] = mutation_batch_size
+    print pwm_indices
+    print mutation_batch_size
+
+    # now do the following for each example
+    features = [tf.expand_dims(tensor, axis=0)
+                for tensor in tf.unstack(raw_sequence, axis=0)]
+    labels = [tf.expand_dims(tensor, axis=0)
+                for tensor in tf.unstack(labels, axis=0)]
+    
+    features_w_mutated = []
+    labels_w_mutated = []
+    for i in xrange(len(features)):
+        features_w_mutated.append(features[i]) # first is always the original
+        labels_w_mutated.append(labels[i])
+        # single mutation
+        for pwm1_idx in pwm_indices[0]:
+            new_config = {
+                "pos": [
+                    (pwm1_idx, motif_max_positions[i,pwm1_idx])]}
+            config.update(new_config)
+            mutated_features, _, _ = mutate_motif(features[i], labels, config)
+            features_w_mutated.append(mutated_features) # append mutated sequences
+            labels_w_mutated.append(labels[i])
+        if pairwise_mutate:
+            # double mutated
+            for pwm1_idx in pwm_indices[0]:
+                for pwm2_idx in pwm_indices[0]:
+                    if pwm1_idx < pwm2_idx:
+                        new_config = {
+                            "pos": [
+                                (pwm1_idx, motif_max_positions[i,pwm1_idx]),
+                                (pwm2_idx, motif_max_positions[i,pwm2_idx])]}
+                        config.update(new_config)
+                        mutated_features, _, _ = mutate_motif(features[i], labels, config)
+                        features_w_mutated.append(mutated_features) # append mutated sequences
+                        labels_w_mutated.append(labels[i])
+
+    # concat all. this is very big, so rebatch
+    features = tf.concat(features_w_mutated, axis=0) # {N, 1, 1000, 4}
+    labels = tf.concat(labels_w_mutated, axis=0) 
+    config = repeat_config(config, mutation_batch_size)
+
+    # note - if rebatching, keep the queue size SMALL for speed
+    old_batch_size = config.get("batch_size")
+    with tf.variable_scope("ism_mutation_rebatch"): # for the rebatch queue
+        new_config = {"batch_size": mutation_batch_size}
+        config.update(new_config)
+        features, labels, _ = rebatch(features, labels, config)
+
+    return features, labels, config
+
+
+def run_model_on_mutation_batch(features, labels, config, is_training=False):
+    """Run the model on the mutation batch
+    """
+    with tf.variable_scope("", reuse=True):
+        model = config.get("model")
+        logits = model(features, labels, config, is_training=False) # {N_mutations, task}
+
+    # TODO need to adjust the logits for the ones we care about
+    # ie, the timepoint tasks
+    importance_task_indices = config.get("importance_task_indices")
+    assert importance_task_indices is not None
+    logits = [tf.expand_dims(tensor, axis=1)
+              for tensor in tf.unstack(logits, axis=1)]
+    importance_logits = []
+    for task_idx in importance_task_indices:
+        importance_logits.append(logits[task_idx])
+    logits = tf.concat(importance_logits, axis=1)
+
+    return
+
+
+
+def dfim(features, labels, config, is_training=False):
+    """
+    """
+
+    return
+
+
 def motif_ism(features, labels, config, is_training=False):
     """run motif level in silico mutagenesis (ISM) to extract
     dependencies
@@ -148,7 +259,11 @@ def motif_ism(features, labels, config, is_training=False):
         new_config = {"batch_size": mutation_batch_size}
         config.update(new_config)
         features, labels, _ = rebatch(features, labels, config)
-    
+
+    # TODO - maybe split out the bottom half, so that could either get logits
+    # for prediction delta, or the importance scores, for DFIM
+
+        
     # adjust batch size here to be whatever the total mutations are
     # push this batch through the model
     # {N_mutations, tasks}
@@ -194,6 +309,17 @@ def motif_ism(features, labels, config, is_training=False):
 
 
 
+def motif_dfim(features, labels, config, is_training=False):
+    """Run motif ISM and get back delta motif scores
+    assumes features are filtered already
+    """
+
+    
+
+
+
+    
+    return
 
 
 

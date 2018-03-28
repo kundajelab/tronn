@@ -29,6 +29,7 @@ from tronn.interpretation.motifs import read_pwm_file
 #from tronn.interpretation.motifs import setup_pwm_metadata
 
 from tronn.interpretation.motifs import get_minimal_motifsets
+from tronn.interpretation.motifs import distill_to_linear_models
 from tronn.interpretation.motifs import threshold_motifs
 from tronn.interpretation.motifs import reduce_pwm_redundancy
 
@@ -40,6 +41,7 @@ from tronn.interpretation.clustering import visualize_clusters
 from tronn.interpretation.clustering import get_correlation_file
 
 from tronn.interpretation.learning import build_lasso_regression_models
+
 
 def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames):
     """Grab a dataset out of h5 (2D max) and save out to a text file
@@ -293,7 +295,9 @@ def run(args):
     if not args.no_groups:
         visualize = True
         dataset_keys = ["pwm-scores.taskidx-{}".format(i)
-                        for i in xrange(len(args.inference_tasks))]
+                        for i in args.inference_tasks] # eventually, this is the right one
+        #dataset_keys = ["pwm-scores.taskidx-{}".format(i)
+        #                for i in xrange(len(args.inference_tasks))]
         
         # 1) cluster communities 
         cluster_key = "louvain_clusters" # later, change to pwm-louvain-clusters
@@ -372,14 +376,16 @@ def run(args):
         motifset_metacluster_key = "metaclusters-motifset-refined"
         if True:
         #if metacluster_motifs_key not in h5py.File(pwm_scores_h5, "r").keys():
-            get_minimal_motifsets(
+            distill_to_linear_models(
                 pwm_scores_h5,
                 dataset_keys,
                 refined_metacluster_key,
                 motifset_metacluster_key,
                 metacluster_motifs_key,
                 pwm_list, pwm_dict,
-                pwm_file=args.pwm_file)
+                pwm_file=args.pwm_file,
+                label_indices=args.inference_tasks) # eventually shouldnt need this, access name
+            # or access some kind of attribute
             if visualize:
                 for i in xrange(len(dataset_keys)):
                     visualize_clusters(

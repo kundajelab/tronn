@@ -40,6 +40,7 @@ def pwm_simple_initializer(
         filter_shape,
         pwm_list,
         fan_in,
+        reverse_complement=False,
         max_centered=False,
         unit_vector=False,
         length_norm=True,

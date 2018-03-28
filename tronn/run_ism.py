@@ -31,7 +31,7 @@ def run(args):
     """
     # setup
     logger = logging.getLogger(__name__)
-    logger.info("Running motif scan")
+    logger.info("Running motif in silico mutagenesis")
     if args.tmp_dir is not None:
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
@@ -45,14 +45,11 @@ def run(args):
     grammar_sets = []
     for grammar_file in args.grammar_files:
         grammar_sets.append(read_grammar_file(grammar_file, args.pwm_file))
-
     assert len(grammar_sets) == 1 # don't do more than one at a time? maybe adjust later
 
     # pull in motif annotation
-    pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
     pwm_list = read_pwm_file(args.pwm_file)
     pwm_names = [pwm.name for pwm in pwm_list]
-    pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in pwm_names]
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
     logger.info("{} motifs used".format(len(pwm_list)))
     
@@ -117,7 +114,7 @@ def run(args):
             visualize=visualize,
             scan_grammars=True,
             validate_grammars=validate_grammars,
-            filter_by_prediction=True)
+            filter_by_prediction=False)
 
     # TODO - here want to save out grammars as linear models, based on scores that came out
 

@@ -9,15 +9,135 @@ import tensorflow.contrib.slim as slim
 from tronn.util.tf_utils import get_fan_in
 from tronn.util.initializers import pwm_simple_initializer
 
+from tronn.nets.filter_nets import filter_through_mask
 
-# TODO write a function to filter for presence of ALL motifs in grammar
-# ie, after grammar scoring, remove zeros.
+
+def score_distance_to_motifspace_point(features, labels, config, is_training=False):
+    """Given grammars, pull out the motifspace information and score distance
+    to the motifspace vector, attach a threshold mask to config as needed
+    """
+    grammars = config.get("grammars")
+    pwms = config.get("pwms")
+    assert grammars is not None
+    assert pwms is not None
+
+    grammars = grammars[0] # for now. TODO fix this later
+    
+    # set up vectors
+    motifspace_vectors = np.zeros((1, 1, len(pwms), len(grammars))) # {1, 1, M, G}
+    motifspace_weights = np.zeros((1, 1, len(pwms), len(grammars))) # {1, 1, M, G}
+    motifspace_thresholds = np.zeros((1, 1, len(grammars))) # {1, 1, G}
+
+    # store values
+    for grammar_idx in xrange(len(grammars)):
+        motifspace_vectors[:, :, :, grammar_idx] = grammars[grammar_idx].motifspace_vector
+        motifspace_weights[:, :, :, grammar_idx] = grammars[grammar_idx].motifspace_weights
+        motifspace_thresholds[:, :, grammar_idx] = grammars[grammar_idx].motifspace_threshold
+    
+    # convert to tensors
+    motifspace_vectors = tf.convert_to_tensor(motifspace_vectors, dtype=tf.float32)
+    motifspace_weights = tf.convert_to_tensor(motifspace_weights, dtype=tf.float32)
+    motifspace_thresholds = tf.convert_to_tensor(motifspace_thresholds, dtype=tf.float32)
+
+    # get distance (dot product) on the sequence
+    weighted_features = tf.multiply(
+        tf.expand_dims(features, axis=3),
+        motifspace_weights)
+    similarities = tf.reduce_sum(
+        tf.multiply(weighted_features, motifspace_vectors), axis=2)
+    
+    #differences = tf.subtract(weighted_features, motifspace_vectors)
+    #similarities = tf.norm(differences, axis=2)
+    #similarities_thresholded = tf.cast(
+    #    tf.less_equal(similarities, motifspace_thresholds), tf.float32) # {N, 1, G}
+    
+    similarities_thresholded = tf.cast(
+        tf.greater_equal(similarities, motifspace_thresholds), tf.float32) # {N, 1, G}
+
+    # save to config outputs
+    config["outputs"]["motifspace_dists"] = similarities
+    config["outputs"]["motifspace_mask"] = similarities_thresholded
+    
+    if config.get("filter_motifspace") is not None:
+        # filter
+        condition_mask = tf.greater(
+            tf.reduce_max(similarities_thresholded, axis=[1,2]), [0])
+        features, labels, config = filter_through_mask(
+            features, labels, config, condition_mask, use_queue=True, num_threads=1)
+    
+    return features, labels, config
+
+
+def check_motifset_presence(features, labels, config, is_training=False):
+    """Given grammars check motifs in the grammars to make sure they're all there
+    """
+    grammars = config.get("grammars")
+    pwms = config.get("pwms")
+    assert grammars is not None
+    assert pwms is not None
+
+    grammars = grammars[0] # for now. TODO fix this later
+
+    motifset_features = tf.expand_dims(features, axis=3) # {N, 1, M, 1}
+    
+    # input - {N, 1, M}, ie 1 cell state
+    pwm_thresholds = np.zeros((1, 1, len(pwms), len(grammars)))
+
+    #motif_counts_by_grammar = []
+    for grammar_idx in xrange(len(grammars)):
+        # add pwm thresholds and total counts
+        pwm_thresholds[:,:,:,grammar_idx] = grammars[grammar_idx].pwm_thresholds
+        #motif_counts_by_grammar.append(
+        #    np.sum(grammars[grammar_idx].pwm_thresholds > 0).astype(np.int32))
+        
+    # convert to tensors
+    pwm_thresholds = tf.convert_to_tensor(pwm_thresholds, dtype=tf.float32)
+    
+    # mask unless had presence of all key motifs ABOVE a certain threshold
+    grammar_motif_presence = tf.cast(tf.greater(pwm_thresholds, [0]), tf.float32) #  {1, 1, M, G}
+    grammar_motif_count = tf.reduce_sum(grammar_motif_presence, axis=2) # {1, 1, G}
+    pointwise_presence = tf.cast(tf.greater(
+        tf.multiply(
+            grammar_motif_presence,
+            motifset_features), pwm_thresholds), tf.float32) # {N, 1, M, G}
+    motif_present_counts = tf.reduce_sum(pointwise_presence, axis=2) #  {N, 1, G}
+    score_mask = tf.cast(tf.equal(motif_present_counts, grammar_motif_count), tf.float32) # {N, 1, G}
+
+    config["outputs"]["motifset_total"] = motif_present_counts
+    
+    if config.get("filter_motifset") is not None:
+        # filter
+        condition_mask = tf.greater(
+            tf.reduce_max(score_mask, axis=[1,2]), [0])
+        features, labels, config = filter_through_mask(
+            features, labels, config, condition_mask, use_queue=True, num_threads=1)
+    
+    return features, labels, config
+
+
+def generalized_jaccard_similarity(features, compare_tensor):
+    """Given a batch of features, compare to the tensor and 
+    get back generalized jaccard similarity
+    """
+    # compare tensor: {N, 1, M, G}
+    features = tf.expand_dims(features, axis=3) # {N, 1, M, 1}
+    
+    min_vals = tf.reduce_sum(
+        tf.minimum(features, compare_tensor), axis=2) # {N, 1, G}
+    max_vals = tf.reduce_sum(
+        tf.maximum(features, compare_tensor), axis=2) # {N, 1, G}
+
+    # jaccard
+    similarity = tf.divide(min_vals, max_vals) # {N, 1, G}
+    
+    return similarity
 
 
 # write a single task version, then compile into multitask
 def score_grammars(features, labels, config, is_training=False):
     """load in grammar
     """
+    # features {N, 1, M}
     grammars = config.get("grammars")
     pwms = config.get("pwms")
     assert grammars is not None
@@ -61,19 +181,6 @@ def score_grammars(features, labels, config, is_training=False):
             pairwise_features), axis=[2, 3]) # {N, 1, G}
     features = tf.add(pointwise_scores, pairwise_scores) # {N, 1, G}
 
-    # only give it a score if it had presence of all key motifs
-    grammar_motif_presence = tf.cast(tf.greater(pointwise_weights, [0]), tf.float32) #  {1, 1, M, G}
-    grammar_motif_count = tf.reduce_sum(grammar_motif_presence, axis=2) # {1, 1, G}
-    pointwise_presence = tf.cast(tf.greater(
-        tf.multiply(
-            grammar_motif_presence,
-            pointwise_features), [0]), tf.float32) # {N, 1, M, G}
-    motif_present_counts = tf.reduce_sum(pointwise_presence, axis=2) #  {N, 1, G}
-    score_mask = tf.cast(tf.equal(motif_present_counts, grammar_motif_count), tf.float32) # {N, 1, G}
-    
-    # pass through mask
-    features = tf.multiply(score_mask, features)
-
     # ALSO, take union of motifs and only keep those in motif mat
     # at this stage, append to config and keep separate
     output_maps = {}
@@ -104,12 +211,18 @@ def multitask_score_grammars(features, labels, config, is_training=False):
     assert grammar_sets is not None
     
     # split features by task
-    features = [tf.expand_dims(tensor, axis=1)
-                for tensor in tf.unstack(features, axis=1)] # {N, 1, M}
+    #features = [tf.expand_dims(tensor, axis=1)
+    #            for tensor in tf.unstack(features, axis=1)] # {N, 1, M}
+    features = [features for i in xrange(10)] # {N, 10, M}
+    
     if config.get("keep_pwm_scores_full") is not None:
         position_maps = [tf.expand_dims(tensor, axis=1)
                          for tensor in tf.unstack(
                                  config["outputs"][config["keep_pwm_scores_full"]], axis=1)]
+        position_maps = [
+            tf.expand_dims(config["outputs"][config["keep_pwm_scores_full"]], axis=1)
+            for i in xrange(10)]
+        
     else:
         position_maps = None
     

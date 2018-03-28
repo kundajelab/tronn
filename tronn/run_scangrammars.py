@@ -46,13 +46,9 @@ def run(args):
     for grammar_file in args.grammar_files:
         grammar_sets.append(read_grammar_file(grammar_file, args.pwm_file))
 
-    quit()
-
     # pull in motif annotation
-    pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
     pwm_list = read_pwm_file(args.pwm_file)
     pwm_names = [pwm.name for pwm in pwm_list]
-    pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in pwm_names]
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
     logger.info("{} motifs used".format(len(pwm_list)))
     
@@ -117,7 +113,7 @@ def run(args):
             visualize=visualize,
             scan_grammars=True,
             validate_grammars=validate_grammars,
-            filter_by_prediction=True)
+            filter_by_prediction=False)
 
     # save out text version of score file
     score_mat_file = "{}/{}.grammar-scores.txt".format(args.out_dir, args.prefix)

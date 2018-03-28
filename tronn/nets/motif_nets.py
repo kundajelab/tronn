@@ -163,6 +163,8 @@ def pwm_convolve(features, labels, config, is_training=False):
       projection = a dot b / | b |
     """
     pwm_list = config.get("pwms")
+    # TODO options for running (1) FWD, (2) REV, (3) COMB
+    
     assert pwm_list is not None
         
     # get various sizes needed to instantiate motif matrix

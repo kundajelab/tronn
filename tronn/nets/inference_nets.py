@@ -23,6 +23,8 @@ from tronn.nets.motif_nets import pwm_relu
 from tronn.nets.motif_nets import pwm_match_filtered_convolve
 
 from tronn.nets.grammar_nets import multitask_score_grammars
+from tronn.nets.grammar_nets import score_distance_to_motifspace_point
+from tronn.nets.grammar_nets import check_motifset_presence
 
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_by_importance
@@ -52,10 +54,14 @@ def unstack_tasks(features, labels, config, prefix="features", task_axis=1):
     """Unstack by task (axis=1)
     """
     features = tf.unstack(features, axis=task_axis)
-    #outputs = {}
+    task_indices = config.get("importance_task_indices")
+    new_task_indices = list(task_indices)
+    if len(features) == len(task_indices) + 1:
+        new_task_indices.append("global") # for the situations with a global score
+    assert task_indices is not None
     for i in xrange(len(features)):
-        task_features_key = "{}.taskidx-{}".format(prefix, i)
-        #outputs[task_features_key] = features[i]
+        task_features_key = "{}.taskidx-{}".format(
+            prefix, new_task_indices[i])
         config["outputs"][task_features_key] = features[i]
 
     # and add labels
@@ -74,12 +80,13 @@ def sequence_to_importance_scores(
     method = config.get("importances_fn")
     
     inference_stack = [
-        (multitask_importances, {"backprop": method, "relu": False}), # importances
+        (multitask_importances, {"backprop": method, "relu": False}),
         (filter_by_accuracy, {"acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # needs to have 2bp within a 7bp window.
-        (filter_by_importance, {"cutoff": 10, "positive_only": True}), # TODO - change this to positive cutoff?
-        (normalize_w_probability_weights, {}), # normalize, never use logits (too much range) unless clip it
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+        (normalize_w_probability_weights, {}), 
+        (clip_edges, {"left_clip": 400, "right_clip": 600}),
+        (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
     ]
     
     # set up inference stack
@@ -116,9 +123,9 @@ def sequence_to_motif_scores(
         
     # set up inference stack
     inference_stack = [
-        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}), # double filter: raw seq match and impt weighted seq match
-        (multitask_global_importance, {"append": True, "count_thresh": count_thresh}), # get global (abs val), keep_features = global-pwm-scores
-        (pwm_position_squeeze, {"squeeze_type": "max"}), # get the max across positions {N, motif} # TODO - give an option for counts vs max (homotypic grammars)
+        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
+        (multitask_global_importance, {"append": True, "count_thresh": count_thresh}),
+        (pwm_position_squeeze, {"squeeze_type": "max"}),
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
     ]
 
@@ -149,12 +156,14 @@ def sequence_to_grammar_scores(
     # first go from sequence to motifs
     features, labels, config = sequence_to_motif_scores(
         features, labels, config, is_training=is_training)
+
+    features = tf.expand_dims(config["outputs"]["pwm-scores-raw"], axis=1)
     
     # set up inference stack
     inference_stack = [
-        (remove_global_task, {}),
+        #(remove_global_task, {}),
         (multitask_score_grammars, {}),
-        (multitask_global_importance, {"append": True, "reduce_type": "mean"}), # for now, just average across tasks for final score
+        (multitask_global_importance, {"append": True, "reduce_type": "max"}),
         #(filter_by_grammar_presence, {}) # filter stage, keeps last outputs (N, task+1, G) DO NOT FILTER ALWAYS
     ]
 
@@ -165,15 +174,20 @@ def sequence_to_grammar_scores(
     if config.get("keep_grammar_scores") is not None:
         config = unstack_tasks(features, labels, config, prefix=config["keep_grammar_scores"])
 
+    # TODO do this right later
+    del config["outputs"]["onehot_sequence"]
+
     return features, labels, config
 
 
-def sequence_to_grammar_ism(features, labels, config, is_training=False):
+def sequence_to_motif_ism(features, labels, config, is_training=False):
     """Go from sequence (N, 1, pos, 4) to ism results (N, task, mutation)
     """
     # use sequence_to_grammar_scores above
-    features, labels, config = sequence_to_grammar_scores(
+    features, labels, config = sequence_to_motif_scores(
         features, labels, config, is_training=is_training)
+
+    features = tf.expand_dims(config["outputs"]["pwm-scores-raw"], axis=1)
 
     # set up inference stack
     inference_stack = [
@@ -196,23 +210,30 @@ def sequence_to_delta_deeplift(features, labels, config, is_training=False):
     to extract dependencies at the motif level
     """
     # get grammar scores
-    features, labels, config = sequence_to_grammar_scores(
+    features, labels, config = sequence_to_motif_scores(
         features, labels, config, is_training=is_training)
+
+    features = tf.expand_dims(config["outputs"]["pwm-scores-raw"], axis=1)
 
     # set up inference stack
     inference_stack = [
-        (filter_by_motifset_presence, {}),
-        # TODO - build a mutation function and give back importance scores, subtract
-        # out the reference, return the sequences
-        (sequence_to_motif_scores, {}) # rerun sequence to motif scores
+        (score_distance_to_motifspace_point, {"filter_motifspace": True}),
+        (check_motifset_presence, {"filter_motifset": True}),
+        (generate_mutation_batch, {}),
+        (run_model_on_mutation_batch, {}), 
+        (sequence_to_motif_scores, {}), # reuse! <- this is best but may need to check the reuse arg
+        (dfim, {}) # {N, M, M}
     ]
 
     # build inference stack
     features, labels, config = build_inference_stack(
         features, labels, config, inference_stack)
 
-    if config.get("keep_delta_deeplift_scores") is not None:
+    if True:
+    #if config.get("keep_delta_deeplift_scores") is not None:
         config = unstack_tasks(features, labels, config, prefix="deltadeeplift-results")
+
+    del config["outputs"]["onehot_sequence"]
     
     return features, labels, config
 

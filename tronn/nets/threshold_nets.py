@@ -319,4 +319,8 @@ def clip_edges(features, labels, config, is_training=False):
     right_clip = config.get("right_clip", features.get_shape().as_list()[2])
     features = features[:,:,left_clip:right_clip,:]
 
+    if config["outputs"].get("onehot_sequence") is not None:
+        config["outputs"]["onehot_sequence"] = config[
+            "outputs"]["onehot_sequence"][:,:,left_clip:right_clip,:]
+
     return features, labels, config
