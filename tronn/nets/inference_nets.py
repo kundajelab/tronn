@@ -85,6 +85,7 @@ def sequence_to_importance_scores(
     
     inference_stack = [
         (multitask_importances, {"backprop": method, "relu": False}),
+        #(threshold_shufflenull) # TODO - pass along the shuffle batch size
         (filter_by_accuracy, {"acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
@@ -166,10 +167,8 @@ def sequence_to_grammar_scores(
     
     # set up inference stack
     inference_stack = [
-        #(remove_global_task, {}),
         (multitask_score_grammars, {}),
         (multitask_global_importance, {"append": True, "reduce_type": "max"}),
-        #(filter_by_grammar_presence, {}) # filter stage, keeps last outputs (N, task+1, G) DO NOT FILTER ALWAYS
     ]
 
     # build inference stack
@@ -209,12 +208,11 @@ def sequence_to_motif_ism(features, labels, config, is_training=False):
     features, labels, config = build_inference_stack(
         features, labels, config, inference_stack)
 
-    #if config.get("keep_ism_results") is not None:
-    if True:
-        config = unstack_tasks(features, labels, config, prefix=config["keep_ism_results"])
+    if config.get("keep_ism_scores") is not None:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_ism_scores"])
 
-    print config["outputs"].keys()
-
+    del config["outputs"]["onehot_sequence"]
+    
     quit()
         
     return features, labels, config
@@ -236,11 +234,20 @@ def sequence_to_dmim(features, labels, config, is_training=False):
         (score_distance_to_motifspace_point, {"filter_motifspace": True}),
         (check_motifset_presence, {"filter_motifset": True}),
         (generate_mutation_batch, {}), # note that these use importance weighted position maps
-        (run_model_on_mutation_batch, {}), 
-        (sequence_to_importance_scores, {}), # {N, task, 200, 4}
+        (run_model_on_mutation_batch, {}),
+
+        (multitask_importances, {"backprop": config["importances_fn"], "relu": False}),
         (dfim, {}), # {N, task, 200, 4}
-        (sequence_to_motif_scores, {"use_importances": False}),
-        (remove_global_task, {}),
+        
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+        #(normalize_w_probability_weights, {}), 
+        (clip_edges, {"left_clip": 400, "right_clip": 600}),
+        
+        #(sequence_to_importance_scores, {}), # {N, task, 200, 4}
+
+        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
+        (pwm_position_squeeze, {"squeeze_type": "max"}),
         (motif_dfim, {})
     ]
 
@@ -248,13 +255,10 @@ def sequence_to_dmim(features, labels, config, is_training=False):
     features, labels, config = build_inference_stack(
         features, labels, config, inference_stack)
 
-    if True:
-    #if config.get("keep_delta_deeplift_scores") is not None:
-        config = unstack_tasks(features, labels, config, prefix="deltadeeplift-results")
+    if config.get("keep_dmim_scores") is not None:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_dmim_scores"])
 
     del config["outputs"]["onehot_sequence"]
-
-    quit()
     
     return features, labels, config
 

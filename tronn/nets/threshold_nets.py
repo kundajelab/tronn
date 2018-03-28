@@ -11,6 +11,7 @@ def threshold_shufflenull(features, labels, config, is_training=False):
     assert is_training == False
     shuffle_num = config.get("shuffle_num", 7)
     batch_size = config.get("batch_size")
+    empirical_pval_threshold = config.get("pval_thresh", 0.05)
     assert batch_size is not None
     assert shuffle_num is not None
     assert batch_size % (shuffle_num + 1) == 0
@@ -21,20 +22,41 @@ def threshold_shufflenull(features, labels, config, is_training=False):
     all_task_features = [tf.expand_dims(example, axis=1)
                      for example in tf.unstack(features, axis=1)]
 
+    thresholded_features = []
     for task_features in all_task_features:
         # determine threshold using the shuffles as empirical null
         task_features = [tf.expand_dims(example, axis=0)
                     for example in tf.unstack(task_features, axis=0)]
+        thresholded_task_features = []
         for i in xrange(example_num):
             idx = (shuffle_num + 1) * i
             actual = task_features[idx]
             shuffles = task_features[idx+1:idx+shuffle_num+1]
-
-            # TODO get a distribution on shuffles, get threshold
-
-
+            shuffle_vals = tf.reshape(shuffles, -1)
+            
+            # with the shuffles, determine the value at which you should threshold
+            top_k_vals = tf.nn.top_k(shuffle_vals, k=0.05*shuffle_vals.shape[0])
+            threshold_val = top_k_vals[-1]
+            
             # threshold actual
-        
+            threshold_mask = tf.cast(tf.greater_equal(actual, threshold_val), tf.float32)
+            actual_thresholded = tf.multiply(actual, threshold_mask)
+            thresholded_task_features.append(actual_thresholded)
+
+        thresholded_task_features = tf.concat(thresholded_task_features, axis=0)
+        thresholded_features.append(thresholded_task_features)
+
+    thresholded_features = tf.concat(thresholded_features, axis=1)
+            
+    # need to adjust the config and labels
+    labels = tf.expand_dims(tf.unstack(labels, axis=0)[0], axis=0)
+    for key in config["outputs"].keys():
+        config["outputs"][key] = tf.expand_dims(
+            tf.unstack(config["outputs"][key], axis=0)[0], axis=0)
+    
+    # and then rebatch
+    with tf.variable_scope("shufflenull_threshold_rebatch"): # for the rebatch queue
+        features, labels, config = rebatch(features, labels, config)
         
     return features, labels, config
 

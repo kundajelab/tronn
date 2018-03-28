@@ -1,4 +1,4 @@
-"""contains code for ism nets
+"""contains code for creating batches of mutations and then analyzing them
 """
 
 import numpy as np
@@ -9,7 +9,6 @@ import tensorflow.contrib.slim as slim
 from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
-
 from tronn.nets.filter_nets import rebatch
 
 
@@ -18,7 +17,7 @@ def mutate_motif(features, labels, config, is_training=False):
     """
     positions = config.get("pos")
     filter_width = config.get("filter_width") / 2 # 14 ish
-    filter_width = 5
+    filter_width = 5 # just mess up the very middle piece
     assert positions is not None
     assert filter_width is not None
 

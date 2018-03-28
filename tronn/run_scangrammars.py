@@ -25,6 +25,21 @@ from tronn.interpretation.motifs import setup_pwm_metadata
 from tronn.interpretation.grammars import read_grammar_file
 
 
+def visualize_scores(
+        h5_file,
+        dataset_key):
+    """Visualize clustering. Note that the R script is downsampling
+    to make things visible.
+    """
+    # do this in R
+    plot_example_x_pwm = (
+        "plot.example_x_pwm_mut.from_h5.R {0} {1}").format(
+            h5_file, dataset_key)
+    print plot_example_x_pwm
+    os.system(plot_example_x_pwm)
+    
+    return None
+
 
 def run(args):
     """Scan and score grammars
@@ -115,19 +130,14 @@ def run(args):
             validate_grammars=validate_grammars,
             filter_by_prediction=False)
 
-    # save out text version of score file
-    score_mat_file = "{}/{}.grammar-scores.txt".format(args.out_dir, args.prefix)
-    if not os.path.isfile(score_mat_file):
-        h5_dataset_to_text_file(
-            score_mat_h5,
-            "grammar-scores.taskidx-10",
-            score_mat_file,
-            xrange(len(grammar_sets)),
-            [os.path.basename(grammar_file) for grammar_file in args.grammar_files])
-
-    if visualize:
-        # TODO plot the matrix of scores
-        pass
+    if True:
+        # get back the dataset keys and plot out
+        dataset_keys = ["dmim-scores.taskidx-{}".format(i)
+                        for i in args.inference_tasks]
+        for i in xrange(len(dataset_keys)):
+            visualize_scores(
+                score_mat_h5,
+                dataset_keys[i])
         
     # validation - give a confusion matrix after re-scanning, if metacommunity bed files available?
     # TODO probably just write a separate bit of code to check this

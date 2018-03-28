@@ -229,7 +229,8 @@ class TronnNeuralNetGraph(TronnGraph):
             "keep_pwm_raw_scores": "pwm-scores-raw" if True else None,
             "keep_grammar_scores": "grammar-scores" if True else None, # always used
             "keep_grammar_scores_full": "grammar-scores-full" if True else None, # always used
-            "keep_ism_results": "ism-results" if scan_grammars else None, # adjust this later
+            "keep_ism_scores": "ism-scores" if scan_grammars else None, # adjust this later
+            "keep_dmim_scores": "dmim-scores" if scan_grammars else None, # adjust this later
             "outputs": { # these are all the batch results that must stay with their corresponding example
                 "logits": self.logits,
                 "importance_logits": self.logits,

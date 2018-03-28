@@ -234,8 +234,10 @@ def run(args):
     elif args.backprop == "deeplift":
         data_loader_fn = load_data_with_shuffles_from_filename_list
     else:
-        data_loader_fn = load_data_from_filename_list
-    
+        #data_loader_fn = load_data_from_filename_list
+        # TESTING FOR SHUFFLE NULL
+        data_loader_fn = load_data_with_shuffles_from_filename_list
+        
     # set up graph
     tronn_graph = TronnNeuralNetGraph(
         {'data': data_files},
