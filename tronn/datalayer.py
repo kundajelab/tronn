@@ -427,6 +427,9 @@ def load_data_from_filename_list(
         
     return features, labels, metadata
 
+# TODO: make a function that builds a dataloader function, and allows various options
+# like adding shuffles, etc etc.
+
 
 def load_step_scaled_data_from_filename_list(
         hdf5_files,
@@ -496,38 +499,6 @@ def load_step_scaled_data_from_filename_list(
         name="scaled_data_batcher")
     
     return features, labels, metadata
-
-
-def dinucleotide_shuffle_old(features):
-    """shuffle by dinucleotides
-    this is too slow
-    """
-    # make sure feature shape is {bp, 4}
-    assert features.get_shape().as_list()[1] == 4
-    num_bp = features.get_shape().as_list()[0]
-    
-    # stack dinucleotides to keep them together
-    features = tf.unstack(features, axis=0)
-    paired_features = []
-    for i in xrange(num_bp / 2):
-        idx1 = 2*i
-        idx2 = 2*i+1
-        dinuc = tf.stack([features[idx1], features[idx2]], axis=1) # {4, 2}
-        paired_features.append(dinuc)
-    paired_features = tf.stack(paired_features, axis=0) # {500, 4, 2}
-    
-    # shuffle
-    paired_features_shuffled = tf.random_shuffle(paired_features)
-    paired_features_shuffled = tf.unstack(paired_features_shuffled, axis=0)
-    
-    # unstack dinucleotides
-    unpaired_features = []
-    for i in xrange(num_bp / 2):
-        dinuc = tf.stack(tf.unstack(paired_features_shuffled[i], axis=1), axis=0)
-        unpaired_features.append(dinuc)
-    features = tf.concat(unpaired_features, axis=0)
-    
-    return features
 
 
 def dinucleotide_shuffle(features):

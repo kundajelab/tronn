@@ -35,7 +35,7 @@ def threshold_shufflenull(features, labels, config, is_training=False):
             actual = task_features[idx]
             shuffles = tf.concat(task_features[idx+1:idx+shuffle_num+1], axis=0)
             shuffles = tf.reduce_sum(shuffles, axis=3)
-            shuffle_vals = tf.reshape(shuffles, [-1])
+            shuffle_vals = tf.reshape(tf.abs(shuffles), [-1])
             
             # with the shuffles, determine the value at which you should threshold
             k_val = int(empirical_pval_threshold*shuffle_vals.get_shape().as_list()[0])
@@ -43,7 +43,9 @@ def threshold_shufflenull(features, labels, config, is_training=False):
             threshold_val = top_k_vals[-1]
             
             # threshold actual
-            threshold_mask = tf.cast(tf.greater_equal(actual, threshold_val), tf.float32)
+            threshold_mask = tf.add(
+                tf.cast(tf.greater_equal(actual, threshold_val), tf.float32),
+                tf.cast(tf.less_equal(actual, threshold_val), tf.float32))
             actual_thresholded = tf.multiply(actual, threshold_mask)
             thresholded_task_features.append(actual_thresholded)
             

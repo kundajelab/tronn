@@ -196,7 +196,7 @@ class TronnNeuralNetGraph(TronnGraph):
         # set up config
         if self.importances_tasks is None:
             self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
-
+            
         # set up negatives call (but change this - just filter through queues)
         importance_labels = []
         labels_list = tf.unstack(self.labels, axis=1)

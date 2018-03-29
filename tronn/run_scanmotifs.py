@@ -240,6 +240,9 @@ def run(args):
         print "WARNING USING SHUFFLES"
         
     # set up graph
+    # TODO somewhere here need to pass forward the
+    # shuffles/steps information from dataloader into the graph,
+    # to be stored in the config for inference.
     tronn_graph = TronnNeuralNetGraph(
         {'data': data_files},
         args.tasks,
@@ -299,8 +302,6 @@ def run(args):
         visualize = True
         dataset_keys = ["pwm-scores.taskidx-{}".format(i)
                         for i in args.inference_tasks] # eventually, this is the right one
-        #dataset_keys = ["pwm-scores.taskidx-{}".format(i)
-        #                for i in xrange(len(args.inference_tasks))]
         
         # 1) cluster communities 
         cluster_key = "louvain_clusters" # later, change to pwm-louvain-clusters

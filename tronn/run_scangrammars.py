@@ -46,7 +46,7 @@ def run(args):
     """
     # setup
     logger = logging.getLogger(__name__)
-    logger.info("Running motif scan")
+    logger.info("Running grammar scan")
     if args.tmp_dir is not None:
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
@@ -60,6 +60,8 @@ def run(args):
     grammar_sets = []
     for grammar_file in args.grammar_files:
         grammar_sets.append(read_grammar_file(grammar_file, args.pwm_file))
+
+    assert len(grammar_sets) == 1
 
     # pull in motif annotation
     pwm_list = read_pwm_file(args.pwm_file)
@@ -130,6 +132,10 @@ def run(args):
             validate_grammars=validate_grammars,
             filter_by_prediction=False)
 
+    # save out those that are going in the right direction
+    
+    
+        
     if True:
         # get back the dataset keys and plot out
         dataset_keys = ["dmim-scores.taskidx-{}".format(i)
@@ -138,9 +144,9 @@ def run(args):
             visualize_scores(
                 score_mat_h5,
                 dataset_keys[i])
-        
-    # validation - give a confusion matrix after re-scanning, if metacommunity bed files available?
-    # TODO probably just write a separate bit of code to check this
+
+
+    
     
     
 

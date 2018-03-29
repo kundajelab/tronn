@@ -36,6 +36,7 @@ from tronn.nets.mutate_nets import run_model_on_mutation_batch
 from tronn.nets.mutate_nets import dfim
 from tronn.nets.mutate_nets import motif_dfim
 from tronn.nets.mutate_nets import delta_logits
+from tronn.nets.mutate_nets import filter_mutation_directionality
 
 from tronn.nets.util_nets import remove_global_task
 
@@ -85,7 +86,7 @@ def sequence_to_importance_scores(
     
     inference_stack = [
         (multitask_importances, {"backprop": method, "relu": False}),
-        (threshold_shufflenull, {}),
+        (threshold_shufflenull, {"pval_thresh": 0.05}),
         (filter_by_accuracy, {"acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
         #(threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
@@ -235,11 +236,12 @@ def sequence_to_dmim(features, labels, config, is_training=False):
         (check_motifset_presence, {"filter_motifset": True}),
         (generate_mutation_batch, {}), # note that these use importance weighted position maps
         (run_model_on_mutation_batch, {}),
+        (delta_logits, {"logits_to_features": False}),
 
         (multitask_importances, {"backprop": config["importances_fn"], "relu": False}),
         (dfim, {}), # {N, task, 200, 4}
         
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}), # TODO - some shuffle null here? if so need to generate shuffles
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
         #(normalize_w_probability_weights, {}), 
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
@@ -248,7 +250,8 @@ def sequence_to_dmim(features, labels, config, is_training=False):
 
         (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
         (pwm_position_squeeze, {"squeeze_type": "max"}),
-        (motif_dfim, {})
+        (motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired
+        (filter_mutation_directionality, {})
     ]
 
     # build inference stack

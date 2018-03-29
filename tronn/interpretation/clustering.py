@@ -79,7 +79,7 @@ def refine_clusters(
         h5_file,
         clusters_key,
         out_key,
-        fractional_threshold=0.005):
+        fractional_threshold=0.005): # TODO - adjust this fractional threshold based on number actually clustered
     """Given a clusters dataset, remove small clusters 
     and save out to a new dataset
     """

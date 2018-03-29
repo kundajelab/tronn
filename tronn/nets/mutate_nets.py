@@ -10,6 +10,7 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 from tronn.nets.filter_nets import rebatch
+from tronn.nets.filter_nets import filter_through_mask
 
 
 def mutate_motif(features, labels, config, is_training=False):
@@ -174,6 +175,7 @@ def delta_logits(features, labels, config, is_training=False):
     """
     importance_task_indices = config.get("importance_task_indices")
     logits = config["outputs"].get("importance_logits")
+    logits_to_features = config.get("logits_to_features", True)
     assert importance_task_indices is not None
     assert logits is not None
 
@@ -190,20 +192,29 @@ def delta_logits(features, labels, config, is_training=False):
     
     # get delta from normal and
     # reduce the outputs {1, task, N_mutations}
-    features = tf.expand_dims(
+    # TODO adjust this here so there is the option of saving it to config or setting as features
+    logits_adj = tf.expand_dims(
         tf.transpose(logits, perm=[1, 0]),
         axis=0) # {1, task, mutations}
-
-    # readjust the labels and config
-    labels = tf.expand_dims(tf.unstack(labels, axis=0)[0], axis=0)
-    for key in config["outputs"].keys():
-        config["outputs"][key] = tf.expand_dims(
-            tf.unstack(config["outputs"][key], axis=0)[0], axis=0)
     
-    # put through filter to rebatch
-    config.update({"batch_size": config["old_batch_size"]})
-    with tf.variable_scope("ism_final_rebatch"): # for the rebatch queue
-        features, labels, config = rebatch(features, labels, config)
+    if logits_to_features:
+        features = logits_adj
+
+        # readjust the labels and config
+        labels = tf.expand_dims(tf.unstack(labels, axis=0)[0], axis=0)
+        for key in config["outputs"].keys():
+            config["outputs"][key] = tf.expand_dims(
+                tf.unstack(config["outputs"][key], axis=0)[0], axis=0)
+    
+        # put through filter to rebatch
+        config.update({"batch_size": config["old_batch_size"]})
+        with tf.variable_scope("ism_final_rebatch"): # for the rebatch queue
+            features, labels, config = rebatch(features, labels, config)
+        
+    else:
+        # duplicate the delta logits info to make equal to others
+        config["outputs"]["delta_logits"] = tf.concat(
+            [logits_adj for i in xrange(config["batch_size"])], axis=0)
         
     return features, labels, config
 
@@ -239,5 +250,44 @@ def motif_dfim(features, labels, config, is_training=False):
     return features, labels, config
 
 
+def filter_mutation_directionality(features, labels, config, is_training=False):
+    """When you mutate the max motif, the motif score should
+    drop (even with compensation from another hit) - make sure
+    directionality is preserved
+    """
+    # features {N, task, mutation, motifset}
+    grammar_sets = config.get("grammars")
+    pwm_vector = np.zeros((grammar_sets[0][0].pwm_vector.shape[0]))
+    for i in xrange(len(grammar_sets[0])):
+        pwm_vector += grammar_sets[0][i].pwm_thresholds > 0
+    pwm_indices = np.where(pwm_vector > 0)
+    print pwm_indices
+
+    # number of pwms should match the mutation axis
+    assert pwm_indices[0].shape[0] == features.get_shape().as_list()[2]
+
+    # set up mask
+    directionality_mask = tf.ones((features.get_shape()[0]))
+
+    # for each motif, filter for directionality
+    # TODO check this, might be too rigorous, since needs to pass for ALL tasks
+    for i in xrange(pwm_indices[0].shape[0]):
+        per_task_motif_mask = tf.cast(
+            tf.less_equal(features[:,:,i,pwm_indices[0][i]], [0]),
+            tf.float32) # {N, task}
+        global_motif_mask = tf.reduce_min(per_task_motif_mask, axis=1) # {N}
+        directionality_mask = tf.multiply(
+            directionality_mask,
+            global_motif_mask)
+        
+    # then run the mask through the filter queue
+    condition_mask = tf.greater(directionality_mask, [0])
+
+    # filter
+    with tf.variable_scope("mutation_directionality_filter"):
+        features, labels, config = filter_through_mask(
+            features, labels, config, condition_mask, num_threads=1)
+        
+    return features, labels, config
 
 
