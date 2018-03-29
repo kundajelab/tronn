@@ -568,6 +568,7 @@ def load_data_with_shuffles_from_filename_list(
     """
     # for now assert a certain batch size since
     # downstream processing will assume a certain shape
+    # TODO factor this out
     assert batch_size == 64
 
     shuffles = 7

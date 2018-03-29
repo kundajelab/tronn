@@ -85,9 +85,9 @@ def sequence_to_importance_scores(
     
     inference_stack = [
         (multitask_importances, {"backprop": method, "relu": False}),
-        #(threshold_shufflenull) # TODO - pass along the shuffle batch size
+        (threshold_shufflenull, {}),
         (filter_by_accuracy, {"acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        #(threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
         (normalize_w_probability_weights, {}), 
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
@@ -264,6 +264,8 @@ def sequence_to_dmim(features, labels, config, is_training=False):
 
 
 # TODO another function to take outputs from either dmim or motif_ism
+# for both dmim and motif_ism, the first easy filter is to make sure that the scores are impacted
+# in the correct direction. so filter for those.
 # and filter and then output sequences in original ACGT format
 
 # TODO - somewhere (datalayer?) build module for generating synthetic sequences

@@ -194,9 +194,9 @@ def multitask_importances(features, labels, config, is_training=False):
             config["outputs"][key] = tf.expand_dims(
                 tf.unstack(config["outputs"][key], axis=0)[-1], axis=0)
         #features, labels, config = rebatch(features, labels, config)
-    elif backprop == "deeplift":
+    #elif backprop == "deeplift":
         # TODO - actually remove shuffles later, make dependent on shuffle null and data input loader
-        features, labels, config = remove_shuffles(features, labels, config)
+        #features, labels, config = remove_shuffles(features, labels, config)
         #features, labels, config = rebatch(features, labels, config)
         
     return features, labels, config

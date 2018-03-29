@@ -237,6 +237,7 @@ def run(args):
         #data_loader_fn = load_data_from_filename_list
         # TESTING FOR SHUFFLE NULL
         data_loader_fn = load_data_with_shuffles_from_filename_list
+        print "WARNING USING SHUFFLES"
         
     # set up graph
     tronn_graph = TronnNeuralNetGraph(
