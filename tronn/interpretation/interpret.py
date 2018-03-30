@@ -206,9 +206,6 @@ def interpret(
                     
                     logits = region_arrays["logits"][0:12]
 
-                    import ipdb
-                    ipdb.set_trace()
-
                     try:
                         num_pos_impt_bps = region_arrays["positive_importance_bp_sum"]
                     except:
@@ -235,14 +232,14 @@ def interpret(
                     if (sample_size is not None) and (total_examples >= sample_size):
                         break
 
-            #except tf.errors.OutOfRangeError:
-            except Exception as e:
-                print e
+            except tf.errors.OutOfRangeError:
+            #except Exception as e:
+                #print e
                 print "Done reading data"
                 # add in last of the examples
 
             finally:
-                time.sleep(60)
+                #time.sleep(60)
                 h5_handler.flush()
                 h5_handler.chomp_datasets()
 

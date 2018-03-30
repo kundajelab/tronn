@@ -132,9 +132,18 @@ def run(args):
             validate_grammars=validate_grammars,
             filter_by_prediction=False)
 
-    # save out those that are going in the right direction
-    
-    
+    # save out extra details: motif vectors
+    #with h5py.File(score_mat_h5, "a") as hf:
+    #    hf.create_dataset("motif_vectors")
+
+        
+    # visualize the grammar
+    # output individual task plots
+
+
+    # output the timeseries summary
+
+        
         
     if True:
         # get back the dataset keys and plot out

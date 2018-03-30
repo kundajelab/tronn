@@ -15,7 +15,7 @@ dataset_key <- args[2]
 #h5ls(h5_file)
 
 # read in data
-data <- h5read(h5_file, dataset_key, read.attributes=TRUE)[,1,]
+data <- h5read(h5_file, dataset_key, read.attributes=TRUE)[,2,]
 pwm_data <- h5read(h5_file, "pwm-scores.taskidx-0", read.attributes=TRUE)
 rownames(data) <- attr(data, "pwm_names") # TODO figure out how to make this a default setting
 
@@ -23,6 +23,7 @@ rownames(data) <- attr(data, "pwm_names") # TODO figure out how to make this a d
 data <- t(data)
 pwm_data <- t(pwm_data)
 print(dim(data))
+print(dim(pwm_data))
 
 # normalize
 rowmax <- apply(pwm_data, 1, function(x) max(x))
@@ -62,7 +63,7 @@ heatmap_file <- paste(
     paste(
         sub(".h5", "", h5_file),
         dataset_key,
-        "0", sep="-"), # to match 0-START from python
+        "1", sep="-"), # to match 0-START from python
     "pdf", sep=".")
 pdf(heatmap_file, height=18, width=20)
 heatmap.2(

@@ -245,12 +245,11 @@ def sequence_to_dmim(features, labels, config, is_training=False):
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
         #(normalize_w_probability_weights, {}), 
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
-        
-        #(sequence_to_importance_scores, {}), # {N, task, 200, 4}
 
         (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
         (pwm_position_squeeze, {"squeeze_type": "max"}),
         (motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired
+        # TODO normalize by probability here?
         (filter_mutation_directionality, {})
     ]
 
@@ -265,11 +264,6 @@ def sequence_to_dmim(features, labels, config, is_training=False):
     
     return features, labels, config
 
-
-# TODO another function to take outputs from either dmim or motif_ism
-# for both dmim and motif_ism, the first easy filter is to make sure that the scores are impacted
-# in the correct direction. so filter for those.
-# and filter and then output sequences in original ACGT format
 
 # TODO - somewhere (datalayer?) build module for generating synthetic sequences
 
