@@ -4,23 +4,398 @@
 # NOTE: rhdf5 transposes axes!
 
 library(rhdf5)
-library(gplots)
+library(ggplot2)
+library(reshape)
 library(RColorBrewer)
+library(scales)
+
+# helper functions
+se <- function(x) sd(x) / sqrt(length(x))
+
+
+#h5ls(h5_file)
 
 # args
 args <- commandArgs(trailingOnly=TRUE)
 h5_file <- args[1]
-dataset_key <- args[2]
+logits_key <- args[2]
+pwm_scores_key <- args[3]
+logits_mut_key <- args[4]
+pwm_scores_mut_key <- args[5]
+mutation_names_key <- args[6]
+task_indices <- as.numeric(args[7:length(args)])
 
-# args: logits, pwm-scores, delta logits, dmim scores, mutation names
-# more args: task indices
+
+get_pwm_scores_melted_mean_and_se <- function(pwm_data, axes, col_names, row_names, horiz_facet, x_shift) {
+    # calculate the mean and se of dataset
+    # melt the data and return
+    #pwm_data <- aperm(pwm_data, c(3, 2, 1))
+
+    # row normalize?
+    
+    # get means
+    means <- apply(pwm_data, axes, mean)
+    means <- t(data.frame(
+        motifs=means,
+        row.names=col_names))
+    rownames(means) <- row_names
+    
+    # get standard errors
+    standard_errors <- apply(pwm_data, axes, se)
+    standard_errors <- t(data.frame(
+        motifs=standard_errors,
+        row.names=col_names))
+    rownames(standard_errors) <- row_names
+
+    # melt
+    means_melted <- melt(means)
+    colnames(means_melted) <- c("target", "response", "mean")
+    means_melted$id <- paste(means_melted$target, means_melted$response, sep="_to_")
+    
+    se_melted <- melt(standard_errors)
+    colnames(se_melted) <- c("target", "response", "se")
+    se_melted$id <- paste(se_melted$target, se_melted$response, sep="_to_")
+    se_melted$target <- NULL
+    se_melted$response <- NULL
+    
+    # and merge
+    summary_melted <- merge(means_melted, se_melted, by="id")
+
+    # add in extra id info (for facet_grid)
+    summary_melted$horiz_facet <- rep(horiz_facet, nrow(summary_melted))
+
+    # also pass out an ordering
+    ordering_vals <- order(colSums(means))
+    map <- setNames(
+        1:ncol(means)+x_shift,
+        colnames(means)[ordering_vals])
+    
+    return(list(data_melted=summary_melted, ordering=map))
+    
+}
+
+get_logits_melted_mean_and_se <- function(logits_data, axes, col_names, row_names, horiz_facet) {
+    # calculate the mean and se for logit data
+    # melt and return
+
+    # get means
+    means <- apply(logits_data, axes, mean)
+    means <- t(data.frame(
+        logits=means,
+        row.names=row_names))
+    rownames(means) <- col_names
+    
+    # get standard errors
+    standard_errors <- apply(logits_data, axes, se)
+    standard_errors <- t(data.frame(
+        logits=standard_errors,
+        row.names=row_names))
+    rownames(standard_errors) <- col_names
+
+    # melt
+    means_melted <- melt(means)
+    colnames(means_melted) <- c("response", "target", "mean")
+    means_melted$id <- paste(means_melted$target, means_melted$response, sep="_to_")
+    
+    se_melted <- melt(standard_errors)
+    colnames(se_melted) <- c("response", "target", "se")
+    se_melted$id <- paste(se_melted$target, se_melted$response, sep="_to_")
+    se_melted$target <- NULL
+    se_melted$response <- NULL
+    
+    # and merge
+    summary_melted <- merge(means_melted, se_melted, by="id")
+
+    # add in extra id info (for facet_grid)
+    summary_melted$horiz_facet <- rep(horiz_facet, nrow(summary_melted))
+    
+    return(summary_melted)
+    
+}
+
+
+ggplot_single_state_map <- function(data_melted, col_names, out_file) {
+    # ggplot the map
+    p <- ggplot(data_melted, aes(x=response_ordered, y=mean)) +
+        facet_grid(target ~ horiz_facet, scales="free", space="free_x", switch="y") +
+            
+        geom_col( # bar plot for original motif scores
+            data=subset(data_melted, horiz_facet=="pwms" & target=="original"),
+            aes(y=mean, fill=-mean)) +
+        geom_point( # point plot for mutation effects
+            data=subset(data_melted, horiz_facet=="pwms" & target!="original"),
+            aes(y=mean, color=mean, size=-mean)) +
+        geom_errorbar( # and SE bars
+            data=subset(data_melted, horiz_facet=="pwms"),
+            aes(ymin=mean-2*se, ymax=mean+2*se, color=mean), width=0.05) +
+        geom_point( # set up logit spread
+            data=subset(data_melted, horiz_facet=="logits"),
+            alpha=0.00,
+            aes(x=-5, y=0, color=0)) + #x=10*delta, y=0
+        geom_point( # set up logit spread
+            data=subset(data_melted, horiz_facet=="logits"),
+            alpha=0.00,
+            aes(x=5, y=0, color=0)) + #x=10*delta, y=0
+        geom_point(
+            data=subset(data_melted, horiz_facet=="logits"),
+            aes(y=0)) + #x=10*delta, y=0
+        geom_segment(
+            data=subset(data_melted, horiz_facet=="logits"),
+            aes(x=0, y=0, xend=response_ordered, yend=0)) + #x=10*delta, y=0
+            
+        scale_y_continuous(position="right") +
+        scale_fill_gradient(high="white", low="steelblue") +
+
+        theme_bw() +
+        scale_x_continuous(
+            breaks=c(seq(-5, 5, length.out=9), 1:length(col_names)+10),
+            labels=c(seq(-5, 5, length.out=9), col_names),
+            expand=c(0,0)) +
+        theme(
+            panel.grid.major.x=element_blank(),
+            panel.grid.minor=element_blank(),
+            axis.text.x=element_text(size=5, angle=60, hjust=1),
+            axis.text.y=element_text(size=5),
+            legend.text=element_text(size=5),
+            legend.key.size=unit(0.5, "line"),
+            legend.spacing=unit(0.5, "line"),
+            strip.background=element_blank())
+     
+    ggsave(out_file, height=4, width=16)
+
+}
+
+
+ggplot_summary_map <- function(data_melted, col_names, out_file) {
+    # ggplot the map
+
+    # adjust columns to get different scales for plotting
+    #data_melted$logit_val <- data_melted$mean
+    #data_melted$logit_val[data_melted$horiz_facet!="logits"] <- 0
+    #data_melted$pwm_orig_val <- data_melted$mean
+    #data_melted$pwm_orig_val[data_melted$horiz_facet=="pwms" & data_melted$target=="original"] <- 0
+
+    # plot
+    p <- ggplot(data_melted, aes(x=response_ordered, y=task)) +
+        facet_grid(target ~ horiz_facet, scales="free", space="free_x") +
+
+        #geom_tile(colour="white") +
+        geom_tile(
+            data=subset(data_melted, horiz_facet=="logits"),
+            #aes(size=mean, colour="red")) +
+            aes(fill=mean),
+            colour="white") +
+        geom_tile(
+            data=subset(data_melted, horiz_facet=="pwms" & target=="original"),
+            #aes(size=-mean, fill=-mean)) +
+            aes(fill=-mean)) +
+            #colour="white") +
+        geom_point(
+            data=subset(data_melted, horiz_facet=="pwms" & target!="original"),
+            #aes(size=-mean, fill=mean, colour=mean)) +
+            aes(colour=mean)) +
+            #colour="white") +
+
+        #scale_fill_gradient2(low="steelblue", mid="white", high="red", midpoint=0) +
+        scale_colour_gradient(low="steelblue", high="white") +    
+        scale_fill_gradientn(
+            colours=c("steelblue", "white", "red"),
+            limits=c(-0.0005, 3),
+            values=rescale(c(-0.0005, 0, 3))) +
+
+        theme_bw() +
+        scale_x_continuous(
+            breaks=c(0, 1:length(col_names)+10),
+            labels=c("logits", col_names),
+            expand=c(0,0)) +
+        theme(
+            panel.grid.major=element_blank(),
+            panel.grid.minor=element_blank(),
+            axis.text.x=element_text(size=5, angle=60, hjust=1),
+            axis.text.y=element_text(size=5),
+            legend.text=element_text(size=5),
+            legend.key.size=unit(0.5, "line"),
+            legend.spacing=unit(0.5, "line"),
+            strip.background=element_blank())
+    
+    ggsave(out_file, height=4, width=16)
+
+}
+
+
+# set up function to plot individual cell state maps
+# returns the melted data - easy to append to final total sum
+# i is the ADJUSTED index (1-start)
+plot_single_state_map <- function(args, i, out_file, ordering_map) {
+    
+    # params
+    x_shift <- 10
+    
+    # set up keys
+    task_indices <- as.numeric(args[7:length(args)])
+    task_idx <- task_indices[i]
+    h5_file <- args[1]
+    logits_key <- args[2]
+    pwm_scores_key <- paste(args[3], ".taskidx-", task_idx, sep="")
+    logits_mut_key <- args[4]
+    pwm_scores_mut_key <- paste(args[5], ".taskidx-", task_idx, sep="")
+    mutation_names_key <- args[6]
+    
+    # pull out appropriate datasets
+    logits <- h5read(h5_file, logits_key)[task_idx+1,,drop=FALSE]
+    pwm_scores <- h5read(h5_file, pwm_scores_key, read.attributes=TRUE)
+    logits_mut <- h5read(h5_file, logits_mut_key)[,i,]
+    pwm_scores_mut <- h5read(h5_file, pwm_scores_mut_key, read.attributes=TRUE)
+    mut_names <- c("SMAD3", "TFAP2B") # TODO replace this with correct key
+
+    # adjust dims
+    dim(pwm_scores) <- c(dim(pwm_scores)[1], 1, dim(pwm_scores)[2])
+
+    # TODO fix this later
+    col_names <- attr(pwm_scores, "pwm_names")
+    
+    # get means/standard error for weighted pwm scores
+    results <- get_pwm_scores_melted_mean_and_se(
+        pwm_scores,
+        c(1, 2),
+        col_names,
+        c("original"),
+        "pwms",
+        x_shift)
+    pwm_scores_melted <- results$data_melted
+    #ordering_map <- results$ordering
+
+    # get means/standard error for mutated pwm scores
+    results <- get_pwm_scores_melted_mean_and_se(
+        pwm_scores_mut,
+        c(1, 2),
+        col_names,
+        mut_names,
+        "pwms",
+        x_shift)
+    pwm_scores_mut_melted <- results$data_melted
+    if (is.null(ordering_map)) {
+        ordering_map <- results$ordering
+    }
+        
+    # get means/standard error for logits
+    logits_melted <- get_logits_melted_mean_and_se(
+        logits,
+        c(1),
+        c("logits"),
+        c("original"),
+        "logits")
+    
+    # get means/standard error for mutated logits
+    logits_mut_melted <- get_logits_melted_mean_and_se(
+        logits_mut,
+        c(1),
+        c("logits"),
+        mut_names,
+        "logits")
+    
+    # first rbind the pwms together and set up ordering
+    pwm_all_melted <- rbind(
+        pwm_scores_melted,
+        pwm_scores_mut_melted)
+    pwm_all_melted$response_ordered <- ordering_map[as.character(pwm_all_melted$response)]
+    
+    # and rbind the logits, adjust the deltas
+    logits_all_melted <- rbind(
+        logits_melted,
+        logits_mut_melted)
+    logits_all_melted$response_ordered <- logits_all_melted$mean
+    logits_all_melted$response_ordered[logits_all_melted$target != "original"] <- logits_all_melted$mean[logits_all_melted$target != "original"] +
+        logits_all_melted$mean[logits_all_melted$target == "original"]
+    logits_all_melted$mean[logits_all_melted$target != "original"] <- logits_all_melted$mean[logits_all_melted$target != "original"] +
+        logits_all_melted$mean[logits_all_melted$target == "original"]
+    
+    # then rbind all together
+    task_all_melted <- rbind(
+        pwm_all_melted,
+        logits_all_melted)
+
+    # adjust factors as needed
+    task_all_melted$target <- factor(
+        task_all_melted$target,
+        levels=c("original", "TFAP2B", "SMAD3"))
+
+    # and plot
+    ordered_col_names <- names(sort(ordering_map[col_names]))
+    ggplot_single_state_map(task_all_melted, ordered_col_names, out_file)
+
+    # and return the data with an ordering
+    return(list(data_melted=task_all_melted, ordering_map=ordering_map, ordered_col_names=ordered_col_names))
+
+}
+
+
+for (i in 1:length(task_indices)) {
+    
+    print(task_indices[i])
+    
+    # plot single state map
+    out_plot <- paste("testing.taskidx-", task_indices[i], ".pdf", sep="")
+    
+    # add to larger melted data with extra timepoint column
+    if (i == 1) {
+        results <- plot_single_state_map(args, i, out_plot, NULL)
+        task_all_melted <- results$data_melted
+        task_all_melted$task <- rep(task_indices[i], nrow(task_all_melted))
+
+        data_all_melted <- task_all_melted
+        ordering_map <- results$ordering_map
+        ordered_col_names <- results$ordered_col_names
+    } else {
+        results <- plot_single_state_map(args, i, out_plot, ordering_map)
+        task_all_melted <- results$data_melted
+        task_all_melted$task <- rep(task_indices[i], nrow(task_all_melted))
+        
+        data_all_melted <- rbind(data_all_melted, task_all_melted)
+    }
+    
+}
+
+# adjust the ordering appropriately
+data_all_melted$response_ordered <- ordering_map[as.character(data_all_melted$response)]
+data_all_melted$response_ordered[data_all_melted$response == "logits"] <- 0
+data_all_melted$response <- factor(data_all_melted$response, levels=c("logits", ordered_col_names), ordered=TRUE)
+
+# adjust tasks to drop missing tasks
+data_all_melted$task <- factor(data_all_melted$task, levels=rev(sort(unique(data_all_melted$task))))
+
+# and plot full summary state map
+ggplot_summary_map(data_all_melted, ordered_col_names, "testing.global_summ.pdf")
+
+
+quit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 mut_names <- c("SMAD3", "TFAP2B")
 
-#h5ls(h5_file)
 
-se <- function(x) sd(x) / sqrt(length(x))
+
+
 
 
 

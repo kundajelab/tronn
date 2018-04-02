@@ -131,7 +131,11 @@ def run(args):
             scan_grammars=True,
             validate_grammars=validate_grammars,
             filter_by_prediction=False)
-
+        
+    # TODO need to save PWM names with the mutation dataset in hdf5
+        
+    # TODO need to save out the mutation names
+        
     # save out extra details: motif vectors
     #with h5py.File(score_mat_h5, "a") as hf:
     #    hf.create_dataset("motif_vectors")
