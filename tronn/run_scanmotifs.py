@@ -35,6 +35,7 @@ from tronn.interpretation.motifs import reduce_pwm_redundancy
 
 from tronn.interpretation.clustering import cluster_by_task
 from tronn.interpretation.clustering import enumerate_metaclusters
+from tronn.interpretation.clustering import generate_simple_metaclusters
 from tronn.interpretation.clustering import refine_clusters
 from tronn.interpretation.clustering import visualize_clusters
 
@@ -234,10 +235,10 @@ def run(args):
     elif args.backprop == "deeplift":
         data_loader_fn = load_data_with_shuffles_from_filename_list
     else:
-        #data_loader_fn = load_data_from_filename_list
+        data_loader_fn = load_data_from_filename_list
         # TESTING FOR SHUFFLE NULL
-        data_loader_fn = load_data_with_shuffles_from_filename_list
-        print "WARNING USING SHUFFLES"
+        #data_loader_fn = load_data_with_shuffles_from_filename_list
+        #print "WARNING USING SHUFFLES"
         
     # set up graph
     # TODO somewhere here need to pass forward the
@@ -317,6 +318,7 @@ def run(args):
         # refine - remove small clusters
         refined_cluster_key = "task-clusters-refined"
         if refined_cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+        #if True:
             refine_clusters(pwm_scores_h5, cluster_key, refined_cluster_key)
             if visualize:
                 for i in xrange(len(dataset_keys)):
@@ -333,15 +335,23 @@ def run(args):
             pass
     
         # 3) enumerate metaclusters. dont visualize here because you must refine first
+        # HERE - need to figure out a better way to metacluster.
+        # enumeration is losing things that are dynamic
         metacluster_key = "metaclusters"
         if metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
-            enumerate_metaclusters(pwm_scores_h5, cluster_key, metacluster_key)
+        #if True:
+            generate_simple_metaclusters(pwm_scores_h5, dataset_keys, metacluster_key)
+        
+        #if metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+        #if True:
+        #    enumerate_metaclusters(pwm_scores_h5, cluster_key, metacluster_key)
 
         # refine - remove small clusters
         # TODO - put out BED files - write a separate function to pull BED from cluster set
         refined_metacluster_key = "metaclusters-refined"
         if refined_metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
-            refine_clusters(pwm_scores_h5, metacluster_key, refined_metacluster_key)
+        #if True:
+            refine_clusters(pwm_scores_h5, metacluster_key, refined_metacluster_key, null_cluster_present=False)
             if visualize:
                 for i in xrange(len(dataset_keys)):
                     visualize_clusters(
@@ -349,28 +359,6 @@ def run(args):
                         dataset_keys[i],
                         refined_metacluster_key, 0,
                         remove_final_cluster=1)
-
-        # For each metacluster, build a regression model
-        # use lasso AFTER reducing motif redundancy. Should aim to have 3-6 motifs left.
-        # then improve the lasso by adding in the pairwise dependencies.
-        # then adjust the coefficients by considering fold change score over raw score, again using lasso
-        # this is the grammar output.
-        #print "here"
-        #regression_motifs_key = "regression-motifs"
-        #regression_clusters_key = "regression-model-clusters"
-        #build_lasso_regression_models(
-        #    pwm_scores_h5,
-        #    dataset_keys,
-        #    refined_metacluster_key,
-        #    regression_clusters_key,
-        #    regression_motifs_key,
-        #    pwm_list, pwm_dict)
-
-        #quit()
-                    
-        # 4) to consider - run a group lasso linear regression model to induce sparsity. Motifs get
-        # selected based on high scores.
-
 
         # 4) extract the constrained motif set for each metacommunity, for each task
         # new pwm vectors for each dataset..

@@ -530,11 +530,11 @@ def reduce_pwms(data, pwm_list, pwm_dict):
     # with the strongest signal
     pwm_vector = reduce_pwms_by_signal_similarity(
         data, pwm_list, pwm_dict)
-
+    
     # set a cutoff - assume Gaussian noise, this controls
     # false positive rate
     pwm_vector = sd_cutoff(data, pwm_vector)
-
+    
     # ignore long pwms
     if True:
         current_indices = np.where(pwm_vector > 0)[0].tolist()
@@ -585,10 +585,11 @@ def distill_to_linear_models(
         metaclusters = list(set(hf[cluster_key][:,0].tolist()))
         max_id = max(metaclusters)
         metaclusters.remove(max_id)
+        print metaclusters
         
         # for each metacluster, for each dataset, get matrix
         for i in xrange(len(metaclusters)):
-        #for i in xrange(10, len(metaclusters)):
+        #for i in xrange(0, len(metaclusters)):
             metacluster_id = metaclusters[i]
             print"metacluster:", metacluster_id
 
@@ -610,12 +611,17 @@ def distill_to_linear_models(
                 cluster_raw_scores = raw_scores[
                     np.where(cluster_labels)[0],:]
                 print "total examples used:", cluster_weighted_scores.shape
-
+                
                 # row normalize
+                max_vals = np.max(cluster_weighted_scores, axis=1, keepdims=True)
                 cluster_weighted_scores = np.divide(
                     cluster_weighted_scores,
-                    np.max(cluster_weighted_scores, axis=1, keepdims=True))
-
+                    max_vals,
+                    out=np.zeros_like(cluster_weighted_scores),
+                    where=max_vals!=0)
+                cluster_weighted_scores = cluster_weighted_scores[np.max(cluster_weighted_scores, axis=1) >0]
+                print "after remove zeroes:", cluster_weighted_scores.shape
+                
                 # keep mean vectors and weights
                 mean_score_vector = np.mean(cluster_raw_scores, axis=0)
                 mean_weighted_score_vector = np.mean(cluster_weighted_scores, axis=0)
@@ -631,7 +637,7 @@ def distill_to_linear_models(
                     mean_weighted_score_vector,
                     weighted_raw_scores,
                     cluster_labels,
-                    recall_thresh=0.68) # FDR instead?
+                    recall_thresh=0.40) # 0.68
                 print np.sum(threshold_filter)
                 passing_filter = threshold_filter # passing filter is only on jaccard and pwm thresholds
                 
@@ -704,8 +710,6 @@ def distill_to_linear_models(
                     motifspace_dict[pwm_list[pwm_idx].name] = (
                         mean_weighted_score_vector[pwm_idx], mean_weights[pwm_idx])
 
-                import ipdb
-                ipdb.set_trace()
                     
                 node_dict = {}
                 edge_dict = {}
@@ -797,8 +801,6 @@ def distill_to_linear_models(
 
                 test.to_csv("testing.txt", sep="\t")
 
-            import ipdb
-            ipdb.set_trace()
             if visualize:
                 # network plots?
 

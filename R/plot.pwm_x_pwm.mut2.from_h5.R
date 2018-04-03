@@ -264,7 +264,7 @@ plot_single_state_map <- function(args, i, out_file, ordering_map) {
     if (is.null(ordering_map)) {
         ordering_map <- results$ordering
     }
-        
+    
     # get means/standard error for logits
     logits_melted <- get_logits_melted_mean_and_se(
         logits,
@@ -305,7 +305,7 @@ plot_single_state_map <- function(args, i, out_file, ordering_map) {
     # adjust factors as needed
     task_all_melted$target <- factor(
         task_all_melted$target,
-        levels=c("original", "TFAP2B", "SMAD3"))
+        levels=c("original", mut_names))
 
     # and plot
     ordered_col_names <- names(sort(ordering_map[col_names]))

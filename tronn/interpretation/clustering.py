@@ -43,6 +43,37 @@ def cluster_by_task(
     return None
 
 
+def generate_simple_metaclusters(
+        h5_file, dataset_keys, out_key, num_threads=24):
+    """Given datasets, bind them together to 
+    make a giant matrix, cluster, and save out cluster info
+    """
+    with h5py.File(h5_file, "a") as hf:
+        num_examples = hf["example_metadata"].shape[0]
+        
+        # set up out cluster
+        clusters_hf = hf.create_dataset(
+            out_key, (num_examples, 1), dtype=int)
+        
+        # extract all the data and merge together
+        for i in xrange(len(dataset_keys)):
+            dataset_tmp = pd.DataFrame(hf[dataset_keys[i]][:])
+            
+            if i == 0:
+                dataset = dataset_tmp
+            else:
+                dataset = pd.concat([
+                    dataset.reset_index(drop=True),
+                    dataset_tmp], axis=1)
+                
+        # cluster with louvain
+        communities, graph, Q = phenograph.cluster(
+            dataset, n_jobs=num_threads)
+        clusters_hf[:,0] = communities
+    
+    return None
+
+
 def enumerate_metaclusters(
         h5_file,
         h5_clusters_key,
@@ -54,8 +85,6 @@ def enumerate_metaclusters(
     with h5py.File(h5_file, "a") as hf:
         num_examples = hf["example_metadata"].shape[0]
 
-        #del hf[out_key]
-        
         # generate a new dataset that is {N, 1}
         metaclusters_hf = hf.create_dataset(
             out_key, (num_examples, 1), dtype="S100")
@@ -79,7 +108,8 @@ def refine_clusters(
         h5_file,
         clusters_key,
         out_key,
-        fractional_threshold=0.005): # TODO - adjust this fractional threshold based on number actually clustered
+        null_cluster_present=False,
+        fractional_threshold=0.01): # TODO - adjust this fractional threshold based on number actually clustered
     """Given a clusters dataset, remove small clusters 
     and save out to a new dataset
     """
@@ -87,27 +117,40 @@ def refine_clusters(
         num_examples = hf["example_metadata"].shape[0]
 
         # generate a new dataset that is {N, 1}
+        del hf[out_key]
         refined_clusters_hf = hf.create_dataset(
             out_key, hf[clusters_key].shape, dtype=int)
         
         # then for each column, refine
         for i in xrange(hf[clusters_key].shape[1]):
             clusters = hf[clusters_key][:,i]
-            new_idx = len(list(set(clusters.tolist())))
+            new_idx = len(list(set(clusters.tolist()))) # this is the null cluster
             
             new_clusters = np.zeros(clusters.shape)
             counts = Counter(clusters.tolist())
-
+            print counts.most_common(10)
+            
+            # adjust denominator for fractional threshold based on if
+            # null cluster exists
+            if null_cluster_present:
+                clusters_uniq = list(set(clusters.tolist()))
+                max_id = max(clusters_uniq)
+                denominator = clusters[clusters != max_id].shape[0]
+                print "here"
+            else:
+                denominator = num_examples
+                
             # for each cluster, check size and change as necessary
             cluster_ids = counts.most_common()
             for j in xrange(len(cluster_ids)):
                 cluster_id, count = cluster_ids[j]
-                if float(count) / num_examples < fractional_threshold:
+                if float(count) / denominator < fractional_threshold:
                     # replace cluster id with new index
                     new_clusters[clusters==cluster_id] = new_idx
                 else:
+                    # keep as current cluster
                     new_clusters[clusters==cluster_id] = j
-
+                    
             # back check
             print "reduced num clusters:", len(list(set(new_clusters.tolist())))
             print set(new_clusters.tolist())
