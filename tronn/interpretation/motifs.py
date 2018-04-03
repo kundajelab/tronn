@@ -637,7 +637,7 @@ def distill_to_linear_models(
                     mean_weighted_score_vector,
                     weighted_raw_scores,
                     cluster_labels,
-                    recall_thresh=0.40) # 0.68
+                    recall_thresh=0.68) # 0.4?
                 print np.sum(threshold_filter)
                 passing_filter = threshold_filter # passing filter is only on jaccard and pwm thresholds
                 

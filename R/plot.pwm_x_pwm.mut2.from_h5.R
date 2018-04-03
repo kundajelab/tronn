@@ -27,12 +27,19 @@ out_prefix <- args[7]
 task_indices <- as.numeric(args[8:length(args)])
 
 
-get_pwm_scores_melted_mean_and_se <- function(pwm_data, axes, col_names, row_names, horiz_facet, x_shift) {
+get_pwm_scores_melted_mean_and_se <- function(pwm_data, axes, col_names, row_names, horiz_facet, x_shift, normalize) {
     # calculate the mean and se of dataset
     # melt the data and return
     #pwm_data <- aperm(pwm_data, c(3, 2, 1))
 
-    # row normalize?
+    # row normalize
+    if (normalize) {
+        rowmax_vals <- apply(pwm_data, 3, max)
+        pwm_data <- sweep(pwm_data, 3, rowmax_vals, "/")
+        pwm_data[is.nan(pwm_data)] <- 0
+    } else {
+        pwm_data <- pwm_data
+    }
     
     # get means
     means <- apply(pwm_data, axes, mean)
@@ -169,6 +176,9 @@ ggplot_single_state_map <- function(data_melted, col_names, out_file) {
 
 ggplot_summary_map <- function(data_melted, col_names, out_file) {
     # ggplot the map
+    fill_max <- max(abs(data_melted$mean))
+    fill_min <- min(min(-abs(data_melted$mean)), -1.1)
+    
     p <- ggplot(data_melted, aes(x=response_ordered, y=task)) +
         facet_grid(target ~ horiz_facet, scales="free", space="free_x") +
 
@@ -178,7 +188,11 @@ ggplot_summary_map <- function(data_melted, col_names, out_file) {
             colour="white") +
         geom_tile(
             data=subset(data_melted, horiz_facet=="pwms" & target=="original"),
-            aes(fill=-mean)) +
+            aes(fill=-mean),
+            colour="white") +
+        #geom_point(
+        #    data=subset(data_melted, horiz_facet=="pwms" & target=="original"),
+        #    aes(size=-mean)) +
         geom_point(
             data=subset(data_melted, horiz_facet=="pwms" & target!="original"),
             aes(colour=mean)) +
@@ -186,9 +200,9 @@ ggplot_summary_map <- function(data_melted, col_names, out_file) {
         #scale_fill_gradient2(low="steelblue", mid="white", high="red", midpoint=0) +
         scale_colour_gradient(low="steelblue", high="white") +    
         scale_fill_gradientn(
-            colours=c("steelblue", "white", "red"),
-            limits=c(-0.0005, 3),
-            values=rescale(c(-0.0005, 0, 3))) +
+            colours=c("steelblue3", "steelblue2", "white", "red"),
+            limits=c(fill_min, fill_max),
+            values=rescale(c(fill_min, -0.5, 0, fill_max))) +
 
         theme_bw() +
         scale_x_continuous(
@@ -205,7 +219,7 @@ ggplot_summary_map <- function(data_melted, col_names, out_file) {
             legend.spacing=unit(0.5, "line"),
             strip.background=element_blank())
     
-    ggsave(out_file, height=4, width=16)
+    ggsave(out_file, height=1*length(levels(data_melted$target)), width=16)
 
 }
 
@@ -248,7 +262,8 @@ plot_single_state_map <- function(args, i, out_file, ordering_map) {
         col_names,
         c("original"),
         "pwms",
-        x_shift)
+        x_shift,
+        TRUE)
     pwm_scores_melted <- results$data_melted
     #ordering_map <- results$ordering
 
@@ -259,7 +274,8 @@ plot_single_state_map <- function(args, i, out_file, ordering_map) {
         col_names,
         mut_names,
         "pwms",
-        x_shift)
+        x_shift,
+        FALSE)
     pwm_scores_mut_melted <- results$data_melted
     if (is.null(ordering_map)) {
         ordering_map <- results$ordering
