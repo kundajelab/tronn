@@ -117,6 +117,7 @@ def run(args):
     score_mat_h5 = '{0}/{1}.grammar-scores.h5'.format(
         args.tmp_dir, args.prefix)
     if not os.path.isfile(score_mat_h5):
+        # run interpret
         interpret(
             tronn_graph,
             checkpoint_path,
@@ -131,25 +132,36 @@ def run(args):
             scan_grammars=True,
             validate_grammars=validate_grammars,
             filter_by_prediction=False)
-        
-    # TODO need to save PWM names with the mutation dataset in hdf5
-        
-    # TODO need to save out the mutation names
-        
-    # save out extra details: motif vectors
-    #with h5py.File(score_mat_h5, "a") as hf:
-    #    hf.create_dataset("motif_vectors")
 
-        
-    # visualize the grammar
-    # output individual task plots
+        # save PWM names with the mutation dataset in hdf5
+        with h5py.File(score_mat_h5, "a") as hf:
 
+            # get motifs from grammar
+            motifs = []
+            for grammar in grammar_sets[0]:
+                motifs += np.where(grammar.pwm_thresholds > 0)[0].tolist()
+            pwm_indices = sorted(list(set(motifs)))
 
-    # output the timeseries summary
+            # get names
+            pwm_names = [pwm_list[i].name.split(".")[0].split("_")[1] for i in pwm_indices]
 
+            # attach to delta logits and mutated scores
+            hf["delta_logits"].attrs["pwm_mut_names"] = pwm_names
+            for task_idx in args.inference_tasks:
+                hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
+
+    # and plot stuff out
+    plot_summary = (
+        "plot.pwm_x_pwm.mut2.from_h5.R {0} "
+        "logits pwm-scores delta_logits dmim-scores pwm_mut_names {1}/{2} {3}").format(
+            score_mat_h5,
+            args.out_dir,
+            grammar_sets[0][0].name.split(".")[0],
+            " ".join([str(i) for i in args.inference_tasks]))
+    print plot_summary
+    os.system(plot_summary)
         
-        
-    if True:
+    if False:
         # get back the dataset keys and plot out
         dataset_keys = ["dmim-scores.taskidx-{}".format(i)
                         for i in args.inference_tasks]
@@ -158,12 +170,7 @@ def run(args):
                 score_mat_h5,
                 dataset_keys[i])
 
-
-    
-    
-    
-
-    # give an option here to optimize thresholds and save into new grammar files
+    # give an option here to optimize thresholds and save into new grammar files?
     
 
     if args.validate:

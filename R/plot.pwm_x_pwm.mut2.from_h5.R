@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 
-# description: plot region x pwm from hdf5 file
+# description: plot summary of grammar and mutagenesis
 # NOTE: rhdf5 transposes axes!
 
 library(rhdf5)
@@ -23,7 +23,8 @@ pwm_scores_key <- args[3]
 logits_mut_key <- args[4]
 pwm_scores_mut_key <- args[5]
 mutation_names_key <- args[6]
-task_indices <- as.numeric(args[7:length(args)])
+out_prefix <- args[7]
+task_indices <- as.numeric(args[8:length(args)])
 
 
 get_pwm_scores_melted_mean_and_se <- function(pwm_data, axes, col_names, row_names, horiz_facet, x_shift) {
@@ -168,33 +169,19 @@ ggplot_single_state_map <- function(data_melted, col_names, out_file) {
 
 ggplot_summary_map <- function(data_melted, col_names, out_file) {
     # ggplot the map
-
-    # adjust columns to get different scales for plotting
-    #data_melted$logit_val <- data_melted$mean
-    #data_melted$logit_val[data_melted$horiz_facet!="logits"] <- 0
-    #data_melted$pwm_orig_val <- data_melted$mean
-    #data_melted$pwm_orig_val[data_melted$horiz_facet=="pwms" & data_melted$target=="original"] <- 0
-
-    # plot
     p <- ggplot(data_melted, aes(x=response_ordered, y=task)) +
         facet_grid(target ~ horiz_facet, scales="free", space="free_x") +
 
-        #geom_tile(colour="white") +
         geom_tile(
             data=subset(data_melted, horiz_facet=="logits"),
-            #aes(size=mean, colour="red")) +
             aes(fill=mean),
             colour="white") +
         geom_tile(
             data=subset(data_melted, horiz_facet=="pwms" & target=="original"),
-            #aes(size=-mean, fill=-mean)) +
             aes(fill=-mean)) +
-            #colour="white") +
         geom_point(
             data=subset(data_melted, horiz_facet=="pwms" & target!="original"),
-            #aes(size=-mean, fill=mean, colour=mean)) +
             aes(colour=mean)) +
-            #colour="white") +
 
         #scale_fill_gradient2(low="steelblue", mid="white", high="red", midpoint=0) +
         scale_colour_gradient(low="steelblue", high="white") +    
@@ -232,7 +219,7 @@ plot_single_state_map <- function(args, i, out_file, ordering_map) {
     x_shift <- 10
     
     # set up keys
-    task_indices <- as.numeric(args[7:length(args)])
+    task_indices <- as.numeric(args[8:length(args)])
     task_idx <- task_indices[i]
     h5_file <- args[1]
     logits_key <- args[2]
@@ -246,12 +233,12 @@ plot_single_state_map <- function(args, i, out_file, ordering_map) {
     pwm_scores <- h5read(h5_file, pwm_scores_key, read.attributes=TRUE)
     logits_mut <- h5read(h5_file, logits_mut_key)[,i,]
     pwm_scores_mut <- h5read(h5_file, pwm_scores_mut_key, read.attributes=TRUE)
-    mut_names <- c("SMAD3", "TFAP2B") # TODO replace this with correct key
+    mut_names <- attr(pwm_scores_mut, "pwm_mut_names")
 
     # adjust dims
     dim(pwm_scores) <- c(dim(pwm_scores)[1], 1, dim(pwm_scores)[2])
 
-    # TODO fix this later
+    # TODO fix this later?
     col_names <- attr(pwm_scores, "pwm_names")
     
     # get means/standard error for weighted pwm scores
@@ -335,7 +322,7 @@ for (i in 1:length(task_indices)) {
     print(task_indices[i])
     
     # plot single state map
-    out_plot <- paste("testing.taskidx-", task_indices[i], ".pdf", sep="")
+    out_plot <- paste(out_prefix, ".taskidx-", task_indices[i], ".pdf", sep="")
     
     # add to larger melted data with extra timepoint column
     if (i == 1) {
@@ -365,7 +352,8 @@ data_all_melted$response <- factor(data_all_melted$response, levels=c("logits", 
 data_all_melted$task <- factor(data_all_melted$task, levels=rev(sort(unique(data_all_melted$task))))
 
 # and plot full summary state map
-ggplot_summary_map(data_all_melted, ordered_col_names, "testing.global_summ.pdf")
+summary_plot_file <- paste(out_prefix, ".summary.pdf", sep="")
+ggplot_summary_map(data_all_melted, ordered_col_names, summary_plot_file)
 
 
 quit()
