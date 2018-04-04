@@ -169,7 +169,7 @@ ggplot_single_state_map <- function(data_melted, col_names, out_file) {
             legend.spacing=unit(0.5, "line"),
             strip.background=element_blank())
      
-    ggsave(out_file, height=4, width=16)
+    ggsave(out_file, height=1*length(levels(data_melted$target)), width=16)
 
 }
 
