@@ -24,12 +24,20 @@ def input_x_grad(features, labels, config, is_training=False):
     use_relu = config.get("relu", False)
     
     anchor = config.get("anchor")
-    [feature_grad] = tf.gradients(anchor, [features])
+    if config.get("grad_ys") is None:
+        [feature_grad] = tf.gradients(anchor, [features])
+    else:
+        print config["grad_ys"]
+        [feature_grad] = tf.gradients(anchor, [features], grad_ys=config["grad_ys"])
     features = tf.multiply(features, feature_grad, 'input_x_grad')
 
     if use_relu:
         features = tf.nn.relu(features)
 
+    # keep gradients if you'd like them
+    if config.get("keep_gradients") is not None:
+        config["outputs"][config["keep_gradients"]] = feature_grad
+   
     return features, labels, config
 
 
@@ -179,12 +187,19 @@ def multitask_importances(features, labels, config, is_training=False):
 
     # get task specific importances
     task_importances = []
-    for anchor_idx in task_indices:
+    task_gradients = []
+    for i in xrange(len(task_indices)):
+        anchor_idx = task_indices[i]
         config["anchor"] = anchors[anchor_idx]
-        task_importance, _, _ = importances_fn(
+        if config.get("keep_gradients") is not None:
+            config["grad_ys"] = config["all_grad_ys"][i]
+        task_importance, _, task_config = importances_fn(
             features, labels, config)
         task_importances.append(task_importance)
 
+        if config.get("keep_gradients") is not None:
+            task_gradients.append(task_config["outputs"][config["keep_gradients"]])
+        
     features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
     
     # adjust labels and configs as needed here
@@ -198,6 +213,11 @@ def multitask_importances(features, labels, config, is_training=False):
         # TODO - actually remove shuffles later, make dependent on shuffle null and data input loader
         #features, labels, config = remove_shuffles(features, labels, config)
         #features, labels, config = rebatch(features, labels, config)
+
+    # for now just merge gradients and attach to the config
+    if config.get("keep_gradients") is not None:
+        config["outputs"][config["keep_gradients"]] = tf.reduce_mean(
+            tf.concat(task_gradients, axis=1), axis=1, keep_dims=True) # {N, 1, 1000, 4}
         
     return features, labels, config
 

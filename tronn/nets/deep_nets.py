@@ -609,6 +609,7 @@ def tfslim_inception(features, labels, config, is_training=True):
     
     return logits
 
+
 def tfslim_resnet(features, labels, config, is_training=True):
     """Wrapper around resnet
     """
@@ -620,4 +621,24 @@ def tfslim_resnet(features, labels, config, is_training=True):
 
     logits = tf.squeeze(logits, [1, 2])
     
+    return logits
+
+
+def ensemble(features, labels, config, is_training=True):
+    """Given a list of models, instantiate each under an index
+    need to instantiate each under an index to be able to 
+    load the correct checkpoint to each model
+    """
+    models = config.get("models")
+
+    all_logits = []
+    for i in xrange(len(models)):
+        with tf.variable_scope("model_{}".format(i)):
+            model_logits = models[i](features, labels, config, is_training=is_training)
+            all_logits.append(model_logits)
+
+    # TODO may want to put in a function to load an MLP on top of the ensemble?
+    logits = tf.reduce_mean(
+        tf.stack(all_logits, axis=1), axis=1)
+
     return logits

@@ -11,6 +11,7 @@ from tronn.nets.deep_nets import tfslim_resnet
 from tronn.nets.deep_nets import empty_net
 
 from tronn.nets.inference_nets import sequence_to_importance_scores
+from tronn.nets.inference_nets import sequence_to_importance_scores_unfiltered
 from tronn.nets.inference_nets import sequence_to_motif_scores
 from tronn.nets.inference_nets import sequence_to_grammar_scores
 from tronn.nets.inference_nets import sequence_to_motif_ism
@@ -26,6 +27,7 @@ net_fns = {
     "resnet": tfslim_resnet,
     "empty_net": empty_net,
     "sequence_to_importance_scores": sequence_to_importance_scores,
+    "sequence_to_importance_scores_unfiltered": sequence_to_importance_scores_unfiltered,
     "sequence_to_motif_scores": sequence_to_motif_scores,
     "sequence_to_grammar_scores": sequence_to_grammar_scores,
     "sequence_to_motif_ism": sequence_to_motif_ism,

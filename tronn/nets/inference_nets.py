@@ -75,6 +75,35 @@ def unstack_tasks(features, labels, config, prefix="features", task_axis=1):
     return config
 
 
+
+def sequence_to_importance_scores_unfiltered(
+        features,
+        labels,
+        config,
+        is_training=False):
+    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
+    """
+    method = config.get("importances_fn")
+    
+    inference_stack = [
+        (multitask_importances, {"backprop": method, "relu": False}),
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (clip_edges, {"left_clip": 400, "right_clip": 600}),
+    ]
+    
+    # set up inference stack
+    features, labels, config = build_inference_stack(
+        features, labels, config, inference_stack)
+
+    # unstack
+    if config.get("keep_importances") is not None:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_importances"])
+        
+    return features, labels, config
+
+
+
+
 def sequence_to_importance_scores(
         features,
         labels,
@@ -263,7 +292,4 @@ def sequence_to_dmim(features, labels, config, is_training=False):
     del config["outputs"]["onehot_sequence"]
     
     return features, labels, config
-
-
-# TODO - somewhere (datalayer?) build module for generating synthetic sequences
 

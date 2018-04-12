@@ -222,6 +222,8 @@ class TronnNeuralNetGraph(TronnGraph):
             "importance_task_indices": self.importances_tasks,
             "importances_fn": inference_params.get("importances_fn"),
             "keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
+            "keep_gradients": "gradients" if inference_params.get("dream") is not None else None,
+            "all_grad_ys": inference_params.get("dream_pattern"),
             "keep_importances": "importances" if validate_grammars else None,
             "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
             "keep_global_pwm_scores": "global-pwm-scores" if validate_grammars else None,

@@ -42,6 +42,9 @@ def parse_args():
 
     # command for ISM tuning
     add_ism_parser(subparsers)
+
+    # command for activation maximization
+    add_dream_parser(subparsers)
     
     # TODO:    
     # modisco
@@ -660,6 +663,67 @@ def add_ism_parser(subparsers):
     return
 
 
+def add_dream_parser(subparsers):
+    """activation maximization
+    """
+    # dreaming starts from a list of given starting points
+    # as such, if you want to start from a specific endogenous
+    # sequence that you've selected, you'll want to run grammars
+    # etc and then choose the best, and input the sequences to dream.
+
+    # constraints for dreaming:
+    # match a specific logit pattern
+
+    # params:
+    # edit distance allowed - how far can you vary?
+    # maybe allow adjusting 1-2 motifs? so 20bp max?
+    
+    cmd_argparser = subparsers.add_parser(
+        "dream",
+        help="use activation maximization to generate novel synthetic sequences")
+
+    # for input files, allow a (fasta format) sequence file
+    # this means you can iterate through each sequence
+    # if not given, start from random input
+    group_input = cmd_argparser.add_argument_group(
+    	"Input files and folders")
+    group_input.add_argument(
+        "--inference_tasks", nargs="+", required=True, type=int,
+        help="tasks to interpret on")
+    group_input.add_argument(
+        "--sequence_file",
+        help="sequence file of starting points with activation patterns")
+    
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model definition")
+    add_trained_nn_model_options(group_model)
+    group_model.add_argument(
+        "--inference_fn", help="inference stack")
+    group_model.add_argument(
+        "--backprop", help="what method to use for interpretation")
+
+    # group for parameters
+    group_params = cmd_argparser.add_argument_group(
+        "dream hyperparameters")
+    group_params.add_argument(
+        "--max_iter", default=20,
+        type=int, help="number of iterations for dreaming")
+    group_params.add_argument(
+        "--edit_dist", default=1000,
+        type=int, help="edit distance from start position allowed")
+
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="dream")
+    group_output.add_argument(
+        "--plot", action="store_true",
+        help="show development of sequence across time")
+
+    return 
+
+
 
 def add_getmotifs_parser(subparsers):
     """
@@ -913,13 +977,13 @@ def main():
     	add_model_params(args)
     	from tronn.run_ism import run
     	run(args)
-    #elif subcommand == "findgrammars":
-    #    add_model_params(args)
-    #    from tronn.run_findgrammars import run
-    #    run(args)
     elif subcommand == "scangrammars":
         add_model_params(args)
         from tronn.run_scangrammars import run
+        run(args)
+    elif subcommand == "dream":
+        add_model_params(args)
+        from tronn.run_dream import run
         run(args)
     elif subcommand == "getmotifs": # sorta defunct but keep to do HOMER style differential motifs
         add_model_params(args)

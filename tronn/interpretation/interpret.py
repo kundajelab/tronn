@@ -169,6 +169,7 @@ def interpret(
                     
         # restore from checkpoint as needed
         if model_checkpoint is not None:
+            # TODO - create an restore_variables_ensemble_op
             init_assign_op, init_feed_dict = restore_variables_op(
                 model_checkpoint, skip=["pwm"])
             sess.run(init_assign_op, init_feed_dict)

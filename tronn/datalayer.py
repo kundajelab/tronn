@@ -95,6 +95,38 @@ def make_bed_from_h5(h5_file, bed_file):
                 out.write('{0}\t{1}\t{2}\n'.format(chrom, start, stop))
 
 
+def load_data_from_feed_dict(
+        input_dict,
+        batch_size,
+        task_indices=[],
+        features_key='features',
+        shuffle=False,
+        shuffle_seed=0,
+        ordered_num_epochs=1,
+        fake_task_num=0,
+        filter_tasks=[]):
+    """Load from a feed dict
+    """
+    assert input_dict["features:0"] is not None
+    assert input_dict["labels:0"] is not None
+    assert input_dict["metadata:0"] is not None
+    
+    features = tf.placeholder(
+        tf.float32,
+        shape=[batch_size]+list(input_dict["features:0"].shape[1:]),
+        name="features")
+    labels = tf.placeholder(
+        tf.float32,
+        shape=[batch_size]+list(input_dict["labels:0"].shape[1:]),
+        name="labels")
+    metadata = tf.placeholder(
+        tf.string,
+        shape=[batch_size]+list(input_dict["metadata:0"].shape[1:]),
+        name="metadata")
+    
+    return features, labels, metadata
+
+
 def hdf5_to_slices(
         h5_handle,
         task_indices,
