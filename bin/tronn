@@ -91,7 +91,10 @@ def add_model_params(args):
     model_config = {}
     model_config['name'] = args.model[0]
     for model_arg in args.model[1:]:
-        if '=' in model_arg:
+        if "models" in model_arg:
+            name, models = model_arg.split("=", 1)
+            model_config[name] = models
+        elif '=' in model_arg:
             name, value = model_arg.split('=', 1)
             model_config[name] = eval(value)
         else:
@@ -275,6 +278,9 @@ def add_trained_nn_model_options(parser, required=True):
         help='restore from last checkpoint')
     parser.add_argument(
         "--model_checkpoint", default=None,
+        help="restore from specific checkpoint")
+    parser.add_argument(
+        "--model_checkpoints", default=[], nargs="+",
         help="restore from specific checkpoint")
     
     return

@@ -9,6 +9,7 @@ from tronn.nets.deep_nets import resnet
 from tronn.nets.deep_nets import tfslim_inception
 from tronn.nets.deep_nets import tfslim_resnet
 from tronn.nets.deep_nets import empty_net
+from tronn.nets.deep_nets import ensemble
 
 from tronn.nets.inference_nets import sequence_to_importance_scores
 from tronn.nets.inference_nets import sequence_to_importance_scores_unfiltered
@@ -26,6 +27,7 @@ net_fns = {
     "inception": tfslim_inception,
     "resnet": tfslim_resnet,
     "empty_net": empty_net,
+    "ensemble": ensemble,
     "sequence_to_importance_scores": sequence_to_importance_scores,
     "sequence_to_importance_scores_unfiltered": sequence_to_importance_scores_unfiltered,
     "sequence_to_motif_scores": sequence_to_motif_scores,

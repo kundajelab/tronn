@@ -629,8 +629,14 @@ def ensemble(features, labels, config, is_training=True):
     need to instantiate each under an index to be able to 
     load the correct checkpoint to each model
     """
-    models = config.get("models")
+    from tronn.nets.nets import net_fns
 
+    # get the models
+    models = config.get("models")
+    models = [net_fns[model_name]
+              for model_name in models.split(",")]
+
+    # set up each model
     all_logits = []
     for i in xrange(len(models)):
         with tf.variable_scope("model_{}".format(i)):
