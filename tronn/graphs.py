@@ -83,11 +83,12 @@ class TronnGraph(object):
         return out
 
 
-    def build_restore_graph_function(self, is_ensemble=False, skip=[]):
+    def build_restore_graph_function(self, is_ensemble=False, skip=[], scope_change=None):
         """build the restore function
         """
         if is_ensemble: # this is really determined by there being more than 1 ckpt - can use as test?
             def restore_function(sess):
+                # TODO adjust this function to be like below
                 # for ensemble, just need to adjust scoping
                 for i in xrange(len(self.checkpoints)):
                     new_scope = "model_{}/".format(i)
@@ -99,23 +100,23 @@ class TronnGraph(object):
                         scope_change=["", new_scope])
                     sess.run(init_assign_op, init_feed_dict)
         else:
-            def restore_function(sess):
-                print self.checkpoints
-                if len(self.checkpoints) > 0:
-                    init_assign_op, init_feed_dict = restore_variables_op(
-                        self.checkpoints[0], skip=skip)
+            print self.checkpoints
+            if len(self.checkpoints) > 0:
+                init_assign_op, init_feed_dict = restore_variables_op(
+                    self.checkpoints[0], skip=skip, scope_change=scope_change)
+                def restore_function(sess):
                     sess.run(init_assign_op, init_feed_dict)
-                else:
-                    print "WARNING NO CHECKPOINTS USED"
+            else:
+                print "WARNING NO CHECKPOINTS USED"
                 
         return restore_function
 
     
-    def restore_graph(self, sess, is_ensemble=False, skip=[]):
+    def restore_graph(self, sess, is_ensemble=False, skip=[], scope_change=None):
         """restore saved model from checkpoint into sess
         """
         restore_function = self.build_restore_graph_function(
-            is_ensemble=is_ensemble, skip=skip)
+            is_ensemble=is_ensemble, skip=skip, scope_change=scope_change)
         restore_function(sess)
         
         return None

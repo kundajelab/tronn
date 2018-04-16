@@ -109,7 +109,8 @@ def run(args):
         #class_weighted_loss=True,
         optimizer_fn=tf.train.RMSPropOptimizer,
         optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
-        metrics_fn=get_global_avg_metrics)
+        metrics_fn=get_global_avg_metrics,
+        checkpoints=[transfer_model_checkpoint])
 
     # make finetune training and training mutually exclusive for now
     if len(args.finetune_tasks) == 0:

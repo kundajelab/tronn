@@ -64,24 +64,29 @@ def train(
 
         # Generate an initial assign op if restoring/transferring
         if restore_model_checkpoint is not None:
-            init_assign_op, init_feed_dict = restore_variables_op(
-                restore_model_checkpoint)
-            def restoreFn(sess):
-                sess.run(init_assign_op, init_feed_dict)
+            restore_fn = tronn_graph.build_restore_graph_function()
+            #init_assign_op, init_feed_dict = restore_variables_op(
+            #    restore_model_checkpoint)
+            #def restoreFn(sess):
+            #    sess.run(init_assign_op, init_feed_dict)
         elif transfer_model_checkpoint is not None:
-            init_assign_op, init_feed_dict = restore_variables_op(
-                transfer_model_checkpoint, skip=['logit','out'])
-            def restoreFn(sess):
-                sess.run(init_assign_op, init_feed_dict)
+            restore_fn = tronn_graph.build_restore_graph_function(
+                skip=["logit", "out"],
+                scope_change=["", "basset/"]) # TODO this should be factored out eventually
+            #init_assign_op, init_feed_dict = restore_variables_op(
+            #    transfer_model_checkpoint, skip=['logit','out'])
+            #def restore_fn(sess):
+            #    sess.run(init_assign_op, init_feed_dict)
         else:
-            restoreFn = None
+            restore_fn = None
+            #restoreFn = None
 
         # tf-slim to train
         slim.learning.train(
             train_op,
             out_dir,
-            init_fn=restoreFn,
-            number_of_steps=stop_step,
+            init_fn=restore_fn,
+            number_of_steps=stop_step, # TODO - change this?
             log_every_n_steps=1000,
             summary_op=summary_op,
             save_summaries_secs=60,
