@@ -12,6 +12,7 @@ from tronn.datalayer import H5DataLoader
 
 from tronn.nets.nets import net_fns
 from tronn.graphs import TronnNeuralNetGraph
+from tronn.graphs import TronnGraphV2
 
 from tronn.learn.cross_validation import setup_cv
 from tronn.learn.learning import train_and_evaluate
@@ -60,10 +61,10 @@ def run(args):
     logging.info('Finding data: found {} chrom files'.format(len(data_files)))
     train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
-    # TODO init dataloader here (and set up dataflow in graph)
-    dataloader = H5DataLoader({"train":train_files, "valid": valid_files})
-
-
+    # set up dataloader
+    dataloader = H5DataLoader(
+        {"train":train_files, "valid": valid_files},
+        tasks=args.tasks)
     
     # Get number of train and validation steps
     # TODO - this can be moved to metrics now
@@ -78,21 +79,25 @@ def run(args):
     
     # extract checkpoint paths
     restore_model_checkpoint = None
+    checkpoints = []
     if args.restore_model_dir is not None:
         restore_model_checkpoint = tf.train.latest_checkpoint(args.restore_model_dir)
+        checkpoints.append(restore_model_checkpoint)
     if args.restore_model_checkpoint is not None:
         restore_model_checkpoint = args.restore_model_checkpoint
-
+        checkpoints.append(restore_model_checkpoint)
+        
     transfer_model_checkpoint = None
     if args.transfer_model_dir is not None:
         transfer_model_checkpoint = tf.train.latest_checkpoint(args.transfer_model_dir)
+        checkpoints.append(transfer_model_checkpoint)
     if args.transfer_model_checkpoint is not None:
         transfer_model_checkpoint = args.transfer_model_checkpoint
-
+        checkpoints.append(transfer_model_checkpoint)
+        
     assert not ((restore_model_checkpoint is not None)
                 and (transfer_model_checkpoint is not None))
-    
-    # Set up neural net graph
+
     tronn_graph = TronnNeuralNetGraph(
         {"train": train_files, "valid": valid_files}, # TODO move from graph
         args.tasks,
@@ -110,8 +115,24 @@ def run(args):
         optimizer_fn=tf.train.RMSPropOptimizer,
         optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
         metrics_fn=get_global_avg_metrics,
-        checkpoints=[transfer_model_checkpoint])
+        checkpoints=checkpoints)
 
+    
+    # Set up neural net graph
+    tronn_graph = TronnGraphV2(
+        dataloader,
+        net_fns[args.model['name']], # model
+        args.model, # model params
+        args.batch_size,
+        args.tasks,
+        final_activation_fn=tf.nn.sigmoid,
+        loss_fn=tf.losses.sigmoid_cross_entropy,
+        optimizer_fn=tf.train.RMSPropOptimizer,
+        optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
+        metrics_fn=get_global_avg_metrics,
+        checkpoints=checkpoints)
+
+    
     # make finetune training and training mutually exclusive for now
     if len(args.finetune_tasks) == 0:
         # Train and evaluate for some number of epochs

@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 
 
-def get_global_avg_metrics(labels, probabilities, tasks=[]):
+def get_global_avg_metrics(labels, probabilities):
     """Get global metric values: predictions, mean metric values
     Note that the inputs must be tensors!
     """

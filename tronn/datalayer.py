@@ -813,6 +813,7 @@ class DataLoader(object):
 
     def __init__(
             self,
+            tasks=[],
             filter_tasks=[],
             shuffle_examples=True,
             epochs=1,
@@ -821,6 +822,7 @@ class DataLoader(object):
             num_scaled_inputs=0):
         """set up dataloader
         """
+        self.tasks = tasks
         self.filter_tasks = filter_tasks
         self.shuffle_examples = shuffle_examples
         self.epochs = epochs
@@ -885,7 +887,7 @@ class H5DataLoader(DataLoader):
         inputs = load_data_from_filename_list(
             self.data_files[data_key],
             batch_size,
-            task_indices=[], # maybe deprecate this?
+            task_indices=self.tasks, # maybe deprecate this?
             features_key='features',
             shuffle=self.shuffle_examples,
             shuffle_seed=0,

@@ -48,7 +48,8 @@ def train(
     with tf.Graph().as_default():
 
         # build graph
-        train_op = tronn_graph.build_training_graph(data_key="train")
+        outputs, params = tronn_graph.build_training_dataflow(data_key="train")
+        train_op = params["train_op"]
         
         # summaries
         metric_values = tronn_graph.metric_values
@@ -70,6 +71,7 @@ def train(
             #def restoreFn(sess):
             #    sess.run(init_assign_op, init_feed_dict)
         elif transfer_model_checkpoint is not None:
+            print transfer_model_checkpoint
             restore_fn = tronn_graph.build_restore_graph_function(
                 skip=["logit", "out"],
                 scope_change=["", "basset/"]) # TODO this should be factored out eventually
@@ -86,7 +88,7 @@ def train(
             train_op,
             out_dir,
             init_fn=restore_fn,
-            number_of_steps=stop_step, # TODO - change this?
+            number_of_steps=None, #stop_step, # TODO - change this?
             log_every_n_steps=1000,
             summary_op=summary_op,
             save_summaries_secs=60,
@@ -229,7 +231,8 @@ def train_and_evaluate(
             transfer_model_checkpoint = None
             restore_model_checkpoint = tf.train.latest_checkpoint(
                 "{}/train".format(out_dir))
-
+            tronn_graph.checkpoints = [restore_model_checkpoint]
+            
         # if a log file does not exist, you're freshly in the folder! instantiate and set init_steps
         if not os.path.isfile(step_log):
             if transfer_model_checkpoint is not None:

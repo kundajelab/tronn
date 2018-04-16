@@ -342,7 +342,7 @@ def basset_conv_module(features, is_training=True, width_factor=1):
     return net
 
 
-def basset(features, labels, config, is_training=True, variable_scope="basset"):
+def basset_old(features, labels, config, is_training=True, variable_scope="basset"):
     """Basset - Kelley et al Genome Research 2016
     """
     config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
@@ -390,6 +390,73 @@ def basset(features, labels, config, is_training=True, variable_scope="basset"):
         maxnorm(norm_val=7)
 
     return logits
+
+
+def basset(inputs, params):
+    """Basset - Kelley et al Genome Research 2016
+    """
+    # set up the needed inputs
+    assert inputs.get("features") is not None
+    features_key = params["features_key"]
+    logits_key = params["logits_key"]
+    labels_key = params["labels_key"]
+    features = inputs[features_key]
+    labels = inputs[labels_key]
+    is_training = params.get("is_training", False)
+    
+    # get params
+    params['width_factor'] = params.get('width_factor', 1) # extra config to widen model (NOT deepen)
+    params["recurrent"] = params.get("recurrent", False)
+    params['temporal'] = params.get('temporal', False)
+    params['final_pool'] = params.get('final_pool', 'flatten')
+    params['fc_layers'] = params.get('fc_layers', 2)
+    params['fc_dim'] = params.get('fc_dim', int(params['width_factor']*1000))
+    params['drop'] = params.get('drop', 0.3)
+    params["logit_drop"] = params.get("logit_drop", 0.0)
+    params["split_before"] = params.get("split_before", None)
+    
+    # set up model
+    with tf.variable_scope("basset"):
+        # convolutional layers
+        net = basset_conv_module(
+            features,
+            is_training,
+            width_factor=params['width_factor'])
+
+        # recurrent layers (if any)
+        if params["recurrent"]:
+            net = lstm_module(net, is_training)
+        else:
+            net = final_pool(net, params['final_pool'])
+
+        # mlp to logits
+        if params['temporal']:
+            logits = temporal_pred_module(
+                net,
+                int(labels.get_shape()[-1]),
+                share_logistic_weights=True,
+                is_training=is_training)
+        else:
+            logits = mlp_module_v2(
+                net, 
+                num_tasks = int(labels.get_shape()[-1]), 
+                fc_dim = params['fc_dim'], 
+                fc_layers = params['fc_layers'],
+                dropout=params['drop'],
+                logit_dropout=params["logit_drop"],
+                split_before=params["split_before"],
+                is_training=is_training)
+
+        # Torch7 style maxnorm
+        maxnorm(norm_val=7)
+
+    # store outputs
+    outputs = inputs
+    outputs[features_key] = net # store last shared hidden layer
+    outputs[logits_key] = logits # store logits
+    
+    return outputs, params
+
 
 
 def deepsea_conv_module(features, is_training, l2_weight=0.0000005):

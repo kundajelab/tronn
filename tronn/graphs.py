@@ -120,7 +120,7 @@ class TronnGraph(object):
         restore_function(sess)
         
         return None
-    
+
     
     
 class TronnNeuralNetGraph(TronnGraph):
@@ -394,4 +394,305 @@ class TronnNeuralNetGraph(TronnGraph):
     
 
     
+class TronnGraphV2(object):
+    """Builds out a general purpose TRONN model graph"""
+
+    def __init__(self,
+                 data_loader,
+                 model_fn,
+                 model_params,
+                 batch_size,
+                 final_activation_fn=tf.nn.sigmoid,
+                 loss_fn=tf.losses.sigmoid_cross_entropy,
+                 optimizer_fn=tf.train.RMSPropOptimizer,
+                 optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
+                 metrics_fn=None,
+                 fake_task_num=0, # does this belong in dataloader?
+                 filter_tasks=[], # does this only go in dataloader
+                 ordered_num_epochs=1, # does this only go in dataloader?
+                 checkpoints=[]): # changed for prediction...
+        logging.info("Initialized TronnGraph")
+        self.data_loader = data_loader
+        self.model_fn = model_fn
+        self.model_params = model_params
+        self.batch_size = batch_size
+        self.final_activation_fn = final_activation_fn
+        self.loss_fn = loss_fn
+        self.optimizer_fn = optimizer_fn
+        self.optimizer_params = optimizer_params
+        self.metrics_fn = metrics_fn
+        self.fake_task_num = fake_task_num # pull this out?
+        self.filter_tasks = filter_tasks
+        self.ordered_num_epochs = ordered_num_epochs
+        self.checkpoints = checkpoints
+
+        # to factor out
+        self.class_weighted_loss = False
+        self.positives_focused_loss = False
+        self.finetune = False
+        
+
+    def build_training_dataflow(
+            self,
+            data_key="train",
+            features_key="features",
+            labels_key="labels",
+            logits_key="logits",
+            probs_key="probs"):
+        """build a training dataflow
+        """
+        logging.info("building training dataflow")
+        training_params = {}
+        
+        # dataloader
+        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        training_params["data_key"] = data_key
+
+        # model
+        assert inputs.get(features_key) is not None
+        assert inputs.get(labels_key) is not None
+        training_params["features_key"] = features_key
+        training_params["labels_key"] = labels_key
+        training_params["logits_key"] = logits_key
+        training_params["is_training"] = True
+        training_params.update(self.model_params)
+        outputs, _ = self.model_fn(inputs, training_params)
+
+        # add final activation function
+        outputs[probs_key] = self.final_activation_fn(outputs[logits_key])
+        
+        # add loss
+        outputs["loss"] = self._add_loss(
+            outputs[labels_key],
+            outputs[logits_key],
+            data_key=data_key) # TODO remove data key?
+
+        # add metrics
+        if self.metrics_fn is not None:
+            self._add_metrics(outputs[labels_key], outputs[probs_key])
+
+        # add train op
+        training_params["train_op"] = self._add_train_op()
+        
+        return outputs, training_params
+
+
+    def build_evaluation_dataflow(
+            self,
+            data_key="test",
+            features_key="features",
+            labels_key="labels",
+            logits_key="logits",
+            probs_key="probs"):
+        """just for evaluation
+        """
+        logging.info("building evaluation dataflow")
+        evaluation_params = {}
+        
+        # dataloader
+        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        evaluation_params["data_key"] = data_key
+        
+        # model
+        assert inputs.get(features_key) is not None
+        assert inputs.get(logits_key) is not None
+        assert inputs.get(labels_key) is not None
+        outputs = self.model_fn(inputs, model_params)
+
+        # add final activation function
+        outputs[probs_key] = self.final_activation_fn(outputs[logits_key])
+        
+        # add a loss
+        self._add_loss()
+
+        # add metrics
+        if self.metrics_fn is not None:
+            self._add_metrics()
+            
+        return outputs, evaluation_params
+
+
+    def build_prediction_dataflow(
+            self,
+            data_key="data",
+            features_key="features",
+            logits_key="logits",
+            probs_key="probs"):
+        """just prediction, does not require labels
+        """
+        logging.info("building prediction dataflow")
+        prediction_params = {}
+        
+        # dataloader
+        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        prediction_params["data_key"] = data_key
+        
+        # model
+        assert inputs.get(features_key) is not None
+        assert inputs.get(logits_key) is not None
+        outputs = self.model_fn(inputs, model_params)
+
+        # add final activation function
+        outputs[probs_key] = self.final_activation_fn(outputs[logits_key])
+        
+        # add a loss
+        self._add_loss()
+
+        # add metrics
+        if self.metrics_fn is not None:
+            self._add_metrics()
+            
+        return outputs, prediction_params
+
+
+    def build_inference_dataflow(self):
+        """build an inference workflow
+        """
+
+        
+
+
+        return
+
     
+
+    def build_restore_graph_function(self, is_ensemble=False, skip=[], scope_change=None):
+        """build the restore function
+        """
+        if is_ensemble: # this is really determined by there being more than 1 ckpt - can use as test?
+            def restore_function(sess):
+                # TODO adjust this function to be like below
+                # for ensemble, just need to adjust scoping
+                for i in xrange(len(self.checkpoints)):
+                    new_scope = "model_{}/".format(i)
+                    print new_scope
+                    init_assign_op, init_feed_dict = restore_variables_op(
+                        self.checkpoints[i],
+                        skip=skip,
+                        include_scope=new_scope,
+                        scope_change=["", new_scope])
+                    sess.run(init_assign_op, init_feed_dict)
+        else:
+            print self.checkpoints
+            if len(self.checkpoints) > 0:
+                init_assign_op, init_feed_dict = restore_variables_op(
+                    self.checkpoints[0], skip=skip, scope_change=scope_change)
+                def restore_function(sess):
+                    sess.run(init_assign_op, init_feed_dict)
+            else:
+                print "WARNING NO CHECKPOINTS USED"
+                
+        return restore_function
+
+    
+    def restore_graph(self, sess, is_ensemble=False, skip=[], scope_change=None):
+        """restore saved model from checkpoint into sess
+        """
+        restore_function = self.build_restore_graph_function(
+            is_ensemble=is_ensemble, skip=skip, scope_change=scope_change)
+        restore_function(sess)
+        
+        return None
+
+
+    def _add_train_op(self):
+        """set up the optimizer and generate the training op
+        """
+        assert self.total_loss is not None
+        assert self.optimizer_fn is not None
+
+        # if finetuning, only train certain variables
+        if self.finetune:
+            variables_to_train = tf.get_collection(
+                tf.GraphKeys.TRAINABLE_VARIABLES, logits_key)
+        else:
+            variables_to_train = None # slim will use all trainable in graphkeys
+
+        # set up optimizer and train op
+        self.optimizer = self.optimizer_fn(**self.optimizer_params)
+        train_op = slim.learning.create_train_op(
+            self.total_loss,
+            self.optimizer,
+            variables_to_train=variables_to_train,
+            summarize_gradients=True)
+
+        return train_op
+
+
+    def _add_loss(self, labels, logits, data_key=None):
+        """set up loss function
+        """
+        assert not (self.class_weighted_loss and self.positives_focused_loss)
+
+        if self.finetune:
+            # adjust which labels and logits go into loss if finetuning
+            labels_unstacked = tf.unstack(labels, axis=1)
+            labels = tf.stack([labels_unstacked[i] for i in self.finetune_tasks], axis=1)
+            logits_unstacked = tf.unstack(logits, axis=1)
+            logits = tf.stack([logits_unstacked[i] for i in self.finetune_tasks], axis=1)
+            print labels.get_shape()
+            print logits.get_shape()
+
+        # split out getting the positive weights so that only the right ones go into the loss function
+            
+        if self.class_weighted_loss:
+            pos_weights = get_positive_weights_per_task(self.data_files[data_key])
+            if self.finetune:
+                pos_weights = [pos_weights[i] for i in self.finetune_tasks]
+            self.loss = class_weighted_loss_fn(
+                self.loss_fn, labels, logits, pos_weights)
+        elif self.positives_focused_loss:
+            task_weights, class_weights = get_task_and_class_weights(self.data_files[data_key])
+            if self.finetune:
+                task_weights = [task_weights[i] for i in self.finetune_tasks]
+            if self.finetune:
+                class_weights = [class_weights[i] for i in self.finetune_tasks]
+            self.loss = positives_focused_loss_fn(
+                self.loss_fn, labels, logits, task_weights, class_weights)
+        else:
+            self.loss = self.loss_fn(labels, logits)
+
+        self.total_loss = tf.losses.get_total_loss()
+
+        return self.total_loss
+    
+    
+    def _add_metrics(self, labels, probs):
+        """set up metrics function with summaries etc
+        """
+        # set up metrics and values
+        self.metric_values, self.metric_updates = self.metrics_fn(
+            labels, probs)
+        for update in self.metric_updates: tf.add_to_collection(
+                tf.GraphKeys.UPDATE_OPS, update)
+
+        # Add losses to metrics
+        mean_loss, _ = tf.metrics.mean(
+            self.loss, updates_collections=tf.GraphKeys.UPDATE_OPS)
+        self.metric_values.update({
+            "loss": self.loss,
+            "total_loss": self.total_loss,
+            "mean_loss": mean_loss
+        })
+
+        return
+
+
+    def _add_task_subset_accuracy(self):
+        """Given task subset, get subset accuracy
+        """
+        assert self.importances_tasks is not None
+
+        # split and get subset
+        labels_unstacked = tf.unstack(self.labels, axis=1)
+        labels_subset = tf.stack([labels_unstacked[i] for i in self.importances_tasks], axis=1)
+
+        probs_unstacked = tf.unstack(self.probs, axis=1)
+        probs_subset = tf.stack([probs_unstacked[i] for i in self.importances_tasks], axis=1)
+
+        # compare labels to predictions
+        correctly_predicted = tf.logical_not(tf.logical_xor(tf.cast(labels_subset, tf.bool), tf.greater_equal(probs_subset, 0.5)))
+        accuracy = tf.reduce_mean(tf.cast(correctly_predicted, tf.float32), 1, keep_dims=True)
+
+        return accuracy
+        
