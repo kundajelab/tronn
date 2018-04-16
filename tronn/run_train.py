@@ -8,6 +8,8 @@ import tensorflow as tf
 
 from tronn.datalayer import get_total_num_examples
 from tronn.datalayer import load_data_from_filename_list
+from tronn.datalayer import H5DataLoader
+
 from tronn.nets.nets import net_fns
 from tronn.graphs import TronnNeuralNetGraph
 
@@ -58,7 +60,13 @@ def run(args):
     logging.info('Finding data: found {} chrom files'.format(len(data_files)))
     train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
+    # TODO init dataloader here (and set up dataflow in graph)
+    dataloader = H5DataLoader({"train":train_files, "valid": valid_files})
+
+
+    
     # Get number of train and validation steps
+    # TODO - this can be moved to metrics now
     args.num_train_examples = get_total_num_examples(train_files)
     args.train_steps = args.num_train_examples / args.batch_size - 100
     args.num_valid_examples = get_total_num_examples(valid_files)
@@ -86,12 +94,13 @@ def run(args):
     
     # Set up neural net graph
     tronn_graph = TronnNeuralNetGraph(
-        {"train": train_files, "valid": valid_files},
+        {"train": train_files, "valid": valid_files}, # TODO move from graph
         args.tasks,
-        load_data_from_filename_list,
+        dataloader, # TODO move from graph
+        #load_data_from_filename_list,
         args.batch_size,
-        net_fns[args.model['name']],
-        args.model,
+        net_fns[args.model['name']], # model
+        args.model, # model params
         tf.nn.sigmoid,
         loss_fn=tf.losses.sigmoid_cross_entropy,
         #loss_fn=tf.losses.hinge_loss,

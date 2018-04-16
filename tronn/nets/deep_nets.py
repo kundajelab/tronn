@@ -368,7 +368,7 @@ def basset(features, labels, config, is_training=True, variable_scope="basset"):
         else:
             net = final_pool(net, config['final_pool'])
 
-        # logits
+        # mlp to logits
         if config['temporal']:
             logits = temporal_pred_module(
                 net,
@@ -639,7 +639,9 @@ def ensemble(features, labels, config, is_training=True):
     # set up each model
     all_logits = []
     for i in xrange(len(models)):
-        with tf.variable_scope("model_{}".format(i)):
+        new_scope = "model_{}".format(i)
+        print new_scope
+        with tf.variable_scope(new_scope):
             model_logits = models[i](features, labels, config, is_training=is_training)
             all_logits.append(model_logits)
 

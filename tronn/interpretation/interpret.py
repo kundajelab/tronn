@@ -166,15 +166,19 @@ def interpret(
                 
         # set up session
         sess, coord, threads = setup_tensorflow_session()
-                    
+
+        # TODO - should this be associated with the graph?
         # restore from checkpoint as needed
-        if model_checkpoint is not None:
-            # TODO - create an restore_variables_ensemble_op
-            init_assign_op, init_feed_dict = restore_variables_op(
-                model_checkpoint, skip=["pwm"])
-            sess.run(init_assign_op, init_feed_dict)
-        else:
-            print "WARNING WARNING WARNING: did not use checkpoint. are you sure?"
+        tronn_graph.restore_graph(sess, is_ensemble=True, skip=["pwm"]) # here add in if ensemble?
+
+
+        #if model_checkpoint is not None:
+        #    # TODO - create an restore_variables_ensemble_op
+        #    init_assign_op, init_feed_dict = restore_variables_op(
+        #        model_checkpoint, skip=["pwm"])
+        #    sess.run(init_assign_op, init_feed_dict)
+        #else:
+        #    print "WARNING WARNING WARNING: did not use checkpoint. are you sure?"
 
         # set up hdf5 file to store outputs
         with h5py.File(h5_file, 'w') as hf:

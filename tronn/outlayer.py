@@ -186,6 +186,7 @@ class ExampleGenerator(object):
                 self.batch_region_arrays = self.sess.run(self.tensor_dict)
                 #print "done"
 
+            # TODO - delete all this filtering, this can happen in the model
             # filtering should happen here
             if (not self.keep_negatives) and (self.batch_region_arrays["negative"][self.batch_pointer] == 1):
                 self.batch_pointer += 1
@@ -237,7 +238,7 @@ class ExampleGenerator(object):
         
         return region_name, region_arrays
 
-    
+    # TODO delete this
     def get_filtered_example(self, accuracy_cutoff=0.4):
         """Get the built dictionary and filter
         """

@@ -102,7 +102,7 @@ def order_preserving_k_max(input_tensor, k):
     return output
 
 
-def restore_variables_op(checkpoint, skip=[], scope_change=None):
+def restore_variables_op(checkpoint, skip=[], include_scope="", scope_change=None):
     """Builds a function that can be run to restore from a checkpoint
     """
     variables_to_restore = slim.get_model_variables()
@@ -116,12 +116,59 @@ def restore_variables_op(checkpoint, skip=[], scope_change=None):
                                     if (skip_string not in var.name)]
         variables_to_restore = variables_to_restore_tmp
 
-    logging.info(str(variables_to_restore))
+    variables_to_restore = [var for var in variables_to_restore if (include_scope in var.name)]
+        
+        
+    #logging.info(str(variables_to_restore))
 
     # TODO adjust variable names as needed (if ensembling, etc etc)
     # TODO figure out how to deal with scope changes well
-    scope_change = ["", "basset/"]
-    #scope_change = None
+    #scope_change = ["", "basset/"]
+    scope_change[1] = "{}basset/".format(scope_change[1])
+    print scope_change
+    
+    if scope_change is not None:
+        start_scope, end_scope = scope_change
+        checkpoint_name_to_var = {}
+        for v in variables_to_restore:
+            checkpoint_var_name = "{}".format(
+                v.name.split(end_scope)[-1].split(":")[0])
+            checkpoint_name_to_var[checkpoint_var_name] = v
+        variables_to_restore = checkpoint_name_to_var
+
+    # tool for debug as needed
+    #from tensorflow.python.tools import inspect_checkpoint as chkp
+    #chkp.print_tensors_in_checkpoint_file(checkpoint, tensor_name='', all_tensors=True)
+    
+    # create assign op
+    init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
+        checkpoint,
+        variables_to_restore)
+
+    return init_assign_op, init_feed_dict
+
+
+def restore_variables_from_multiple_checkpoints(checkpoints, skip=[], scope_change=None):
+    """Builds a function that can be run to restore from a checkpoint
+    """
+    variables_to_restore = slim.get_model_variables()
+    variables_to_restore.append(tf.train.get_or_create_global_step())
+    if None in variables_to_restore:
+        variables_to_restore.remove(None)
+    
+    # remove variables as needed
+    for skip_string in skip:
+        variables_to_restore_tmp = [var for var in variables_to_restore
+                                    if (skip_string not in var.name)]
+        variables_to_restore = variables_to_restore_tmp
+
+    #logging.info(str(variables_to_restore))
+
+    # TODO adjust variable names as needed (if ensembling, etc etc)
+    # TODO figure out how to deal with scope changes well
+    #scope_change = ["", "basset/"]
+    scope_change[1] = "{}basset/".format(scope_change[1])
+    print scope_change
     
     if scope_change is not None:
         start_scope, end_scope = scope_change

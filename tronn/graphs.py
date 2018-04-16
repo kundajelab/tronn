@@ -6,6 +6,7 @@ import logging
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+from tronn.util.tf_ops import restore_variables_op
 from tronn.util.tf_ops import class_weighted_loss_fn
 from tronn.util.tf_ops import positives_focused_loss_fn
 
@@ -27,7 +28,8 @@ class TronnGraph(object):
                  shuffle_data=True,
                  fake_task_num=0,
                  filter_tasks=[],
-                 ordered_num_epochs=1): # changed for prediction...
+                 ordered_num_epochs=1,
+                 checkpoints=[]): # changed for prediction...
         logging.info("Initialized TronnGraph")
         self.data_files = data_files # data files is a dict of lists
         self.tasks = tasks
@@ -40,35 +42,85 @@ class TronnGraph(object):
         self.fake_task_num = fake_task_num
         self.filter_tasks = filter_tasks
         self.ordered_num_epochs = ordered_num_epochs
-        
+        self.checkpoints = checkpoints
+
+    # eventually:
+    # def build_graph(self, inputs, params)
     def build_graph(self, data_key="data", is_training=False):
         """Main function of graph: puts together the pieces
         so that the graph is ready.
         """
         logging.info("Built TronnGraph")
+        # TODO this bit should be: add dataloader, add model, add inference stack (if needed)
         
         # Set up data loader
-        # TODO set up adjustements in the dataloader
-        self.features, self.labels, self.metadata = self.data_loader(
-            self.data_files[data_key],
-            self.batch_size,
-            task_indices=self.tasks,
-            features_key=self.feature_key,
-            shuffle=self.shuffle_data,
-            ordered_num_epochs=self.ordered_num_epochs,
-            fake_task_num=self.fake_task_num,
-            filter_tasks=self.filter_tasks)
+        #if False:
+        #    self.features, self.labels, self.metadata = self.data_loader(
+        #        self.data_files[data_key],
+        #        self.batch_size,
+        #        task_indices=self.tasks,
+        #        features_key=self.feature_key,
+        #        shuffle=self.shuffle_data,
+        #        ordered_num_epochs=self.ordered_num_epochs,
+        #        fake_task_num=self.fake_task_num,
+        #        filter_tasks=self.filter_tasks)
 
+        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        self.features = inputs["features"]
+        self.labels = inputs["labels"]
+        self.metadata = inputs["example_metadata"]
+        
         # adjust tasks
         if self.tasks == []:
             self.tasks = range(self.labels.get_shape()[1])
         
         # model
+        # TODO conver this to all be
+        # outputs = self.model_fn(inputs, params)
         out = self.model_fn(self.features, self.labels, self.model_params,
                             is_training=is_training)
         
         return out
 
+
+    def build_restore_graph_function(self, is_ensemble=False, skip=[]):
+        """build the restore function
+        """
+        if is_ensemble: # this is really determined by there being more than 1 ckpt - can use as test?
+            def restore_function(sess):
+                # for ensemble, just need to adjust scoping
+                for i in xrange(len(self.checkpoints)):
+                    new_scope = "model_{}/".format(i)
+                    print new_scope
+                    init_assign_op, init_feed_dict = restore_variables_op(
+                        self.checkpoints[i],
+                        skip=skip,
+                        include_scope=new_scope,
+                        scope_change=["", new_scope])
+                    sess.run(init_assign_op, init_feed_dict)
+        else:
+            def restore_function(sess):
+                print self.checkpoints
+                if len(self.checkpoints) > 0:
+                    init_assign_op, init_feed_dict = restore_variables_op(
+                        self.checkpoints[0], skip=skip)
+                    sess.run(init_assign_op, init_feed_dict)
+                else:
+                    print "WARNING NO CHECKPOINTS USED"
+                
+        return restore_function
+
+    
+    def restore_graph(self, sess, is_ensemble=False, skip=[]):
+        """restore saved model from checkpoint into sess
+        """
+        restore_function = self.build_restore_graph_function(
+            is_ensemble=is_ensemble, skip=skip)
+        restore_function(sess)
+        
+        return None
+    
+    
     
 class TronnNeuralNetGraph(TronnGraph):
     """Builds a trainable graph"""
@@ -95,14 +147,14 @@ class TronnNeuralNetGraph(TronnGraph):
                  positives_focused_loss=False,
                  finetune=False,
                  finetune_tasks=[],
-                 ordered_num_epochs=1): # 1 for interpretation, 100 for viz
+                 ordered_num_epochs=1, **kwargs): # 1 for interpretation, 100 for viz
         super(TronnNeuralNetGraph, self).__init__(
             data_files, tasks, data_loader,
             model_fn, model_params, batch_size,
             feature_key=feature_key, shuffle_data=shuffle_data,
             fake_task_num=fake_task_num,
             filter_tasks=filter_tasks,
-            ordered_num_epochs=ordered_num_epochs)
+            ordered_num_epochs=ordered_num_epochs, **kwargs)
         self.final_activation_fn = final_activation_fn
         self.loss_fn = loss_fn
         self.optimizer_fn = optimizer_fn

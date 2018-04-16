@@ -19,6 +19,7 @@ from tronn.graphs import TronnNeuralNetGraph
 from tronn.datalayer import load_data_from_filename_list
 from tronn.datalayer import load_step_scaled_data_from_filename_list
 from tronn.datalayer import load_data_with_shuffles_from_filename_list
+from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns
 
 from tronn.interpretation.interpret import interpret
@@ -230,15 +231,18 @@ def run(args):
     logger.info("{} motifs used".format(len(pwm_list)))
 
     # set up file loader, dependent on importance fn
-    if args.backprop == "integrated_gradients":
-        data_loader_fn = load_step_scaled_data_from_filename_list
-    elif args.backprop == "deeplift":
-        data_loader_fn = load_data_with_shuffles_from_filename_list
-    else:
-        data_loader_fn = load_data_from_filename_list
+    #if args.backprop == "integrated_gradients":
+    #    data_loader_fn = load_step_scaled_data_from_filename_list
+    #elif args.backprop == "deeplift":
+    #    data_loader_fn = load_data_with_shuffles_from_filename_list
+    #else:
+    #    data_loader_fn = load_data_from_filename_list
         # TESTING FOR SHUFFLE NULL
         #data_loader_fn = load_data_with_shuffles_from_filename_list
         #print "WARNING USING SHUFFLES"
+    dataloader = H5DataLoader(
+        {"data": data_files},
+        filter_tasks=args.filter_tasks)
         
     # set up graph
     # TODO somewhere here need to pass forward the
@@ -247,7 +251,7 @@ def run(args):
     tronn_graph = TronnNeuralNetGraph(
         {'data': data_files},
         args.tasks,
-        data_loader_fn,
+        dataloader,
         args.batch_size,
         net_fns[args.model['name']],
         args.model,
@@ -255,15 +259,16 @@ def run(args):
         inference_fn=net_fns[args.inference_fn],
         importances_tasks=args.inference_tasks,
         shuffle_data=True,
-        filter_tasks=args.filter_tasks)
+        filter_tasks=args.filter_tasks,
+        checkpoints=args.model_checkpoints)
 
     # checkpoint file (unless empty net)
-    if args.model_checkpoint is not None:
-        checkpoint_path = args.model_checkpoint
-    elif args.model["name"] == "empty_net":
-        checkpoint_path = None
-    else:
-        checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
+    #if args.model_checkpoint is not None:
+    #    checkpoint_path = args.model_checkpoint
+    #elif args.model["name"] == "empty_net":
+    #    checkpoint_path = None
+    #else:
+    #    checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
         
     # validation tools
     if args.diagnose:
@@ -284,7 +289,7 @@ def run(args):
     if not os.path.isfile(pwm_scores_h5):
         interpret(
             tronn_graph,
-            checkpoint_path, # keep with graph?
+            None, # keep with graph?
             args.batch_size, # keep with graph?
             pwm_scores_h5,
             args.sample_size,

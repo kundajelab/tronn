@@ -277,11 +277,8 @@ def add_trained_nn_model_options(parser, required=True):
         '--model_dir', default=None,
         help='restore from last checkpoint')
     parser.add_argument(
-        "--model_checkpoint", default=None,
-        help="restore from specific checkpoint")
-    parser.add_argument(
-        "--model_checkpoints", default=[], nargs="+",
-        help="restore from specific checkpoint")
+        "--model_checkpoints", nargs="+", default=[],
+        help="restore from specific checkpoints (they are loaded in order)")
     
     return
 

@@ -1,11 +1,102 @@
 # a way to filter in the middle of processing.
 # take outputs, filter, gather to queue and keep going
 
+import numpy as np
+
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 
-def rebatch(features, labels, config, is_training=False):
+def rebatch(data, params):
+    """Re-batch after "breaking" a batch
+    """
+    assert params.get("batch_size") is not None
+    assert params.get("name") is not None
+
+    # params
+    batch_size = params.get("batch_size")
+    num_threads = params.get("num_queue_threads", 1)
+    name = params.get("name")
+    
+    # set up the train batch
+    with tf.variable_scope(name):
+        rebatched_data = tf.train.batch(
+            data,
+            batch_size,
+            capacity=batch_size*3,
+            num_threads=num_threads,
+            enqueue_many=True,
+            name="rebatch_queue")
+
+    return rebatched_data, params
+
+
+def filter_and_rebatch(data, params):
+    """filter through condition mask and rebatch
+    """
+    assert data.get("condition_mask") is not None
+    assert params.get("batch_size") is not None
+
+    # params
+    condition_mask = data.get("condition_mask")
+    batch_size = params.get("batch_size")
+    use_queue = params.get("use_queue", True)
+    num_threads = params.get("num_queue_threads", 1)
+    name = params.get("name", "filtering")
+    
+    # get indices
+    keep_indices = tf.reshape(tf.where(condition_mask), [-1])
+
+    # and adjust data accordingly
+    for key in data.keys():
+        data[key] = tf.gather(data[key], keep_indices)
+        
+    # set up queue
+    if use_queue:
+        data, _ = rebatch(data, params)
+        
+    # and delete the condition mask
+    del data["condition_mask"]
+    
+    return data, params
+
+
+def filter_by_labels(data, params):
+    """Given specific filter tasks, only push through examples 
+    if they are positive in these tasks
+    """
+    labels_key = params.get("labels_key", "labels")
+        
+    # assertions
+    assert data.get(labels_key) is not None
+    assert params.get("filter_tasks") is not None
+
+    # params
+    filter_tasks = params.get("filter_tasks")
+    labels = data.get(labels_key)
+    batch_size = params.get("batch_size")
+    
+    # set up labels mask for filter tasks
+    labels_mask_np = np.zeros((labels.get_shape()[1]))
+    for task_idx in filter_tasks:
+        labels_mask_np[task_idx] = 1
+    labels_mask = tf.cast(
+        tf.stack([tf.constant(labels_mask_np) for i in xrange(batch_size)], axis=0),
+        tf.float32)
+        
+    # run a conditional on the labels and get indices
+    pos_labels = tf.multiply(labels, labels_mask)
+    data["condition_mask"] = tf.greater(tf.reduce_sum(pos_labels, axis=1), [0])
+
+    # run through queue
+    params.update({"num_queue_threads": 4, "name": "label_filter"})
+    data, params = filter_and_rebatch(data, params)
+    params.update({"num_queue_threads": 1})
+    
+    return data, params
+
+
+def rebatch_old(features, labels, config, is_training=False):
     """Re-batch after "breaking" a batch
     """
     batch_size = config.get("batch_size")

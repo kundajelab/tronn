@@ -8,6 +8,10 @@ import logging
 import numpy as np
 import tensorflow as tf
 
+from tronn.nets.filter_nets import filter_by_labels
+from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
+from tronn.nets.sequence_nets import generate_scaled_inputs
+
 
 def get_total_num_examples(hdf5_filename_list, feature_key="features"):
     """Get total number of examples in a list of hdf5 files.
@@ -781,4 +785,162 @@ def tflearn_input_fn(
 
 
 
+# main thing: want to set up the dataloader earlier
+# but only instantiate when you're in the graph
 
+# big overall flow: get stuff set up first, then set up graph, then run
+# all handled in the graph?
+# inputs = dataloader.build_dataflow()
+# model_outputs = model.build_inference_dataflow(inputs) # every model checks the inputs to make sure it has the right ones
+# inference_outputs = inference_stack(model_outputs)
+# outputs = outlayer.run(inference_outputs)
+
+# set up as inputs (dict, batched) and params (dict, singles)
+
+#filter_through_labels(features, labels, metadata, filter_tasks, batch_size)
+
+# possible transforms:
+# filter through labels
+# add variants (using vcf file?)
+# add shuffles (all cases)
+# add steps (IG)
+
+
+
+
+class DataLoader(object):
+    """build the base level dataloader"""
+
+    def __init__(
+            self,
+            filter_tasks=[],
+            shuffle_examples=True,
+            epochs=1,
+            fake_task_num=0,
+            num_dinuc_shuffles=0,
+            num_scaled_inputs=0):
+        """set up dataloader
+        """
+        self.filter_tasks = filter_tasks
+        self.shuffle_examples = shuffle_examples
+        self.epochs = epochs
+        self.fake_task_num = fake_task_num
+        
+        # set up the transform stack
+        self.transform_stack = []
+        if len(self.filter_tasks) != 0:
+            self.transform_stack.append((
+                filter_by_labels, {"labels_key": "labels", "filter_tasks": filter_tasks}))
+        if num_dinuc_shuffles > 0:
+            self.transform_stack.append((
+                generate_dinucleotide_shuffles,
+                {"num_shuffles": num_dinuc_shuffles}))
+        if num_scaled_inputs > 0:
+            self.transform_stack.append((
+                generate_scaled_inputs,
+                {"num_scaled_inputs": num_scaled_inputs}))
+            
+    def load_raw_data(self, batch_size):
+        """defined in inherited classes
+        """
+        return None
+
+    
+    def apply(self, transform_fn, params):
+        """Given a function, apply to the given feature key
+        """
+        return transform_fn(self.inputs, params)
+
+        
+    def build_dataflow(self, batch_size, data_key):
+        """initialize in a TF graph
+        """
+        self.batch_size = batch_size
+        # this is where you would actually run all the functions
+        self.inputs = self.load_raw_data(self.batch_size, data_key)
+
+        master_params = {}
+        master_params.update({"batch_size": batch_size})
+        for transform_fn, params in self.transform_stack:
+            master_params.update(params)
+            print transform_fn
+            self.inputs, _ = self.apply(transform_fn, master_params)
+
+        return self.inputs
+
+
+class H5DataLoader(DataLoader):
+    """build a dataloader from h5"""
+
+    def __init__(self, data_files, **kwargs):
+        """keep data files list
+        """
+        super(H5DataLoader, self).__init__(**kwargs)
+        self.data_files = data_files
+        
+        
+    def load_raw_data(self, batch_size, data_key):
+        """call dataloading function
+        """
+        inputs = load_data_from_filename_list(
+            self.data_files[data_key],
+            batch_size,
+            task_indices=[], # maybe deprecate this?
+            features_key='features',
+            shuffle=self.shuffle_examples,
+            shuffle_seed=0,
+            ordered_num_epochs=1,
+            fake_task_num=0,
+            filter_tasks=[])
+        inputs = {
+            "features": inputs[0],
+            "labels": inputs[1],
+            "example_metadata": inputs[2]}
+
+        return inputs
+    
+
+class ArrayDataLoader(DataLoader):
+    """build a dataloader from numpy arrays"""
+
+    def __init__(self, array_names, array_shapes):
+        """keep names and shapes
+        """
+        self.array_names = array_names
+        self.array_shapes = array_shapes
+
+        # check
+        assert len(self.array_names) == len(array_shapes)
+
+
+    def load_raw_data(self, batch_size):
+        """load data
+        """
+        return None
+
+
+class VariantDataLoader(DataLoader):
+    """build a dataloader that starts from a vcf file"""
+
+    def __init__(self, vcf_file, fasta_file):
+        self.vcf_file = vcf_file
+        self.fasta_file = fasta_file
+
+    def load_raw_data(self, batch_size):
+
+        return None
+    
+
+class BedDataLoader(DataLoader):
+    """build a dataloader starting from a bed file"""
+
+    def __init__(self, bed_file, fasta_file):
+        self.bed_file = bed_file
+        self.fasta_file = fasta_file
+
+
+    def load_raw_data(self, batch_size):
+        """load raw data
+        """
+        
+        return None

@@ -22,7 +22,7 @@ def input_x_grad(features, labels, config, is_training=False):
     assert is_training == False
     assert config.get("anchor") is not None
     use_relu = config.get("relu", False)
-    
+
     anchor = config.get("anchor")
     if config.get("grad_ys") is None:
         [feature_grad] = tf.gradients(anchor, [features])
