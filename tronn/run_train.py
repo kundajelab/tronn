@@ -6,12 +6,12 @@ import logging
 
 import tensorflow as tf
 
-from tronn.datalayer import get_total_num_examples
-from tronn.datalayer import load_data_from_filename_list
+#from tronn.datalayer import get_total_num_examples
+#from tronn.datalayer import load_data_from_filename_list
 from tronn.datalayer import H5DataLoader
 
 from tronn.nets.nets import net_fns
-from tronn.graphs import TronnNeuralNetGraph
+#from tronn.graphs import TronnNeuralNetGraph
 from tronn.graphs import TronnGraphV2
 
 from tronn.learn.cross_validation import setup_cv
@@ -63,14 +63,14 @@ def run(args):
 
     # set up dataloader
     dataloader = H5DataLoader(
-        {"train":train_files, "valid": valid_files},
+        {"train": train_files, "valid": valid_files},
         tasks=args.tasks)
     
     # Get number of train and validation steps
     # TODO - this can be moved to metrics now
-    args.num_train_examples = get_total_num_examples(train_files)
+    args.num_train_examples = dataloader.get_num_total_examples("train")
     args.train_steps = args.num_train_examples / args.batch_size - 100
-    args.num_valid_examples = get_total_num_examples(valid_files)
+    args.num_valid_examples = dataloader.get_num_total_examples("valid")
     args.valid_steps = args.num_valid_examples / args.batch_size - 100
     
     logging.info("Num train examples: %d" % args.num_train_examples)
@@ -98,24 +98,25 @@ def run(args):
     assert not ((restore_model_checkpoint is not None)
                 and (transfer_model_checkpoint is not None))
 
-    tronn_graph = TronnNeuralNetGraph(
-        {"train": train_files, "valid": valid_files}, # TODO move from graph
-        args.tasks,
-        dataloader, # TODO move from graph
-        #load_data_from_filename_list,
-        args.batch_size,
-        net_fns[args.model['name']], # model
-        args.model, # model params
-        tf.nn.sigmoid,
-        loss_fn=tf.losses.sigmoid_cross_entropy,
-        #loss_fn=tf.losses.hinge_loss,
-        #loss_fn=tf.nn.weighted_cross_entropy_with_logits,
-        #positives_focused_loss=True,
-        #class_weighted_loss=True,
-        optimizer_fn=tf.train.RMSPropOptimizer,
-        optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
-        metrics_fn=get_global_avg_metrics,
-        checkpoints=checkpoints)
+    if False:
+        tronn_graph = TronnNeuralNetGraph(
+            {"train": train_files, "valid": valid_files}, # TODO move from graph
+            args.tasks,
+            dataloader, # TODO move from graph
+            #load_data_from_filename_list,
+            args.batch_size,
+            net_fns[args.model['name']], # model
+            args.model, # model params
+            tf.nn.sigmoid,
+            loss_fn=tf.losses.sigmoid_cross_entropy,
+            #loss_fn=tf.losses.hinge_loss,
+            #loss_fn=tf.nn.weighted_cross_entropy_with_logits,
+            #positives_focused_loss=True,
+            #class_weighted_loss=True,
+            optimizer_fn=tf.train.RMSPropOptimizer,
+            optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
+            metrics_fn=get_global_avg_metrics,
+            checkpoints=checkpoints)
 
     
     # Set up neural net graph
@@ -124,7 +125,6 @@ def run(args):
         net_fns[args.model['name']], # model
         args.model, # model params
         args.batch_size,
-        args.tasks,
         final_activation_fn=tf.nn.sigmoid,
         loss_fn=tf.losses.sigmoid_cross_entropy,
         optimizer_fn=tf.train.RMSPropOptimizer,
@@ -139,12 +139,12 @@ def run(args):
         trained_model_dir = train_and_evaluate(
             tronn_graph,
             args.out_dir,
-            args.train_steps,
+            args.train_steps, # TODO factor this out
             args.metric,
             args.patience,
             epoch_limit=args.epochs,
-            restore_model_checkpoint=restore_model_checkpoint,
-            transfer_model_checkpoint=transfer_model_checkpoint)
+            restore_model_checkpoint=restore_model_checkpoint, # TODO factor this out
+            transfer_model_checkpoint=transfer_model_checkpoint) # TODO factor this out
     else:
         # add in fine-tuning option on tasks
         finetune_tasks(args, tronn_graph, args.restore_model_dir)

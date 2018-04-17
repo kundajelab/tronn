@@ -10,8 +10,8 @@ from tronn.util.tf_ops import restore_variables_op
 from tronn.util.tf_ops import class_weighted_loss_fn
 from tronn.util.tf_ops import positives_focused_loss_fn
 
-from tronn.datalayer import get_task_and_class_weights
-from tronn.datalayer import get_positive_weights_per_task
+#from tronn.datalayer import get_task_and_class_weights
+#from tronn.datalayer import get_positive_weights_per_task
 
 
 class TronnGraph(object):
@@ -487,29 +487,36 @@ class TronnGraphV2(object):
         """just for evaluation
         """
         logging.info("building evaluation dataflow")
-        evaluation_params = {}
+        eval_params = {}
         
         # dataloader
         inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
-        evaluation_params["data_key"] = data_key
+        eval_params["data_key"] = data_key
         
         # model
         assert inputs.get(features_key) is not None
-        assert inputs.get(logits_key) is not None
         assert inputs.get(labels_key) is not None
-        outputs = self.model_fn(inputs, model_params)
+        eval_params["features_key"] = features_key
+        eval_params["labels_key"] = labels_key
+        eval_params["logits_key"] = logits_key
+        eval_params["is_training"] = False
+        eval_params.update(self.model_params)
+        outputs, _ = self.model_fn(inputs, eval_params)
 
         # add final activation function
         outputs[probs_key] = self.final_activation_fn(outputs[logits_key])
         
         # add a loss
-        self._add_loss()
+        outputs["loss"] = self._add_loss(
+            outputs[labels_key],
+            outputs[logits_key],
+            data_key=data_key)
 
         # add metrics
         if self.metrics_fn is not None:
-            self._add_metrics()
-            
-        return outputs, evaluation_params
+            self._add_metrics(outputs[labels_key], outputs[probs_key])
+
+        return outputs, eval_params
 
 
     def build_prediction_dataflow(
@@ -530,7 +537,7 @@ class TronnGraphV2(object):
         # model
         assert inputs.get(features_key) is not None
         assert inputs.get(logits_key) is not None
-        outputs = self.model_fn(inputs, model_params)
+        outputs, _ = self.model_fn(inputs, model_params)
 
         # add final activation function
         outputs[probs_key] = self.final_activation_fn(outputs[logits_key])
@@ -554,6 +561,41 @@ class TronnGraphV2(object):
 
         return
 
+
+    def run_dataflow(self, driver, sess, outputs, h5_file, sample_size=100000):
+        """run dataflow
+        """
+        # set up the outlayer (tensor --> numpy)
+        dataflow_driver = driver(sess, outputs, batch_size) # Outlayer
+        
+        # set up the saver
+        with h5py.File(h5_file, "w") as hf:
+        
+            h5_handler = H5Handler(
+                hf, outputs, sample_size, resizable=True, batch_size=4096)
+            
+            # now run
+            total_examples = 0
+            total_visualized = 0
+            passed_cutoff = 0 # debug
+            try:
+                while not coord.should_stop():
+                
+                    example = dataflow_driver.next()
+                    h5_handler.store_example(example)
+                    total_examples += 1
+                
+                    if (sample_size is not None) and (total_examples >= sample_size):
+                        break
+
+            except tf.errors.OutOfRangeError:
+                print "Done reading data"
+
+            finally:
+                h5_handler.flush()
+                h5_handler.chomp_datasets()
+        
+        return None
     
 
     def build_restore_graph_function(self, is_ensemble=False, skip=[], scope_change=None):

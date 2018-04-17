@@ -133,10 +133,10 @@ class ExampleGenerator(object):
             sess,
             tensor_dict,
             batch_size,
-            reconstruct_regions=False,
-            keep_negatives=True,
-            filter_by_prediction=False,
-            filter_tasks=[]):
+            reconstruct_regions=False, # keep this
+            keep_negatives=True, # remove this
+            filter_by_prediction=False, # remove this
+            filter_tasks=[]): # remove this
         """Set up params for example generation
         """
         self.sess = sess
@@ -471,6 +471,59 @@ class H5Handler(object):
         return
 
 
+
+
+class OutLayer(object):
+    """Handles the outputs of the graph gracefully"""
+    
+    def __init__(
+            self,
+            sess,
+            graph_tensor_outputs,
+            batch_size,
+            reconstruct_regions=False,
+            ignore_outputs=[]):
+        self.sess = sess
+        self.graph_tensor_outputs = graph_tensor_outputs
+        self.reconstruct_regions = reconstruct_regions
+        self.ignore_outputs = ignore_outputs
+
+        # run first batch
+        self.outputs = self.sess.run(self.graph_tensor_outputs)
+        self.batch_idx = 0
+        
+
+    def _run_sess(self):
+        self.outputs = self.sess.run(self.graph_tensor_outputs)
+
+
+    def __iter__(self):
+        return self
+
+    
+    def next(self, batch_size=1):
+        """get the next example out
+        """
+        out_arrays = {}
+        # consider putting coord should stop in here?
+        if self.batch_idx >= self.batch_size:
+            try:
+                self._run_sess()
+                self.batch_idx = 0
+            except tf.errors.OutOfRangeError:
+                raise StopIteration
+        # collect batch outputs and return
+        for key in self.graph_tensor_outputs.keys():
+            if key in ignore_outputs:
+                continue
+            out_arrays[key] = self.outputs[key][self.batch_idx]
+        self.batch_idx += 1
+
+        return out_arrays
+
+    
+    
+# TODO delete this
 class H5InputHandler(object):
 
     def __init__(self, h5_handle, batch_size=512, flatten=False, skip=["label_metadata"]):

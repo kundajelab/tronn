@@ -218,27 +218,40 @@ def run(args):
     data_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
     train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
-    # set up model params
-    net_fn, model_params = setup_model(args)
-    
-    # set up neural network graph
+    # set up dataloader
     if args.reconstruct_regions:
         shuffle_data = False
     else:
         shuffle_data = True
-    
-    tronn_graph = TronnNeuralNetGraph(
-        {"data": test_files},
-        args.tasks,
-        load_data_from_filename_list,
-        args.batch_size,
-        net_fn,
-        model_params,
-        tf.nn.sigmoid,
-        shuffle_data=shuffle_data,
-        fake_task_num=args.fake_task_num)
+    dataloader = H5DataLoader(
+        {"valid": valid_files, "test": test_files},
+        tasks=args.tasks,
+        shuffle_data=shuffle_data)
 
-    # predict
+    if False:
+        tronn_graph = TronnNeuralNetGraph(
+            {"data": test_files},
+            args.tasks,
+            load_data_from_filename_list,
+            args.batch_size,
+            net_fn,
+            model_params,
+            tf.nn.sigmoid,
+            shuffle_data=shuffle_data,
+            fake_task_num=args.fake_task_num)
+        
+    # set up neural net graph
+    tronn_graph = TronnGraphV2(
+        dataloader,
+        net_fns[args.model["name"]],
+        args.model,
+        args.batch_size,
+        args.tasks,
+        final_activation_fn=tf.nn.sigmoid,
+        loss_fn=tf.losses.sigmoid_cross_entropy,
+        checkpoints=checkpoints)
+    
+    # predict - TODO why not just store into hdf5 file?
     labels, predictions, probs, metadata, metadata_full = predict(
         tronn_graph,
         args.model_dir,

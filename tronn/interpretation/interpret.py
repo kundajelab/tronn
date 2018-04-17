@@ -171,7 +171,6 @@ def interpret(
         # restore from checkpoint as needed
         tronn_graph.restore_graph(sess, is_ensemble=True, skip=["pwm"]) # here add in if ensemble?
 
-
         #if model_checkpoint is not None:
         #    # TODO - create an restore_variables_ensemble_op
         #    init_assign_op, init_feed_dict = restore_variables_op(

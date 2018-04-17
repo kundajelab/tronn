@@ -88,7 +88,7 @@ def train(
             train_op,
             out_dir,
             init_fn=restore_fn,
-            number_of_steps=None, #stop_step, # TODO - change this?
+            number_of_steps=10, #stop_step, # TODO - change this?
             log_every_n_steps=1000,
             summary_op=summary_op,
             save_summaries_secs=60,
@@ -120,7 +120,8 @@ def evaluate(
     with tf.Graph().as_default():
 
         # build graph
-        tronn_graph.build_evaluation_graph(data_key="valid")
+        #tronn_graph.build_evaluation_graph(data_key="valid")
+        tronn_graph.build_evaluation_dataflow(data_key="valid")
 
         # add summaries
         add_summaries(tronn_graph.metric_values)
@@ -498,7 +499,3 @@ def predict_variant_scores(
         close_tensorflow_session(coord, threads)
     
     return all_labels_array, all_logits_array, all_probs_array, regions, all_metadata, all_importances_array
-
-
-
-

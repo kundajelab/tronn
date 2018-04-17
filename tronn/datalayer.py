@@ -13,69 +13,15 @@ from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 from tronn.nets.sequence_nets import generate_scaled_inputs
 
 
-def get_total_num_examples(hdf5_filename_list, feature_key="features"):
-    """Get total number of examples in a list of hdf5 files.
-
-    Args:
-      hdf5_filename_list: a list of hdf5 filenames.
-
-    Returns:
-      Number of examples.
+# TODO try to factor this out eventually?
+def get_total_num_examples(data_files, features_key="features"):
+    """Get total examples in a dataset
     """
     num_examples = 0
-    for filename in hdf5_filename_list:
-        with h5py.File(filename, 'r') as hf:
-            num_examples += hf[feature_key].shape[0]
-
+    for data_file in data_files:
+        with h5py.File(data_file, 'r') as hf:
+            num_examples += hf[features_key].shape[0]
     return num_examples
-
-
-def get_positive_weights_per_task(hdf5_filename_list):
-    """Calculates positive weights to be used in weighted cross entropy
-    
-    Args:
-      hdf_filename_list: a list of hdf5 filenames.
-
-    Returns:
-      List of positive weights calculated as (total_negs / total_pos)
-    """
-    for filename_idx in range(len(hdf5_filename_list)):
-        with h5py.File(hdf5_filename_list[filename_idx], 'r') as hf:
-            file_pos = np.sum(hf['labels'], axis=0)
-            file_tot = np.repeat(hf['labels'].shape[0], hf['labels'].shape[1])
-
-            if filename_idx == 0:
-                total_pos = file_pos
-                total_examples = file_tot
-            else:
-                total_pos += file_pos
-                total_examples += file_tot
-
-    return np.divide(total_examples - total_pos, total_pos)
-
-
-def get_task_and_class_weights(hdf5_filename_list):
-    """Calculates task and class weights to be used in positives focused loss
-    
-    Args:
-      hdf_filename_list: a list of hdf5 filenames.
-
-    Returns:
-      List of task weights (pos/negs) and class weights (negs/pos)
-    """
-    for filename_idx in range(len(hdf5_filename_list)):
-        with h5py.File(hdf5_filename_list[filename_idx], 'r') as hf:
-            file_pos = np.sum(hf['labels'], axis=0)
-            file_tot = np.repeat(hf['labels'].shape[0], hf['labels'].shape[1])
-
-            if filename_idx == 0:
-                total_pos = file_pos
-                total_examples = file_tot
-            else:
-                total_pos += file_pos
-                total_examples += file_tot
-
-    return np.divide(total_pos, total_examples - total_pos), np.divide(total_examples - total_pos, total_pos)
 
 
 def make_bed_from_h5(h5_file, bed_file):
@@ -462,9 +408,6 @@ def load_data_from_filename_list(
             features, labels, metadata, filter_tasks, batch_size)
         
     return features, labels, metadata
-
-# TODO: make a function that builds a dataloader function, and allows various options
-# like adding shuffles, etc etc.
 
 
 def load_step_scaled_data_from_filename_list(
@@ -879,7 +822,25 @@ class H5DataLoader(DataLoader):
         """
         super(H5DataLoader, self).__init__(**kwargs)
         self.data_files = data_files
-        
+
+
+    def get_num_total_examples(self, data_key, features_key="features"):
+        """Get total examples in a dataset
+        """
+        num_examples = 0
+        data_files = self.data_files[data_key]
+        for data_file in data_files:
+            with h5py.File(data_file, 'r') as hf:
+                num_examples += hf[features_key].shape[0]
+        return num_examples
+
+    
+    def get_dataset_metrics(self):
+        """Get class imbalances, num of outputs, etc
+        """
+
+        return
+    
         
     def load_raw_data(self, batch_size, data_key):
         """call dataloading function
@@ -900,6 +861,55 @@ class H5DataLoader(DataLoader):
             "example_metadata": inputs[2]}
 
         return inputs
+
+
+    def get_positive_weights_per_task(self):
+        """Calculates positive weights to be used in weighted cross entropy
+    
+        Args:
+        hdf_filename_list: a list of hdf5 filenames.
+        
+        Returns:
+        List of positive weights calculated as (total_negs / total_pos)
+        """
+        for filename_idx in range(len(self.data_files)):
+            with h5py.File(self.data_files[filename_idx], 'r') as hf:
+                file_pos = np.sum(hf['labels'], axis=0)
+                file_tot = np.repeat(hf['labels'].shape[0], hf['labels'].shape[1])
+                
+                if filename_idx == 0:
+                    total_pos = file_pos
+                    total_examples = file_tot
+                else:
+                    total_pos += file_pos
+                    total_examples += file_tot
+
+        return np.divide(total_examples - total_pos, total_pos)
+    
+
+    def get_task_and_class_weights(self):
+        """Calculates task and class weights to be used in positives focused loss
+        
+        Args:
+        hdf_filename_list: a list of hdf5 filenames.
+
+        Returns:
+        List of task weights (pos/negs) and class weights (negs/pos)
+        """
+        for filename_idx in range(len(self.data_files)):
+            with h5py.File(self.data_files[filename_idx], 'r') as hf:
+                file_pos = np.sum(hf['labels'], axis=0)
+                file_tot = np.repeat(hf['labels'].shape[0], hf['labels'].shape[1])
+
+                if filename_idx == 0:
+                    total_pos = file_pos
+                    total_examples = file_tot
+                else:
+                    total_pos += file_pos
+                    total_examples += file_tot
+
+        return np.divide(total_pos, total_examples - total_pos), np.divide(total_examples - total_pos, total_pos)
+
     
 
 class ArrayDataLoader(DataLoader):
