@@ -10,7 +10,7 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 from tronn.nets.filter_nets import rebatch
-from tronn.nets.filter_nets import filter_through_mask
+#from tronn.nets.filter_nets import filter_through_mask
 
 
 def mutate_motif(features, labels, config, is_training=False):

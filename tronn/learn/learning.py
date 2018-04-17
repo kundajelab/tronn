@@ -90,12 +90,12 @@ def train(
             train_op,
             out_dir,
             init_fn=restore_fn,
-            number_of_steps=None, #stop_step, # TODO - change this?
+            number_of_steps=None,
             log_every_n_steps=1000,
             summary_op=summary_op,
             save_summaries_secs=60,
             saver=tf.train.Saver(max_to_keep=None),
-            save_interval_secs=0) # change this?
+            save_interval_secs=0) # change this? yes
 
     return
 

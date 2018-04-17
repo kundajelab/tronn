@@ -9,7 +9,6 @@ import tensorflow.contrib.slim as slim
 from tronn.util.tf_utils import get_fan_in
 from tronn.util.initializers import pwm_simple_initializer
 
-from tronn.nets.filter_nets import filter_through_mask
 
 
 def score_distance_to_motifspace_point(features, labels, config, is_training=False):

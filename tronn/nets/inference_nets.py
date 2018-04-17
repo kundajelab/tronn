@@ -4,8 +4,9 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 from tronn.nets.importance_nets import multitask_importances
-from tronn.nets.importance_nets import multitask_global_importance
+#from tronn.nets.importance_nets import multitask_global_importance
 from tronn.nets.importance_nets import filter_by_importance
+from tronn.nets.importance_nets import filter_singles_twotailed
 
 from tronn.nets.normalization_nets import normalize_w_probability_weights
 from tronn.nets.normalization_nets import normalize_to_logits
@@ -30,8 +31,8 @@ from tronn.nets.grammar_nets import check_motifset_presence
 
 from tronn.nets.filter_nets import filter_by_accuracy
 
-from tronn.nets.filter_nets import filter_singles_twotailed
-from tronn.nets.filter_nets import filter_by_motifset_presence
+
+#from tronn.nets.filter_nets import filter_by_motifset_presence
 
 from tronn.nets.mutate_nets import generate_mutation_batch
 from tronn.nets.mutate_nets import run_model_on_mutation_batch

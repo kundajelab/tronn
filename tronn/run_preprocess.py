@@ -9,6 +9,7 @@ import time
 import h5py
 
 from tronn.preprocess import generate_master_regions
+from tronn.preprocess import generate_genomewide_negatives_dataset
 from tronn.preprocess import generate_nn_dataset
 
 from tronn.preprocess import generate_variant_datasets
@@ -25,20 +26,53 @@ def run(args):
     if not os.path.isfile(master_regions_bed):
         generate_master_regions(master_regions_bed, args.labels)
 
-    # then run generate nn dataset
-    generate_nn_dataset(master_regions_bed,
-                        args.annotations["univ_dhs"],
-                        args.annotations["ref_fasta"],
-                        args.labels,
-                        args.out_dir,
-                        args.prefix,
-                        parallel=args.parallel,
-                        neg_region_num=args.univ_neg_num,
-                        use_dhs=not args.no_dhs_negs,
-                        use_random=args.random_negs,
-                        chrom_sizes=args.annotations["chrom_sizes"],
-                        bin_method="naive" if args.no_flank_negs else "plus_flank_negs",
-                        reverse_complemented=args.rc)
+    if not args.genomewide:
+        # then run generate nn dataset
+        generate_nn_dataset(
+            master_regions_bed,
+            args.annotations["univ_dhs"],
+            args.annotations["ref_fasta"],
+            args.labels,
+            args.out_dir,
+            args.prefix,
+            parallel=args.parallel,
+            neg_region_num=args.univ_neg_num,
+            use_dhs=not args.no_dhs_negs,
+            use_random=args.random_negs,
+            chrom_sizes=args.annotations["chrom_sizes"],
+            bin_method="naive" if args.no_flank_negs else "plus_flank_negs",
+            reverse_complemented=args.rc)
+
+    else:
+        # then run generate nn dataset
+        if False:
+            generate_nn_dataset(
+                master_regions_bed,
+                None,
+                args.annotations["ref_fasta"],
+                args.labels,
+                args.out_dir,
+                args.prefix,
+                parallel=args.parallel,
+                neg_region_num=None,
+                use_dhs=False,
+                use_random=False,
+                chrom_sizes=args.annotations["chrom_sizes"],
+                bin_method="naive",
+                reverse_complemented=args.rc)
+
+        # and generate the negatives also
+        generate_genomewide_negatives_dataset(
+            master_regions_bed,
+            args.annotations["ref_fasta"],
+            args.labels,
+            args.out_dir,
+            "{}.negs".format(args.prefix),
+            chrom_sizes=args.annotations["chrom_sizes"])
+
+    quit()
+
+    
 
     if False:
         from tronn.graphs import TronnGraph

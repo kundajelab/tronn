@@ -3,6 +3,8 @@
 
 import tensorflow as tf
 
+from tronn.nets.sequence_nets import unpad_examples
+
 from tronn.nets.filter_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
 from tronn.nets.filter_nets import remove_shuffles
@@ -56,27 +58,34 @@ def input_x_grad(inputs, params):
     return outputs, params
 
 
-def integrated_gradients(features, labels, config, is_training=False):
+def integrated_gradients(inputs, params):
     """Integrated gradients as proposed by Sundararajan 2017
-    
-    NOTE: the current set up is such that a batch is basically a scaled set of sequences
-    so just reduce mean on them.
     """
-    batch_size = config.get("batch_size")
-    assert batch_size is not None
+    # assertions
+    assert params.get("num_scaled_inputs") is not None
+    assert params.get("batch_size") is not None
+
+    batch_size = params["batch_size"]
+    num_scaled_inputs = params["num_scaled_inputs"]
+
+    assert batch_size % num_scaled_inputs == 0
 
     # run input_x_grad
-    features, _, _ = input_x_grad(features, labels, config, is_training=False)
+    outputs, params = input_x_grad(inputs, params)
 
-    # for features, reduce mean
-    features = tf.reduce_mean(features, axis=0, keep_dims=True)
+    # for features, reduce mean according to the groups
+    all_mean_features = []
+    for i in xrange(0, batch_size, num_scaled_inputs):
+        print i
+        mean_features = tf.reduce_mean(
+            outputs["features"][i:i+num_scaled_inputs], axis=0, keep_dims=True)
+        all_mean_features.append(mean_features)
 
-    # NOTE: DONT adjust here, it references the original dict
-    # for everything else, just grab the LAST of the batch (which is the non-scaled sequence)
-    labels = tf.expand_dims(tf.unstack(labels, axis=0)[-1], axis=0)
-    for key in config["outputs"].keys():
-        config["outputs"][key] = tf.expand_dims(
-            tf.unstack(config["outputs"][key], axis=0)[-1], axis=0)
+    outputs["features"] = tf.concat(all_mean_features, axis=0)
+
+    # and remove the steps
+    params.update({"ignore": ["features"]})
+    outputs, params = unpad_examples(outputs, params)
 
     return features, labels, config
 
@@ -171,7 +180,6 @@ def deeplift(features, labels, config, is_training=False):
     return features, labels, config
 
 
-#def multitask_importances(features, labels, config, is_training=False):
 def multitask_importances(inputs, params):
     """Set up importances coming from multiple tasks
     """
@@ -221,28 +229,21 @@ def multitask_importances(inputs, params):
             task_gradients.append(task_outputs["gradients"])
         
     features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
+
+    outputs["features"] = features
+    if params.get("keep_gradients") is not None:
+        outputs["gradients"] = tf.reduce_mean(
+            tf.concat(task_gradients, axis=1), axis=1, keep_dims=True)
     
-    # adjust labels and configs as needed here
+    # unpad as needed
     if backprop == "integrated_gradients":
         # TODO switch to other function
-        labels = tf.expand_dims(tf.unstack(labels, axis=0)[-1], axis=0)
-        for key in config["outputs"].keys():
-            config["outputs"][key] = tf.expand_dims(
-                tf.unstack(config["outputs"][key], axis=0)[-1], axis=0)
-        #features, labels, config = rebatch(features, labels, config)
+        params.update({"ignore": ["features"]})
+        outputs, params = unpad_examples(outputs, params)
     #elif backprop == "deeplift":
         # TODO - actually remove shuffles later, make dependent on shuffle null and data input loader
         #features, labels, config = remove_shuffles(features, labels, config)
         #features, labels, config = rebatch(features, labels, config)
-
-    # for now just merge gradients and attach to the config
-    if params.get("keep_gradients") is not None:
-        outputs["gradients"] = tf.reduce_mean(
-            tf.concat(task_gradients, axis=1), axis=1, keep_dims=True)
-        #config["outputs"][config["keep_gradients"]] = tf.reduce_mean(
-        #    tf.concat(task_gradients, axis=1), axis=1, keep_dims=True) # {N, 1, 1000, 4}
-
-    outputs["features"] = features
         
     return outputs, params
 
@@ -300,6 +301,67 @@ def multitask_global_importance(features, labels, config, is_training=False):
         config["keep_global_pwm_scores"] = None # TODO fix this, this is because there is overwriting
         
     return features, labels, config
+
+
+
+def filter_singles(inputs, params):
+    """Filter out singlets to remove noise
+    """
+    # get features and pass rest through
+    features = inputs["features"]
+    outputs = dict(inputs)
+    
+    window = params.get("window", 5)
+    min_features = params.get("min_fract", 0.4)
+    
+    features_present = tf.cast(tf.not_equal(features, 0), tf.float32)
+
+    # check the windows
+    feature_counts_in_window = slim.avg_pool2d(features_present, [1, window], stride=[1, 1], padding="SAME")
+    feature_mask = tf.cast(tf.greater_equal(feature_counts_in_window, min_features), tf.float32)
+    
+    # wherever the window is 0, blank out that region
+    features = tf.multiply(features, feature_mask)
+
+    outputs["features"] = features
+    
+    return outputs, params
+
+
+
+
+def filter_singles_twotailed(inputs, params):
+    """Filter out singlets, removing positive and negative singlets separately
+    """
+    # get features and pass rest through
+    features = inputs["features"]
+    outputs = dict(inputs)
+    
+    # split features
+    pos_features = tf.cast(tf.greater(features, 0), tf.float32)
+    neg_features = tf.cast(tf.less(features, 0), tf.float32)
+
+    # get masks
+    pos_mask, _ = filter_singles({"features": pos_features}, params)
+    neg_mask, _ = filter_singles({"features": neg_features}, params)
+    keep_mask = tf.add(pos_mask["features"], neg_mask["features"])
+
+    # mask features
+    features = tf.multiply(features, keep_mask)
+
+    # output for later
+    num_positive_features = tf.reduce_sum(
+        tf.cast(
+            tf.greater(
+                tf.reduce_max(features, axis=[1,3]), [0]),
+            tf.float32), axis=1, keep_dims=True)
+
+    # save desired outputs
+    outputs["features"] = features
+    outputs["positive_importance_bp_sum"] = num_positive_features
+
+    return outputs, params
+
 
 
 

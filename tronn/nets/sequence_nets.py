@@ -47,6 +47,29 @@ def pad_examples(data, params):
     return data, params
 
 
+def unpad_examples(inputs, params):
+    """unpad the examples to remove the offset
+    """
+    assert params.get("ignore") is not None
+    assert len(params["ignore"]) > 0
+
+    # params
+    batch_size = params["batch_size"]
+    num_scaled_inputs = params["num_scaled_inputs"]
+    ignore_keys = params["ignore"]
+    
+    # for all keys, grab the first one and keep
+    keep_indices = tf.range(0, batch_size, num_scaled_inputs)
+    outputs = {}
+    for key in inputs.keys():
+        if key in ignore:
+            outputs[key] = inputs[key]
+            continue
+        outputs[key] = tf.gather(inputs[key], keep_indices)
+
+    return outputs, params
+
+
 def dinucleotide_shuffle(data, params):
     """shuffle input by dinucleotides
     """
@@ -140,7 +163,7 @@ def generate_scaled_inputs(data, params):
     # params
     batch_size = params.get("batch_size")
     steps = params.get("num_scaled_inputs", 8)
-    assert batch_size % (num_scaled_inputs + 1) == 0
+    assert batch_size % num_scaled_inputs == 0
     
     # separate out features, scale, and append all together
     features = data.get(features_key)

@@ -685,6 +685,55 @@ def generate_nn_dataset(
     return '{}/h5'.format(work_dir)
 
 
+def generate_genomewide_negatives_dataset(
+        celltype_master_regions,
+        ref_fasta,
+        label_files,
+        work_dir,
+        prefix,
+        chrom_sizes=None):
+    """
+    """
+
+    # create a tmp chrom sizes file that is correctly sorted
+    sort_chrom_sizes = 'cat {} | grep -v "_"  | grep -v chrM | sort -k1,1 -k2,2n > {}/chrom_sizes.tmp'.format(chrom_sizes, work_dir)
+    print sort_chrom_sizes
+    os.system(sort_chrom_sizes)
+    
+    # make a bed file that is the opposite of all seen regions
+    full_negatives_bed = "{}/{}.complement.bed.gz".format(
+        work_dir, os.path.basename(celltype_master_regions.split(".bed")[0]))
+    make_negatives_bed = "bedtools complement -i {0} -g {1}/chrom_sizes.tmp | gzip -c > {2}".format(
+        celltype_master_regions, work_dir, full_negatives_bed)
+    print make_negatives_bed
+    os.system(make_negatives_bed)
+    
+    # call the preprocess function above but with NO additions
+    generate_nn_dataset(
+        full_negatives_bed,
+        full_negatives_bed,
+        ref_fasta,
+        label_files,
+        work_dir,
+        prefix,
+        neg_region_num=0,
+        use_dhs=False,
+        use_random=False,
+        chrom_sizes=chrom_sizes,
+        bin_size=200,
+        bin_method='naive',
+        stride=50,
+        final_length=1000,
+        parallel=12,
+        softmax=False,
+        reverse_complemented=False)
+
+    quit()
+    
+    return None
+
+
+
 def generate_variant_datasets(variant_file, ref_fasta_file, out_dir, prefix, seq_length=1000):
     """Creates 2 hdf5 files, one that has allele1 and the other with allele2
     Then, when prediction (in order), should produce two files that you can put

@@ -163,6 +163,9 @@ def add_preprocess_parser(subparsers):
         "--univ_neg_num", type=int,
         help='number of universal negatives to grab from univ DHS regions')
     group_opts.add_argument(
+        "--genomewide", action="store_true",
+        help='build examples across whole genome')
+    group_opts.add_argument(
         "--parallel", default=12, type=int,
         help='Number of parallel threads to use')
     group_opts.add_argument(
