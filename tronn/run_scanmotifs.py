@@ -13,16 +13,18 @@ import tensorflow as tf
 
 from collections import Counter
 
-from tronn.graphs import TronnGraph
-from tronn.graphs import TronnNeuralNetGraph
+#from tronn.graphs import TronnGraph
+#from tronn.graphs import TronnNeuralNetGraph
+from tronn.graphs import TronnGraphV2
 
-from tronn.datalayer import load_data_from_filename_list
-from tronn.datalayer import load_step_scaled_data_from_filename_list
-from tronn.datalayer import load_data_with_shuffles_from_filename_list
+#from tronn.datalayer import load_data_from_filename_list
+#from tronn.datalayer import load_step_scaled_data_from_filename_list
+#from tronn.datalayer import load_data_with_shuffles_from_filename_list
 from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns
 
 from tronn.interpretation.interpret import interpret
+from tronn.interpretation.interpret import interpret_v2
 
 from tronn.interpretation.motifs import PWM
 from tronn.interpretation.motifs import read_pwm_file
@@ -248,29 +250,44 @@ def run(args):
     # TODO somewhere here need to pass forward the
     # shuffles/steps information from dataloader into the graph,
     # to be stored in the config for inference.
-    tronn_graph = TronnNeuralNetGraph(
-        {'data': data_files},
-        args.tasks,
+    if False:
+        tronn_graph = TronnNeuralNetGraph(
+            {'data': data_files},
+            args.tasks,
+            dataloader,
+            args.batch_size,
+            net_fns[args.model['name']],
+            args.model,
+            tf.nn.sigmoid,
+            inference_fn=net_fns[args.inference_fn],
+            importances_tasks=args.inference_tasks,
+            shuffle_data=True,
+            filter_tasks=args.filter_tasks,
+            checkpoints=args.model_checkpoints)
+
+    # set up graph
+    tronn_graph = TronnGraphV2(
         dataloader,
-        args.batch_size,
-        net_fns[args.model['name']],
+        net_fns[args.model["name"]],
         args.model,
-        tf.nn.sigmoid,
-        inference_fn=net_fns[args.inference_fn],
-        importances_tasks=args.inference_tasks,
-        shuffle_data=True,
-        filter_tasks=args.filter_tasks,
+        args.batch_size,
+        final_activation_fn=tf.nn.sigmoid,
         checkpoints=args.model_checkpoints)
 
-    # checkpoint file (unless empty net)
-    #if args.model_checkpoint is not None:
-    #    checkpoint_path = args.model_checkpoint
-    #elif args.model["name"] == "empty_net":
-    #    checkpoint_path = None
-    #else:
-    #    checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
-        
+    # run interpretation graph
+    results_h5_file = "{0}/{1}.inference.h5".format(
+        args.tmp_dir, args.prefix)
+    if not os.path.isfile(results_h5_file):
+        infer_params = {
+            "inference_fn": net_fns[args.inference_fn],
+            "importances_fn": args.backprop,
+            "importance_task_indices": args.inference_tasks,
+            "pwms": pwm_list}
+        interpret_v2(tronn_graph, results_h5_file, infer_params)
+
+    quit()
     # validation tools
+    
     if args.diagnose:
         visualize = True
         validate_grammars = True

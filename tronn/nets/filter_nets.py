@@ -7,58 +7,63 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 
-def rebatch(data, params):
+def rebatch(inputs, params):
     """Re-batch after "breaking" a batch
     """
-    assert params.get("batch_size") is not None
     assert params.get("name") is not None
+    assert params.get("batch_size") is not None
 
     # params
-    batch_size = params.get("batch_size")
+    name = params["name"]
+    batch_size = params["batch_size"]
     num_threads = params.get("num_queue_threads", 1)
-    name = params.get("name")
     
     # set up the train batch
     with tf.variable_scope(name):
-        rebatched_data = tf.train.batch(
-            data,
+        outputs = tf.train.batch(
+            inputs,
             batch_size,
             capacity=batch_size*3,
             num_threads=num_threads,
             enqueue_many=True,
             name="rebatch_queue")
 
-    return rebatched_data, params
+    # delete name to make sure queues stay
+    # in separate scopes
+    del params["name"]
+
+    return outputs, params
 
 
-def filter_and_rebatch(data, params):
+def filter_and_rebatch(inputs, params):
     """filter through condition mask and rebatch
     """
-    assert data.get("condition_mask") is not None
+    assert inputs.get("condition_mask") is not None
+    assert params.get("name") is not None
     assert params.get("batch_size") is not None
 
     # params
-    condition_mask = data.get("condition_mask")
-    batch_size = params.get("batch_size")
+    name = params["name"]
+    condition_mask = inputs["condition_mask"]
+    batch_size = params["batch_size"]
     use_queue = params.get("use_queue", True)
     num_threads = params.get("num_queue_threads", 1)
-    name = params.get("name", "filtering")
     
     # get indices
     keep_indices = tf.reshape(tf.where(condition_mask), [-1])
 
     # and adjust data accordingly
-    for key in data.keys():
-        data[key] = tf.gather(data[key], keep_indices)
+    for key in inputs.keys():
+        inputs[key] = tf.gather(inputs[key], keep_indices)
         
     # set up queue
     if use_queue:
-        data, _ = rebatch(data, params)
+        outputs, _ = rebatch(inputs, params)
         
-    # and delete the condition mask
-    del data["condition_mask"]
+    # and delete the condition mask and name
+    del outputs["condition_mask"]
     
-    return data, params
+    return outputs, params
 
 
 def filter_by_labels(data, params):
@@ -231,7 +236,7 @@ def filter_through_mask(
 # 3) motif matches: motif vector must have a positive hit in specific locations
 # 4) grammar matches
 
-def filter_by_accuracy(features, labels, config, is_training=False):
+def filter_by_accuracy_old(features, labels, config, is_training=False):
     """Filter by accuracy
     """
     # get params needed
@@ -266,12 +271,58 @@ def filter_by_accuracy(features, labels, config, is_training=False):
     # set condition
     condition_mask = tf.greater_equal(accuracy, acc_threshold)
 
+
+    
+
     # filter
     with tf.variable_scope("accuracy_filter"):
         features, labels, config = filter_through_mask(
             features, labels, config, condition_mask, use_queue=True, num_threads=1)
 
     return features, labels, config
+
+
+def filter_by_accuracy(inputs, params):
+    """Filter by accuracy
+    """
+    assert inputs.get("probs") is not None
+    assert params.get("importance_task_indices") is not None
+
+    # features, send the rest through
+    probs = inputs["probs"]
+    labels = inputs["labels"]
+    
+    # params
+    task_indices = params["importance_task_indices"]
+    acc_threshold = params.get("acc_threshold", 0.8)
+    
+    # collect filtering tasks and probs
+    labels_tmp = tf.unstack(labels, axis=1)
+    probs_tmp = tf.unstack(probs, axis=1)
+
+    filter_labels = []
+    filter_probs = []
+    for task_idx in task_indices:
+        filter_labels.append(labels_tmp[task_idx])
+        filter_probs.append(probs_tmp[task_idx])
+    filter_labels = tf.stack(filter_labels, axis=1)
+    filter_probs = tf.stack(filter_probs, axis=1)
+
+    # calculate accuracy
+    correct_predictions = tf.logical_not(tf.logical_xor(
+        tf.cast(filter_labels, tf.bool),
+        tf.greater_equal(filter_probs, 0.5))) # {N, tasks}
+    accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32), axis=1) # {N}
+    
+    # set condition
+    inputs["condition_mask"] = tf.greater_equal(accuracy, acc_threshold)
+
+    # run through queue
+    params.update({"name": "accuracy_filter"})
+    outputs, params = filter_and_rebatch(inputs, params)
+
+    return outputs, params
+
 
 
 def filter_by_importance(features, labels, config, is_training=False):
@@ -361,7 +412,7 @@ def filter_by_motifset_presence(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def filter_singles(features, labels, config, is_training=False):
+def filter_singles_old(features, labels, config, is_training=False):
     """Filter out singlets to remove noise
     """
     window = config.get("window", 5)
@@ -379,7 +430,31 @@ def filter_singles(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def filter_singles_twotailed(features, labels, config, is_training=False):
+def filter_singles(inputs, params):
+    """Filter out singlets to remove noise
+    """
+    # get features and pass rest through
+    features = inputs["features"]
+    outputs = dict(inputs)
+    
+    window = params.get("window", 5)
+    min_features = params.get("min_fract", 0.4)
+    
+    features_present = tf.cast(tf.not_equal(features, 0), tf.float32)
+
+    # check the windows
+    feature_counts_in_window = slim.avg_pool2d(features_present, [1, window], stride=[1, 1], padding="SAME")
+    feature_mask = tf.cast(tf.greater_equal(feature_counts_in_window, min_features), tf.float32)
+    
+    # wherever the window is 0, blank out that region
+    features = tf.multiply(features, feature_mask)
+
+    outputs["features"] = features
+    
+    return outputs, params
+
+
+def filter_singles_twotailed_old(features, labels, config, is_training=False):
     """Filter out singlets, removing positive and negative singlets separately
     """
     # split features
@@ -403,3 +478,37 @@ def filter_singles_twotailed(features, labels, config, is_training=False):
     config["outputs"]["positive_importance_bp_sum"] = num_positive_features
 
     return features, labels, config
+
+
+
+def filter_singles_twotailed(inputs, params):
+    """Filter out singlets, removing positive and negative singlets separately
+    """
+    # get features and pass rest through
+    features = inputs["features"]
+    outputs = dict(inputs)
+    
+    # split features
+    pos_features = tf.cast(tf.greater(features, 0), tf.float32)
+    neg_features = tf.cast(tf.less(features, 0), tf.float32)
+
+    # get masks
+    pos_mask, _ = filter_singles({"features": pos_features}, params)
+    neg_mask, _ = filter_singles({"features": neg_features}, params)
+    keep_mask = tf.add(pos_mask["features"], neg_mask["features"])
+
+    # mask features
+    features = tf.multiply(features, keep_mask)
+
+    # output for later
+    num_positive_features = tf.reduce_sum(
+        tf.cast(
+            tf.greater(
+                tf.reduce_max(features, axis=[1,3]), [0]),
+            tf.float32), axis=1, keep_dims=True)
+
+    # save desired outputs
+    outputs["features"] = features
+    outputs["positive_importance_bp_sum"] = num_positive_features
+
+    return outputs, params

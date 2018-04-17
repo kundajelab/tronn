@@ -397,6 +397,8 @@ def basset(inputs, params):
     """
     # set up the needed inputs
     assert inputs.get("features") is not None
+    outputs = dict(inputs)
+    
     features_key = params["features_key"]
     logits_key = params["logits_key"]
     labels_key = params["labels_key"]
@@ -451,8 +453,6 @@ def basset(inputs, params):
         maxnorm(norm_val=7)
 
     # store outputs
-    outputs = inputs
-    outputs[features_key] = net # store last shared hidden layer
     outputs[logits_key] = logits # store logits
     
     return outputs, params

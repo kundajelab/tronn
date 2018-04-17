@@ -4,41 +4,56 @@
 import tensorflow as tf
 
 from tronn.nets.filter_nets import rebatch
+from tronn.nets.filter_nets import filter_and_rebatch
 from tronn.nets.filter_nets import remove_shuffles
 
 
-def input_x_grad(features, labels, config, is_training=False):
+def input_x_grad(inputs, params):
     """Layer-wise Relevance Propagation (Batch et al), implemented
     as input * gradient (equivalence is demonstrated in deepLIFT paper,
     Shrikumar et al). Returns the raw scores, adjust/normalize as needed.
     
-    Args:
-      features: the input tensor on which you want the importance scores
-      labels: not used
+    Requires:
+      features: {N, 1, seqlen, 4} the onehot sequence
+      anchor: {N, 1} the desired anchor neurons (normally logits)
     
     Returns:
       Input tensor weighted by gradient backpropagation.
+      optionally the gradients also
     """
-    assert is_training == False
-    assert config.get("anchor") is not None
-    use_relu = config.get("relu", False)
+    assert inputs.get("features") is not None
+    assert params["is_training"] == False
+    assert params.get("anchor") is not None
 
-    anchor = config.get("anchor")
-    if config.get("grad_ys") is None:
+    # pull features and send all others to output
+    features = inputs.get("features")
+    outputs = dict(inputs)
+    
+    # params
+    anchor = params.get("anchor")
+    use_relu = params.get("relu", False)
+    
+    # gradients
+    if params.get("grad_ys") is None:
         [feature_grad] = tf.gradients(anchor, [features])
     else:
-        print config["grad_ys"]
-        [feature_grad] = tf.gradients(anchor, [features], grad_ys=config["grad_ys"])
+        print params["grad_ys"]
+        [feature_grad] = tf.gradients(anchor, [features], grad_ys=params["grad_ys"])
+
+    # input x grad
     features = tf.multiply(features, feature_grad, 'input_x_grad')
 
     if use_relu:
         features = tf.nn.relu(features)
 
+    # save out
+    outputs["features"] = features
+    
     # keep gradients if you'd like them
-    if config.get("keep_gradients") is not None:
-        config["outputs"][config["keep_gradients"]] = feature_grad
-   
-    return features, labels, config
+    if params.get("keep_gradients") is not None:
+        outputs["gradients"] = feature_grad
+        
+    return outputs, params
 
 
 def integrated_gradients(features, labels, config, is_training=False):
@@ -156,15 +171,23 @@ def deeplift(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def multitask_importances(features, labels, config, is_training=False):
+#def multitask_importances(features, labels, config, is_training=False):
+def multitask_importances(inputs, params):
     """Set up importances coming from multiple tasks
     """
-    assert is_training == False
+    assert inputs.get("features") is not None
+    assert inputs.get("importance_logits") is not None
+    assert params.get("importance_task_indices") is not None
+    assert params["is_training"] == False
 
-    # get configs
-    anchors = config["outputs"].get("importance_logits")
-    task_indices = config.get("importance_task_indices")
-    backprop = config.get("backprop", "input_x_grad")
+    # pull features and send the rest through
+    features = inputs["features"]
+    outputs = dict(inputs)
+    
+    # params
+    anchors = inputs.get("importance_logits")
+    task_indices = params.get("importance_task_indices")
+    backprop = params.get("backprop", "input_x_grad")
 
     if backprop == "input_x_grad":
         importances_fn = input_x_grad
@@ -176,9 +199,6 @@ def multitask_importances(features, labels, config, is_training=False):
         print "method does not exist/not implemented!"
         quit()
 
-    assert anchors is not None
-    assert task_indices is not None
-    assert importances_fn is not None
     print importances_fn
     
     # split out anchors by task
@@ -189,21 +209,22 @@ def multitask_importances(features, labels, config, is_training=False):
     task_importances = []
     task_gradients = []
     for i in xrange(len(task_indices)):
+        task_params = dict(params)
         anchor_idx = task_indices[i]
-        config["anchor"] = anchors[anchor_idx]
-        if config.get("keep_gradients") is not None:
-            config["grad_ys"] = config["all_grad_ys"][i]
-        task_importance, _, task_config = importances_fn(
-            features, labels, config)
-        task_importances.append(task_importance)
-
-        if config.get("keep_gradients") is not None:
-            task_gradients.append(task_config["outputs"][config["keep_gradients"]])
+        task_params["anchor"] = anchors[anchor_idx]
+        if params.get("keep_gradients") is not None:
+            task_params["grad_ys"] = params["all_grad_ys"][i]
+        task_outputs, task_params = importances_fn(inputs, task_params)
+        task_importances.append(task_outputs["features"])
+        
+        if params.get("keep_gradients") is not None:
+            task_gradients.append(task_outputs["gradients"])
         
     features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
     
     # adjust labels and configs as needed here
     if backprop == "integrated_gradients":
+        # TODO switch to other function
         labels = tf.expand_dims(tf.unstack(labels, axis=0)[-1], axis=0)
         for key in config["outputs"].keys():
             config["outputs"][key] = tf.expand_dims(
@@ -215,11 +236,15 @@ def multitask_importances(features, labels, config, is_training=False):
         #features, labels, config = rebatch(features, labels, config)
 
     # for now just merge gradients and attach to the config
-    if config.get("keep_gradients") is not None:
-        config["outputs"][config["keep_gradients"]] = tf.reduce_mean(
-            tf.concat(task_gradients, axis=1), axis=1, keep_dims=True) # {N, 1, 1000, 4}
+    if params.get("keep_gradients") is not None:
+        outputs["gradients"] = tf.reduce_mean(
+            tf.concat(task_gradients, axis=1), axis=1, keep_dims=True)
+        #config["outputs"][config["keep_gradients"]] = tf.reduce_mean(
+        #    tf.concat(task_gradients, axis=1), axis=1, keep_dims=True) # {N, 1, 1000, 4}
+
+    outputs["features"] = features
         
-    return features, labels, config
+    return outputs, params
 
 
 def multitask_global_importance(features, labels, config, is_training=False):
@@ -276,3 +301,40 @@ def multitask_global_importance(features, labels, config, is_training=False):
         
     return features, labels, config
 
+
+
+
+def filter_by_importance(inputs, params):
+    """Filter out low importance examples, not interesting
+    """
+    assert inputs.get("features") is not None
+    assert params.get("batch_size") is not None
+    
+    # features
+    features = inputs["features"]
+    
+    # params
+    batch_size = params["batch_size"]
+    cutoff = params.get("cutoff", 20)
+    positive_only = params.get("positive_only", False)
+
+    if positive_only:
+        # get condition mask
+        feature_sums = tf.reduce_max(
+            tf.reduce_sum(
+                tf.cast(tf.greater(features, 0), tf.float32),
+                axis=[2, 3]),
+            axis=1) # shape {N}
+    else:
+        # get condition mask
+        feature_sums = tf.reduce_max(
+            tf.reduce_sum(
+                tf.cast(tf.not_equal(features, 0), tf.float32),
+                axis=[2, 3]),
+            axis=1) # shape {N}
+
+    inputs["condition_mask"] = tf.greater(feature_sums, cutoff)
+    params.update({"name": "importances_filter"})
+    outputs, params = filter_and_rebatch(inputs, params)
+    
+    return outputs, params

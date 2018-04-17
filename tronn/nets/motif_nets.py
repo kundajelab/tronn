@@ -217,7 +217,7 @@ def get_bp_overlap(features, labels, config, is_training=False):
     return nonzero_bp_fraction_per_window, labels, config
 
 
-def pwm_match_filtered_convolve(features, labels, config, is_training=False):
+def pwm_match_filtered_convolve_old(features, labels, config, is_training=False):
     """Run pwm convolve twice, with importance scores and without.
     Choose max for motif across positions using raw sequence
     """
@@ -272,6 +272,70 @@ def pwm_match_filtered_convolve(features, labels, config, is_training=False):
         config["outputs"][config["keep_pwm_scores_full"]] = features # {N, task, pos, M}
         
     return features, labels, config
+
+
+def pwm_match_filtered_convolve(inputs, params):
+    """Run pwm convolve twice, with importance scores and without.
+    Choose max for motif across positions using raw sequence
+    """
+    assert inputs.get("onehot_sequence_clipped") is not None
+    assert params.get("pwms") is not None
+    
+    # features
+    features = inputs["features"]
+    raw_sequence = inputs["onehot_sequence_clipped"]
+    labels = inputs["labels"]
+    is_training = params.get("is_training", False)
+    outputs = dict(inputs)
+    
+    # run on raw sequence
+    if raw_sequence is not None:
+        binarized_features = raw_sequence
+        if params["keep_ism_scores"] is None:
+            del outputs["onehot_sequence"] # remove this from outputs now
+        else:
+            print "WARNING DID NOT DELETE RAW SEQUENCE"
+    
+    pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
+        binarized_features, labels, params, is_training=is_training) # {N, 1, pos, M}
+
+    # adjust the raw scores and save out
+    if params.get("keep_pwm_raw_scores") is not None:
+        raw_bp_overlap, _, _ = get_bp_overlap(binarized_features, labels, params)
+        raw_scores = tf.multiply(
+            pwm_binarized_feature_scores,
+            raw_bp_overlap)
+        raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2)) # {N, M}
+        outputs[params["keep_pwm_raw_scores"]] = raw_scores
+
+    # multiply by raw sequence matches
+    pwm_binarized_feature_maxfilt_mask = tf.cast(
+        tf.greater(pwm_binarized_feature_scores, [0]), tf.float32)
+    
+    # run on impt weighted features
+    #with tf.variable_scope("impt_weighted"):
+    pwm_impt_weighted_scores, _, _ = pwm_convolve_inputxgrad(
+        features, labels, params, is_training=is_training)
+    
+    # and filter through mask
+    filt_features = tf.multiply(
+        pwm_binarized_feature_maxfilt_mask,
+        pwm_impt_weighted_scores)
+
+    # at this stage also need to perform the weighting by bp presence
+    impt_bp_overlap, _, _ = get_bp_overlap(features, labels, params)
+    features = tf.multiply(
+        filt_features,
+        impt_bp_overlap)
+
+    outputs["features"] = features
+    
+    # keep for grammars
+    if params.get("keep_pwm_scores_full") is not None:
+        outputs[params["keep_pwm_scores_full"]] = features
+        
+    return outputs, params
+
 
 
 def pwm_maxpool(features, labels, config, is_training=False):
@@ -386,12 +450,119 @@ def pwm_position_squeeze(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def pwm_relu(features, labels, config, is_training=False):
+
+def pwm_position_squeeze(inputs, params):
+    """Squeeze position
+    """
+    assert inputs.get("features") is not None
+
+    # features
+    features = inputs["features"]
+    outputs = dict(inputs)
+    
+    squeeze_type = params.get("squeeze_type", "max")
+    if squeeze_type == "max":
+        max_vals = tf.reduce_max(tf.abs(features), axis=2, keep_dims=True) # {N, task, 1, M}
+        max_mask = tf.cast(
+            tf.greater_equal(tf.abs(features), max_vals),
+            tf.float32) #{N, task, pos, M}
+        features = tf.reduce_sum(
+            tf.multiply(max_mask, features), axis=2) # {N, task, M}
+    elif squeeze_type == "mean":
+        features = tf.reduce_mean(features, axis=2)
+    elif squeeze_type == "sum":
+        features = tf.reduce_sum(features, axis=2)
+
+    outputs["features"] = features
+
+    return outputs, params
+
+
+
+def pwm_relu(inputs, params):
     """Only keep positive
     """
+    assert inputs.get("features") is not None
+
+    # features
+    features = inputs["features"]
+    outputs = dict(inputs)
+
+    # relu
     features = tf.nn.relu(features)
+
+    outputs["features"] = features
     
-    return features, labels, config
+    return outputs, params
+
+
+
+
+def multitask_global_pwm_scores(inputs, params):
+    """Also get global pwm scores
+    """
+    features = inputs["features"]
+    outputs = dict(inputs)
+
+    append = params.get("append", True)
+    count_thresh = params.get("count_thresh", 2)
+    
+    # per example, only keep positions that have been seen more than once
+    features_by_example = [tf.expand_dims(tensor, axis=0)
+                           for tensor in tf.unstack(features)] # {1, task, M}
+
+    # for each example, get sum across tasks
+    # TODO separate this out as different function
+    masked_features_list = []
+    for example_features in features_by_example:
+        motif_counts = tf.reduce_sum(
+            tf.cast(tf.not_equal(example_features, 0), tf.float32),
+            axis=1, keep_dims=True) # sum across tasks {1, 1, M}
+        #motif_max = tf.reduce_max(
+        #    motif_counts, axis=[1, 3], keep_dims=True) # {1, 1, pos, 1}
+        # then mask based on max position
+        motif_mask = tf.cast(tf.greater_equal(motif_counts, count_thresh), tf.float32)
+        # and mask
+        masked_features = tf.multiply(motif_mask, example_features)
+        masked_features_list.append(masked_features)
+
+    # stack
+    features = tf.concat(masked_features_list, axis=0)
+    
+    # TODO could do a max - min scoring system?
+    reduce_type = params.get("reduce_type", "sum")
+
+    if reduce_type == "sum":
+        features_max = tf.reduce_sum(features, axis=1, keep_dims=True)
+    elif reduce_type == "max":
+        features_max = tf.reduce_max(features, axis=1, keep_dims=True)
+    elif reduce_type == "mean":
+        features_max = tf.reduce_mean(features, axis=1, keep_dims=True)
+
+    # append or replace
+    if append:
+        features = tf.concat([features, features_max], axis=1)
+    else:
+        features = features_max
+
+    outputs["features"] = features
+        
+    # things to keep
+    if params.get("keep_global_pwm_scores") is not None:
+        # attach to config
+        outputs[params["keep_global_pwm_scores"]] = features_max #{N, pos, motif}
+        params["keep_global_pwm_scores"] = None # TODO fix this, this is because there is overwriting
+        
+    return outputs, params
+
+
+
+
+
+
+
+
+
 
 
 def pwm_convolve_v3(features, labels, config, is_training=False):

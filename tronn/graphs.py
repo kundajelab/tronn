@@ -554,7 +554,10 @@ class TronnGraphV2(object):
             self,
             infer_params={},
             data_key="data",
-            features_key="features"):
+            features_key="features",
+            labels_key="labels",
+            logits_key="logits",
+            probs_key="probs"):
         """build an inference workflow
         """
         logging.info("building inference dataflow")
@@ -565,6 +568,10 @@ class TronnGraphV2(object):
         
         # model
         assert inputs.get(features_key) is not None
+        infer_params["features_key"] = features_key
+        infer_params["labels_key"] = labels_key
+        infer_params["logits_key"] = logits_key
+        infer_params["is_training"] = False
         infer_params.update(self.model_params)
         model_outputs, _ = self.model_fn(inputs, infer_params)
         infer_params["model"] = self.model_fn
@@ -573,17 +580,22 @@ class TronnGraphV2(object):
         model_outputs[probs_key] = self.final_activation_fn(model_outputs[logits_key])
 
         # add inference stack
-        if self.importances_tasks is None:
-            self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
+        if infer_params.get("importance_task_indices") is None:
+            infer_params["importance_task_indices"] = self.tasks if len(self.tasks) != 0 else [0]
 
+        # TODO fix this later
+        validate_grammars = False
+        scan_grammars = False
+            
         # inference params
         # NOTE: load pwms, grammars, etc as needed
         # also importance task indices, importance function
         infer_params.update({
+            "batch_size": self.batch_size, 
             "keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
-            "keep_gradients": "gradients" if inference_params.get("dream") is not None else None,
-            "all_grad_ys": inference_params.get("dream_pattern"),
-            "keep_importances": "importances" if validate_grammars else None,
+            "keep_gradients": "gradients" if infer_params.get("dream") is not None else None,
+            "all_grad_ys": infer_params.get("dream_pattern"),
+            "keep_importances": "importances" if True else None,
             "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
             "keep_global_pwm_scores": "global-pwm-scores" if validate_grammars else None,
             "keep_pwm_scores": "pwm-scores" if True else None, # always used
@@ -601,48 +613,11 @@ class TronnGraphV2(object):
             infer_params["use_importances"] = False
         
         # set up inference stack
-        inference_outputs, _ = self.inference_fn(model_outputs, infer_params)
+        inference_fn = infer_params.get("inference_fn")
+        inference_outputs, infer_params = inference_fn(model_outputs, infer_params)
 
-        if False:
-            config = {
-                "model": self.model_fn,
-                "batch_size": self.batch_size,
-                "pwms": inference_params.get("pwms"),
-                "grammars": inference_params.get("grammars"),
-                "importance_task_indices": self.importances_tasks,
-                "importances_fn": inference_params.get("importances_fn"),
-                "keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
-                "keep_gradients": "gradients" if inference_params.get("dream") is not None else None,
-                "all_grad_ys": inference_params.get("dream_pattern"),
-                "keep_importances": "importances" if validate_grammars else None,
-                "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
-                "keep_global_pwm_scores": "global-pwm-scores" if validate_grammars else None,
-                "keep_pwm_scores": "pwm-scores" if True else None, # always used
-                "keep_pwm_raw_scores": "pwm-scores-raw" if True else None,
-                "keep_grammar_scores": "grammar-scores" if True else None, # always used
-                "keep_grammar_scores_full": "grammar-scores-full" if True else None, # always used
-                "keep_ism_scores": "ism-scores" if scan_grammars else None, # adjust this later
-                "keep_dmim_scores": "dmim-scores" if scan_grammars else None, # adjust this later
-                "outputs": { # these are all the batch results that must stay with their corresponding example
-                    "logits": self.logits,
-                    "importance_logits": self.logits,
-                    "probs": self.probs,
-                    "example_metadata": self.metadata,
-                    "subset_accuracy": self._add_task_subset_accuracy(),
-                    "negative": negative
-                }
-            }
-
-            # don't run importances if empty net
-            if self.model_params["name"] == "empty_net":
-                config["use_importances"] = False
+        # delete certain inference outputs if not wanted
         
-            # set up inference stack
-            features, labels, config = self.inference_fn(
-                self.features, self.labels, config, is_training=False)
-
-            # grab desired outputs
-            outputs = config["outputs"]
 
         return inference_outputs, infer_params
 
@@ -667,6 +642,10 @@ class TronnGraphV2(object):
                 while not coord.should_stop():
                 
                     example = dataflow_driver.next()
+                    
+                    import ipdb
+                    ipdb.set_trace()
+                    
                     h5_handler.store_example(example)
                     total_examples += 1
                 

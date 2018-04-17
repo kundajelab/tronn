@@ -24,6 +24,7 @@ from tronn.interpretation.regions import RegionImportanceTracker
 
 from tronn.outlayer import ExampleGenerator
 from tronn.outlayer import H5Handler
+from tronn.outlayer import OutLayer
 
 from tronn.util.tf_ops import restore_variables_op
 
@@ -264,6 +265,30 @@ def interpret(
             # TODO add label metadata
 
     return None
+
+
+def interpret_v2(tronn_graph, h5_file, infer_params, num_evals=100000, reconstruct_regions=False):
+    """run interpretation
+    """
+    with tf.Graph().as_default():
+
+        # set up inference graph
+        outputs, _ = tronn_graph.build_inference_dataflow(infer_params, data_key="data")
+
+        # set up session
+        sess, coord, threads = setup_tensorflow_session()
+
+        # restore graph
+        tronn_graph.restore_graph(sess, is_ensemble=False, skip=["pwm"])
+
+        # run dataflow
+        tronn_graph.run_dataflow(OutLayer, sess, coord, outputs, h5_file, sample_size=num_evals)
+
+        # close session
+        close_tensorflow_session(coord, threads)
+
+    return None
+
 
 
 # BUT NOT YET - this is used in the other viz module, where you have specific sequences

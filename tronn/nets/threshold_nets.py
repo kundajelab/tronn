@@ -169,7 +169,7 @@ def threshold_poisson(signal, pval):
     return out_tensor, signal_mean
 
 
-def threshold_gaussian(features, labels, config, is_training=False):
+def threshold_gaussian_old(features, labels, config, is_training=False):
     """Given importance scores, calculates stdev cutoff
     and thresholds at that pval
 
@@ -217,6 +217,64 @@ def threshold_gaussian(features, labels, config, is_training=False):
     features = tf.concat(thresholded, axis=1) #{N, task, pos, C}
     
     return features, labels, config
+
+
+def threshold_gaussian(inputs, params):
+    """Given importance scores, calculates stdev cutoff
+    and thresholds at that pval
+
+    Args:
+      signal: input tensor
+      pval: the pval threshold
+
+    Returns:
+      out_tensor: output thresholded tensor
+    """
+    # get features and pass rest through
+    features = inputs["features"]
+    outputs = dict(inputs)
+
+    # params
+    num_stdev = params.get("stdev", 3)
+    two_tailed = params.get("two_tailed", True)
+
+    # separate out tasks first
+    task_features_list = [
+        tf.expand_dims(tensor, axis=1)
+        for tensor in tf.unstack(features, axis=1)]
+    
+    thresholded = []
+    for task_features in task_features_list:
+    
+        # get mean and stdev to get threshold
+        signal_mean, signal_var = tf.nn.moments(task_features, axes=[1, 2, 3])
+        signal_stdev = tf.sqrt(signal_var)
+        thresholds = tf.add(signal_mean, tf.scalar_mul(num_stdev, signal_stdev))
+
+        # expand thresholds for broadcasting
+        signal_shape = task_features.get_shape()
+        for dim_idx in xrange(1, len(signal_shape)):
+            thresholds = tf.expand_dims(thresholds, axis=dim_idx)
+
+        # set up mask
+        if two_tailed:
+            greaterthan_tensor = tf.cast(tf.greater_equal(task_features, thresholds), tf.float32)
+            lessthan_tensor = tf.cast(tf.less_equal(task_features, -thresholds), tf.float32)
+            mask_tensor = tf.add(greaterthan_tensor, lessthan_tensor)
+        else:
+            mask_tensor = tf.cast(tf.greater_equal(task_features, thresholds), tf.float32)
+        
+        # mask out insignificant features and append
+        task_features = tf.multiply(task_features, mask_tensor)
+        thresholded.append(task_features)
+        
+    # remerge
+    features = tf.concat(thresholded, axis=1) #{N, task, pos, C}
+
+    outputs["features"] = features
+    
+    return outputs, params
+
 
 
 def add_per_example_kval(features, labels, config, is_training=False):
@@ -352,7 +410,7 @@ def apply_sumpool_thresh(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def clip_edges(features, labels, config, is_training=False):
+def clip_edges_old(features, labels, config, is_training=False):
     """Grab just the middle base pairs
     """
     assert is_training == False
@@ -366,3 +424,25 @@ def clip_edges(features, labels, config, is_training=False):
             "outputs"]["onehot_sequence"][:,:,left_clip:right_clip,:]
 
     return features, labels, config
+
+
+def clip_edges(inputs, params):
+    """Grab just the middle base pairs
+    """
+    assert inputs.get("features") is not None
+
+    # get features and pass rest through
+    features = inputs["features"]
+    outputs = dict(inputs)
+
+    left_clip = params.get("left_clip", 0)
+    right_clip = params.get("right_clip", features.get_shape().as_list()[2])
+    features = features[:,:,left_clip:right_clip,:]
+
+    # TODO come back to this
+    if False:
+    #if params["outputs"].get("onehot_sequence") is not None:
+        outputs["onehot_sequence_clipped"] = inputs[
+            "onehot_sequence"][:,:,left_clip:right_clip,:]
+        
+    return outputs, params

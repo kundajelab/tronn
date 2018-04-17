@@ -5,6 +5,7 @@ import tensorflow.contrib.slim as slim
 
 from tronn.nets.importance_nets import multitask_importances
 from tronn.nets.importance_nets import multitask_global_importance
+from tronn.nets.importance_nets import filter_by_importance
 
 from tronn.nets.normalization_nets import normalize_w_probability_weights
 from tronn.nets.normalization_nets import normalize_to_logits
@@ -21,13 +22,14 @@ from tronn.nets.motif_nets import pwm_positional_max
 from tronn.nets.motif_nets import pwm_position_squeeze
 from tronn.nets.motif_nets import pwm_relu
 from tronn.nets.motif_nets import pwm_match_filtered_convolve
+from tronn.nets.motif_nets import multitask_global_pwm_scores
 
 from tronn.nets.grammar_nets import multitask_score_grammars
 from tronn.nets.grammar_nets import score_distance_to_motifspace_point
 from tronn.nets.grammar_nets import check_motifset_presence
 
 from tronn.nets.filter_nets import filter_by_accuracy
-from tronn.nets.filter_nets import filter_by_importance
+
 from tronn.nets.filter_nets import filter_singles_twotailed
 from tronn.nets.filter_nets import filter_by_motifset_presence
 
@@ -41,7 +43,7 @@ from tronn.nets.mutate_nets import filter_mutation_directionality
 from tronn.nets.util_nets import remove_global_task
 
 
-def build_inference_stack(features, labels, config, inference_stack):
+def build_inference_stack_old(features, labels, config, inference_stack):
     """Given the inference stack, build the graph
     """
     master_config = config
@@ -55,7 +57,28 @@ def build_inference_stack(features, labels, config, inference_stack):
     return features, labels, config
 
 
-def unstack_tasks(features, labels, config, prefix="features", task_axis=1):
+def build_inference_stack(inputs, params):
+    """Given the inference stack, build the graph
+    """
+    assert params.get("inference_stack") is not None
+    inference_stack = params.get("inference_stack")
+    outputs = dict(inputs)
+    
+    master_params = params
+    for transform_fn, params in inference_stack:
+        print transform_fn
+        master_params.update(params) # update config before and after
+        outputs, params = transform_fn(outputs, master_params)
+        print outputs["features"].get_shape()
+        master_params.update(params)
+
+    # and remove the inference stack so you don't double run
+    del params["inference_stack"]
+
+    return outputs, master_params
+
+
+def unstack_tasks_old(features, labels, config, prefix="features", task_axis=1):
     """Unstack by task (axis=1)
     """
     features = tf.unstack(features, axis=task_axis)
@@ -74,6 +97,35 @@ def unstack_tasks(features, labels, config, prefix="features", task_axis=1):
 
     return config
 
+
+def unstack_tasks(inputs, params):
+    """Unstack by task
+    """
+    features = inputs.get("features")
+    task_axis = params.get("task_axis", 1)
+    outputs = dict(inputs)
+    
+    # unstack
+    features = tf.unstack(features, axis=task_axis)
+    
+    # params
+    task_indices = params.get("importance_task_indices")
+    assert task_indices is not None
+    new_task_indices = list(task_indices)
+    if len(features) == len(task_indices) + 1:
+        new_task_indices.append("global") # for the situations with a global score
+    name = params.get("name", "features")
+
+    # save out with appropriate index    
+    for i in xrange(len(features)):
+        task_features_key = "{}.taskidx-{}".format(
+            name, new_task_indices[i])
+        outputs[task_features_key] = features[i]
+
+    # and just delete features since you unstacked them
+    #del outputs["features"]
+    
+    return outputs, params
 
 
 def sequence_to_importance_scores_unfiltered(
@@ -104,7 +156,7 @@ def sequence_to_importance_scores_unfiltered(
 
 
 
-def sequence_to_importance_scores(
+def sequence_to_importance_scores_old(
         features,
         labels,
         config,
@@ -135,7 +187,40 @@ def sequence_to_importance_scores(
     return features, labels, config
 
 
-def sequence_to_motif_scores(
+
+def sequence_to_importance_scores(inputs, params):
+    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
+    """
+    params["is_training"] = False
+    
+    method = params.get("importances_fn")
+
+    # set up inference stack
+    params["inference_stack"] = [
+        (multitask_importances, {"backprop": method, "relu": False}),
+        #(threshold_shufflenull, {"pval_thresh": 0.05}),
+        (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+        (normalize_w_probability_weights, {}), 
+        (clip_edges, {"left_clip": 400, "right_clip": 600}),
+        (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
+    ]
+    
+    # build inference stack
+    outputs, params = build_inference_stack(
+        inputs, params)
+
+    # unstack
+    if params.get("keep_importances") is not None:
+        params["name"] = params["keep_importances"]
+        outputs, params = unstack_tasks(outputs, params)
+        
+    return outputs, params
+
+
+
+def sequence_to_motif_scores_old(
         features,
         labels,
         config,
@@ -159,7 +244,7 @@ def sequence_to_motif_scores(
         
     # set up inference stack
     inference_stack = [
-        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
+        (pwm_match_filtered_convolve, {}),
         (multitask_global_importance, {"append": True, "count_thresh": count_thresh}),
         (pwm_position_squeeze, {"squeeze_type": "max"}),
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
@@ -174,6 +259,45 @@ def sequence_to_motif_scores(
         config = unstack_tasks(features, labels, config, prefix=config["keep_pwm_scores"])
 
     return features, labels, config
+
+
+def sequence_to_motif_scores(inputs, params):
+    """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
+    """
+    # params
+    use_importances = params.get("use_importances", True)
+    count_thresh = params.get("count_thresh", 1)
+
+    keep_key = params.get("keep_onehot_sequence")
+    if keep_key is not None:
+        inputs[keep_key] = inputs["features"]
+        inputs["{}_clipped".format(keep_key)] = inputs["features"]
+    
+    # if using NN, convert features to importance scores first
+    if use_importances:
+        inputs, params = sequence_to_importance_scores(inputs, params)
+        count_thresh = 2 # there's time info, so can filter across tasks
+        
+    # set up inference stack
+    params["inference_stack"] = [
+        (pwm_match_filtered_convolve, {}),
+        (multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
+        (pwm_position_squeeze, {"squeeze_type": "max"}),
+        (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
+    ]
+
+    # build inference stack
+    outputs, params = build_inference_stack(
+        inputs, params)
+
+    # unstack
+    if params.get("keep_pwm_scores") is not None:
+        params["name"] = params["keep_pwm_scores"]
+        outputs, params = unstack_tasks(outputs, params)
+
+    return outputs, params
+
+
 
 
 def sequence_to_grammar_scores(
