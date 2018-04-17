@@ -4,6 +4,7 @@
 import os
 import glob
 import logging
+import h5py
 
 import numpy as np
 import pandas as pd
@@ -14,193 +15,16 @@ from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
 
-from tronn.graphs import TronnNeuralNetGraph
-from tronn.datalayer import load_data_from_filename_list
+from tronn.graphs import TronnGraphV2
+from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns
 from tronn.learn.cross_validation import setup_cv
-from tronn.learn.learning import predict
 
-from tronn.run_predict import setup_model
-from tronn.run_predict import scores_to_probs
-
-
-
-def run_sklearn_metric_fn(metrics_fn, labels, probs):
-    """Wrapper around sklearn metrics functions to allow code to proceed
-    even if missing a class in evaluation
-
-    Args:
-      metrics_fn: a function that takes labels and probs
-      labels: 1D label vector
-      probs: 1D probabilities vector
-
-    Returns:
-      results: metric values
-    """
-    try:
-        results = metrics_fn(labels, probs)
-    except ValueError:
-        results = None
-
-    return results
-
-
-def auprc(labels, probs):
-    """Wrapper for sklearn AUPRC
-
-    Args:
-      labels: 1D vector of labels
-      probs: 1D vector of probs
-
-    Returns:
-      auprc: area under precision-recall curve
-    """
-    pr_curve = precision_recall_curve(labels, probs)
-    precision, recall = pr_curve[:2]
-    
-    return auc(recall, precision)
-
-
-def make_recall_at_fdr(fdr):
-    """Construct function to get recall at FDR
-    
-    Args:
-      fdr: FDR value for precision cutoff
-
-    Returns:
-      recall_at_fdr: Function to generate the recall at
-        fdr fraction (number of positives
-        correctly called as positives out of total 
-        positives, at a certain FDR value)
-    """
-    def recall_at_fdr(labels, probs):
-        pr_curve = precision_recall_curve(labels, probs)
-        precision, recall = pr_curve[:2]
-        return recall[np.searchsorted(precision - fdr, 0)]
-        
-    return recall_at_fdr
-
-
-def run_sklearn_curve_fn(curve_fn, labels, probs):
-    """Wrap curve functions in case eval data missing classes
-    
-    Args:
-      curve_fn: function that generates curve values
-      labels: 1D vector of labels
-      probs: 1D vector of probabilities
-
-    Returns:
-      x: x values vector
-      y: y values vector
-      thresh: thresholds at various levels
-    """
-    try:
-        x, y, thresh = curve_fn(labels, probs)
-    except:
-        x, y, thresh = np.zeros((1)), np.zeros((1)), None
-
-    return x, y, thresh
-
-
-def run_metrics_functions(labels, probs, metrics_functions, metrics_array, row_idx):
-    """Run a series of metrics functions on the labels and probs
-
-    Args:
-      labels: 1D vector of labels
-      probs: 1D vector of probabilities
-      metrics_functions: dict of metric functions
-      metrics_array: numpy array to store results
-
-    Returns:
-      metrics_array
-    """
-    for metric_idx in range(len(metrics_functions)):
-        try:
-            metrics_array[row_idx, metric_idx] = run_sklearn_metric_fn(
-                metrics_functions[metric_idx],
-                labels, probs)
-        except:
-            metrics_array[0, metric_idx] = 0.
-            
-    return metrics_array
-
-
-def save_plotting_data(labels, probs, out_file, curve="auprc"):
-    """Runs ROC or PR and writes out curve data to text file
-    in standardized way
-    
-    Args:
-      labels: 1D vector of labels
-      probs: 1D vector of probabilities
-      out_file: output text file
-      curve: what kind of curve. ROC or PR
-
-    Returns:
-      None
-    """
-    if curve == "auroc":
-        fpr, tpr, _ = run_sklearn_curve_fn(roc_curve, labels, probs)
-        plotting_df = pd.DataFrame(
-            data=np.stack([fpr, tpr], axis=1),
-            columns=["x", "y"])
-    elif curve == "auprc":
-        precision, recall, _ = run_sklearn_curve_fn(
-            precision_recall_curve, labels, probs)
-        plotting_df = pd.DataFrame(
-            data=np.stack([recall, precision], axis=1),
-            columns=["x", "y"])
-    else:
-        print "Unknown curve type!"
-        return
-        
-    plotting_df.to_csv(out_file, sep='\t', index=False)
-    return None
-
-
-def run_and_plot_metrics(
-        labels,
-        probs,
-        metrics_functions,
-        metrics_array,
-        metrics_row_idx,
-        plot_fn_names,
-        plot_folder,
-        prefix):
-    """Wrapper to run all possible metrics types on a set of labels and probs
-    """
-    # run metrics for table
-    run_metrics_functions(
-        labels,
-        probs,
-        metrics_functions,
-        metrics_array,
-        metrics_row_idx)
-    
-    # run metrics for plotting
-    for plot_fn_name in plot_fn_names:
-        os.system("mkdir -p {0}/{1}".format(
-            plot_folder, plot_fn_name))
-        plot_file = "{0}/{1}/{2}.{1}.tmp.txt".format(
-            plot_folder, plot_fn_name, prefix)
-        save_plotting_data(
-            labels, probs,
-            plot_file,
-            curve=plot_fn_name)
-    
-    return
-
-
-def plot_all(plot_folder, prefix, param_sets):
-    """Use R to make pretty plots, uses all files in a folder
-    """
-    for param_key in param_sets.keys():
-        plot_file = "{0}/{1}/{2}.{1}.all.plot.png".format(plot_folder, param_key, prefix)
-        plot_cmd = ("plot_metrics_curves.R {0} {1} {2}/{3}/*.txt").format(
-            param_sets[param_key], plot_file, plot_folder, param_key)
-        print plot_cmd
-        os.system(plot_cmd)
-
-    return
+from tronn.learn.evaluation import auprc
+from tronn.learn.evaluation import make_recall_at_fdr
+from tronn.learn.evaluation import run_and_plot_metrics
+from tronn.learn.evaluation import plot_all
+from tronn.learn.evaluation import full_evaluate
 
 
 def run(args):
@@ -214,31 +38,14 @@ def run(args):
     os.system("mkdir -p {}".format(args.out_dir))
     
     # find data files
-    # NOTE right now this is technically validation set
     data_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
     train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
     # set up dataloader
-    if args.reconstruct_regions:
-        shuffle_data = False
-    else:
-        shuffle_data = True
     dataloader = H5DataLoader(
         {"valid": valid_files, "test": test_files},
         tasks=args.tasks,
-        shuffle_data=shuffle_data)
-
-    if False:
-        tronn_graph = TronnNeuralNetGraph(
-            {"data": test_files},
-            args.tasks,
-            load_data_from_filename_list,
-            args.batch_size,
-            net_fn,
-            model_params,
-            tf.nn.sigmoid,
-            shuffle_data=shuffle_data,
-            fake_task_num=args.fake_task_num)
+        shuffle_examples=True if args.reconstruct_regions else False)
         
     # set up neural net graph
     tronn_graph = TronnGraphV2(
@@ -246,23 +53,25 @@ def run(args):
         net_fns[args.model["name"]],
         args.model,
         args.batch_size,
-        args.tasks,
         final_activation_fn=tf.nn.sigmoid,
         loss_fn=tf.losses.sigmoid_cross_entropy,
-        checkpoints=checkpoints)
-    
-    # predict - TODO why not just store into hdf5 file?
-    labels, predictions, probs, metadata, metadata_full = predict(
-        tronn_graph,
-        args.model_dir,
-        args.batch_size,
-        model_checkpoint=args.model_checkpoint,
-        num_evals=args.num_evals,
-        reconstruct_regions=args.reconstruct_regions)
+        checkpoints=args.model_checkpoints)
+
+    # run eval graph
+    eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)
+    if not os.path.isfile(eval_h5_file):
+        full_evaluate(tronn_graph, eval_h5_file)
+
+    # extract arrays
+    with h5py.File(eval_h5_file, "r") as hf:
+        labels = hf["labels"][:]
+        predictions = hf["logits"][:]
+        probs = hf["probs"][:]
+        metadata = hf["example_metadata"][:]
 
     # push predictions through activation to get probs
-    if args.model_type != "nn":
-        probs = scores_to_probs(predictions)
+    #if args.model_type != "nn":
+    #    probs = scores_to_probs(predictions)
 
     # setup metrics functions and plot file folders
     precision_thresholds = [0.5, 0.75, 0.9, 0.95]

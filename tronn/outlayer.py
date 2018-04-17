@@ -355,6 +355,7 @@ class H5Handler(object):
                 
             if "example_metadata" in key:
                 tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype="S100") # .reshape(self.batch_size, 1)
+                #tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype=object) # .reshape(self.batch_size, 1)
             else:
                 tmp_arrays[key] = np.zeros(dataset_shape)
         self.tmp_arrays = tmp_arrays
@@ -480,7 +481,7 @@ class OutLayer(object):
             self,
             sess,
             graph_tensor_outputs,
-            batch_size,
+            #batch_size,
             reconstruct_regions=False,
             ignore_outputs=[]):
         self.sess = sess
@@ -488,8 +489,17 @@ class OutLayer(object):
         self.reconstruct_regions = reconstruct_regions
         self.ignore_outputs = ignore_outputs
 
+        # remove the ignore outputs
+        for key in ignore_outputs:
+            if key in self.graph_tensor_outputs.keys():
+                del self.graph_tensor_outputs[key]
+        
         # run first batch
         self.outputs = self.sess.run(self.graph_tensor_outputs)
+
+        # get the batch size
+        test_key = self.outputs.keys()[0]
+        self.batch_size = self.outputs[test_key].shape[0]
         self.batch_idx = 0
         
 
@@ -514,9 +524,10 @@ class OutLayer(object):
                 raise StopIteration
         # collect batch outputs and return
         for key in self.graph_tensor_outputs.keys():
-            if key in ignore_outputs:
-                continue
-            out_arrays[key] = self.outputs[key][self.batch_idx]
+            if "example_metadata" in key:
+                out_arrays[key] = self.outputs[key][self.batch_idx][0]
+            else:
+                out_arrays[key] = self.outputs[key][self.batch_idx]
         self.batch_idx += 1
 
         return out_arrays

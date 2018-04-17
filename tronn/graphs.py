@@ -2,6 +2,7 @@
 """
 
 import logging
+import h5py
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -12,6 +13,8 @@ from tronn.util.tf_ops import positives_focused_loss_fn
 
 #from tronn.datalayer import get_task_and_class_weights
 #from tronn.datalayer import get_positive_weights_per_task
+
+from tronn.outlayer import H5Handler
 
 
 class TronnGraph(object):
@@ -562,11 +565,11 @@ class TronnGraphV2(object):
         return
 
 
-    def run_dataflow(self, driver, sess, outputs, h5_file, sample_size=100000):
+    def run_dataflow(self, driver, sess, coord, outputs, h5_file, sample_size=100000):
         """run dataflow
         """
         # set up the outlayer (tensor --> numpy)
-        dataflow_driver = driver(sess, outputs, batch_size) # Outlayer
+        dataflow_driver = driver(sess, outputs, ignore_outputs=["loss"]) # Outlayer
         
         # set up the saver
         with h5py.File(h5_file, "w") as hf:

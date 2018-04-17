@@ -22,6 +22,8 @@ from tronn.util.tf_utils import print_param_count
 
 from tronn.interpretation.regions import ExampleGenerator
 
+from tronn.outlayer import OutLayer
+
 
 def train(
         tronn_graph,
@@ -88,7 +90,7 @@ def train(
             train_op,
             out_dir,
             init_fn=restore_fn,
-            number_of_steps=10, #stop_step, # TODO - change this?
+            number_of_steps=None, #stop_step, # TODO - change this?
             log_every_n_steps=1000,
             summary_op=summary_op,
             save_summaries_secs=60,
@@ -293,6 +295,7 @@ def train_and_evaluate(
                 break
 
     return restore_model_checkpoint
+
 
 
 def predict(
