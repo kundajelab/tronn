@@ -540,29 +540,111 @@ class TronnGraphV2(object):
         # model
         assert inputs.get(features_key) is not None
         assert inputs.get(logits_key) is not None
-        outputs, _ = self.model_fn(inputs, model_params)
+        prediction_params.update(self.model_params)
+        prediction_params["is_training"] = False
+        outputs, _ = self.model_fn(inputs, prediction_params)
 
         # add final activation function
         outputs[probs_key] = self.final_activation_fn(outputs[logits_key])
-        
-        # add a loss
-        self._add_loss()
-
-        # add metrics
-        if self.metrics_fn is not None:
-            self._add_metrics()
             
         return outputs, prediction_params
 
 
-    def build_inference_dataflow(self):
+    def build_inference_dataflow(
+            self,
+            infer_params={},
+            data_key="data",
+            features_key="features"):
         """build an inference workflow
         """
-
+        logging.info("building inference dataflow")
         
+        # dataloader
+        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        infer_params["data_key"] = data_key
+        
+        # model
+        assert inputs.get(features_key) is not None
+        infer_params.update(self.model_params)
+        model_outputs, _ = self.model_fn(inputs, infer_params)
+        infer_params["model"] = self.model_fn
+        
+        # add final activation function
+        model_outputs[probs_key] = self.final_activation_fn(model_outputs[logits_key])
 
+        # add inference stack
+        if self.importances_tasks is None:
+            self.importances_tasks = self.tasks if len(self.tasks) != 0 else [0]
 
-        return
+        # inference params
+        # NOTE: load pwms, grammars, etc as needed
+        # also importance task indices, importance function
+        infer_params.update({
+            "keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
+            "keep_gradients": "gradients" if inference_params.get("dream") is not None else None,
+            "all_grad_ys": inference_params.get("dream_pattern"),
+            "keep_importances": "importances" if validate_grammars else None,
+            "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
+            "keep_global_pwm_scores": "global-pwm-scores" if validate_grammars else None,
+            "keep_pwm_scores": "pwm-scores" if True else None, # always used
+            "keep_pwm_raw_scores": "pwm-scores-raw" if True else None,
+            "keep_grammar_scores": "grammar-scores" if True else None, # always used
+            "keep_grammar_scores_full": "grammar-scores-full" if True else None, # always used
+            "keep_ism_scores": "ism-scores" if scan_grammars else None, # adjust this later
+            "keep_dmim_scores": "dmim-scores" if scan_grammars else None, # adjust this later
+        })
+
+        model_outputs["importance_logits"] = model_outputs["logits"]
+
+        # don't run importances if empty net
+        if self.model_params["name"] == "empty_net":
+            infer_params["use_importances"] = False
+        
+        # set up inference stack
+        inference_outputs, _ = self.inference_fn(model_outputs, infer_params)
+
+        if False:
+            config = {
+                "model": self.model_fn,
+                "batch_size": self.batch_size,
+                "pwms": inference_params.get("pwms"),
+                "grammars": inference_params.get("grammars"),
+                "importance_task_indices": self.importances_tasks,
+                "importances_fn": inference_params.get("importances_fn"),
+                "keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
+                "keep_gradients": "gradients" if inference_params.get("dream") is not None else None,
+                "all_grad_ys": inference_params.get("dream_pattern"),
+                "keep_importances": "importances" if validate_grammars else None,
+                "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
+                "keep_global_pwm_scores": "global-pwm-scores" if validate_grammars else None,
+                "keep_pwm_scores": "pwm-scores" if True else None, # always used
+                "keep_pwm_raw_scores": "pwm-scores-raw" if True else None,
+                "keep_grammar_scores": "grammar-scores" if True else None, # always used
+                "keep_grammar_scores_full": "grammar-scores-full" if True else None, # always used
+                "keep_ism_scores": "ism-scores" if scan_grammars else None, # adjust this later
+                "keep_dmim_scores": "dmim-scores" if scan_grammars else None, # adjust this later
+                "outputs": { # these are all the batch results that must stay with their corresponding example
+                    "logits": self.logits,
+                    "importance_logits": self.logits,
+                    "probs": self.probs,
+                    "example_metadata": self.metadata,
+                    "subset_accuracy": self._add_task_subset_accuracy(),
+                    "negative": negative
+                }
+            }
+
+            # don't run importances if empty net
+            if self.model_params["name"] == "empty_net":
+                config["use_importances"] = False
+        
+            # set up inference stack
+            features, labels, config = self.inference_fn(
+                self.features, self.labels, config, is_training=False)
+
+            # grab desired outputs
+            outputs = config["outputs"]
+
+        return inference_outputs, infer_params
 
 
     def run_dataflow(self, driver, sess, coord, outputs, h5_file, sample_size=100000):
