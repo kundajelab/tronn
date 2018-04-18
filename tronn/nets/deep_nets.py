@@ -13,13 +13,13 @@ from tronn.nets.tfslim import resnet_v2
 from tronn.util.tf_ops import maxnorm
 
 
-def empty_net(features, labels, config, is_training=False):
+def empty_net(inputs, params):
     """Placeholder model to pass through features without modifying them
     """
     # for all outputs, return 0 as logit - average prediction
-    logits = tf.zeros(labels.get_shape())
+    inputs["logits"] = tf.zeros(inputs["labels"].get_shape())
     
-    return logits
+    return inputs, params
 
 
 def final_pool(net, pool):
@@ -398,7 +398,8 @@ def basset(inputs, params):
     # set up the needed inputs
     assert inputs.get("features") is not None
     outputs = dict(inputs)
-    
+
+    # features
     features_key = params["features_key"]
     logits_key = params["logits_key"]
     labels_key = params["labels_key"]

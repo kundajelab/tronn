@@ -373,7 +373,7 @@ def sequence_to_motif_ism(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def sequence_to_dmim(features, labels, config, is_training=False):
+def sequence_to_dmim_old(features, labels, config, is_training=False):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
     """
@@ -383,6 +383,49 @@ def sequence_to_dmim(features, labels, config, is_training=False):
 
     # start from the raw pwm scores to filter sequences
     features = tf.expand_dims(config["outputs"]["pwm-scores-raw"], axis=1)
+
+    # set up inference stack
+    inference_stack = [
+        (score_distance_to_motifspace_point, {"filter_motifspace": True}),
+        (check_motifset_presence, {"filter_motifset": True}),
+        (generate_mutation_batch, {}), # note that these use importance weighted position maps
+        (run_model_on_mutation_batch, {}),
+        (delta_logits, {"logits_to_features": False}),
+
+        (multitask_importances, {"backprop": config["importances_fn"], "relu": False}),
+        (dfim, {}), # {N, task, 200, 4}
+        
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}), # TODO - some shuffle null here? if so need to generate shuffles
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+        #(normalize_w_probability_weights, {}), 
+        (clip_edges, {"left_clip": 400, "right_clip": 600}),
+
+        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
+        (pwm_position_squeeze, {"squeeze_type": "max"}),
+        (motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired
+        # TODO normalize by probability here?
+        (filter_mutation_directionality, {})
+    ]
+
+    # build inference stack
+    features, labels, config = build_inference_stack(
+        features, labels, config, inference_stack)
+
+    if config.get("keep_dmim_scores") is not None:
+        config = unstack_tasks(features, labels, config, prefix=config["keep_dmim_scores"])
+
+    del config["outputs"]["onehot_sequence"]
+    
+    return features, labels, config
+
+
+
+def sequence_to_dmim(inputs, params):
+    """For a grammar, get back the delta deeplift results on motifs, another way
+    to extract dependencies at the motif level
+    """
+    # get motif scores
+    outputs, params = sequence_to_motif_scores(inputs, params)
 
     # set up inference stack
     inference_stack = [

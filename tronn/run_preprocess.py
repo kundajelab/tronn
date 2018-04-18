@@ -45,21 +45,20 @@ def run(args):
 
     else:
         # then run generate nn dataset
-        if False:
-            generate_nn_dataset(
-                master_regions_bed,
-                None,
-                args.annotations["ref_fasta"],
-                args.labels,
-                args.out_dir,
-                args.prefix,
-                parallel=args.parallel,
-                neg_region_num=None,
-                use_dhs=False,
-                use_random=False,
-                chrom_sizes=args.annotations["chrom_sizes"],
-                bin_method="naive",
-                reverse_complemented=args.rc)
+        generate_nn_dataset(
+            master_regions_bed,
+            None,
+            args.annotations["ref_fasta"],
+            args.labels,
+            args.out_dir,
+            args.prefix,
+            parallel=args.parallel,
+            neg_region_num=None,
+            use_dhs=False,
+            use_random=False,
+            chrom_sizes=args.annotations["chrom_sizes"],
+            bin_method="naive",
+            reverse_complemented=args.rc)
 
         # and generate the negatives also
         generate_genomewide_negatives_dataset(
@@ -68,6 +67,7 @@ def run(args):
             args.labels,
             args.out_dir,
             "{}.negs".format(args.prefix),
+            parallel=args.parallel,
             chrom_sizes=args.annotations["chrom_sizes"])
 
     quit()

@@ -12,6 +12,10 @@ from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
 
+from tronn.util.tf_utils import setup_tensorflow_session
+from tronn.util.tf_utils import close_tensorflow_session
+
+from tronn.outlayer import OutLayer
 
 def get_global_avg_metrics(labels, probabilities):
     """Get global metric values: predictions, mean metric values

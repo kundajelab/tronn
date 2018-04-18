@@ -285,42 +285,21 @@ def run(args):
             "pwms": pwm_list}
         interpret_v2(tronn_graph, results_h5_file, infer_params)
 
-    quit()
     # validation tools
-    
-    if args.diagnose:
-        visualize = True
-        validate_grammars = True
-    else:
-        visualize = args.plot_importance_sample
-        validate_grammars = False
+    #if args.diagnose:
+    #    visualize = True
+    #    validate_grammars = True
+    #else:
+    #    visualize = args.plot_importance_sample
+    #    validate_grammars = False
 
-    if visualize == True:
-        viz_dir = "{}/viz".format(args.out_dir)
-        os.system("mkdir -p {}".format(viz_dir))
+    #if visualize == True:
+    #    viz_dir = "{}/viz".format(args.out_dir)
+    #    os.system("mkdir -p {}".format(viz_dir))
         
-    # get pwm scores
-    logger.info("calculating pwm scores...")
-    pwm_scores_h5 = '{0}/{1}.pwm-scores.h5'.format(
-        args.tmp_dir, args.prefix)
-    if not os.path.isfile(pwm_scores_h5):
-        interpret(
-            tronn_graph,
-            None, # keep with graph?
-            args.batch_size, # keep with graph?
-            pwm_scores_h5,
-            args.sample_size,
-            {"importances_fn": args.backprop,
-             "pwms": pwm_list},
-            keep_negatives=False,
-            visualize=visualize,
-            num_to_visualize=5, # TODO give a flag for this
-            scan_grammars=False,
-            validate_grammars=validate_grammars,
-            filter_by_prediction=True)
-
     # run region clustering/motif sets. default is true, but user can turn off
     # TODO split this out into another function
+    pwm_scores_h5 = results_h5_file
     if not args.no_groups:
         visualize = True
         dataset_keys = ["pwm-scores.taskidx-{}".format(i)
@@ -328,7 +307,8 @@ def run(args):
         
         # 1) cluster communities 
         cluster_key = "louvain_clusters" # later, change to pwm-louvain-clusters
-        if cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+        if False:
+        #if cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
             cluster_by_task(pwm_scores_h5, dataset_keys, cluster_key)
             if visualize:
                 for i in xrange(len(dataset_keys)):
@@ -339,7 +319,8 @@ def run(args):
 
         # refine - remove small clusters
         refined_cluster_key = "task-clusters-refined"
-        if refined_cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+        #if refined_cluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+        if False:
         #if True:
             refine_clusters(pwm_scores_h5, cluster_key, refined_cluster_key)
             if visualize:

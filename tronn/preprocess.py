@@ -691,6 +691,7 @@ def generate_genomewide_negatives_dataset(
         label_files,
         work_dir,
         prefix,
+        parallel=12,
         chrom_sizes=None):
     """
     """
@@ -724,7 +725,7 @@ def generate_genomewide_negatives_dataset(
         bin_method='naive',
         stride=50,
         final_length=1000,
-        parallel=12,
+        parallel=parallel,
         softmax=False,
         reverse_complemented=False)
 

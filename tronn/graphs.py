@@ -640,11 +640,14 @@ class TronnGraphV2(object):
             passed_cutoff = 0 # debug
             try:
                 while not coord.should_stop():
-                
+
+                    if total_examples % 1000 == 0:
+                        print total_examples
+                    
                     example = dataflow_driver.next()
                     
-                    import ipdb
-                    ipdb.set_trace()
+                    #import ipdb
+                    #ipdb.set_trace()
                     
                     h5_handler.store_example(example)
                     total_examples += 1

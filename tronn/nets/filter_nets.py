@@ -73,7 +73,7 @@ def filter_by_labels(inputs, params):
     if they are positive in these tasks
     """
     # assertions
-    assert inputs.get(labels_key) is not None
+    assert params.get("labels_key") is not None
     assert params.get("filter_tasks") is not None
 
     # params

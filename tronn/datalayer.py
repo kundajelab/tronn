@@ -838,7 +838,10 @@ class H5DataLoader(DataLoader):
     def get_dataset_metrics(self):
         """Get class imbalances, num of outputs, etc
         """
-
+        for data_file in data_files:
+            print data_file
+            print ""
+        
         return
     
         

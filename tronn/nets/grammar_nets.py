@@ -9,18 +9,24 @@ import tensorflow.contrib.slim as slim
 from tronn.util.tf_utils import get_fan_in
 from tronn.util.initializers import pwm_simple_initializer
 
+from tronn.nets.filter_nets import filter_and_rebatch
 
 
-def score_distance_to_motifspace_point(features, labels, config, is_training=False):
+def score_distance_to_motifspace_point(inputs, params):
     """Given grammars, pull out the motifspace information and score distance
     to the motifspace vector, attach a threshold mask to config as needed
     """
-    grammars = config.get("grammars")
-    pwms = config.get("pwms")
-    assert grammars is not None
-    assert pwms is not None
+    # assertions
+    assert inputs.get("pwm-scores-raw") is not None
+    assert params.get("pwms") is not None
+    assert params.get("grammars") is not None
 
+    # get features and pass on rest
+    features = inputs["pwm-scores-raw"]
+    grammars = params["grammars"]
+    pwms = params["pwms"]
     grammars = grammars[0] # for now. TODO fix this later
+    outputs = dict(inputs)
     
     # set up vectors
     motifspace_vectors = np.zeros((1, 1, len(pwms), len(grammars))) # {1, 1, M, G}
@@ -54,17 +60,16 @@ def score_distance_to_motifspace_point(features, labels, config, is_training=Fal
         tf.greater_equal(similarities, motifspace_thresholds), tf.float32) # {N, 1, G}
 
     # save to config outputs
-    config["outputs"]["motifspace_dists"] = similarities
-    config["outputs"]["motifspace_mask"] = similarities_thresholded
+    outputs["motifspace_dists"] = similarities
+    outputs["motifspace_mask"] = similarities_thresholded
     
-    if config.get("filter_motifspace") is not None:
+    if params.get("filter_motifspace") is not None:
         # filter
-        condition_mask = tf.greater(
+        outputs["condition_mask"] = tf.greater(
             tf.reduce_max(similarities_thresholded, axis=[1,2]), [0])
-        features, labels, config = filter_through_mask(
-            features, labels, config, condition_mask, use_queue=True, num_threads=1)
+        outputs, params = filter_and_rebatch(outputs, params)
     
-    return features, labels, config
+    return outputs, params
 
 
 def check_motifset_presence(features, labels, config, is_training=False):
