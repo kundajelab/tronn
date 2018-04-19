@@ -31,13 +31,12 @@ def pad_examples(data, params):
         # now with the key, split, pad and concat
         transformed_features = []
         features = [tf.expand_dims(tensor, axis=0)
-                    for tensor in data[key]]
+                    for tensor in tf.unstack(data[key], axis=0)]
         for example_idx in xrange(batch_size):
             transformed_features.append(
                 tf.concat(
                     [features[example_idx]
-                     for i in xrange(offset_factor)]),
-                axis=0)
+                     for i in xrange(offset_factor)], axis=0))
         data[key] = tf.concat(transformed_features, axis=0)
 
     # backcheck work
@@ -62,7 +61,7 @@ def unpad_examples(inputs, params):
     keep_indices = tf.range(0, batch_size, num_scaled_inputs)
     outputs = {}
     for key in inputs.keys():
-        if key in ignore:
+        if key in ignore_keys:
             outputs[key] = inputs[key]
             continue
         outputs[key] = tf.gather(inputs[key], keep_indices)

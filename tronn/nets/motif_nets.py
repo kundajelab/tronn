@@ -278,35 +278,37 @@ def pwm_match_filtered_convolve(inputs, params):
     """Run pwm convolve twice, with importance scores and without.
     Choose max for motif across positions using raw sequence
     """
-    assert inputs.get("onehot_sequence_clipped") is not None
+    assert params.get("raw-sequence-clipped-key") is not None
+    assert inputs.get(params["raw-sequence-clipped-key"]) is not None
     assert params.get("pwms") is not None
     
     # features
     features = inputs["features"]
-    raw_sequence = inputs["onehot_sequence_clipped"]
+    raw_sequence = inputs[params["raw-sequence-clipped-key"]]
     labels = inputs["labels"]
     is_training = params.get("is_training", False)
     outputs = dict(inputs)
     
     # run on raw sequence
-    if raw_sequence is not None:
-        binarized_features = raw_sequence
-        if params["keep_ism_scores"] is None:
-            del outputs["onehot_sequence"] # remove this from outputs now
-        else:
-            print "WARNING DID NOT DELETE RAW SEQUENCE"
+    #if raw_sequence is not None:
+    binarized_features = raw_sequence
+    print "WARNING DID NOT DELETE RAW SEQUENCE"
+        #if params["keep_ism_scores"] is None:
+        #    del outputs["onehot_sequence"] # remove this from outputs now
+        #else:
+        #    print "WARNING DID NOT DELETE RAW SEQUENCE"
     
     pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
         binarized_features, labels, params, is_training=is_training) # {N, 1, pos, M}
 
     # adjust the raw scores and save out
-    if params.get("keep_pwm_raw_scores") is not None:
+    if params.get("raw-pwm-scores-key") is not None:
         raw_bp_overlap, _, _ = get_bp_overlap(binarized_features, labels, params)
         raw_scores = tf.multiply(
             pwm_binarized_feature_scores,
             raw_bp_overlap)
         raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2)) # {N, M}
-        outputs[params["keep_pwm_raw_scores"]] = raw_scores
+        outputs[params["raw-pwm-scores-key"]] = raw_scores
 
     # multiply by raw sequence matches
     pwm_binarized_feature_maxfilt_mask = tf.cast(
@@ -331,8 +333,8 @@ def pwm_match_filtered_convolve(inputs, params):
     outputs["features"] = features
     
     # keep for grammars
-    if params.get("keep_pwm_scores_full") is not None:
-        outputs[params["keep_pwm_scores_full"]] = features
+    if params.get("positional-pwm-scores-key") is not None:
+        outputs[params["positional-pwm-scores-key"]] = features
         
     return outputs, params
 

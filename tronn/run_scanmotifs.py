@@ -23,7 +23,7 @@ from tronn.graphs import TronnGraphV2
 from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns
 
-from tronn.interpretation.interpret import interpret
+#from tronn.interpretation.interpret import interpret
 from tronn.interpretation.interpret import interpret_v2
 
 from tronn.interpretation.motifs import PWM
@@ -285,6 +285,14 @@ def run(args):
             "pwms": pwm_list}
         interpret_v2(tronn_graph, results_h5_file, infer_params)
 
+        # attach useful information
+        with h5py.File(results_h5_file, "a") as hf:
+            # add in PWM names to the datasets
+            for dataset_key in hf.keys():
+                if "pwm-scores" in dataset_key:
+                    hf[dataset_key].attrs["pwm_names"] = [
+                        pwm.name for pwm in pwm_list]
+        
     # validation tools
     #if args.diagnose:
     #    visualize = True
@@ -353,7 +361,6 @@ def run(args):
         # TODO - put out BED files - write a separate function to pull BED from cluster set
         refined_metacluster_key = "metaclusters-refined"
         if refined_metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
-        #if True:
             refine_clusters(pwm_scores_h5, metacluster_key, refined_metacluster_key, null_cluster_present=False)
             if visualize:
                 for i in xrange(len(dataset_keys)):

@@ -11,15 +11,18 @@ import tensorflow as tf
 
 from tronn.util.h5_utils import h5_dataset_to_text_file
 
-from tronn.graphs import TronnGraph
-from tronn.graphs import TronnNeuralNetGraph
-from tronn.datalayer import load_data_from_filename_list
-from tronn.datalayer import load_data_with_shuffles_from_filename_list
+#from tronn.graphs import TronnGraph
+#from tronn.graphs import TronnNeuralNetGraph
+from tronn.graphs import TronnGraphV2
+
+#from tronn.datalayer import load_data_from_filename_list
+#from tronn.datalayer import load_data_with_shuffles_from_filename_list
 from tronn.datalayer import H5DataLoader
 
 from tronn.nets.nets import net_fns
 
-from tronn.interpretation.interpret import interpret
+#from tronn.interpretation.interpret import interpret
+from tronn.interpretation.interpret import interpret_v2
 
 from tronn.interpretation.motifs import read_pwm_file
 from tronn.interpretation.motifs import setup_pwms
@@ -84,66 +87,39 @@ def run(args):
     dataloader = H5DataLoader(
         {"data": data_files},
         filter_tasks=args.filter_tasks)
-        
+
     # set up graph
-    tronn_graph = TronnNeuralNetGraph(
-        {'data': data_files},
-        args.tasks,
+    tronn_graph = TronnGraphV2(
         dataloader,
-        args.batch_size,
-        net_fns[args.model['name']],
+        net_fns[args.model["name"]],
         args.model,
-        tf.nn.sigmoid,
-        inference_fn=net_fns[args.inference_fn],
-        importances_tasks=args.inference_tasks,
-        shuffle_data=True,
-        filter_tasks=args.filter_tasks,
+        args.batch_size,
+        final_activation_fn=tf.nn.sigmoid,
         checkpoints=args.model_checkpoints)
 
-    # checkpoint file (unless empty net)
-    #if args.model_checkpoint is not None:
-    #    checkpoint_path = args.model_checkpoint
-    #elif args.model["name"] == "empty_net":
-    #    checkpoint_path = None
-    #else:
-    #    checkpoint_path = tf.train.latest_checkpoint(args.model_dir)
-    #logging.info("Checkpoint: {}".format(checkpoint_path))
-
-    # check if validation flag is set
-    if args.validate:
-        visualize = True
-        validate_grammars = True
-    else:
-        visualize = args.plot_importance_sample
-        validate_grammars = False
-
-    if visualize == True:
-        viz_dir = "{}/viz".format(args.out_dir)
-        os.system("mkdir -p {}".format(viz_dir))
-        
-    # run interpret on the graph
-    # this should give you back everything with scores, then set the cutoff after
-    score_mat_h5 = '{0}/{1}.grammar-scores.h5'.format(
+    # run interpretation graph
+    results_h5_file = "{0}/{1}.inference.h5".format(
         args.tmp_dir, args.prefix)
-    if not os.path.isfile(score_mat_h5):
-        # run interpret
-        interpret(
-            tronn_graph,
-            None,
-            args.batch_size,
-            score_mat_h5,
-            args.sample_size,
-            {"importances_fn": args.backprop,
-             "pwms": pwm_list,
-             "grammars": grammar_sets},
-            keep_negatives=False,
-            visualize=visualize,
-            scan_grammars=True,
-            validate_grammars=validate_grammars,
-            filter_by_prediction=False)
+    if not os.path.isfile(results_h5_file):
+        infer_params = {
+            "model_fn": net_fns[args.model["name"]],
+            "inference_fn": net_fns[args.inference_fn],
+            "importances_fn": args.backprop,
+            "importance_task_indices": args.inference_tasks,
+            "pwms": pwm_list,
+            "grammars": grammar_sets}
+        interpret_v2(tronn_graph, results_h5_file, infer_params)
+
+        # attach useful information
+        with h5py.File(results_h5_file, "a") as hf:
+            # add in PWM names to the datasets
+            for dataset_key in hf.keys():
+                if "pwm-scores" in dataset_key:
+                    hf[dataset_key].attrs["pwm_names"] = [
+                        pwm.name for pwm in pwm_list]
 
         # save PWM names with the mutation dataset in hdf5
-        with h5py.File(score_mat_h5, "a") as hf:
+        with h5py.File(results_h5_File, "a") as hf:
 
             # get motifs from grammar
             motifs = []
@@ -163,7 +139,7 @@ def run(args):
     plot_summary = (
         "plot.pwm_x_pwm.mut2.from_h5.R {0} "
         "logits pwm-scores delta_logits dmim-scores pwm_mut_names {1}/{2} {3}").format(
-            score_mat_h5,
+            results_h5_file,
             args.out_dir,
             grammar_sets[0][0].name.split(".")[0],
             " ".join([str(i) for i in args.inference_tasks]))

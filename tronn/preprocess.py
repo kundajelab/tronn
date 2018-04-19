@@ -728,8 +728,6 @@ def generate_genomewide_negatives_dataset(
         parallel=parallel,
         softmax=False,
         reverse_complemented=False)
-
-    quit()
     
     return None
 

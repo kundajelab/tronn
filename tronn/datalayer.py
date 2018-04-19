@@ -848,6 +848,7 @@ class H5DataLoader(DataLoader):
     def load_raw_data(self, batch_size, data_key):
         """call dataloading function
         """
+        # TODO - here would add in extra queues before final load to adjust ratio of positives to negatives
         inputs = load_data_from_filename_list(
             self.data_files[data_key],
             batch_size,

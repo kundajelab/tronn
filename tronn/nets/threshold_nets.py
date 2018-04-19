@@ -437,12 +437,11 @@ def clip_edges(inputs, params):
 
     left_clip = params.get("left_clip", 0)
     right_clip = params.get("right_clip", features.get_shape().as_list()[2])
-    features = features[:,:,left_clip:right_clip,:]
+    outputs["features"] = features[:,:,left_clip:right_clip,:]
 
     # TODO come back to this
-    if False:
-    #if params["outputs"].get("onehot_sequence") is not None:
-        outputs["onehot_sequence_clipped"] = inputs[
-            "onehot_sequence"][:,:,left_clip:right_clip,:]
+    if params.get("raw-sequence-clipped-key") is not None:
+        outputs[params["raw-sequence-clipped-key"]] = inputs[
+            params["raw-sequence-key"]][:,:,left_clip:right_clip,:]
         
     return outputs, params

@@ -17,12 +17,13 @@ def score_distance_to_motifspace_point(inputs, params):
     to the motifspace vector, attach a threshold mask to config as needed
     """
     # assertions
-    assert inputs.get("pwm-scores-raw") is not None
+    assert params.get("raw-pwm-scores-key") is not None
+    assert inputs.get(params["raw-pwm-scores-key"]) is not None
     assert params.get("pwms") is not None
     assert params.get("grammars") is not None
 
     # get features and pass on rest
-    features = inputs["pwm-scores-raw"]
+    features = tf.expand_dims(inputs[params["raw-pwm-scores-key"]], axis=1)
     grammars = params["grammars"]
     pwms = params["pwms"]
     grammars = grammars[0] # for now. TODO fix this later
@@ -62,26 +63,35 @@ def score_distance_to_motifspace_point(inputs, params):
     # save to config outputs
     outputs["motifspace_dists"] = similarities
     outputs["motifspace_mask"] = similarities_thresholded
+    outputs["features"] = features
     
-    if params.get("filter_motifspace") is not None:
+    if params.get("filter_motifspace", False) == True:
         # filter
         outputs["condition_mask"] = tf.greater(
             tf.reduce_max(similarities_thresholded, axis=[1,2]), [0])
+        params["name"] = "motifspace_filter"
         outputs, params = filter_and_rebatch(outputs, params)
     
     return outputs, params
 
 
-def check_motifset_presence(features, labels, config, is_training=False):
+def check_motifset_presence(inputs, params):
     """Given grammars check motifs in the grammars to make sure they're all there
     """
-    grammars = config.get("grammars")
-    pwms = config.get("pwms")
-    assert grammars is not None
-    assert pwms is not None
+    # assertions
+    assert params.get("grammars") is not None
+    assert params.get("pwms") is not None
 
-    grammars = grammars[0] # for now. TODO fix this later
+    # features and pass rest through
+    features = inputs["features"]
+    outputs = dict(inputs)
+    
+    # params
+    grammars = params["grammars"][0] # for now, can only run 1 at a time
+    pwms = params.get("pwms")
+    print "WARNING ONLY RUNNING ONE GRAMMAR"
 
+    # set up features
     motifset_features = tf.expand_dims(features, axis=3) # {N, 1, M, 1}
     
     # input - {N, 1, M}, ie 1 cell state
@@ -107,16 +117,16 @@ def check_motifset_presence(features, labels, config, is_training=False):
     motif_present_counts = tf.reduce_sum(pointwise_presence, axis=2) #  {N, 1, G}
     score_mask = tf.cast(tf.equal(motif_present_counts, grammar_motif_count), tf.float32) # {N, 1, G}
 
-    config["outputs"]["motifset_total"] = motif_present_counts
+    outputs["motifset_total"] = motif_present_counts
     
-    if config.get("filter_motifset") is not None:
+    if params.get("filter_motifset", False) == True:
         # filter
-        condition_mask = tf.greater(
+        outputs["condition_mask"] = tf.greater(
             tf.reduce_max(score_mask, axis=[1,2]), [0])
-        features, labels, config = filter_through_mask(
-            features, labels, config, condition_mask, use_queue=True, num_threads=1)
+        params["name"] = "motifset_filter"
+        outputs, params = filter_and_rebatch(outputs, params)
     
-    return features, labels, config
+    return outputs, params
 
 
 def generalized_jaccard_similarity(features, compare_tensor):

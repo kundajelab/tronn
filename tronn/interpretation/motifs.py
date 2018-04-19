@@ -588,8 +588,8 @@ def distill_to_linear_models(
         print metaclusters
         
         # for each metacluster, for each dataset, get matrix
-        for i in xrange(len(metaclusters)):
-        #for i in xrange(0, len(metaclusters)):
+        #for i in xrange(len(metaclusters)):
+        for i in xrange(1, len(metaclusters)):
             metacluster_id = metaclusters[i]
             print"metacluster:", metacluster_id
 
@@ -643,6 +643,8 @@ def distill_to_linear_models(
                 
                 # filter useful pwms
                 pwm_vector = reduce_pwms(cluster_weighted_scores, pwm_list, pwm_dict)
+                if np.sum(pwm_vector) == 0:
+                    continue
 
                 # adjust pwm thresholds
                 recall_thresh = 0.95
@@ -656,6 +658,11 @@ def distill_to_linear_models(
                         passing_filter, raw_scores[:,pwm_idx] > threshold)
                     
                 print np.sum(passing_filter)
+
+                print "final pwm count:", np.sum(pwm_vector)
+                print [pwm_list[k].name for k in indices]
+                #import ipdb
+                #ipdb.set_trace()
 
                 # build polynomial (deg 2) model on the subset
                 X = raw_scores[:, pwm_vector > 0]
@@ -1454,8 +1461,8 @@ def reduce_pwms_by_signal_similarity(
         pwm_dict,
         tmp_prefix="motifs",
         ic_thresh=0.4,
-        cor_thresh=0.6,
-        ncor_thresh=0.4,
+        cor_thresh=0.3, # low thresh
+        ncor_thresh=0.2, # low thresh
         num_threads=24):
     """
     Takes in the example x pwm signal matrix, does an hclust on it.

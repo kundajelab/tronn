@@ -117,7 +117,7 @@ def refine_clusters(
         num_examples = hf["example_metadata"].shape[0]
 
         # generate a new dataset that is {N, 1}
-        del hf[out_key]
+        #del hf[out_key]
         refined_clusters_hf = hf.create_dataset(
             out_key, hf[clusters_key].shape, dtype=int)
         

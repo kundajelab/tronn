@@ -155,40 +155,6 @@ def sequence_to_importance_scores_unfiltered(
     return features, labels, config
 
 
-
-
-def sequence_to_importance_scores_old(
-        features,
-        labels,
-        config,
-        is_training=False):
-    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
-    """
-    method = config.get("importances_fn")
-    
-    inference_stack = [
-        (multitask_importances, {"backprop": method, "relu": False}),
-        #(threshold_shufflenull, {"pval_thresh": 0.05}),
-        (filter_by_accuracy, {"acc_threshold": 0.7}), # filter out low accuracy examples TODO use FDR instead
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        (normalize_w_probability_weights, {}), 
-        (clip_edges, {"left_clip": 400, "right_clip": 600}),
-        (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
-    ]
-    
-    # set up inference stack
-    features, labels, config = build_inference_stack(
-        features, labels, config, inference_stack)
-
-    # unstack
-    if config.get("keep_importances") is not None:
-        config = unstack_tasks(features, labels, config, prefix=config["keep_importances"])
-        
-    return features, labels, config
-
-
-
 def sequence_to_importance_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
@@ -220,59 +186,20 @@ def sequence_to_importance_scores(inputs, params):
     return outputs, params
 
 
-
-def sequence_to_motif_scores_old(
-        features,
-        labels,
-        config,
-        is_training=False):
-    """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
-    """
-    use_importances = config.get("use_importances", True)
-    count_thresh = config.get("count_thresh", 1)
-    assert use_importances is not None
-
-    keep_key = config.get("keep_onehot_sequence")
-    if keep_key is not None:
-        config["outputs"][keep_key] = features
-        config["outputs"]["{}_clipped".format(keep_key)] = features
-    
-    # if using NN, convert features to importance scores first
-    if use_importances:
-        features, labels, config = sequence_to_importance_scores(
-            features, labels, config, is_training=is_training)
-        count_thresh = 2 # there's time info, so can filter across tasks
-        
-    # set up inference stack
-    inference_stack = [
-        (pwm_match_filtered_convolve, {}),
-        (multitask_global_importance, {"append": True, "count_thresh": count_thresh}),
-        (pwm_position_squeeze, {"squeeze_type": "max"}),
-        (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
-    ]
-
-    # build inference stack
-    features, labels, config = build_inference_stack(
-        features, labels, config, inference_stack)
-
-    # unstack
-    if config.get("keep_pwm_scores") is not None:
-        config = unstack_tasks(features, labels, config, prefix=config["keep_pwm_scores"])
-
-    return features, labels, config
-
-
 def sequence_to_motif_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
+    params["raw-sequence-key"] = "raw-sequence"
+    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
+    
     # params
     use_importances = params.get("use_importances", True)
     count_thresh = params.get("count_thresh", 1)
 
-    keep_key = params.get("keep_onehot_sequence")
-    if keep_key is not None:
-        inputs[keep_key] = inputs["features"]
-        inputs["{}_clipped".format(keep_key)] = inputs["features"]
+    if params.get("raw-sequence-key") is not None:
+        inputs[params["raw-sequence-key"]] = inputs["features"]
+    if params.get("raw-sequence-clipped-key") is not None:
+        inputs[params["raw-sequence-clipped-key"]] = inputs["features"]
     
     # if using NN, convert features to importance scores first
     if use_importances:
@@ -373,69 +300,36 @@ def sequence_to_motif_ism(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def sequence_to_dmim_old(features, labels, config, is_training=False):
-    """For a grammar, get back the delta deeplift results on motifs, another way
-    to extract dependencies at the motif level
-    """
-    # get motif scores
-    features, labels, config = sequence_to_motif_scores(
-        features, labels, config, is_training=is_training)
-
-    # start from the raw pwm scores to filter sequences
-    features = tf.expand_dims(config["outputs"]["pwm-scores-raw"], axis=1)
-
-    # set up inference stack
-    inference_stack = [
-        (score_distance_to_motifspace_point, {"filter_motifspace": True}),
-        (check_motifset_presence, {"filter_motifset": True}),
-        (generate_mutation_batch, {}), # note that these use importance weighted position maps
-        (run_model_on_mutation_batch, {}),
-        (delta_logits, {"logits_to_features": False}),
-
-        (multitask_importances, {"backprop": config["importances_fn"], "relu": False}),
-        (dfim, {}), # {N, task, 200, 4}
-        
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}), # TODO - some shuffle null here? if so need to generate shuffles
-        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        #(normalize_w_probability_weights, {}), 
-        (clip_edges, {"left_clip": 400, "right_clip": 600}),
-
-        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
-        (pwm_position_squeeze, {"squeeze_type": "max"}),
-        (motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired
-        # TODO normalize by probability here?
-        (filter_mutation_directionality, {})
-    ]
-
-    # build inference stack
-    features, labels, config = build_inference_stack(
-        features, labels, config, inference_stack)
-
-    if config.get("keep_dmim_scores") is not None:
-        config = unstack_tasks(features, labels, config, prefix=config["keep_dmim_scores"])
-
-    del config["outputs"]["onehot_sequence"]
-    
-    return features, labels, config
-
-
 
 def sequence_to_dmim(inputs, params):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
     """
+    # params:
+    params["raw-sequence-key"] = "raw-sequence"
+    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
+    params["raw-pwm-scores-key"] = "raw-pwm-scores"
+    params["positional-pwm-scores-key"] = "positional-pwm-scores"
+    params["filter_motifspace"] = True
+    params["filter_motifset"] = True
+    
     # get motif scores
     outputs, params = sequence_to_motif_scores(inputs, params)
+    
+    method = params.get("importances_fn")
 
     # set up inference stack
-    inference_stack = [
+    params["inference_stack"] = [
         (score_distance_to_motifspace_point, {"filter_motifspace": True}),
         (check_motifset_presence, {"filter_motifset": True}),
         (generate_mutation_batch, {}), # note that these use importance weighted position maps
         (run_model_on_mutation_batch, {}),
         (delta_logits, {"logits_to_features": False}),
 
-        (multitask_importances, {"backprop": config["importances_fn"], "relu": False}),
+        (multitask_importances, {"backprop": method, "relu": False}),
+
+        # any point after this stage and before motif scanning: mask the mutation site
+        
         (dfim, {}), # {N, task, 200, 4}
         
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}), # TODO - some shuffle null here? if so need to generate shuffles
@@ -443,7 +337,7 @@ def sequence_to_dmim(inputs, params):
         #(normalize_w_probability_weights, {}), 
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
 
-        (pwm_match_filtered_convolve, {"pwms": config["pwms"]}),
+        (pwm_match_filtered_convolve, {}),
         (pwm_position_squeeze, {"squeeze_type": "max"}),
         (motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired
         # TODO normalize by probability here?
@@ -451,13 +345,15 @@ def sequence_to_dmim(inputs, params):
     ]
 
     # build inference stack
-    features, labels, config = build_inference_stack(
-        features, labels, config, inference_stack)
+    outputs, params = build_inference_stack(
+        outputs, params)
 
-    if config.get("keep_dmim_scores") is not None:
-        config = unstack_tasks(features, labels, config, prefix=config["keep_dmim_scores"])
+    # unstack
+    if params.get("keep_dmim_scores") is not None:
+        params["name"] = params["keep_pwm_scores"]
+        outputs, params = unstack_tasks(outputs, params)
 
-    del config["outputs"]["onehot_sequence"]
-    
-    return features, labels, config
+    print outputs
+        
+    return outputs, params
 
