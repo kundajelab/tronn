@@ -454,8 +454,12 @@ class H5Handler(object):
         for key in self.example_keys:
             #self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
             if len(self.tmp_arrays[key].shape) == 1:
-                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape(
+                try:
+                    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape(
                     batch_end, 1)
+                except:
+                    import ipdb
+                    ipdb.set_trace()
             else:
                 self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
 

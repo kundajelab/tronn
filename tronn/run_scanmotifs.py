@@ -244,7 +244,9 @@ def run(args):
         #print "WARNING USING SHUFFLES"
     dataloader = H5DataLoader(
         {"data": data_files},
-        filter_tasks=args.filter_tasks)
+        filter_tasks=[
+            args.inference_tasks,
+            args.filter_tasks])
         
     # set up graph
     # TODO somewhere here need to pass forward the
