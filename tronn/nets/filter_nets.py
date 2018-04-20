@@ -96,7 +96,7 @@ def filter_by_labels(inputs, params):
         tf.reduce_sum(pos_labels, axis=1), [0])
 
     # run through queue
-    params.update({"num_queue_threads": 4, "name": "label_filter"})
+    params.update({"num_queue_threads": 4})
     outputs, params = filter_and_rebatch(inputs, params)
     params.update({"num_queue_threads": 1})
     
@@ -173,6 +173,7 @@ def filter_by_accuracy(inputs, params):
         tf.cast(filter_labels, tf.bool),
         tf.greater_equal(filter_probs, 0.5))) # {N, tasks}
     accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32), axis=1) # {N}
+    inputs["subset_accuracy"] = accuracy
     
     # set condition
     inputs["condition_mask"] = tf.greater_equal(accuracy, acc_threshold)

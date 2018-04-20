@@ -274,13 +274,14 @@ def interpret_v2(tronn_graph, h5_file, infer_params, num_evals=100000, reconstru
 
         # set up inference graph
         outputs, _ = tronn_graph.build_inference_dataflow(infer_params, data_key="data")
-
+        print outputs.keys()
+        
         # set up session
         sess, coord, threads = setup_tensorflow_session()
 
         # restore graph
         tronn_graph.restore_graph(sess, is_ensemble=False, skip=["pwm"])
-
+        
         # run dataflow
         tronn_graph.run_dataflow(OutLayer, sess, coord, outputs, h5_file, sample_size=num_evals)
 

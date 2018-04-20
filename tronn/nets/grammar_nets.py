@@ -23,7 +23,12 @@ def score_distance_to_motifspace_point(inputs, params):
     assert params.get("grammars") is not None
 
     # get features and pass on rest
+    print inputs[params["raw-pwm-scores-key"]]
     features = tf.expand_dims(inputs[params["raw-pwm-scores-key"]], axis=1)
+    print features
+    #import ipdb
+    #ipdb.set_trace()
+    
     grammars = params["grammars"]
     pwms = params["pwms"]
     grammars = grammars[0] # for now. TODO fix this later

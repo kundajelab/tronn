@@ -9,15 +9,15 @@ from tronn.nets.importance_nets import filter_by_importance
 from tronn.nets.importance_nets import filter_singles_twotailed
 
 from tronn.nets.normalization_nets import normalize_w_probability_weights
-from tronn.nets.normalization_nets import normalize_to_logits
-from tronn.nets.normalization_nets import zscore_and_scale_to_weights
+#from tronn.nets.normalization_nets import normalize_to_logits
+#from tronn.nets.normalization_nets import zscore_and_scale_to_weights
 
 from tronn.nets.threshold_nets import threshold_gaussian
 from tronn.nets.threshold_nets import threshold_shufflenull
 from tronn.nets.threshold_nets import clip_edges
 
-from tronn.nets.motif_nets import pwm_convolve_inputxgrad
-from tronn.nets.motif_nets import pwm_maxpool
+#from tronn.nets.motif_nets import pwm_convolve_inputxgrad
+#from tronn.nets.motif_nets import pwm_maxpool
 from tronn.nets.motif_nets import pwm_consistency_check
 from tronn.nets.motif_nets import pwm_positional_max
 from tronn.nets.motif_nets import pwm_position_squeeze
@@ -44,20 +44,6 @@ from tronn.nets.mutate_nets import filter_mutation_directionality
 from tronn.nets.util_nets import remove_global_task
 
 
-def build_inference_stack_old(features, labels, config, inference_stack):
-    """Given the inference stack, build the graph
-    """
-    master_config = config
-    for transform_fn, config in inference_stack:
-        print transform_fn
-        master_config.update(config) # update config before and after
-        features, labels, config = transform_fn(features, labels, master_config)
-        print features.get_shape()
-        master_config.update(config)
-
-    return features, labels, config
-
-
 def build_inference_stack(inputs, params):
     """Given the inference stack, build the graph
     """
@@ -77,26 +63,6 @@ def build_inference_stack(inputs, params):
     del params["inference_stack"]
 
     return outputs, master_params
-
-
-def unstack_tasks_old(features, labels, config, prefix="features", task_axis=1):
-    """Unstack by task (axis=1)
-    """
-    features = tf.unstack(features, axis=task_axis)
-    task_indices = config.get("importance_task_indices")
-    new_task_indices = list(task_indices)
-    if len(features) == len(task_indices) + 1:
-        new_task_indices.append("global") # for the situations with a global score
-    assert task_indices is not None
-    for i in xrange(len(features)):
-        task_features_key = "{}.taskidx-{}".format(
-            prefix, new_task_indices[i])
-        config["outputs"][task_features_key] = features[i]
-
-    # and add labels
-    config["outputs"]["labels"] = labels
-
-    return config
 
 
 def unstack_tasks(inputs, params):
@@ -122,9 +88,6 @@ def unstack_tasks(inputs, params):
         task_features_key = "{}.taskidx-{}".format(
             name, new_task_indices[i])
         outputs[task_features_key] = features[i]
-
-    # and just delete features since you unstacked them
-    #del outputs["features"]
     
     return outputs, params
 
@@ -191,6 +154,7 @@ def sequence_to_motif_scores(inputs, params):
     """
     params["raw-sequence-key"] = "raw-sequence"
     params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
+    params["raw-pwm-scores-key"] = "raw-pwm-scores"
     
     # params
     use_importances = params.get("use_importances", True)
@@ -312,6 +276,10 @@ def sequence_to_dmim(inputs, params):
     params["positional-pwm-scores-key"] = "positional-pwm-scores"
     params["filter_motifspace"] = True
     params["filter_motifset"] = True
+    params["dmim-scores-key"] = "dmim-scores"
+
+    # maybe keep
+    params["keep_importances"] = None
     
     # get motif scores
     outputs, params = sequence_to_motif_scores(inputs, params)
@@ -327,17 +295,19 @@ def sequence_to_dmim(inputs, params):
         (delta_logits, {"logits_to_features": False}),
 
         (multitask_importances, {"backprop": method, "relu": False}),
-
-        # any point after this stage and before motif scanning: mask the mutation site
         
-        (dfim, {}), # {N, task, 200, 4}
+        (dfim, {}), # {N, task, 1000, 4}
         
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}), # TODO - some shuffle null here? if so need to generate shuffles
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        #(normalize_w_probability_weights, {}), 
+        #(normalize_w_probability_weights, {}),
+
+        # HERE: mask mutation site
+        
+        
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
 
-        (pwm_match_filtered_convolve, {}),
+        (pwm_match_filtered_convolve, {"positional-pwm-scores-key": None}),
         (pwm_position_squeeze, {"squeeze_type": "max"}),
         (motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired
         # TODO normalize by probability here?
@@ -349,11 +319,9 @@ def sequence_to_dmim(inputs, params):
         outputs, params)
 
     # unstack
-    if params.get("keep_dmim_scores") is not None:
-        params["name"] = params["keep_pwm_scores"]
+    if params.get("dmim-scores-key") is not None:
+        params["name"] = params["dmim-scores-key"]
         outputs, params = unstack_tasks(outputs, params)
-
-    print outputs
         
     return outputs, params
 

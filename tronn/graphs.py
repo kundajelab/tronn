@@ -592,11 +592,11 @@ class TronnGraphV2(object):
         # also importance task indices, importance function
         infer_params.update({
             "batch_size": self.batch_size, 
-            "keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
-            "keep_gradients": "gradients" if infer_params.get("dream") is not None else None,
-            "all_grad_ys": infer_params.get("dream_pattern"),
+            #"keep_onehot_sequence": "onehot_sequence" if True else None, # always used: filtering
+            #"keep_gradients": "gradients" if infer_params.get("dream") is not None else None,
+            #"all_grad_ys": infer_params.get("dream_pattern"),
             "keep_importances": "importances" if True else None,
-            "keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
+            #"keep_pwm_scores_full": "pwm-scores-full" if scan_grammars else None, # used for grammars
             "keep_global_pwm_scores": "global-pwm-scores" if validate_grammars else None,
             "keep_pwm_scores": "pwm-scores" if True else None, # always used
             "keep_pwm_raw_scores": "pwm-scores-raw" if True else None,
@@ -645,7 +645,7 @@ class TronnGraphV2(object):
                         print total_examples
                     
                     example = dataflow_driver.next()
-                    
+
                     #import ipdb
                     #ipdb.set_trace()
                     
@@ -658,6 +658,9 @@ class TronnGraphV2(object):
             except tf.errors.OutOfRangeError:
                 print "Done reading data"
 
+            except StopIteration:
+                print "Done reading data"
+                
             finally:
                 h5_handler.flush()
                 h5_handler.chomp_datasets()

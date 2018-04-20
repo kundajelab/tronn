@@ -774,8 +774,14 @@ class DataLoader(object):
         # set up the transform stack
         self.transform_stack = []
         if len(self.filter_tasks) != 0:
-            self.transform_stack.append((
-                filter_by_labels, {"labels_key": "labels", "filter_tasks": filter_tasks}))
+            # go through the list to subset more finegrained
+            # in a hierarchical way
+            for i in xrange(len(self.filter_tasks)):
+                self.transform_stack.append((
+                    filter_by_labels,
+                    {"labels_key": "labels",
+                     "filter_tasks": self.filter_tasks[i],
+                     "name": "label_filter_{}".format(i)}))
         if num_dinuc_shuffles > 0:
             self.transform_stack.append((
                 generate_dinucleotide_shuffles,

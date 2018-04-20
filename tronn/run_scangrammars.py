@@ -86,7 +86,9 @@ def run(args):
         #print "set for shuffles!"
     dataloader = H5DataLoader(
         {"data": data_files},
-        filter_tasks=args.filter_tasks)
+        filter_tasks=[
+            args.inference_tasks,
+            args.filter_tasks])
 
     # set up graph
     tronn_graph = TronnGraphV2(
@@ -108,7 +110,7 @@ def run(args):
             "importance_task_indices": args.inference_tasks,
             "pwms": pwm_list,
             "grammars": grammar_sets}
-        interpret_v2(tronn_graph, results_h5_file, infer_params)
+        interpret_v2(tronn_graph, results_h5_file, infer_params, num_evals=args.sample_size)
 
         # attach useful information
         with h5py.File(results_h5_file, "a") as hf:
@@ -119,7 +121,7 @@ def run(args):
                         pwm.name for pwm in pwm_list]
 
         # save PWM names with the mutation dataset in hdf5
-        with h5py.File(results_h5_File, "a") as hf:
+        with h5py.File(results_h5_file, "a") as hf:
 
             # get motifs from grammar
             motifs = []

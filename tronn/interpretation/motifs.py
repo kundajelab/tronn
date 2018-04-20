@@ -525,15 +525,17 @@ def reduce_pwms(data, pwm_list, pwm_dict):
     """Wrapper for all pwm reduction functions
     """
     assert len(pwm_list) == data.shape[1]
-
-    # reduce by motif similarity, keeping the motif
-    # with the strongest signal
-    pwm_vector = reduce_pwms_by_signal_similarity(
-        data, pwm_list, pwm_dict)
     
     # set a cutoff - assume Gaussian noise, this controls
     # false positive rate
-    pwm_vector = sd_cutoff(data, pwm_vector)
+    #pwm_vector = sd_cutoff(data, col_mask=pwm_vector)
+    pwm_vector = sd_cutoff(data, std_thresh=3) # was 2
+    
+    # reduce by motif similarity, keeping the motif
+    # with the strongest signal
+    pwm_vector = pwm_vector * reduce_pwms_by_signal_similarity(
+        data, pwm_list, pwm_dict)
+
     
     # ignore long pwms
     if True:
@@ -573,7 +575,7 @@ def distill_to_linear_models(
     
     with h5py.File(h5_file, "a") as hf:
         num_examples, num_motifs = hf[dataset_keys[0]].shape
-        raw_scores = hf["pwm-scores-raw"][:] # pull raw sequence
+        raw_scores = hf["raw-pwm-scores"][:] # pull raw sequence
 
         # set up a new cluster dataset, refined by the thresholded scores
         del hf[refined_cluster_key]
@@ -588,8 +590,8 @@ def distill_to_linear_models(
         print metaclusters
         
         # for each metacluster, for each dataset, get matrix
-        #for i in xrange(len(metaclusters)):
-        for i in xrange(1, len(metaclusters)):
+        for i in xrange(len(metaclusters)):
+        #for i in xrange(1, len(metaclusters)):
             metacluster_id = metaclusters[i]
             print"metacluster:", metacluster_id
 

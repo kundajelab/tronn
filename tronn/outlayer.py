@@ -4,6 +4,8 @@ or merging regions as desired
 
 import numpy as np
 
+import tensorflow as tf
+
 
 def split_region(region):
     """Split region into a list of [chr, start, stop]
@@ -495,18 +497,19 @@ class OutLayer(object):
                 del self.graph_tensor_outputs[key]
         
         # run first batch
-        self.outputs = self.sess.run(self.graph_tensor_outputs)
+        self._run_sess()
 
-        # get the batch size
+        
+    def _run_sess(self):
+        # run sess
+        self.outputs = self.sess.run(self.graph_tensor_outputs)
+        
+        # set up batch size
         test_key = self.outputs.keys()[0]
         self.batch_size = self.outputs[test_key].shape[0]
         self.batch_idx = 0
+
         
-
-    def _run_sess(self):
-        self.outputs = self.sess.run(self.graph_tensor_outputs)
-
-
     def __iter__(self):
         return self
 
@@ -519,7 +522,6 @@ class OutLayer(object):
         if self.batch_idx >= self.batch_size:
             try:
                 self._run_sess()
-                self.batch_idx = 0
             except tf.errors.OutOfRangeError:
                 raise StopIteration
         # collect batch outputs and return

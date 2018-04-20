@@ -64,39 +64,104 @@ def mutate_motif(inputs, params):
     return outputs, params
 
 
+def blank_motif_site(sequence, pwm_indices, pwm_positions, filter_width):
+    """given the position and the filter width, mutate sequence
+    """
+    for pwm_idx, position in positions:
+        # set up start and end positions
+        start_pos = tf.maximum(position - filter_width, 0)
+        end_pos = tf.minimum(position + filter_width, features.get_shape()[0])
+        
+        # get the indices that are LEFT of the shuffle region
+        # these do NOT get shuffled
+        left_indices = tf.range(start_pos)
+
+        # get the indices to shuffle
+        indices = tf.range(start_pos, end_pos)
+        shuffled_indices = tf.random_shuffle(indices)
+
+        # get the indices that are RIGHT of the shuffle region
+        # these do NOT get shuffled
+        right_indices = tf.range(end_pos, features.get_shape()[0])
+
+        # concat the indices, and set shape
+        all_indices = tf.concat([left_indices, shuffled_indices, right_indices], axis=0)
+        all_indices = tf.reshape(all_indices, [features.get_shape()[0]])
+        
+        # and gather
+        features = tf.gather(features, all_indices)
+
+    # readjust dims before returning
+    sequence = tf.expand_dims(tf.expand_dims(features, axis=0), axis=0)
+    
+    return sequence
+
 
 def blank_motif_sites(inputs, params):
     """given the shuffle positions, zero out this range
     """
+    # assertions
+    assert inputs.get("pwm-max-positions") is not None
+    assert params.get("pwm-indices") is not None
+    #assert params.get("pos") is not None
 
     # features
-    positions = inputs["mutation_ranges"]
-
+    features = [tf.expand_dims(tensor, axis=0)
+                for tensor in tf.unstack(inputs["features"], axis=0)]
+    pwm_max_positions = inputs["pwm-max-positions"]
+    outputs = dict(inputs)
+    
     # params
-    
-    
-    
-    # something like tf assign
+    pwm_indices = params["pwm-indices"]
+    #positions = params["pos"]
+    filter_width = params.get("filter_width", 10) / 2
+
+    # make a tuple
+    #  ( {N, 1, 1000, 4}, {N, M} )
 
     
+    blank_motif_sites_fn = build_motif_ablator() # here need to give it the params (pwm indices)
+
+    # use map to parallel mutate
+    blanked_sequences = tf.map_fn(
+        blank_motif_sites_fn,
+        features,
+        parallel_iterations=params["batch_size"])
+
 
     
-    return
+    # use gather, with an index tensor that part of it gets shuffled
+    features = features[0,0] # {1000, 4}
+    
+    for pwm_idx, position in positions:
+        # set up start and end positions
+        start_pos = tf.maximum(position - filter_width, 0)
+        end_pos = tf.minimum(position + filter_width, features.get_shape()[0])
+        
+        # get the indices that are LEFT of the shuffle region
+        # these do NOT get shuffled
+        left_indices = tf.range(start_pos)
 
+        # get the indices to shuffle
+        # TODO - here just make a zeros array
+        indices = tf.range(start_pos, end_pos)
+        shuffled_indices = tf.random_shuffle(indices)
 
-#def repeat_config(config, repeat_num):
-#    """Helper function to adjust config as needed
-#    """
-#    for key in config["outputs"].keys():
-#        # adjust output
-#        outputs = [tf.expand_dims(tensor, axis=0)
-#                  for tensor in tf.unstack(config["outputs"][key], axis=0)]
- #       new_outputs = []
-#        for output in outputs:
-#            new_outputs += [output for i in xrange(repeat_num)]
-#        config["outputs"][key] = tf.concat(new_outputs, axis=0)
-#
-#    return config
+        # get the indices that are RIGHT of the shuffle region
+        # these do NOT get shuffled
+        right_indices = tf.range(end_pos, features.get_shape()[0])
+
+        # concat the indices, and set shape
+        all_indices = tf.concat([left_indices, shuffled_indices, right_indices], axis=0)
+        all_indices = tf.reshape(all_indices, [features.get_shape()[0]])
+        
+        # and gather
+        features = tf.gather(features, all_indices)
+
+    # readjust dims before returning
+    outputs["features"] = tf.expand_dims(tf.expand_dims(features, axis=0), axis=0)
+    
+    return outputs, params
 
 
 def generate_mutation_batch(inputs, params):
@@ -125,6 +190,7 @@ def generate_mutation_batch(inputs, params):
     motif_max_positions = tf.argmax(
         tf.reduce_max(position_maps, axis=1), axis=1) # {N, M}
     motif_max_positions = tf.add(motif_max_positions, start_shift)
+    outputs["pwm-max-positions"] = motif_max_positions # {N, M}
     print motif_max_positions
 
     # get indices at global level
@@ -184,6 +250,9 @@ def generate_mutation_batch(inputs, params):
     params["ignore"] = ["features"]
     outputs, params = pad_examples(outputs, params)
 
+    # and delete the used features
+    del outputs[params["positional-pwm-scores-key"]]
+    
     # and rebatch
     params["name"] = "mutation_rebatch"
     params["batch_size_orig"] = params["batch_size"]
