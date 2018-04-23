@@ -578,7 +578,7 @@ def distill_to_linear_models(
         raw_scores = hf["raw-pwm-scores"][:] # pull raw sequence
 
         # set up a new cluster dataset, refined by the thresholded scores
-        del hf[refined_cluster_key]
+        #del hf[refined_cluster_key]
         refined_clusters_hf = hf.create_dataset(
             refined_cluster_key, hf[cluster_key].shape, dtype=int)
 

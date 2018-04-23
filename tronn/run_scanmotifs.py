@@ -246,7 +246,8 @@ def run(args):
         {"data": data_files},
         filter_tasks=[
             args.inference_tasks,
-            args.filter_tasks])
+            args.filter_tasks],
+        singleton_filter_tasks=args.inference_tasks)
         
     # set up graph
     # TODO somewhere here need to pass forward the

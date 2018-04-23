@@ -72,8 +72,10 @@ def score_distance_to_motifspace_point(inputs, params):
     
     if params.get("filter_motifspace", False) == True:
         # filter
-        outputs["condition_mask"] = tf.greater(
-            tf.reduce_max(similarities_thresholded, axis=[1,2]), [0])
+        #outputs["condition_mask"] = tf.greater(
+         #   tf.reduce_max(similarities_thresholded, axis=[1,2]), [0])
+        outputs["condition_mask"] = tf.greater_equal(
+            tf.reduce_mean(similarities_thresholded, axis=[1,2]), [1.0]) # make sure all pass filter
         params["name"] = "motifspace_filter"
         outputs, params = filter_and_rebatch(outputs, params)
     

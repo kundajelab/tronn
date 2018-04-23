@@ -440,6 +440,7 @@ def basset(inputs, params):
                 share_logistic_weights=True,
                 is_training=is_training)
         else:
+            # TODO - here, expose the hidden layer so we can save it to cluster on it
             logits = mlp_module_v2(
                 net, 
                 num_tasks = int(labels.get_shape()[-1]), 

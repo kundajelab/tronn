@@ -482,66 +482,6 @@ def add_scanmotifs_parser(subparsers):
     return
 
 
-def add_findgrammars_parser(subparsers):
-    """
-    """
-    argparser_multitask = subparsers.add_parser(
-        "findgrammars",
-        help="Get grammars")
-    
-    # group for input files
-    group_input = argparser_multitask.add_argument_group(
-    	"Input files and folders")
-    add_hdf5_data_options(group_input)
-    group_input.add_argument(
-        "--importances_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-    group_input.add_argument(
-        "--interpretation_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-
-    # add in PWM information
-    group_input.add_argument(
-        "--pwm_file", help="pwm_file")
-    group_input.add_argument(
-        "--pwm_metadata_file", help="pwm_metadata_file")
-    group_input.add_argument(
-        "--motif_dir", help="where the motif files are")
-    
-    # group for model
-    group_model = argparser_multitask.add_argument_group(
-        "Model definition")
-    add_trained_nn_model_options(group_model)
-    group_model.add_argument(
-        "--backprop", default="input_x_grad",
-        help="what method to use for interpretation")
-    group_model.add_argument(
-        "--inference_fn", help="inference stack")
-
-    # group for parameters
-    group_params = argparser_multitask.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
-    group_params.add_argument(
-        '--sample_size', default=220000, type=int,
-        help='number of regions to get importance scores')
-
-    # group for output files
-    group_output = argparser_multitask.add_argument_group(
-        "Output files and folders")
-    add_output_options(group_output, out_dir="importances")
-    group_output.add_argument(
-        '--tmp_dir', default='importances_tmp',
-        help='temporary scratch directory')
-    group_output.add_argument(
-        '--plot_samples', action='store_true',
-        help='plot some sample sequences weighted by importance scores')
-
-    return
-
-
 def add_scangrammars_parser(subparsers):
     """scan grammars from a grammar file
     """
@@ -592,68 +532,6 @@ def add_scangrammars_parser(subparsers):
 
     # group for output files
     group_output = argparser_multitask.add_argument_group(
-        "Output files and folders")
-    add_output_options(group_output, out_dir="importances")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory')
-    group_output.add_argument(
-        '--plot_importance_sample', action='store_true',
-        help='plot some sample importance score weighted samples')
-    group_output.add_argument(
-        "--validate", action="store_true",
-        help="provides additional diagnostic/validation plots")
-    
-    return
-
-
-def add_ism_parser(subparsers):
-    """scan grammars from a grammar file
-    """
-    cmd_argparser = subparsers.add_parser(
-        "ism",
-        help="finetune grammars using ISM information")
-    
-    # group for input files
-    group_input = cmd_argparser.add_argument_group(
-    	"Input files and folders")
-    add_hdf5_data_options(group_input)
-    group_input.add_argument(
-        "--inference_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-    group_input.add_argument(
-        "--filter_tasks", nargs="+", default=[], type=int,
-        help="tasks to filter on")
-
-    # add in grammar information
-    group_input.add_argument(
-        "--pwm_file", help="pwm_file")
-    group_input.add_argument(
-        "--pwm_metadata_file", help="pwm_metadata_file")
-    group_input.add_argument(
-        "--grammar_files", nargs="+", help="pwm_file")
-    
-    # group for model
-    group_model = cmd_argparser.add_argument_group(
-        "Model definition")
-    add_trained_nn_model_options(group_model)
-    group_model.add_argument(
-        "--backprop", help="what method to use for interpretation")
-    group_model.add_argument(
-        "--inference_fn", help="inference stack")
-
-    # group for parameters
-    group_params = cmd_argparser.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=64, type=int,
-        help='batch size')
-    group_params.add_argument(
-        '--sample_size', default=100000, type=int,
-        help='number of regions to get importance scores')
-
-    # group for output files
-    group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     add_output_options(group_output, out_dir="importances")
     group_output.add_argument(
@@ -728,60 +606,6 @@ def add_dream_parser(subparsers):
         help="show development of sequence across time")
 
     return 
-
-
-
-def add_getmotifs_parser(subparsers):
-    """
-    """
-    argparser_multitask = subparsers.add_parser(
-        "getmotifs",
-        help="Get statistically significant motifs")
-    
-    # group for input files
-    group_input = argparser_multitask.add_argument_group(
-    	"Input files and folders")
-    add_hdf5_data_options(group_input)
-    group_input.add_argument(
-        "--importances_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-    group_input.add_argument(
-        "--interpretation_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-
-    # add in PWM information
-    group_input.add_argument(
-        "--pwm_file", help="pwm_file")
-    
-    # group for model
-    group_model = argparser_multitask.add_argument_group(
-        "Model definition")
-    add_trained_nn_model_options(group_model)
-    group_model.add_argument(
-        "--backprop", help="what method to use for interpretation")
-
-    # group for parameters
-    group_params = argparser_multitask.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
-    group_params.add_argument(
-        '--sample_size', default=220000, type=int,
-        help='number of regions to get importance scores')
-
-    # group for output files
-    group_output = argparser_multitask.add_argument_group(
-        "Output files and folders")
-    add_output_options(group_output, out_dir="importances")
-    group_output.add_argument(
-        '--tmp_dir', default='importances_tmp',
-        help='temporary scratch directory')
-    group_output.add_argument(
-        '--plot_samples', action='store_true',
-        help='plot some sample sequences weighted by importance scores')
-
-    return
 
 
 def add_vizimpts_parser(subparsers):
@@ -990,10 +814,6 @@ def main():
     elif subcommand == "dream":
         add_model_params(args)
         from tronn.run_dream import run
-        run(args)
-    elif subcommand == "getmotifs": # sorta defunct but keep to do HOMER style differential motifs
-        add_model_params(args)
-        from tronn.run_getmotifs import run
         run(args)
     elif subcommand == "baseline":
         from tronn.run_tensorforest import run

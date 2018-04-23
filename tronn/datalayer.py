@@ -9,6 +9,8 @@ import numpy as np
 import tensorflow as tf
 
 from tronn.nets.filter_nets import filter_by_labels
+from tronn.nets.filter_nets import filter_singleton_labels
+
 from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 from tronn.nets.sequence_nets import generate_scaled_inputs
 
@@ -758,6 +760,7 @@ class DataLoader(object):
             self,
             tasks=[],
             filter_tasks=[],
+            singleton_filter_tasks=[],
             shuffle_examples=True,
             epochs=1,
             fake_task_num=0,
@@ -767,6 +770,7 @@ class DataLoader(object):
         """
         self.tasks = tasks
         self.filter_tasks = filter_tasks
+        self.singleton_filter_tasks = filter_tasks
         self.shuffle_examples = shuffle_examples
         self.epochs = epochs
         self.fake_task_num = fake_task_num
@@ -782,6 +786,12 @@ class DataLoader(object):
                     {"labels_key": "labels",
                      "filter_tasks": self.filter_tasks[i],
                      "name": "label_filter_{}".format(i)}))
+        if len(singleton_filter_tasks) != 0:
+            self.transform_stack.append((
+                filter_singleton_labels,
+                {"labels_key": "labels",
+                 "filter_tasks": singleton_filter_tasks,
+                 "name": "singleton_label_filter"}))
         if num_dinuc_shuffles > 0:
             self.transform_stack.append((
                 generate_dinucleotide_shuffles,

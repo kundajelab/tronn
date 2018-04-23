@@ -103,6 +103,38 @@ def filter_by_labels(inputs, params):
     return outputs, params
 
 
+def filter_singleton_labels(inputs, params):
+    """Remove examples that are positive only in a single case
+    """
+    # assertions
+    assert params.get("labels_key") is not None
+    assert params.get("filter_tasks") is not None
+
+    # params
+    labels_key = params.get("labels_key", "labels")
+    labels = inputs[labels_key]
+    filter_tasks = params.get("filter_tasks")
+    batch_size = params["batch_size"]
+    outputs = dict(inputs)
+
+    # set up task subset
+    labels = [tf.expand_dims(tensor, axis=1)
+              for tensor in tf.unstack(labels, axis=1)]
+    label_subset = tf.concat(
+        [labels[i] for i in filter_tasks],
+        axis=1)
+
+    # condition mask
+    outputs["condition_mask"] = tf.greater(
+        tf.reduce_sum(label_subset, axis=1), [1])
+
+    # run through queue
+    outputs, params = filter_and_rebatch(outputs, params)
+    
+    return outputs, params
+
+
+
 # TODO adjust this
 def remove_shuffles(features, labels, config, is_training=False):
     """Given shuffled sequences interspersed, remove them
@@ -181,5 +213,36 @@ def filter_by_accuracy(inputs, params):
     # run through queue
     params.update({"name": "accuracy_filter"})
     outputs, params = filter_and_rebatch(inputs, params)
+
+    return outputs, params
+
+
+def filter_by_activation_pattern(inputs, params):
+    """given a specific input pattern, filter for those that match beyond a cutoff
+    """
+    # assertions
+    assert params.get("activation_pattern") is not None
+    assert params.get("importance_task_indices") is not None
+    assert params.get("activation_pattern_corr_thresh") is not None
+    assert inputs.get("logits") is not None
+
+    # features
+    logits = inputs["logits"]
+    activation_pattern = params["activation_pattern"]
+    corr_thresh = params["activation_pattern_corr_thresh"]
+    outputs = dict(inputs)
+
+    # adjust features for just importance task indices
+    
+    
+    # do the pearson calculation
+    pearson = None # {N}
+
+    # threshold
+    inputs["condition_mask"] = tf.greater_equal(pearson, corr_thresh)
+
+    # run through queue
+    params.update({"name": "activation_pattern_filter"})
+    outputs, params = filter_and_rebatch(outputs, params)
 
     return outputs, params

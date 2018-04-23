@@ -30,6 +30,7 @@ from tronn.nets.grammar_nets import score_distance_to_motifspace_point
 from tronn.nets.grammar_nets import check_motifset_presence
 
 from tronn.nets.filter_nets import filter_by_accuracy
+from tronn.nets.filter_nets import filter_singleton_labels
 
 
 #from tronn.nets.filter_nets import filter_by_motifset_presence
@@ -288,6 +289,7 @@ def sequence_to_dmim(inputs, params):
 
     # set up inference stack
     params["inference_stack"] = [
+        #(sequence_to_motif_scores, {}),
         (score_distance_to_motifspace_point, {"filter_motifspace": True}),
         (check_motifset_presence, {"filter_motifset": True}),
         (generate_mutation_batch, {}), # note that these use importance weighted position maps
