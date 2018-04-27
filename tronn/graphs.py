@@ -1,6 +1,7 @@
 """Contains functions to make running tensorflow graphs easier
 """
 
+import os
 import logging
 import h5py
 
@@ -15,6 +16,9 @@ from tronn.util.tf_ops import positives_focused_loss_fn
 #from tronn.datalayer import get_positive_weights_per_task
 
 from tronn.outlayer import H5Handler
+from tronn.learn.evaluation import get_global_avg_metrics
+
+from tronn.learn.learning_2 import RestoreHook
 
 
 class TronnGraph(object):
@@ -396,7 +400,7 @@ class TronnNeuralNetGraph(TronnGraph):
 
     
 
-    
+# long term goal - make it possible to replace the core with a high level estimator (or any other type of model)
 class TronnGraphV2(object):
     """Builds out a general purpose TRONN model graph"""
 
@@ -807,4 +811,510 @@ class TronnGraphV2(object):
         accuracy = tf.reduce_mean(tf.cast(correctly_predicted, tf.float32), 1, keep_dims=True)
 
         return accuracy
+
+
+class ModelManager(object):
+    """Manages the full model pipeline (utilizes Estimator)"""
+    
+    def __init__(
+            self,
+            model_fn,
+            model_params):
+        """Initialization keeps core of the model - inputs (from separate dataloader) 
+        and model with necessary params. All other pieces are part of different graphs
+        (ie, training, evaluation, prediction, inference)
+        """
+        self.model_fn = model_fn
+        self.model_params = model_params
+        
+        
+    def build_training_dataflow(
+            self,
+            inputs,
+            optimizer_fn=tf.train.RMSPropOptimizer,
+            optimizer_params={
+                "learning_rate": 0.002,
+                "decay": 0.98,
+                "momentum": 0.0},
+            features_key="features",
+            labels_key="labels"):
+        """builds the training dataflow. links up input tensors
+        to the model with is_training as True.
+        """
+        # assertions
+        assert inputs.get(features_key) is not None
+        assert inputs.get(labels_key) is not None
+
+        # build model in training mode
+        self.model_params.update({"is_training": True})
+        outputs, _ = self.model_fn(inputs, self.model_params)
+
+        # add final activation
+        outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
+
+        # add loss
+        loss = self._add_loss(outputs["labels"], outputs["logits"])
+
+        # add optimizer
+        optimizer = optimizer_fn(**optimizer_params)
+
+        # TODO consider a different train op here
+        train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
+
+        return outputs, loss, train_op
+
+
+    def build_evaluation_dataflow(
+            self,
+            inputs,
+            features_key="features",
+            labels_key="labels"):
+        """build evaluation dataflow. links up input tensors
+        to the model with is_training as False
+        """
+        # assertions
+        assert inputs.get(features_key) is not None
+        assert inputs.get(labels_key) is not None
+
+        # build model
+        self.model_params.update({"is_training": False})
+        outputs, _ = self.model_fn(inputs, self.model_params)
+
+        # add final activation
+        outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
+        
+        # add a loss
+        loss = self._add_loss(
+            outputs[labels_key],
+            outputs["logits"])
+
+        # add metrics
+        metrics = self._add_metrics(outputs[labels_key], outputs["probs"], loss)
+
+        return outputs, loss, metrics
+
+
+    def build_prediction_dataflow(
+            self,
+            inputs,
+            features_key="features"):
+        """build prediction dataflow. links up input tensors
+        to the model with is_training as False
+        """
+        # assertions
+        assert inputs.get(features_key) is not None
+
+        # build model
+        self.model_params.update({"is_training": False})
+        outputs, _ = self.model_fn(inputs, self.model_params)
+
+        # add final activation
+        outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
+        
+        return outputs
+
+
+    def build_inference_dataflow(
+            self,
+            inputs,
+            features_key="features"):
+        """build inference dataflow. links up input tensors
+        to the model with is_training as False
+        """
+        # assertions
+        assert inputs.get(features_key) is not None
+
+        # build model
+        self.model_params.update({"is_training": False})
+        outputs, _ = self.model_fn(inputs, self.model_params)
+
+        # add final activation
+        outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
+
+        # run inference with an inference stack
+
+        return outputs
+
+    
+    def build_estimator(
+            self,
+            params=None,
+            config=None,
+            warm_start=None,
+            out_dir="."):
+        """build a model fn that will work in the Estimator framework
+        """
+        # adjust config
+        if config is None:
+            config=tf.estimator.RunConfig(
+                save_summary_steps=30,
+                save_checkpoints_secs=None,
+                save_checkpoints_steps=10000000000,
+                keep_checkpoint_max=None)
+
+        def estimator_model_fn(features, labels, mode, params=None, config=None):
+            """model fn in the Estimator framework
+            """
+            # set up the input dict for model fn
+            inputs = {"features": features, "labels": labels}
+            
+            # attach necessary things and return EstimatorSpec
+            if mode == tf.estimator.ModeKeys.PREDICT:
+                outputs = self.build_prediction_dataflow(inputs)
+                return tf.estimator.EstimatorSpec(mode, predictions=outputs)
+            
+            elif mode == tf.estimator.ModeKeys.EVAL:
+                outputs, loss, metrics = self.build_evaluation_dataflow(inputs)
+                return tf.estimator.EstimatorSpec(mode, loss=loss, eval_metric_ops=metrics)
+            
+            elif mode == tf.estimator.ModeKeys.TRAIN:
+                outputs, loss, train_op = self.build_training_dataflow(inputs)
+                return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+            else:
+                raise Exception, "mode does not exist!"
+            
+            return None
+            
+        # instantiate the custom estimator
+        estimator = tf.estimator.Estimator(
+            estimator_model_fn,
+            model_dir=out_dir,
+            params=params,
+            config=config)
+
+        return estimator
+
+    
+    def train(
+            self,
+            input_fn,
+            out_dir,
+            config=None,
+            steps=None,
+            hooks=[]):
+        """train an estimator. if steps is None, goes on forever or until input_fn
+        runs out.
+        """
+        # build estimator
+        estimator = self.build_estimator(
+            config=config,
+            out_dir=out_dir)
+        
+        # train until input producers are out
+        estimator.train(
+            input_fn=input_fn,
+            max_steps=steps,
+            hooks=hooks)
+
+        # return the latest checkpoint
+        latest_checkpoint = tf.train.latest_checkpoint(out_dir)
+        
+        return latest_checkpoint
+
+
+    def evaluate(
+            self,
+            input_fn,
+            out_dir,
+            config=None,
+            steps=None,
+            checkpoint=None,
+            hooks=[]):
+        """evaluate a trained estimator
+        """
+        # build evaluation estimator
+        estimator = self.build_estimator(
+            config=config,
+            out_dir=out_dir)
+        
+        # evaluate
+        eval_metrics = estimator.evaluate(
+            input_fn=input_fn,
+            steps=steps,
+            checkpoint_path=checkpoint)
+        logging.info("EVAL: {}".format(eval_metrics))
+
+        return eval_metrics
+
+
+    def predict(self, steps, checkpoint):
+        """predict on a trained estimator
+        """
+        # dataloader
+        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        inputs = (inputs["features"], inputs["labels"])
+
+        # build prediction estimator
+        estimator = self.build_estimator(tf.Estimator.ModeKeys.PREDICT)
+        
+        # evaluate
+        estimator.predict(
+            input_fn=inputs,
+            steps=steps,
+            checkpoint_path=checkpoint,
+            name=data_key)
+        
+        return None
+
+
+    def train_and_evaluate_with_early_stopping(
+            self,
+            train_input_fn,
+            eval_input_fn,
+            out_dir,
+            max_epochs=20,
+            early_stopping_metric="mean_auprc",
+            epoch_patience=2,
+            warm_start=None,
+            warm_start_params={}):
+        """run full training loop with evaluation for early stopping
+        """
+        # set up stopping conditions
+        stopping_log = "{}/stopping.log".format(out_dir)
+        if os.path.isfile(stopping_log):
+            # if there is a stopping log, restart using the info in the log
+            with open(stopping_log, "r") as fp:
+                best_epoch, best_metric_val = map(float, fp.readline().strip().split())
+                consecutive_bad_epochs = epoch - best_epoch
+                best_checkpoint = None # TODO adjust this
+        else:
+            # fresh run
+            best_metric_val = None
+            consecutive_bad_epochs = 0
+            best_checkpoint = None
+
+        # run through epochs
+        for epoch in xrange(max_epochs):
+            logging.info("EPOCH {}".format(epoch))
+            
+            # restore from transfer as needed
+            training_hooks = []
+            if (epoch == 0) and warm_start is not None:
+                logging.info("Restoring from {}".format(warm_start))
+                restore_hook = RestoreHook(
+                    warm_start,
+                    warm_start_params)
+                training_hooks.append(restore_hook)
+
+            # train
+            latest_checkpoint = self.train(
+                train_input_fn,
+                "{}/train".format(out_dir),
+                steps=None,
+                hooks=training_hooks)
+            
+            # eval
+            eval_metrics = self.evaluate(
+                eval_input_fn,
+                "{}/eval".format(out_dir),
+                steps=1000,
+                checkpoint_path=latest_checkpoint)
+
+            # early stopping and saving best model
+            # TODO fix the early stopping logic conditions
+            if best_metric_val is None or ('loss' in early_stopping_metric) != (eval_metrics[early_stopping_metric] > best_metric_val):
+                best_metric_val = eval_metrics[early_stopping_metric]
+                consecutive_bad_epochs = 0
+                best_checkpoint = latest_checkpoint
+                with open(os.path.join(out_dir, 'best.log'), 'w') as fp:
+                    fp.write('epoch %d\n'%epoch)
+                    fp.write("checkpoint path: {}\n".format(best_checkpoint))
+                    fp.write(str(eval_metrics))
+                with open(stopping_log, 'w') as out:
+                    out.write("{}\t{}".format(epoch, best_metric_val))
+            else:
+                # break
+                consecutive_bad_epochs += 1
+                if consecutive_bad_epochs > epoch_patience:
+                    logging.info("early stopping triggered")
+                    break
+
+        # return the best checkpoint
+        return best_checkpoint
+    
+    
+    def run_dataflow(self):
+        """run session manually as needed
+        """
+        
+        return
+
+
+    def _add_final_activation_fn(
+            self,
+            logits,
+            activation_fn=tf.nn.sigmoid):
+        """add final activation function
+        """
+        return activation_fn(logits)
+
+    
+    def _add_loss(self, labels, logits, loss_fn=tf.losses.sigmoid_cross_entropy):
+        """add loss
+        """
+        if False:
+        #if self.finetune:
+            # adjust which labels and logits go into loss if finetuning
+            labels_unstacked = tf.unstack(labels, axis=1)
+            labels = tf.stack([labels_unstacked[i] for i in self.finetune_tasks], axis=1)
+            logits_unstacked = tf.unstack(logits, axis=1)
+            logits = tf.stack([logits_unstacked[i] for i in self.finetune_tasks], axis=1)
+            print labels.get_shape()
+            print logits.get_shape()
+
+        # split out getting the positive weights so that only the right ones go into the loss function
+
+        if False:
+        #if self.class_weighted_loss:
+            pos_weights = get_positive_weights_per_task(self.data_files[data_key])
+            if self.finetune:
+                pos_weights = [pos_weights[i] for i in self.finetune_tasks]
+            self.loss = class_weighted_loss_fn(
+                self.loss_fn, labels, logits, pos_weights)
+        elif False:
+        #elif self.positives_focused_loss:
+            task_weights, class_weights = get_task_and_class_weights(self.data_files[data_key])
+            if self.finetune:
+                task_weights = [task_weights[i] for i in self.finetune_tasks]
+            if self.finetune:
+                class_weights = [class_weights[i] for i in self.finetune_tasks]
+            self.loss = positives_focused_loss_fn(
+                self.loss_fn, labels, logits, task_weights, class_weights)
+        else:
+            # this is the function
+            loss = loss_fn(labels, logits)
+
+        # this is all registered losses
+        total_loss = tf.losses.get_total_loss()
+
+        return total_loss
+
+    
+    def _add_metrics(self, labels, probs, loss, metrics_fn=get_global_avg_metrics):
+        """set up metrics function with summaries etc
+        """
+        if False:
+            # set up metrics and values
+            metric_values, metric_updates = metrics_fn(
+                labels, probs)
+            for update in metric_updates: tf.add_to_collection(
+                tf.GraphKeys.UPDATE_OPS, update)
+
+        metric_map = metrics_fn(labels, probs)
+        # Add losses to metrics
+        #mean_loss, _ = tf.metrics.mean(
+        #    loss, updates_collections=tf.GraphKeys.UPDATE_OPS)
+        ##metric_map.update({
+        #    "total_loss": loss,
+        #    "mean_loss": mean_loss
+        #})
+
+        return metric_map
+
+
+    def _add_summaries(self):
+        """add things you want to track on tensorboard
+        """
+        
+
+        
+        return
+
+    
+
+class SlimManager(ModelManager):
+    """Utilize tf-slim, this is for backwards compatibility"""
+
+    def __init__():
+        pass
+
+
+    def train():
+        pass
+
+
+    def eval():
+        pass
+
+
+    def predict():
+        pass
+
+
+    def infer():
+        pass
+
+    
+class MetaGraphManager(ModelManager):
+    """Model manager for metagraphs, uses Estimator framework"""
+
+    def __init__():
+        pass
+
+
+    def train():
+        pass
+
+    def eval():
+        pass
+
+    def infer():
+        pass
+
+    
+    def _build_metagraph_model_fn(self, metagraph):
+        """given a metagraph file, build a model function around it
+        """
+        # TODO use a hook instead to put it in?
+
+        
+        def metagraph_model_fn(inputs, params):
+            """wrapper for a loading a metagraph based model
+            """
+            assert params.get("sess") is not None
+
+            # restore the model
+            saver = tf.train.import_meta_graph(metagraph)
+            saver.restore(params["sess"], metagraph)
+
+            # pull out logits
+            outputs["logits"] = tf.get_collection("logits")
+            
+            return outputs, params
+        
+        return metagraph_model_fn
+    
+    
+    
+
+    
+
+class KerasManager(ModelManager):
+    """Model manager for Keras models, uses Estimator framework"""
+    
+    def __init__():
+        pass
+
+
+    def train():
+        pass
+
+
+    def eval():
+        pass
+
+
+    def predict():
+        pass
+
+
+    def infer():
+        pass
+
+
+
+
+
+
+
         

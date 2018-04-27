@@ -25,9 +25,28 @@ def get_global_avg_metrics(labels, probabilities):
     metric_map = {'mean_auroc': tf.metrics.auc(labels, probabilities, curve='ROC', name='mean_auroc'),
                   'mean_auprc': tf.metrics.auc(labels, probabilities, curve='PR', name='mean_auprc'),
                   'mean_accuracy': tf.metrics.accuracy(labels, predictions, name='mean_accuracy')}
+    #metric_value, metric_updates = tf.contrib.metrics.aggregate_metric_map(metric_map)
+    tf.add_to_collection(
+        "auprc",
+        metric_map["mean_auprc"][0])
+    #update_ops = metric_updates.values()
+    return metric_map
+
+
+def get_global_avg_metrics_old(labels, probabilities):
+    """Get global metric values: predictions, mean metric values
+    Note that the inputs must be tensors!
+    """
+    predictions = tf.cast(tf.greater(probabilities, 0.5), 'float32')
+    metric_map = {'mean_auroc': tf.metrics.auc(labels, probabilities, curve='ROC', name='mean_auroc'),
+                  'mean_auprc': tf.metrics.auc(labels, probabilities, curve='PR', name='mean_auprc'),
+                  'mean_accuracy': tf.metrics.accuracy(labels, predictions, name='mean_accuracy')}
     metric_value, metric_updates = tf.contrib.metrics.aggregate_metric_map(metric_map)
     update_ops = metric_updates.values()
     return metric_value, update_ops
+
+
+
 
 
 def get_confusion_matrix(labels, predictions, metric="AUPRC", fdr=0.05):

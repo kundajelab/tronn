@@ -12,14 +12,11 @@ from tronn.datalayer import H5DataLoader
 
 from tronn.nets.nets import net_fns
 #from tronn.graphs import TronnNeuralNetGraph
-#from tronn.graphs import TronnGraphV2
-from tronn.graphs import ModelManager
+from tronn.graphs import TronnGraphV2
 
 from tronn.learn.cross_validation import setup_cv
 from tronn.learn.learning import train_and_evaluate
 from tronn.learn.evaluation import get_global_avg_metrics
-
-#from tronn.learn.learning_2 import train_and_evaluate_with_early_stopping
 
 
 def finetune_tasks(args, tronn_graph, trained_model_dir):
@@ -59,45 +56,15 @@ def run(args):
     """
     logging.info("Running training...")
 
-    # find data files and set up folds
-    # TODO make this more flexible for user
+    # find data files
     data_files = sorted(glob.glob('{}/*.h5'.format(args.data_dir)))
     logging.info('Finding data: found {} chrom files'.format(len(data_files)))
     train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
-    # set up dataloader and buid the input functions needed to serve tensor batches
+    # set up dataloader
     dataloader = H5DataLoader(
         {"train": train_files, "valid": valid_files},
         tasks=args.tasks)
-    training_input_fn = dataloader.build_estimator_input_fn("train", args.batch_size)
-    evaluation_input_fn = dataloader.build_estimator_input_fn("valid", args.batch_size)
-    
-    # set up model
-    model_manager = ModelManager(
-        net_fns[args.model["name"]],
-        args.model)
-    
-    # train and evaluate
-    model_manager.train_and_evaluate_with_early_stopping(
-        training_input_fn,
-        evaluation_input_fn,
-        args.out_dir,
-        warm_start=args.transfer_model_checkpoint,
-        warm_start_params={
-            "skip":["logit"],
-            "scope_change": ["", "basset/"]})
-
-    quit()
-    
-    train_and_evaluate_with_early_stopping(
-        model_manager,
-        training_input_fn,
-        evaluation_input_fn,
-        metrics_fn=get_global_avg_metrics,
-        out_dir=args.out_dir,
-        warm_start=args.transfer_model_checkpoint) # TODO either restore or transfer, set up warm start
-
-    quit()
     
     # Get number of train and validation steps
     # TODO - this can be moved to metrics now
@@ -131,9 +98,26 @@ def run(args):
     assert not ((restore_model_checkpoint is not None)
                 and (transfer_model_checkpoint is not None))
 
+    if False:
+        tronn_graph = TronnNeuralNetGraph(
+            {"train": train_files, "valid": valid_files}, # TODO move from graph
+            args.tasks,
+            dataloader, # TODO move from graph
+            #load_data_from_filename_list,
+            args.batch_size,
+            net_fns[args.model['name']], # model
+            args.model, # model params
+            tf.nn.sigmoid,
+            loss_fn=tf.losses.sigmoid_cross_entropy,
+            #loss_fn=tf.losses.hinge_loss,
+            #loss_fn=tf.nn.weighted_cross_entropy_with_logits,
+            #positives_focused_loss=True,
+            #class_weighted_loss=True,
+            optimizer_fn=tf.train.RMSPropOptimizer,
+            optimizer_params={'learning_rate': 0.002, 'decay': 0.98, 'momentum': 0.0},
+            metrics_fn=get_global_avg_metrics,
+            checkpoints=checkpoints)
 
-
-    
     
     # Set up neural net graph
     tronn_graph = TronnGraphV2(

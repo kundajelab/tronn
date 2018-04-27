@@ -1,6 +1,7 @@
 """Contains functions for I/O to tensorflow graphs
 """
 
+import os
 import h5py
 import math
 import logging
@@ -163,14 +164,14 @@ def hdf5_to_tensors(
       metadata_tensor: a tensor (batch_size, 1) for a metadata string (often region name)
     """
     # get hdf5 file params
-    logging.info("loading {}".format(hdf5_file))
     h5_handle = h5py.File(hdf5_file, "r")
     if len(task_indices) == 0:
         task_indices = range(h5_handle[labels_key].shape[1])
     
     # set up batch id producer
     max_batches = int(math.ceil(h5_handle[features_key].shape[0]/float(batch_size)))
-    logging.info("max batches: {}".format(max_batches))
+    logging.info("loading {0} with max batches {1}".format(
+        os.path.basename(hdf5_file), max_batches))
     batch_id_queue = tf.train.range_input_producer(
         max_batches, shuffle=shuffle, seed=0, num_epochs=num_epochs)
     batch_id_tensor = batch_id_queue.dequeue()
@@ -405,9 +406,9 @@ def load_data_from_filename_list(
             name='batcher')
 
     # filtering as desired
-    if len(filter_tasks) > 0:
-        features, labels, metadata = filter_through_labels(
-            features, labels, metadata, filter_tasks, batch_size)
+    #if len(filter_tasks) > 0:
+    #    features, labels, metadata = filter_through_labels(
+    #        features, labels, metadata, filter_tasks, batch_size)
         
     return features, labels, metadata
 
@@ -813,12 +814,13 @@ class DataLoader(object):
         return transform_fn(self.inputs, params)
 
         
-    def build_dataflow(self, batch_size, data_key):
+    def build_dataflow(self, batch_size, data_key, keep_keys=[]):
         """initialize in a TF graph
         """
         self.batch_size = batch_size
         # this is where you would actually run all the functions
-        self.inputs = self.load_raw_data(self.batch_size, data_key)
+        with tf.variable_scope("datalayer"):
+            self.inputs = self.load_raw_data(self.batch_size, data_key)
 
         master_params = {}
         master_params.update({"batch_size": batch_size})
@@ -827,8 +829,41 @@ class DataLoader(object):
             print transform_fn
             self.inputs, _ = self.apply(transform_fn, master_params)
 
+        if len(keep_keys) > 0:
+            new_inputs = {}
+            for key in keep_keys:
+                new_inputs[key] =self.inputs[key]
+            self.inputs = new_inputs
+                
         return self.inputs
 
+    
+    def build_dataflow_fn(self, data_key, batch_size, keys=[]):
+        """build the dataflow function to be called later
+        """
+
+        def dataflow_fn():
+            """dataflow function
+            """
+            return self.build_dataflow(batch_size, data_key, keys=keys)
+            
+        return dataflow_fn
+
+
+    def build_estimator_input_fn(self, data_key, batch_size):
+        """build the dataflow function for Estimator framework
+        """
+        
+        def dataflow_fn():
+            """dataflow function
+            """
+            inputs = self.build_dataflow(batch_size, data_key)
+            return inputs["features"], inputs["labels"]
+
+        return dataflow_fn
+
+    
+    
 
 class H5DataLoader(DataLoader):
     """build a dataloader from h5"""

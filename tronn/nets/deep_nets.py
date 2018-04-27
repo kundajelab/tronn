@@ -85,6 +85,33 @@ def mlp_module(
     return logits
 
 
+def make_embeddings_variable(features):
+    """make an embeddings variable to visualize
+    """
+    # initialize the variables
+    #start_index = tf.get_variable(
+    #    "embedding_idx",
+    #    [], initialize=tf.zeros_initializer)
+    
+    embedding_var = tf.get_variable(
+        "embedding",
+        features.get_shape(),
+        initializer=tf.zeros_initializer)
+
+    # now assign the features into the right slot
+    embedding_var = embedding_var.assign(features)
+    #embedding = embedding_var[start_index:stop_index].assign(features)
+    tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, embedding_var)
+
+    # TODO add to summary
+    tf.summary.histogram("embedding", embedding_var)
+    
+    #import ipdb
+    #ipdb.set_trace()
+    
+    return None
+
+
 def mlp_module_v2(
         features,
         num_tasks,
@@ -151,6 +178,10 @@ def mlp_module_v2(
                 dropout,
                 is_training,
                 "{}fc{}".format(prefix, i))
+
+        # TESTING EMBEDDINGS
+        # save out embeddings here
+        make_embeddings_variable(net)
 
         # then generate split FC layers (if any). If none, continue to logits
         task_specific_outputs = []
@@ -400,11 +431,11 @@ def basset(inputs, params):
     outputs = dict(inputs)
 
     # features
-    features_key = params["features_key"]
-    logits_key = params["logits_key"]
-    labels_key = params["labels_key"]
-    features = inputs[features_key]
-    labels = inputs[labels_key]
+    #features_key = params["features_key"]
+    #logits_key = params["logits_key"]
+    #labels_key = params["labels_key"]
+    features = inputs["features"]
+    labels = inputs["labels"]
     is_training = params.get("is_training", False)
     
     # get params
@@ -455,7 +486,7 @@ def basset(inputs, params):
         maxnorm(norm_val=7)
 
     # store outputs
-    outputs[logits_key] = logits # store logits
+    outputs["logits"] = logits # store logits
     
     return outputs, params
 

@@ -34,29 +34,60 @@ def parse_args():
     # command for prediction
     add_predict_parser(subparsers)
 
-    # command for motif scan
-    add_scanmotifs_parser(subparsers)
+    # TODO command for activation matching
+    # aim for those with best pearson and largest min-max diff.
+    # should return original, correlation coefficient
+    # should return the delta
+    # should also have option for clustering
 
-    # command for grammar scan
-    add_scangrammars_parser(subparsers)
+    
+    # TODO command for optimizing endogenous sequence
+    # give option for number of mutated sequences returned
+    # should return original, mutated, and huffman distance
 
-    # command for ISM tuning
-    add_ism_parser(subparsers)
+    
+    # TODO command for breaking sequence
+    # give option for number of mutated sequences returned
+    # should return original, mutated, and huffman distance
 
+    
     # command for activation maximization
     add_dream_parser(subparsers)
+    
+    # command for motif scan
+    # TODO dissect the motif density info
+    add_scanmotifs_parser(subparsers)
+
+    # command for dmim scan
+    add_scangrammars_parser(subparsers)
+
+    # command for rational design with sig motifs
+    
+    
+    # command for ISM tuning
+    #add_ism_parser(subparsers)
+
+
     
     # TODO:    
     # modisco
 
+    # TODO command for variant predictions
+
+    
+    # TODO a viz command given a subset of sequences (ie an hdf5 file)
+
+    
     # baseline model
     add_baseline_parser(subparsers)
 
     # TODO consider a model import function?
-    # TODO maybe call this model export?
-    # important to allow export to keras and pytorch probs
+
+    
+    # TODO call this model export
     add_extract_params_parser(subparsers)
 
+    # preprocess variants
     add_preprocess_variants_parser(subparsers)
     
     # parse args
