@@ -99,7 +99,7 @@ def normalize_w_probability_weights(inputs, params):
     # this makes probs just a confidence measure.
     normalized_features = []
     for i in xrange(len(features)):
-        weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2, 3], keep_dims=True)
+        weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2, 3], keepdims=True)
         #weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2], keep_dims=True)
         task_features = tf.multiply(
             tf.divide(features[i], weight_sums), # TODO add some weight to make sure doesnt explode?

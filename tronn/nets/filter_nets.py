@@ -42,12 +42,11 @@ def filter_and_rebatch(inputs, params):
     # assertions
     assert inputs.get("condition_mask") is not None
     assert params.get("name") is not None
-    assert params.get("batch_size") is not None
 
     # params
     name = params["name"]
     condition_mask = inputs["condition_mask"]
-    batch_size = params["batch_size"]
+    batch_size = inputs["condition_mask"].get_shape().as_list()[0]
     use_queue = params.get("use_queue", True)
     num_threads = params.get("num_queue_threads", 1)
     
@@ -60,6 +59,7 @@ def filter_and_rebatch(inputs, params):
         
     # set up queue
     if use_queue:
+        params.update({"batch_size": batch_size})
         outputs, _ = rebatch(inputs, params)
         
     # and delete the condition mask and name
@@ -205,15 +205,14 @@ def filter_by_accuracy(inputs, params):
         tf.cast(filter_labels, tf.bool),
         tf.greater_equal(filter_probs, 0.5))) # {N, tasks}
     accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32), axis=1) # {N}
-    #inputs["subset_accuracy"] = accuracy
     
     # set condition
     inputs["condition_mask"] = tf.greater_equal(accuracy, acc_threshold)
-
+    
     # run through queue
     params.update({"name": "accuracy_filter"})
     outputs, params = filter_and_rebatch(inputs, params)
-
+    
     return outputs, params
 
 

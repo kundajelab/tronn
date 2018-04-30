@@ -181,7 +181,7 @@ def mlp_module_v2(
 
         # TESTING EMBEDDINGS
         # save out embeddings here
-        make_embeddings_variable(net)
+        #make_embeddings_variable(net)
 
         # then generate split FC layers (if any). If none, continue to logits
         task_specific_outputs = []

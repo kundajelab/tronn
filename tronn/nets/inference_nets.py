@@ -122,13 +122,16 @@ def sequence_to_importance_scores_unfiltered(
 def sequence_to_importance_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
+    # params
     params["is_training"] = False
+    unstack = params.get("unstack_importances", True)
     
-    method = params.get("importances_fn")
-
+    # set up importance logits
+    inputs["importance_logits"] = inputs["logits"]
+    
     # set up inference stack
     params["inference_stack"] = [
-        (multitask_importances, {"backprop": method, "relu": False}),
+        (multitask_importances, {"relu": False}),
         #(threshold_shufflenull, {"pval_thresh": 0.05}),
         (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
@@ -137,14 +140,14 @@ def sequence_to_importance_scores(inputs, params):
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
         (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
     ]
-    
+
     # build inference stack
     outputs, params = build_inference_stack(
         inputs, params)
 
     # unstack
-    if params.get("keep_importances") is not None:
-        params["name"] = params["keep_importances"]
+    if unstack:
+        params["name"] = "importances"
         outputs, params = unstack_tasks(outputs, params)
         
     return outputs, params
@@ -153,6 +156,9 @@ def sequence_to_importance_scores(inputs, params):
 def sequence_to_motif_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
+    # params
+    params["is_training"] = False
+    params["unstack_importances"] = False # normally, adjust for debugging
     params["raw-sequence-key"] = "raw-sequence"
     params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
     params["raw-pwm-scores-key"] = "raw-pwm-scores"
@@ -160,7 +166,8 @@ def sequence_to_motif_scores(inputs, params):
     # params
     use_importances = params.get("use_importances", True)
     count_thresh = params.get("count_thresh", 1)
-
+    unstack = params.get("unstack_pwm_scores", True)
+    
     if params.get("raw-sequence-key") is not None:
         inputs[params["raw-sequence-key"]] = inputs["features"]
     if params.get("raw-sequence-clipped-key") is not None:
@@ -184,8 +191,8 @@ def sequence_to_motif_scores(inputs, params):
         inputs, params)
 
     # unstack
-    if params.get("keep_pwm_scores") is not None:
-        params["name"] = params["keep_pwm_scores"]
+    if unstack:
+        params["name"] = "pwm-scores"
         outputs, params = unstack_tasks(outputs, params)
 
     return outputs, params

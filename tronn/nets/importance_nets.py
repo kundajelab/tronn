@@ -184,11 +184,11 @@ def deeplift(features, labels, config, is_training=False):
 def multitask_importances(inputs, params):
     """Set up importances coming from multiple tasks
     """
-    assert inputs.get("features") is not None
-    assert inputs.get("importance_logits") is not None
+    assert inputs.get("features") is not None, "Feature tensor does not exist"
+    assert inputs.get("importance_logits") is not None, "Importance logits do not exist"
     assert params.get("importance_task_indices") is not None
     assert params["is_training"] == False
-
+    
     # pull features and send the rest through
     features = inputs["features"]
     outputs = dict(inputs)
@@ -197,7 +197,7 @@ def multitask_importances(inputs, params):
     anchors = inputs.get("importance_logits")
     task_indices = params.get("importance_task_indices")
     backprop = params.get("backprop", "input_x_grad")
-
+    
     if backprop == "input_x_grad":
         importances_fn = input_x_grad
     elif backprop == "integrated_gradients":
@@ -355,7 +355,7 @@ def filter_singles_twotailed(inputs, params):
         tf.cast(
             tf.greater(
                 tf.reduce_max(features, axis=[1,3]), [0]),
-            tf.float32), axis=1, keep_dims=True)
+            tf.float32), axis=1, keepdims=True)
 
     # save desired outputs
     outputs["features"] = features
@@ -371,13 +371,11 @@ def filter_by_importance(inputs, params):
     """Filter out low importance examples, not interesting
     """
     assert inputs.get("features") is not None
-    assert params.get("batch_size") is not None
     
     # features
     features = inputs["features"]
     
     # params
-    batch_size = params["batch_size"]
     cutoff = params.get("cutoff", 20)
     positive_only = params.get("positive_only", False)
 

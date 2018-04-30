@@ -333,7 +333,7 @@ class H5Handler(object):
             if is_tensor_input:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
             else:
-                dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape[1:]]
+                dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
             maxshape = dataset_shape if resizable else None
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(key, dataset_shape, maxshape=maxshape, dtype="S100")
@@ -356,7 +356,7 @@ class H5Handler(object):
             dataset_shape = [self.batch_size] + [int(i) for i in self.h5_handle[key].shape[1:]]
                 
             if "example_metadata" in key:
-                tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype="S100") # .reshape(self.batch_size, 1)
+                tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype="S100").reshape(self.batch_size, 1)
                 #tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype=object) # .reshape(self.batch_size, 1)
             else:
                 tmp_arrays[key] = np.zeros(dataset_shape)

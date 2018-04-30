@@ -16,8 +16,8 @@ from tronn.nets.nets import net_fns
 from tronn.graphs import ModelManager
 
 from tronn.learn.cross_validation import setup_cv
-from tronn.learn.learning import train_and_evaluate
-from tronn.learn.evaluation import get_global_avg_metrics
+#from tronn.learn.learning import train_and_evaluate
+#from tronn.learn.evaluation import get_global_avg_metrics
 
 #from tronn.learn.learning_2 import train_and_evaluate_with_early_stopping
 

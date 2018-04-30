@@ -16,6 +16,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
 
 from tronn.graphs import TronnGraphV2
+from tronn.graphs import ModelManager
 from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns
 from tronn.learn.cross_validation import setup_cv
@@ -46,7 +47,21 @@ def run(args):
         {"valid": valid_files, "test": test_files},
         tasks=args.tasks,
         shuffle_examples=True if args.reconstruct_regions else False)
-        
+    test_input_fn = dataloader.build_estimator_input_fn("test", args.batch_size)
+
+    # set up model
+    model_manager = ModelManager(
+        net_fns[args.model["name"]],
+        args.model)
+
+    # evaluate
+    eval_metrics = model_manager.evaluate(
+        test_input_fn,
+        args.out_dir,
+        steps=100,
+        checkpoint=args.model_checkpoints[0])
+    print eval_metrics
+    
     # set up neural net graph
     tronn_graph = TronnGraphV2(
         dataloader,

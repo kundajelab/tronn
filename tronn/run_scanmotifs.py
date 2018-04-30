@@ -16,6 +16,8 @@ from collections import Counter
 #from tronn.graphs import TronnGraph
 #from tronn.graphs import TronnNeuralNetGraph
 from tronn.graphs import TronnGraphV2
+from tronn.graphs import ModelManager
+from tronn.graphs import infer_and_save_to_hdf5
 
 #from tronn.datalayer import load_data_from_filename_list
 #from tronn.datalayer import load_step_scaled_data_from_filename_list
@@ -224,30 +226,49 @@ def run(args):
     logger.info("Found {} chrom files".format(len(data_files)))
     
     # motif annotations
-    # TODO - clean this up
-    #pwm_name_to_hgnc, hgnc_to_pwm_name = setup_pwm_metadata(args.pwm_metadata_file)
     pwm_list = read_pwm_file(args.pwm_file)
     pwm_names = [pwm.name for pwm in pwm_list]
-    #pwm_names_clean = [pwm_name.split(".")[0].split("_")[1] for pwm_name in pwm_names]
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
     logger.info("{} motifs used".format(len(pwm_list)))
 
-    # set up file loader, dependent on importance fn
-    #if args.backprop == "integrated_gradients":
-    #    data_loader_fn = load_step_scaled_data_from_filename_list
-    #elif args.backprop == "deeplift":
-    #    data_loader_fn = load_data_with_shuffles_from_filename_list
-    #else:
-    #    data_loader_fn = load_data_from_filename_list
-        # TESTING FOR SHUFFLE NULL
-        #data_loader_fn = load_data_with_shuffles_from_filename_list
-        #print "WARNING USING SHUFFLES"
+    # set up dataloader
     dataloader = H5DataLoader(
         {"data": data_files},
         filter_tasks=[
             args.inference_tasks,
             args.filter_tasks],
         singleton_filter_tasks=args.inference_tasks)
+    input_fn = dataloader.build_estimator_input_fn("data", args.batch_size)
+
+    # set up model
+    model_manager = ModelManager(
+        net_fns[args.model["name"]],
+        args.model)
+
+    # set up inference generator
+    inference_generator = model_manager.infer(
+        input_fn,
+        args.out_dir,
+        net_fns[args.inference_fn],
+        inference_params={
+            "checkpoint": args.model_checkpoints[0],
+            "backprop": args.backprop,
+            "importance_task_indices": args.inference_tasks,
+            "pwms": pwm_list},
+        checkpoint="blah", #args.model_checkpoints[0],
+        yield_single_examples=True)
+
+    # run inference and save out
+    results_h5_file = "{0}/{1}.inference.h5".format(
+        args.tmp_dir, args.prefix)
+    if not os.path.isfile(results_h5_file):
+        infer_and_save_to_hdf5(
+            inference_generator,
+            results_h5_file,
+            args.sample_size)
+    
+    quit()
+    
         
     # set up graph
     # TODO somewhere here need to pass forward the

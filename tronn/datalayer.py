@@ -858,7 +858,8 @@ class DataLoader(object):
             """dataflow function
             """
             inputs = self.build_dataflow(batch_size, data_key)
-            return inputs["features"], inputs["labels"]
+            #return inputs["features"], inputs["labels"]
+            return inputs, inputs
 
         return dataflow_fn
 
