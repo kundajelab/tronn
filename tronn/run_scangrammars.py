@@ -29,6 +29,7 @@ from tronn.interpretation.motifs import setup_pwms
 from tronn.interpretation.motifs import setup_pwm_metadata
 
 from tronn.interpretation.grammars import read_grammar_file
+from tronn.interpretation.grammars import get_significant_delta_motifs
 
 
 def visualize_scores(
@@ -137,6 +138,54 @@ def run(args):
             for task_idx in args.inference_tasks:
                 hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
 
+    # now for grammar, select out motifs that responded
+    # final set of motifs to plot are mutated motifs (significant importance scores)
+    # and those that responded.
+    dmim_motifs_key = "dmim-motifs"
+    if h5py.File(results_h5_file, "r").get(dmim_motifs_key) is None:
+        pwm_vector = np.zeros((len(pwm_list)))
+        for task_idx in args.inference_tasks:
+            pwm_vector += get_significant_delta_motifs(
+                results_h5_file,
+                "dmim-scores.taskidx-{}".format(task_idx),
+                "pwm-scores.taskidx-{}".format(task_idx),
+                pwm_list,
+                pwm_dict)
+
+            indices = np.where(pwm_vector > 0)[0].tolist()
+            print [pwm_list[k].name for k in indices]
+            print np.sum(pwm_vector)
+
+        # TODO one more condensation here on the collected motifs? 
+
+        print "final", [pwm_list[k].name for k in indices]
+
+        with h5py.File(results_h5_file, "a") as hf:
+            hf.create_dataset(dmim_motifs_key, data=pwm_vector)
+        
+    # with this vector, generate a reduced heatmap
+    # and then threshold and make a directed graph
+    if True:
+        from tronn.interpretation.grammars import generate_networks
+        generate_networks(
+            results_h5_file,
+            dmim_motifs_key,
+            args.inference_tasks,
+            pwm_list,
+            pwm_dict)
+    
+
+    import ipdb
+    ipdb.set_trace()
+    
+    # selection criteria: within each dmim-scores set,
+    # calculate a t test value (paired t-test) with null mean (all except test column)
+    # compared to column. use SE cutoff?
+                
+    # then within this set, merge based on pwm similarity.
+
+    # the remaining pwm indices are the ones to plot out. use networkx.
+    
     # and plot stuff out
     plot_summary = (
         "plot.pwm_x_pwm.mut2.from_h5.R {0} "
@@ -148,13 +197,13 @@ def run(args):
     print plot_summary
     os.system(plot_summary)
         
+    # get back the dataset keys and plot out
     if False:
-        # get back the dataset keys and plot out
         dataset_keys = ["dmim-scores.taskidx-{}".format(i)
                         for i in args.inference_tasks]
         for i in xrange(len(dataset_keys)):
             visualize_scores(
-                score_mat_h5,
+                results_h5_file,
                 dataset_keys[i])
 
     # give an option here to optimize thresholds and save into new grammar files?

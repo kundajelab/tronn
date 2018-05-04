@@ -827,6 +827,7 @@ class TronnGraphV2(object):
 
 
 class TronnEstimator(tf.estimator.Estimator):
+    """Extended estimator to have an inference function"""
 
     def infer(
             self,
@@ -1034,13 +1035,13 @@ class ModelManager(object):
 
                     init_op = control_flow_ops.group(
                         variables.global_variables_initializer(),
+                        variables.local_variables_initializer(),
                         resources.initialize_resources(resources.shared_resources()),
                         init_op)
                     
                     #def init_fn(scaffold, sess):
                     #    sess.run(tf.global_variables_initializer())
                         #sess.run(tf.local_variables_initializer())
-
                     
                     #quit()
                     # TODO figure out how to collect standard scaffold and adjust just the saver

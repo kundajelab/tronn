@@ -76,7 +76,7 @@ def normalize_w_probability_weights(inputs, params):
     if strong prob score towards 1.
 
     """
-    assert inputs.get("probs") is not None
+    assert inputs.get("probs") is not None # TODO check this normalization!!
     assert inputs.get("features") is not None
     
     # get features and pass rest through
@@ -113,6 +113,96 @@ def normalize_w_probability_weights(inputs, params):
     outputs["features"] = features
     
     return outputs, params
+
+
+
+def normalize_to_weights(inputs, params):
+    """Normalize features on a per example basis. Requires a weights vector,
+    normally the probabilities at the final point of the output
+    (ie, think of if you had a total weight
+    of 1, how should it be spread, and then weight that by the final
+    probability value)
+    """
+    # assertions
+    assert params.get("weight_key") is not None
+    assert params.get("importance_task_indices") is not None
+    assert inputs.get(params["weight_key"]) is not None
+    assert inputs.get("features") is not None
+    
+    # get features and pass rest through
+    features = inputs["features"] # {N, task, ...}
+    weights = inputs[params["weight_key"]]
+    importance_task_indices = params["importance_task_indices"]
+    outputs = dict(inputs)
+    
+    # split out by task
+    features = [tf.expand_dims(tensor, axis=1)
+                for tensor in tf.unstack(features, axis=1)] # {N, 1, ...}
+    weights = [tf.expand_dims(tensor, axis=1)
+               for tensor in tf.unstack(weights, axis=1)] # {N, 1}?
+    
+    # normalize
+    # for normalization, just use total sum of importance scores to be 1
+    # this makes probs just a confidence measure.
+    normalized_features = []
+    for i in xrange(len(features)):
+        weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2, 3], keepdims=True)
+        task_features = tf.multiply(
+            tf.divide(features[i], weight_sums),
+            tf.reshape(tf.abs(weights[importance_task_indices[i]]),
+                       weight_sums.get_shape()))
+        normalized_features.append(task_features)
+
+    # and concat back into a block
+    features = tf.concat(normalized_features, axis=1)
+
+    outputs["features"] = features
+    
+    return outputs, params
+
+
+
+def normalize_to_delta_logits(inputs, params):
+    """Normalize features on a per example basis. Requires a weights vector,
+    normally the probabilities at the final point of the output
+    (ie, think of if you had a total weight
+    of 1, how should it be spread, and then weight that by the final
+    probability value)
+    """
+    # assertions
+    assert inputs.get("delta_logits") is not None
+    assert inputs.get("features") is not None
+    
+    # get features and pass rest through
+    features = inputs["features"] # {N, task, ...}
+    weights = inputs["delta_logits"]
+    outputs = dict(inputs)
+    
+    # split out by example (each is a different mutation)
+    features = tf.unstack(features, axis=0) # list of {task, seqlen, 4}
+
+    # split out by example
+    weights = tf.unstack(weights, axis=0) # list of {task, mut}
+    
+    # ignore the first one
+    normalized_features = [features[0]]
+    
+    # normalize
+    for i in xrange(1,len(features)):
+        weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2], keepdims=True) # {task}
+        task_features = tf.multiply(
+            tf.divide(features[i], weight_sums),
+            tf.reshape(tf.abs(weights[i-1][:,i-1]),
+                       weight_sums.get_shape()))
+        normalized_features.append(task_features)
+
+    # and concat back into a block
+    features = tf.stack(normalized_features, axis=0)
+
+    outputs["features"] = features
+    
+    return outputs, params
+
 
 
 

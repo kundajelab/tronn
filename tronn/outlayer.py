@@ -447,7 +447,7 @@ class H5Handler(object):
             batch_end = defined_batch_end
         else:
             for batch_end in xrange(self.tmp_arrays["example_metadata"].shape[0]):
-                if self.tmp_arrays["example_metadata"][batch_end].rstrip("\0") == "false=chrY:0-0":
+                if self.tmp_arrays["example_metadata"][batch_end][0].rstrip("\0") == "false=chrY:0-0":
                     break
         self.batch_end = self.batch_start + batch_end
         
@@ -455,8 +455,8 @@ class H5Handler(object):
             #self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
             if len(self.tmp_arrays[key].shape) == 1:
                 try:
-                    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end].reshape(
-                    batch_end, 1)
+                    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]#.reshape(
+                    #batch_end, 1)
                 except:
                     import ipdb
                     ipdb.set_trace()

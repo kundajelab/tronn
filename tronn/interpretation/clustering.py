@@ -392,7 +392,12 @@ def sd_cutoff(array, col_mask=None, std_thresh=2, axis=1):
     """Current heuristic along the motif axis
     """
     # row normalize and mask
-    array_norm = np.divide(array, np.max(array, axis=1, keepdims=True))
+    max_vals = np.max(array, axis=1, keepdims=True)
+    array_norm = np.divide(
+        array,
+        max_vals,
+        out=np.zeros_like(array),
+        where=max_vals!=0)
     array_means = np.mean(array_norm, axis=0)
 
     if col_mask is not None:

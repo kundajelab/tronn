@@ -521,7 +521,7 @@ def make_threshold_at_tpr(desired_tpr):
     return threshold_at_tpr
 
 
-def reduce_pwms(data, pwm_list, pwm_dict):
+def reduce_pwms(data, pwm_list, pwm_dict, std_thresh=3):
     """Wrapper for all pwm reduction functions
     """
     assert len(pwm_list) == data.shape[1]
@@ -529,7 +529,7 @@ def reduce_pwms(data, pwm_list, pwm_dict):
     # set a cutoff - assume Gaussian noise, this controls
     # false positive rate
     #pwm_vector = sd_cutoff(data, col_mask=pwm_vector)
-    pwm_vector = sd_cutoff(data, std_thresh=3) # was 2
+    pwm_vector = sd_cutoff(data, std_thresh=std_thresh) # was 2
     
     # reduce by motif similarity, keeping the motif
     # with the strongest signal

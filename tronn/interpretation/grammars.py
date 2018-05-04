@@ -505,3 +505,219 @@ def get_significant_motifs(motif_mat, colnames, prefix, num_shuffles=99, pval_th
     fdr_thresholded.to_csv(fdr_thresholded_file, sep="\t")
 
     return fdr_thresholded
+
+
+
+def get_significant_delta_motifs(h5_file, mut_key, pwm_score_key, pwm_list, pwm_dict, cutoff=0.0002):
+    """given an (example, delta_score) matrix, determine which columns
+    are significant by extracting the t score and seeing if 0 in range.
+    """
+    from scipy.stats import ttest_1samp
+    from tronn.interpretation.motifs import reduce_pwms_by_signal_similarity
+    from tronn.interpretation.motifs import reduce_pwms
+    
+    with h5py.File(h5_file, "r") as hf:
+        dmim = hf[mut_key] # {N, mut, all_motifs}
+        pwm_scores = hf[pwm_score_key]
+
+        # filter 1 - first only use motifs with high importance (loosely)
+        #pwm_importance_vector = reduce_pwms(pwm_scores, pwm_list, pwm_dict, std_thresh=2)
+        from tronn.interpretation.clustering import sd_cutoff
+        pwm_importance_vector = sd_cutoff(pwm_scores, std_thresh=2)
+        
+
+        print "after importance scores"
+        indices = np.where(pwm_importance_vector > 0)[0].tolist()
+        print [pwm_list[k].name for k in indices]
+        pwm_vector = np.zeros((len(pwm_list)))
+
+        # for each mutational dataset:
+        for i in xrange(dmim.shape[1]):
+            
+            dmim_single_mut = dmim[:,i,:] # {N, all_motifs}
+
+            # calculate t test for each column and mark as 1 if passes test
+            ttest_results = ttest_1samp(dmim_single_mut, 0)
+
+            # cutoff and only keep those that have high importance and pval < cutoff
+            keep = pwm_importance_vector * (ttest_results[1] < cutoff)
+            print np.sum(keep > 0)
+
+            print "after t test"
+            indices = np.where(keep > 0)[0].tolist()
+            print [pwm_list[k].name for k in indices]
+
+            if True:
+                # reduce pwm similarity?
+                # revisit here, may be blocking on specific motifs
+                # TODO - want to keep the ones that are marked as important by importance vector?
+                signal_filtered = reduce_pwms_by_signal_similarity(
+                    np.abs(dmim_single_mut), pwm_list, pwm_dict)
+
+                keep = keep * signal_filtered
+            
+            #keep = reduce_pwms(np.abs(dmim_single_mut), pwm_list, pwm_dict)
+            
+            # ignore long pwms
+            if True:
+                current_indices = np.where(keep > 0)[0].tolist()
+                for idx in current_indices:
+                    if pwm_list[idx].weights.shape[1] > 15:
+                        keep[idx] = 0
+            
+            # and add to pwm_vector
+            pwm_vector += keep
+            
+            print "after similarity"
+            indices = np.where(pwm_vector > 0)[0].tolist()
+            print [pwm_list[k].name for k in indices]
+            
+            #import ipdb
+            #ipdb.set_trace()
+            
+
+    # return pwm vector
+    pwm_vector = pwm_vector.astype(int)
+    
+    return pwm_vector
+
+
+def generate_networks(h5_file, pwm_vector_key, task_indices, pwm_list, pwm_dict):
+    """create directed networks
+    """
+    from scipy.stats import ttest_1samp
+        
+    pwm_score_prefix = "pwm-scores"
+    mut_score_prefix = "dmim-scores"
+
+    node_size_scaling = 10000
+    edge_weight_scaling = 1000
+
+    cutoff = 0.0002
+
+    with h5py.File(h5_file, "r") as hf:
+
+        # get the pwm vector
+        pwm_vector = hf[pwm_vector_key][:]
+        indices = np.where(pwm_vector > 0)[0].tolist()
+        pwm_names = [pwm_list[k].name for k in indices]
+        pwm_names = [name.split(".")[0].split("_")[1] for name in pwm_names]
+
+        delta_logits = hf["delta_logits"][:]
+    
+        # first generate the positions by using global mutational scores
+        for i in xrange(len(task_indices)):
+
+            task_idx = task_indices[i]
+            task_mut_key = "{}.taskidx-{}".format(mut_score_prefix, task_idx)
+            task_mut_scores = np.amax(np.abs(hf[task_mut_key]), axis=1) # {N, M}
+                
+            if i == 0:
+                global_mut_scores = task_mut_scores
+            else:
+                global_mut_scores = np.maximum(global_mut_scores, task_mut_scores)
+
+        # generate layout
+
+        # then use pwm vector to select out the desired scores and reduce to adjacency matrix
+        for i in xrange(len(task_indices)):
+            print i
+
+            task_idx = task_indices[i]
+            task_pwm_key = "{}.taskidx-{}".format(pwm_score_prefix, task_idx)
+            task_mut_key = "{}.taskidx-{}".format(mut_score_prefix, task_idx)
+
+            mut_scores = hf[task_mut_key][:]
+            
+            # TODO make a cutoff mask per mutational state
+            for mut_i in xrange(hf[task_mut_key].shape[1]):
+                ttest_results = ttest_1samp(hf[task_mut_key][:,mut_i,:], 0) # {N, all_motifs}
+                keep = pwm_vector * (ttest_results[1] < cutoff)
+                mut_scores[:,mut_i,:] = (keep > 0) * mut_scores[:,mut_i,:]
+
+            # set up scores
+            pwm_scores = hf[task_pwm_key][:,pwm_vector > 0]
+            mut_scores = mut_scores[:,:,pwm_vector > 0]
+            mut_names = hf[task_mut_key].attrs["pwm_mut_names"]
+
+            # calculate means
+            pwm_means = np.mean(pwm_scores, axis=0) # {motifs}
+            mut_means = np.mean(mut_scores, axis=0) # {mut, motifs}
+
+            # node list
+            node_list = []
+            for node_idx in xrange(len(pwm_names)):
+                node = (pwm_names[node_idx], {"size": node_size_scaling * pwm_means[node_idx]})
+                node_list.append(node)
+                
+            # TRY: Nodes with delta logits
+            delta_logit_scores = np.mean(np.abs(delta_logits[:,i,:]), axis=0) # {mut}
+            node_list = []
+            for node_idx in xrange(delta_logit_scores.shape[0]):
+                if mut_names[node_idx] in pwm_names:
+                    node = (mut_names[node_idx], {"size": 10*delta_logit_scores[node_idx]})
+                    node_list.append(node)
+                
+            # make the edge list
+            # edge list is a dictionary 3-tuple, (from_node, to_node, attrs)
+            edge_list = []
+            for mut_i in xrange(mut_means.shape[0]):
+
+                # this limits which nodes are in the network
+                if mut_names[mut_i] not in pwm_names:
+                    continue
+                
+                for response_j in xrange(mut_means.shape[1]):
+                    # TODO need to threshold out the non-passing values
+
+                    if pwm_names[response_j] not in mut_names:
+                        continue
+                    
+                    if mut_means[mut_i, response_j] == 0:
+                        continue
+                    
+                    from_node = mut_names[mut_i]
+                    to_node = pwm_names[response_j]
+                    edge_attrs = {"weight": edge_weight_scaling * abs(mut_means[mut_i,response_j])}
+                    edge = (from_node, to_node, edge_attrs)
+                    edge_list.append(edge)
+
+            # generate a graph
+            task_graph = nx.MultiDiGraph()
+            task_graph.add_nodes_from(node_list)
+            task_graph.add_edges_from(edge_list)
+
+            #print task_graph.nodes()
+            #print task_graph.edges()
+            
+            # plot graph
+            node_size_dict = nx.get_node_attributes(task_graph, "size")
+            edge_weight_dict = nx.get_edge_attributes(task_graph, "weight")
+            #print node_size_dict
+            #print edge_weight_dict
+
+            ordered_node_sizes = [node_size_dict[node]
+                                  for node in task_graph.nodes()]
+            ordered_line_widths = [edge_weight_dict[(node1, node2, 0)]
+                                   for node1, node2 in task_graph.edges()]
+            
+            f = plt.figure()
+            nx.draw(
+                task_graph,
+                #pos=positions,
+                pos=nx.drawing.nx_pydot.pydot_layout(task_graph, prog="dot"),
+                #pos=pydot_layout(G),
+                with_labels=True,
+                node_color="orange",
+                node_size=10000*(ordered_node_sizes/sum(ordered_node_sizes)),
+                edge_color="black",
+                linewidths=100*(ordered_line_widths/sum(ordered_line_widths)),
+                font_size=3)
+            #plt.xlim(-1,1)
+            #plt.ylim(-1,1)
+            f.savefig("{}.network.pdf".format(task_mut_key))
+
+            nx.write_gml(task_graph, "{}.graph.xml".format(task_mut_key), stringizer=str)
+            
+
+    return None

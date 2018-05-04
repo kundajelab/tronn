@@ -9,6 +9,8 @@ from tronn.nets.importance_nets import filter_by_importance
 from tronn.nets.importance_nets import filter_singles_twotailed
 
 from tronn.nets.normalization_nets import normalize_w_probability_weights
+from tronn.nets.normalization_nets import normalize_to_weights
+from tronn.nets.normalization_nets import normalize_to_delta_logits
 #from tronn.nets.normalization_nets import normalize_to_logits
 #from tronn.nets.normalization_nets import zscore_and_scale_to_weights
 
@@ -41,6 +43,7 @@ from tronn.nets.mutate_nets import dfim
 from tronn.nets.mutate_nets import motif_dfim
 from tronn.nets.mutate_nets import delta_logits
 from tronn.nets.mutate_nets import filter_mutation_directionality
+from tronn.nets.mutate_nets import blank_motif_sites
 
 from tronn.nets.util_nets import remove_global_task
 
@@ -136,7 +139,7 @@ def sequence_to_importance_scores(inputs, params):
         (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        (normalize_w_probability_weights, {}), 
+        (normalize_to_weights, {"weight_key": "probs"}), 
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
         (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
     ]
@@ -299,7 +302,7 @@ def sequence_to_dmim(inputs, params):
         #(sequence_to_motif_scores, {}),
         (score_distance_to_motifspace_point, {"filter_motifspace": True}),
         (check_motifset_presence, {"filter_motifset": True}),
-        (generate_mutation_batch, {}), # note that these use importance weighted position maps
+        (generate_mutation_batch, {}),
         (run_model_on_mutation_batch, {}),
         (delta_logits, {"logits_to_features": False}),
 
@@ -309,10 +312,9 @@ def sequence_to_dmim(inputs, params):
         
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}), # TODO - some shuffle null here? if so need to generate shuffles
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        #(normalize_w_probability_weights, {}),
+        (normalize_to_delta_logits, {}),
 
-        # HERE: mask mutation site
-        
+        (blank_motif_sites, {}),
         
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
 
@@ -320,7 +322,7 @@ def sequence_to_dmim(inputs, params):
         (pwm_position_squeeze, {"squeeze_type": "max"}),
         (motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired
         # TODO normalize by probability here?
-        (filter_mutation_directionality, {})
+        (filter_mutation_directionality, {}) # check if this makes sense (in the right order) in the context of blanking things out
     ]
 
     # build inference stack

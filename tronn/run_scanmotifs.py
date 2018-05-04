@@ -240,35 +240,33 @@ def run(args):
         singleton_filter_tasks=args.inference_tasks)
     input_fn = dataloader.build_estimator_input_fn("data", args.batch_size)
 
-    # set up model
-    model_manager = ModelManager(
-        net_fns[args.model["name"]],
-        args.model)
+    if False:
+        # set up model
+        model_manager = ModelManager(
+            net_fns[args.model["name"]],
+            args.model)
 
-    # set up inference generator
-    inference_generator = model_manager.infer(
-        input_fn,
-        args.out_dir,
-        net_fns[args.inference_fn],
-        inference_params={
-            "checkpoint": args.model_checkpoints[0],
-            "backprop": args.backprop,
-            "importance_task_indices": args.inference_tasks,
-            "pwms": pwm_list},
-        checkpoint="blah", #args.model_checkpoints[0],
-        yield_single_examples=True)
+        # set up inference generator
+        inference_generator = model_manager.infer(
+            input_fn,
+            args.out_dir,
+            net_fns[args.inference_fn],
+            inference_params={
+                "checkpoint": args.model_checkpoints[0],
+                "backprop": args.backprop,
+                "importance_task_indices": args.inference_tasks,
+                "pwms": pwm_list},
+            checkpoint="blah", #args.model_checkpoints[0],
+            yield_single_examples=True)
 
-    # run inference and save out
-    results_h5_file = "{0}/{1}.inference.h5".format(
-        args.tmp_dir, args.prefix)
-    if not os.path.isfile(results_h5_file):
-        infer_and_save_to_hdf5(
-            inference_generator,
-            results_h5_file,
-            args.sample_size)
-    
-    quit()
-    
+        # run inference and save out
+        results_h5_file = "{0}/{1}.inference.h5".format(
+            args.tmp_dir, args.prefix)
+        if not os.path.isfile(results_h5_file):
+            infer_and_save_to_hdf5(
+                inference_generator,
+                results_h5_file,
+                args.sample_size)
         
     # set up graph
     # TODO somewhere here need to pass forward the
@@ -289,46 +287,35 @@ def run(args):
             filter_tasks=args.filter_tasks,
             checkpoints=args.model_checkpoints)
 
-    # set up graph
-    tronn_graph = TronnGraphV2(
-        dataloader,
-        net_fns[args.model["name"]],
-        args.model,
-        args.batch_size,
-        final_activation_fn=tf.nn.sigmoid,
-        checkpoints=args.model_checkpoints)
+    if True:
+        # set up graph
+        tronn_graph = TronnGraphV2(
+            dataloader,
+            net_fns[args.model["name"]],
+            args.model,
+            args.batch_size,
+            final_activation_fn=tf.nn.sigmoid,
+            checkpoints=args.model_checkpoints)
 
-    # run interpretation graph
-    results_h5_file = "{0}/{1}.inference.h5".format(
-        args.tmp_dir, args.prefix)
-    if not os.path.isfile(results_h5_file):
-        infer_params = {
-            "inference_fn": net_fns[args.inference_fn],
-            "importances_fn": args.backprop,
-            "importance_task_indices": args.inference_tasks,
-            "pwms": pwm_list}
-        interpret_v2(tronn_graph, results_h5_file, infer_params)
+        # run interpretation graph
+        results_h5_file = "{0}/{1}.inference.h5".format(
+            args.tmp_dir, args.prefix)
+        if not os.path.isfile(results_h5_file):
+            infer_params = {
+                "inference_fn": net_fns[args.inference_fn],
+                "importances_fn": args.backprop,
+                "importance_task_indices": args.inference_tasks,
+                "pwms": pwm_list}
+            interpret_v2(tronn_graph, results_h5_file, infer_params)
 
-        # attach useful information
-        with h5py.File(results_h5_file, "a") as hf:
-            # add in PWM names to the datasets
-            for dataset_key in hf.keys():
-                if "pwm-scores" in dataset_key:
-                    hf[dataset_key].attrs["pwm_names"] = [
-                        pwm.name for pwm in pwm_list]
-        
-    # validation tools
-    #if args.diagnose:
-    #    visualize = True
-    #    validate_grammars = True
-    #else:
-    #    visualize = args.plot_importance_sample
-    #    validate_grammars = False
-
-    #if visualize == True:
-    #    viz_dir = "{}/viz".format(args.out_dir)
-    #    os.system("mkdir -p {}".format(viz_dir))
-        
+    # attach useful information
+    with h5py.File(results_h5_file, "a") as hf:
+        # add in PWM names to the datasets
+        for dataset_key in hf.keys():
+            if "pwm-scores" in dataset_key:
+                hf[dataset_key].attrs["pwm_names"] = [
+                    pwm.name for pwm in pwm_list]
+                
     # run region clustering/motif sets. default is true, but user can turn off
     # TODO split this out into another function
     pwm_scores_h5 = results_h5_file
