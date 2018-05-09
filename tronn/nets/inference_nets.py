@@ -47,14 +47,15 @@ from tronn.nets.mutate_nets import blank_motif_sites
 
 from tronn.nets.util_nets import remove_global_task
 
+from tronn.nets.manifold_nets import score_manifold_distances
+from tronn.nets.manifold_nets import filter_by_manifold_distance
+from tronn.nets.manifold_nets import filter_by_sig_pwm_presence
 
-def build_inference_stack(inputs, params):
+
+def build_inference_stack(inputs, params, inference_stack):
     """Given the inference stack, build the graph
     """
-    assert params.get("inference_stack") is not None
-    inference_stack = params.get("inference_stack")
-    outputs = dict(inputs)
-    
+    outputs = inputs
     master_params = params
     for transform_fn, params in inference_stack:
         print transform_fn
@@ -62,9 +63,6 @@ def build_inference_stack(inputs, params):
         outputs, params = transform_fn(outputs, master_params)
         print outputs["features"].get_shape()
         master_params.update(params)
-
-    # and remove the inference stack so you don't double run
-    del params["inference_stack"]
 
     return outputs, master_params
 
@@ -133,7 +131,7 @@ def sequence_to_importance_scores(inputs, params):
     inputs["importance_logits"] = inputs["logits"]
     
     # set up inference stack
-    params["inference_stack"] = [
+    inference_stack = [
         (multitask_importances, {"relu": False}),
         #(threshold_shufflenull, {"pval_thresh": 0.05}),
         (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
@@ -146,7 +144,7 @@ def sequence_to_importance_scores(inputs, params):
 
     # build inference stack
     outputs, params = build_inference_stack(
-        inputs, params)
+        inputs, params, inference_stack)
 
     # unstack
     if unstack:
@@ -182,7 +180,7 @@ def sequence_to_motif_scores(inputs, params):
         count_thresh = 2 # there's time info, so can filter across tasks
         
     # set up inference stack
-    params["inference_stack"] = [
+    inference_stack = [
         (pwm_match_filtered_convolve, {}),
         (multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
         (pwm_position_squeeze, {"squeeze_type": "max"}),
@@ -191,7 +189,7 @@ def sequence_to_motif_scores(inputs, params):
 
     # build inference stack
     outputs, params = build_inference_stack(
-        inputs, params)
+        inputs, params, inference_stack)
 
     # unstack
     if unstack:
@@ -276,7 +274,7 @@ def sequence_to_motif_ism(features, labels, config, is_training=False):
 
 
 
-def sequence_to_dmim(inputs, params):
+def sequence_to_dmim_old(inputs, params):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
     """
@@ -293,13 +291,13 @@ def sequence_to_dmim(inputs, params):
     params["keep_importances"] = None
     
     # get motif scores
-    outputs, params = sequence_to_motif_scores(inputs, params)
+    #outputs, params = sequence_to_motif_scores(inputs, params)
     
     method = params.get("importances_fn")
 
     # set up inference stack
-    params["inference_stack"] = [
-        #(sequence_to_motif_scores, {}),
+    inference_stack = [
+        (sequence_to_motif_scores, {}),
         (score_distance_to_motifspace_point, {"filter_motifspace": True}),
         (check_motifset_presence, {"filter_motifset": True}),
         (generate_mutation_batch, {}),
@@ -327,7 +325,70 @@ def sequence_to_dmim(inputs, params):
 
     # build inference stack
     outputs, params = build_inference_stack(
-        outputs, params)
+        outputs, params, inference_stack)
+
+    # unstack
+    if params.get("dmim-scores-key") is not None:
+        params["name"] = params["dmim-scores-key"]
+        outputs, params = unstack_tasks(outputs, params)
+        
+    return outputs, params
+
+
+def sequence_to_dmim(inputs, params):
+    """For a grammar, get back the delta deeplift results on motifs, another way
+    to extract dependencies at the motif level
+    """
+    # params:
+    params["raw-sequence-key"] = "raw-sequence"
+    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
+    params["raw-pwm-scores-key"] = "raw-pwm-scores"
+    params["positional-pwm-scores-key"] = "positional-pwm-scores"
+    params["filter_motifspace"] = True
+    params["filter_motifset"] = True
+    params["dmim-scores-key"] = "dmim-scores"
+
+    # maybe keep
+    params["keep_importances"] = None
+    
+    method = params.get("importances_fn")
+
+    # set up inference stack
+    inference_stack = [
+        # score motifs on importance scores
+        (sequence_to_motif_scores, {}),
+
+        # filter by manifold locations
+        (score_manifold_distances, {}),
+        (filter_by_manifold_distance, {}),
+        (filter_by_sig_pwm_presence, {}),
+
+        # generate mutations and run model and get dfim
+        (generate_mutation_batch, {}),
+        (run_model_on_mutation_batch, {}),
+        (delta_logits, {"logits_to_features": False}),
+        (multitask_importances, {"backprop": method, "relu": False}),
+        (dfim, {}), # {N, task, 1000, 4}
+
+        # TODO filter out scores that don't change
+        
+        # threshold out noise, filter, normalize, blank motif sites
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}), # TODO - some shuffle null here? if so need to generate shuffles
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+        (normalize_to_delta_logits, {}),
+        (blank_motif_sites, {}),
+        (clip_edges, {"left_clip": 400, "right_clip": 600}),
+
+        # scan motifs
+        (pwm_match_filtered_convolve, {"positional-pwm-scores-key": None}),
+        (pwm_position_squeeze, {"squeeze_type": "max"}),
+        (motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired?
+        #(filter_mutation_directionality, {}) # check if this makes sense (in the right order) in the context of blanking things out
+    ]
+
+    # build inference stack
+    outputs, params = build_inference_stack(
+        inputs, params, inference_stack)
 
     # unstack
     if params.get("dmim-scores-key") is not None:

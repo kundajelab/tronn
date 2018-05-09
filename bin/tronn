@@ -541,6 +541,8 @@ def add_scangrammars_parser(subparsers):
         "--pwm_metadata_file", help="pwm_metadata_file")
     group_input.add_argument(
         "--grammar_files", nargs="+", help="pwm_file")
+    group_input.add_argument(
+        "--manifold_file", help="manifold h5 file")
     
     # group for model
     group_model = argparser_multitask.add_argument_group(

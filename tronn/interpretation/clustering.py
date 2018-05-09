@@ -11,6 +11,9 @@ from collections import Counter
 
 from tronn.interpretation.learning import threshold_at_recall
 
+from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
+from scipy.spatial.distance import squareform
+
 import phenograph
 
 
@@ -423,3 +426,142 @@ def sd_cutoff(array, col_mask=None, std_thresh=2, axis=1):
         final_mask = sd_mask
     
     return final_mask
+
+
+def get_manifold_centers(
+        scores_h5_file,
+        dataset_keys,
+        cluster_key,
+        manifold_h5_file,
+        pwm_list,
+        pwm_dict,
+        null_cluster=True,
+        recall_thresh=0.10):
+    """get manifold centers
+    """
+    from tronn.interpretation.motifs import correlate_pwms
+    from tronn.interpretation.motifs import reduce_pwms
+    from tronn.interpretation.motifs import get_individual_pwm_thresholds
+    
+    raw_scores_key = "raw-pwm-scores"
+
+    # prep: set up hclust for pwms
+    cor_filt_mat, distances = correlate_pwms(
+        pwm_list,
+        cor_thresh=0.3,
+        ncor_thresh=0.2,
+        num_threads=24)
+    hclust = linkage(squareform(1 - distances), method="ward")
+
+    # go through clusters
+    with h5py.File(scores_h5_file, "r") as hf:
+
+        # determine the number of clusters
+        cluster_ids_by_example = hf[cluster_key][:,0]
+        cluster_ids = list(set(cluster_ids_by_example.tolist()))
+        if null_cluster:
+            max_id = max(cluster_ids)
+            cluster_ids.remove(max_id)
+
+        # get raw scores
+        raw_scores = hf[raw_scores_key][:]
+
+        # set up master pwm vector (union of all seen significant motifs)
+        master_pwm_vector = np.zeros((raw_scores.shape[1]))
+
+        # set up master arrays
+        out_shape = (len(cluster_ids), len(dataset_keys), raw_scores.shape[1])
+        manifold_centers = np.zeros(out_shape)
+        manifold_weights = np.zeros(out_shape)
+        manifold_thresholds = np.zeros((len(cluster_ids), len(dataset_keys)))
+        manifold_pwm_thresholds = np.zeros(out_shape)
+
+        # per cluster, extract the manifold description,
+        # which is the motifspace vector and threshold for distance,
+        # and the significant motifs to check.
+        for i in xrange(len(cluster_ids)):
+
+            # get cluster id
+            cluster_id = cluster_ids[i]
+            print "cluster_id: {}".format(cluster_id)
+            cluster_labels = cluster_ids_by_example == cluster_id
+            
+            # get the raw scores in this cluster and the mean
+            raw_scores_in_cluster = hf[raw_scores_key][:][
+                np.where(cluster_labels)[0],:]
+            mean_raw_scores_in_cluster = np.mean(raw_scores_in_cluster, axis=0)
+
+            for j in xrange(len(dataset_keys)):
+                print "task: {}, ".format(j),
+                dataset_key = dataset_keys[j]
+                
+                # get subset
+                weighted_scores = hf[dataset_key][:]
+                weighted_scores_in_cluster = weighted_scores[np.where(cluster_labels)[0],:]
+                print "total examples: {}".format(weighted_scores_in_cluster.shape),
+
+                # row normalize and remove zeroes
+                max_vals = np.max(weighted_scores_in_cluster, axis=1, keepdims=True)
+                weighted_scores_in_cluster = np.divide(
+                    weighted_scores_in_cluster,
+                    max_vals,
+                    out=np.zeros_like(weighted_scores_in_cluster),
+                    where=max_vals!=0)
+                weighted_scores_in_cluster = weighted_scores_in_cluster[
+                    np.max(weighted_scores_in_cluster, axis=1) >0]
+                print "after remove zeroes: {}".format(weighted_scores_in_cluster.shape),
+
+                # get the mean vector
+                mean_weighted_scores_in_cluster = np.mean(weighted_scores_in_cluster, axis=0)
+
+                # get mean ratio
+                mean_ratio_scores_in_cluster = np.divide(
+                    mean_weighted_scores_in_cluster,
+                    mean_raw_scores_in_cluster)
+
+                # get threshold by first weighting the raw sequence
+                # NOTE: compared dot product, euclidean, and jaccard. dot product was best
+                weighted_raw_scores = np.multiply(
+                    raw_scores,
+                    np.expand_dims(mean_ratio_scores_in_cluster, axis=0))
+                similarity_threshold, threshold_filter = get_threshold_on_dot_product(
+                    mean_weighted_scores_in_cluster,
+                    weighted_raw_scores,
+                    cluster_labels,
+                    recall_thresh=recall_thresh) # ie grab the top 10% of regions
+                print "passing filter: {}".format(np.sum(threshold_filter)),
+                print "true positives: {}".format(np.sum(threshold_filter * cluster_labels)),
+
+                # get significant motifs with their thresholds
+                weighted_raw_scores_in_cluster = weighted_raw_scores[np.where(cluster_labels)[0],:]
+                pwm_vector = reduce_pwms(weighted_raw_scores, hclust, pwm_list)
+                pwm_thresholds = get_individual_pwm_thresholds(
+                    weighted_raw_scores,
+                    cluster_labels,
+                    pwm_vector)
+
+                # if there are no significant pwms, do not save out
+                if np.sum(pwm_vector) == 0:
+                    continue
+                
+                # and save into master pwm vector
+                master_pwm_vector += pwm_vector
+                print "total in master pwms: {}".format(np.sum(master_pwm_vector > 0))
+                
+                # save this info out
+                manifold_centers[i,j,:] = mean_weighted_scores_in_cluster
+                manifold_weights[i,j,:] = mean_ratio_scores_in_cluster
+                manifold_thresholds[i,j] = similarity_threshold
+                manifold_pwm_thresholds[i,j,:] = pwm_thresholds
+                cluster_key_prefix = "motifspace.cluster-{}".format(cluster_id)
+
+    # finally, save out all results
+    with h5py.File(manifold_h5_file, "a") as out:
+        out.create_dataset("manifold_centers", data=manifold_centers)
+        out.create_dataset("manifold_weights", data=manifold_weights)
+        out.create_dataset("manifold_thresholds", data=manifold_thresholds)
+        out.create_dataset("pwm_thresholds", data=manifold_pwm_thresholds)
+        out.create_dataset("pwm_names", data=[pwm.name for pwm in pwm_list])
+        out.create_dataset("master_pwm_vector", data=master_pwm_vector)
+    
+    return None

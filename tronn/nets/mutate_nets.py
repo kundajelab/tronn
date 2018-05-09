@@ -1,13 +1,15 @@
 """contains code for creating batches of mutations and then analyzing them
 """
 
+import h5py
+
 import numpy as np
 
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
+#import tensorflow.contrib.slim as slim
 
-from tronn.util.initializers import pwm_simple_initializer
-from tronn.util.tf_utils import get_fan_in
+#from tronn.util.initializers import pwm_simple_initializer
+#from tronn.util.tf_utils import get_fan_in
 
 from tronn.nets.sequence_nets import pad_examples
 from tronn.nets.sequence_nets import unpad_examples
@@ -161,7 +163,8 @@ def generate_mutation_batch(inputs, params):
     assert inputs.get(params["positional-pwm-scores-key"]) is not None
     assert params.get("raw-sequence-key") is not None
     assert inputs.get(params["raw-sequence-clipped-key"]) is not None
-    assert params.get("grammars") is not None
+    #assert params.get("grammars") is not None
+    assert params.get("manifold") is not None
 
     # features
     position_maps = inputs[params["positional-pwm-scores-key"]] # {N, task, pos, M}
@@ -169,7 +172,8 @@ def generate_mutation_batch(inputs, params):
     outputs = dict(inputs)
     
     # params
-    grammar_sets = params.get("grammars")
+    #grammar_sets = params.get("grammars")
+    manifold_h5_file = params["manifold"]
     pairwise_mutate = params.get("pairwise_mutate", False)
     start_shift = params.get("left_clip", 0) + int(params.get("filter_width", 0) / 2.)
     
@@ -182,9 +186,11 @@ def generate_mutation_batch(inputs, params):
     print motif_max_positions
 
     # get indices at global level
-    pwm_vector = np.zeros((grammar_sets[0][0].pwm_vector.shape[0]))
-    for i in xrange(len(grammar_sets[0])):
-        pwm_vector += grammar_sets[0][i].pwm_thresholds > 0
+    with h5py.File(manifold_h5_file, "r") as hf:
+        pwm_vector = hf["master_pwm_vector"][:]
+    #pwm_vector = np.zeros((grammar_sets[0][0].pwm_vector.shape[0]))
+    #for i in xrange(len(grammar_sets[0])):
+    #    pwm_vector += grammar_sets[0][i].pwm_thresholds > 0
 
     # set up the mutation batch
     pwm_indices = np.where(pwm_vector > 0)
@@ -378,14 +384,18 @@ def filter_mutation_directionality(inputs, params):
     """
     # assertions
     assert inputs.get("features") is not None
-    assert params.get("grammars") is not None
+    assert params.get("manifold") is not None
+    #assert params.get("grammars") is not None
 
     # features
     features = inputs["features"] # {N, task, mutation, motifset}
     outputs = dict(inputs)
 
     # params
-    grammar_sets = params["grammars"]
+    #grammar_sets = params["grammars"]
+    manifold_h5_file = params["manifold"]
+    with h5py.File(manifold_h5_file, "r") as hf:
+        pwm_vector = hf["master_pwm_vector"][:]
     
     # set up pwm vector
     pwm_vector = np.zeros((grammar_sets[0][0].pwm_vector.shape[0]))

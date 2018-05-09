@@ -1029,21 +1029,12 @@ class ModelManager(object):
                     init_op, init_feed_dict = restore_variables_op(
                         params["checkpoint"],
                         skip=["pwm"])
-                    #print init_feed_dict.keys()
-                    #variables_to_restore = slim.get_model_variables()
-                    #print variables_to_restore
-
                     init_op = control_flow_ops.group(
                         variables.global_variables_initializer(),
                         variables.local_variables_initializer(),
                         resources.initialize_resources(resources.shared_resources()),
                         init_op)
-                    
-                    #def init_fn(scaffold, sess):
-                    #    sess.run(tf.global_variables_initializer())
-                        #sess.run(tf.local_variables_initializer())
-                    
-                    #quit()
+
                     # TODO figure out how to collect standard scaffold and adjust just the saver
                     scaffold = monitored_session.Scaffold(
                         #init_fn=init_fn,
@@ -1052,12 +1043,6 @@ class ModelManager(object):
                         init_feed_dict=init_feed_dict)
                         #local_init_op=[tf.global_variables_initializer(), tf.local_variables_initializer()], # fyi hack
                         #saver=tf.train.Saver(variables_to_restore))
-                    #scaffold._saver = tf.train.Saver(variables_to_restore)
-                    
-                    #scaffold = tf.train.Scaffold(
-                    #    init_op=tf.global_variables_initializer(),
-                    #    local_init_op=tf.local_variables_initializer(),
-                    #    saver=tf.train.Saver(variables_to_restore))
                     
                     return tf.estimator.EstimatorSpec(
                         mode,

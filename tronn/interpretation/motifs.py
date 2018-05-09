@@ -521,7 +521,7 @@ def make_threshold_at_tpr(desired_tpr):
     return threshold_at_tpr
 
 
-def reduce_pwms(data, pwm_list, pwm_dict, std_thresh=3):
+def reduce_pwms_old(data, pwm_list, pwm_dict, std_thresh=3):
     """Wrapper for all pwm reduction functions
     """
     assert len(pwm_list) == data.shape[1]
@@ -535,7 +535,6 @@ def reduce_pwms(data, pwm_list, pwm_dict, std_thresh=3):
     # with the strongest signal
     pwm_vector = pwm_vector * reduce_pwms_by_signal_similarity(
         data, pwm_list, pwm_dict)
-
     
     # ignore long pwms
     if True:
@@ -553,6 +552,23 @@ def reduce_pwms(data, pwm_list, pwm_dict, std_thresh=3):
         pwm_to_index[pwm_list[k].name] = k
     
     return pwm_vector
+
+
+def get_individual_pwm_thresholds(
+        data,
+        labels,
+        pwm_vector,
+        recall_thresh=0.95):
+    """get threshold vector
+    """
+    indices = np.where(pwm_vector > 0)[0].tolist()
+    pwm_thresholds = np.zeros(pwm_vector.shape)
+    for pwm_idx in indices:
+        threshold = threshold_at_recall(
+            labels, data[:,pwm_idx], recall_thresh=recall_thresh)
+        pwm_thresholds[pwm_idx] = threshold
+
+    return pwm_thresholds
 
 
 def distill_to_linear_models(
@@ -1435,6 +1451,8 @@ def hagglom_pwms_by_signal(
         if (cor_val > cor_thresh) and (ncor_val >= ncor_thresh):
             # if good match, now check the mat_df for which one
             # is most represented across sequences, and keep that one
+            # TODO - this bit should only be summed once
+            # ideally push in a 1D "signal strength" vector which is the choice between the two.
             pwm1_signal = np.sum(example_x_pwm_array[:,pwm_position[pwm1.name]])
             pwm2_signal = np.sum(example_x_pwm_array[:,pwm_position[pwm2.name]])
             
@@ -1455,6 +1473,112 @@ def hagglom_pwms_by_signal(
 
     return pwm_mask
 
+
+def hagglom_pwms_by_signal(
+        hclust,
+        signal_vector,
+        pwm_list,
+        cor_thresh=0.6,
+        ncor_thresh=0.4):
+    """agglomerate the pwms
+    hclust is a linkage object from scipy on the pwms
+    signal vector is a 1d vector of scores for each pwm
+    """
+    # set up lists and vectors
+    hclust_pwms = [(pwm, 1.0) for pwm in pwm_list]
+    pwm_vector = np.zeros((len(hclust_pwms)))
+    pwm_position = {}
+    for i in xrange(len(pwm_list)):
+        pwm_position[pwm_list[i].name] = i
+
+    # go through pwms. merge if cor and ncor are above thresh,
+    # and keep the pwm with better signal.
+    for i in xrange(hclust.shape[0]):
+        idx1, idx2, dist, cluster_size = hclust[i,:]
+        pwm1, pwm1_weight = hclust_pwms[int(idx1)]
+        pwm2, pwm2_weight = hclust_pwms[int(idx2)]
+
+        # if there's no signal, ignore and save time
+        # CHECK - not sure if this works
+        #if signal_vector[pwm_position[pwm1.name]] == 0:
+        #    pwm1 = None
+        #if signal_vector[pwm_position[pwm2.name]] == 0:
+        #    pwm2 = None
+        
+        # check if pwms are None
+        if (pwm1 is None) and (pwm2 is None):
+            hclust_pwms.append((None, None))
+            continue
+        elif (pwm1 is None):
+            # mark PWM 2
+            pwm_vector[pwm_position[pwm2.name]] = 1
+            hclust_pwms.append((None, None))
+            continue
+        elif (pwm2 is None):
+            # mark PWM 1
+            pwm_vector[pwm_position[pwm1.name]] = 1
+            hclust_pwms.append((None, None))
+            continue
+
+        # try check
+        try:
+            cor_val, offset = pwm1.pearson_xcor(pwm2, ncor=False)
+            ncor_val, offset = pwm1.pearson_xcor(pwm2, ncor=True)
+        except:
+            print "something unexpected happened"
+            import ipdb
+            ipdb.set_trace()
+
+        # if good match, now check the signal vector for which is stronger and keep that one
+        if (cor_val > cor_thresh) and (ncor_val >= ncor_thresh):
+            if signal_vector[pwm_position[pwm1.name]] >= signal_vector[pwm_position[pwm2.name]]:
+                hclust_pwms.append((pwm1, 1.0))
+            else:
+                hclust_pwms.append((pwm2, 1.0))
+        else:
+            # mark out both
+            pwm_vector[pwm_position[pwm1.name]] = 1
+            pwm_vector[pwm_position[pwm2.name]] = 1
+            hclust_pwms.append((None, None))
+            
+    return pwm_vector
+
+
+
+def reduce_pwms(data, hclust, pwm_list, std_thresh=3):
+    """Wrapper for all pwm reduction functions
+    """
+    assert len(pwm_list) == data.shape[1]
+    
+    # set a cutoff - assume Gaussian noise, this controls false positive rate
+    # TODO - i think this also uses a mean vector
+    pwm_vector = sd_cutoff(data, std_thresh=std_thresh)
+    
+    # hagglom
+    signal_vector = np.mean(data, axis=0)
+    pwm_vector = pwm_vector * hagglom_pwms_by_signal(
+        hclust,
+        signal_vector,
+        pwm_list,
+        cor_thresh=0.3,
+        ncor_thresh=0.2)
+    
+    # ignore long pwms
+    if True:
+        current_indices = np.where(pwm_vector > 0)[0].tolist()
+        for idx in current_indices:
+            if pwm_list[idx].weights.shape[1] > 15:
+                pwm_vector[idx] = 0
+
+    # debug
+    print "final pwm count:", np.sum(pwm_vector)
+    indices = np.where(pwm_vector > 0)[0].tolist()
+    print [pwm_list[k].name for k in indices]
+    pwm_to_index = {}
+    for k in indices:
+        pwm_to_index[pwm_list[k].name] = k
+    
+    return pwm_vector
 
 
 def reduce_pwms_by_signal_similarity(
@@ -1481,6 +1605,8 @@ def reduce_pwms_by_signal_similarity(
         pwm_dict[key] = pwm_dict[key].chomp(ic_thresh=ic_thresh)
     pwms_ids = [pwm.name for pwm in pwms]
 
+    # TODO get the pwm x pwm distance matrix here (just run once)
+
     # choose motifs by hierarchical choice (hclust on signal)
     # and only merging if the motifs are similar. Only keep one
     # with strongest signal, doesn't merge the pwms.
@@ -1492,6 +1618,10 @@ def reduce_pwms_by_signal_similarity(
         ncor_thresh=ncor_thresh)
 
     return pwm_mask
+
+
+
+
 
 
 

@@ -13,20 +13,15 @@ import tensorflow as tf
 
 from collections import Counter
 
-#from tronn.graphs import TronnGraph
-#from tronn.graphs import TronnNeuralNetGraph
 from tronn.graphs import TronnGraphV2
 from tronn.graphs import ModelManager
 from tronn.graphs import infer_and_save_to_hdf5
 
-#from tronn.datalayer import load_data_from_filename_list
-#from tronn.datalayer import load_step_scaled_data_from_filename_list
-#from tronn.datalayer import load_data_with_shuffles_from_filename_list
 from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns
 
 #from tronn.interpretation.interpret import interpret
-from tronn.interpretation.interpret import interpret_v2
+#from tronn.interpretation.interpret import interpret_v2
 
 from tronn.interpretation.motifs import PWM
 from tronn.interpretation.motifs import read_pwm_file
@@ -45,169 +40,9 @@ from tronn.interpretation.clustering import refine_clusters
 from tronn.interpretation.clustering import visualize_clusters
 
 from tronn.interpretation.clustering import get_correlation_file
+from tronn.interpretation.clustering import get_manifold_centers
 
 from tronn.interpretation.learning import build_lasso_regression_models
-
-
-def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames):
-    """Grab a dataset out of h5 (2D max) and save out to a text file
-    """
-    with h5py.File(h5_file, "r") as hf:
-        dataset = hf[key][:][:,np.array(col_keep_indices)]
-        
-        # set up dataframe and save out
-        dataset_df = pd.DataFrame(dataset, index=hf["example_metadata"][:][:,0], columns=colnames)
-        dataset_df.to_csv(text_file, sep='\t')
-
-    return None
-
-
-def phenograph_cluster(mat_file, sorted_mat_file, num_threads=24):
-    """Use to quickly get a nicely clustered (sorted) output file to visualize examples
-    """
-    # read in file and adjust as needed
-    mat_df = pd.read_table(mat_file, index_col=0)
-    print "total examples used:", mat_df.shape    
-    communities, graph, Q = phenograph.cluster(mat_df, n_jobs=num_threads)
-
-    # save out the sorted info into a new mat sorted by community
-    mat_df["community"] = communities
-    mat_df = mat_df.sort_values("community", axis=0)
-    mat_df.to_csv(sorted_mat_file, sep='\t')
-    mat_df = mat_df.drop(["community"], axis=1)
-
-    return None
-
-
-def enumerate_motifspace_communities(
-        community_files,
-        indices,
-        prefix,
-        pwm_list,
-        sig_threshold=0.005,
-        visualize=False):
-    """given communities for each timepoint, 
-    merge into one file and enumerate along start to finish
-    use the indices to extract subset of regions from h5 file to save
-    """
-    # pull in the communities and merge to make a matrix of communities
-    data = pd.DataFrame()
-    for i in xrange(len(community_files)):
-        community_file = community_files[i]
-        task_index = indices[i]
-
-        data_tmp = pd.read_table(community_file, sep="\t", index_col=0)
-        if data.shape[0] == 0:
-            data["id"] = data_tmp.index
-            data.index = data_tmp.index
-            data["task-{}".format(task_index)] = data_tmp["community"]
-        else:
-            data_tmp["id"] = data_tmp.index
-            data_tmp = data_tmp[["id", "community"]]
-            data_tmp.columns = ["id", "task-{}".format(task_index)]
-            data = data.merge(data_tmp, how="inner", on="id")
-
-    data.index = data["id"]
-    data = data.drop(["id"], axis=1)
-    
-    # enumerate
-    data["enumerated"] = ["" for i in xrange(data.shape[0])]
-    for i in xrange(data.shape[1]):
-        print i
-        data["enumerated"] = data["enumerated"] + data.iloc[:, data.shape[1]-i-2].astype(str).str.zfill(2)
-
-    # figure out which ones are significant (ie a size threshold) and only keep those
-    community_enumerations = pd.DataFrame()
-    from collections import Counter
-    counts = Counter(data["enumerated"].tolist())
-    enumerated_clusters = list(set(data["enumerated"].tolist()))
-
-    for enumerated_cluster in enumerated_clusters:
-        count = counts[enumerated_cluster]
-        if float(count) / data.shape[0] >= sig_threshold:
-            # keep
-            communities_vector = data[data["enumerated"] == enumerated_cluster].iloc[0,:]
-            community_enumerations = community_enumerations.append(
-                communities_vector, ignore_index=True)[communities_vector.index.tolist()]
-
-    community_enumerations.to_csv("{}.metacommunity_means.txt".format(prefix), sep="\t")
-    
-    # for each set of patterns, want to go through files and extract profiles
-    for metacommunity_idx in xrange(community_enumerations.shape[0]):
-        print metacommunity_idx
-        metacommunity_prefix = "{}.metacommunity_{}".format(prefix, metacommunity_idx)
-        
-        timeseries_motif_scores = pd.DataFrame()
-        metacommunity_h5_file = "{}.h5".format(metacommunity_prefix)
-        timeseries_motif_file = "{}.means.txt".format(metacommunity_prefix)
-        timeseries_region_ids_file = "{}.region_ids.txt".format(metacommunity_prefix)
-        timeseries_bed_file = "{}.region_ids.bed".format(metacommunity_prefix)
-        
-        # get the related regions to text file
-        regions = data[data["enumerated"] == community_enumerations["enumerated"].iloc[metacommunity_idx]]
-        regions.to_csv(timeseries_region_ids_file, columns=[], header=False)
-        
-        # make a bed
-        to_bed = (
-            "cat {0} | "
-            "awk -F ';' '{{ print $3 }}' | "
-            "awk -F '=' '{{ print $2 }}' | "
-            "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
-            "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
-            "sort -k1,1 -k2,2n | "
-            "bedtools merge -i stdin > "
-            "{1}").format(
-                timeseries_region_ids_file,
-                timeseries_bed_file)
-        print to_bed
-        os.system(to_bed)
-
-        # save out motif x timepoint, and region arrays
-        with h5py.File(metacommunity_h5_file, "w") as hf:
-            # make dataset
-            features = hf.create_dataset(
-                "features",
-                (regions.shape[0], len(pwm_list), len(community_files)))
-            example_metadata = hf.create_dataset(
-                "example_metadata",
-                (regions.shape[0],), dtype="S1000")
-            pwm_names = hf.create_dataset(
-                "pwm_names",
-                (len(pwm_list),), dtype="S100")
-            
-            example_metadata[:] = regions.index.tolist()
-            pwm_names[:] = [pwm.name for pwm in pwm_list]
-            
-            # go through community files
-            for i in xrange(len(community_files)):
-                community_file = community_files[i]
-                index = indices[i]
-
-                # extract the metacommunity
-                data_tmp = pd.read_table(community_file, sep="\t", index_col=0)
-                data_tmp = data_tmp.loc[regions.index,:]
-                data_tmp = data_tmp.drop("community", axis=1)
-                features[:,:,i] = data_tmp
-                
-                # get the mean across columns
-                data_mean = data_tmp.mean(axis=0)
-
-                # append
-                timeseries_motif_scores = timeseries_motif_scores.append(data_mean, ignore_index=True)
-
-            # save out mean vectors
-            timeseries_motif_scores = timeseries_motif_scores.fillna(0)
-            timeseries_motif_scores.to_csv(timeseries_motif_file, sep="\t")
-
-            # visualize
-            if visualize:
-                viz_file = "{}.pdf".format(timeseries_motif_file.split(".txt")[0])
-                plot_pwm_x_task = "plot.pwm_x_task.R {} {}".format(
-                    timeseries_motif_file, viz_file)
-                print(plot_pwm_x_task)
-                os.system(plot_pwm_x_task)
-                
-    return None
 
 
 def run(args):
@@ -267,25 +102,6 @@ def run(args):
                 inference_generator,
                 results_h5_file,
                 args.sample_size)
-        
-    # set up graph
-    # TODO somewhere here need to pass forward the
-    # shuffles/steps information from dataloader into the graph,
-    # to be stored in the config for inference.
-    if False:
-        tronn_graph = TronnNeuralNetGraph(
-            {'data': data_files},
-            args.tasks,
-            dataloader,
-            args.batch_size,
-            net_fns[args.model['name']],
-            args.model,
-            tf.nn.sigmoid,
-            inference_fn=net_fns[args.inference_fn],
-            importances_tasks=args.inference_tasks,
-            shuffle_data=True,
-            filter_tasks=args.filter_tasks,
-            checkpoints=args.model_checkpoints)
 
     if True:
         # set up graph
@@ -381,6 +197,26 @@ def run(args):
                         refined_metacluster_key, 0,
                         remove_final_cluster=1)
 
+        # TODO
+        # get the manifold descriptions out per cluster
+        # ie the manifold is {task, pwm}, {task, threshold}
+        # so per cluster, get the pwm mask and threshold and save to an hdf5 file
+        manifold_key = "motifspace-centers"
+        manifold_h5_file = "{0}/{1}.manifold.h5".format(
+            args.tmp_dir, args.prefix)
+        if not os.path.isfile(manifold_h5_file):
+            get_manifold_centers(
+                pwm_scores_h5,
+                dataset_keys,
+                refined_metacluster_key,
+                manifold_h5_file,
+                pwm_list,
+                pwm_dict)
+
+        # TODO also call significant motifs
+
+        quit()
+                    
         # 4) extract the constrained motif set for each metacommunity, for each task
         # new pwm vectors for each dataset..
         # save out initial grammar file, use labels to set a threshold

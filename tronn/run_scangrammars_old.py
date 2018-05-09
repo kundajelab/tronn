@@ -64,22 +64,29 @@ def run(args):
     logging.info("Found {} chrom files".format(len(data_files)))
 
     # TODO - adjust here to pull in manifold info
-    # maybe easiest thing to do is just pass in the h5 file?
     
     # given a grammar file (always with pwm file) scan for grammars.
-    #grammar_sets = []
-    #for grammar_file in args.grammar_files:
-    #    grammar_sets.append(read_grammar_file(grammar_file, args.pwm_file))
+    grammar_sets = []
+    for grammar_file in args.grammar_files:
+        grammar_sets.append(read_grammar_file(grammar_file, args.pwm_file))
 
-    #assert len(grammar_sets) == 1
+    assert len(grammar_sets) == 1
 
     # pull in motif annotation
     pwm_list = read_pwm_file(args.pwm_file)
     pwm_names = [pwm.name for pwm in pwm_list]
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
     logger.info("{} motifs used".format(len(pwm_list)))
-
-    # set up dataloader
+    
+    # set up file loader, dependent on importance fn
+    #if args.backprop == "integrated_gradients":
+    #    data_loader_fn = load_step_scaled_data_from_filename_list
+    #elif args.backprop == "deeplift":
+    #    data_loader_fn = load_data_with_shuffles_from_filename_list
+    #else:
+    #    data_loader_fn = load_data_from_filename_list
+        #data_loader_fn = load_data_with_shuffles_from_filename_list
+        #print "set for shuffles!"
     dataloader = H5DataLoader(
         {"data": data_files},
         filter_tasks=[
@@ -105,7 +112,7 @@ def run(args):
             "importances_fn": args.backprop,
             "importance_task_indices": args.inference_tasks,
             "pwms": pwm_list,
-            "manifold": args.manifold_file}
+            "grammars": grammar_sets}
         interpret_v2(tronn_graph, results_h5_file, infer_params, num_evals=args.sample_size)
 
         # attach useful information
