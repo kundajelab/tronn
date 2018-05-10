@@ -185,6 +185,8 @@ def generate_mutation_batch(inputs, params):
     outputs["pwm-max-positions"] = motif_max_positions # {N, M}
     print motif_max_positions
 
+    # TODO - only generate the mutation if there is a positive log likelihood hit
+
     # get indices at global level
     with h5py.File(manifold_h5_file, "r") as hf:
         pwm_vector = hf["master_pwm_vector"][:]

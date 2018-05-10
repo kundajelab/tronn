@@ -24,6 +24,8 @@ import networkx as nx
 from networkx.drawing.nx_pydot import pydot_layout
 
 from scipy.stats import pearsonr
+from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
+from scipy.spatial.distance import squareform
 
 
 def read_grammar_file(grammar_file, pwm_file, as_dict=False):
@@ -720,4 +722,103 @@ def generate_networks(h5_file, pwm_vector_key, task_indices, pwm_list, pwm_dict)
             nx.write_gml(task_graph, "{}.graph.xml".format(task_mut_key), stringizer=str)
             
 
+    return None
+
+
+
+def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cutoff=0.05):
+    """given the h5 file results, extract the grammar results
+    """
+    from scipy.stats import ttest_1samp
+    from tronn.interpretation.motifs import reduce_pwms
+    from tronn.interpretation.motifs import correlate_pwms
+    
+    dmim_prefix = "dmim-scores"
+    pwm_prefix = "pwm-scores"
+
+    # prep by keeping hclust for pwms
+    cor_filt_mat, distances = correlate_pwms(
+        pwm_list,
+        cor_thresh=0.3,
+        ncor_thresh=0.2,
+        num_threads=24)
+    hclust = linkage(squareform(1 - distances), method="ward")
+    
+    # extract clusters
+    with h5py.File(results_h5_file, "r") as hf:
+        num_clusters = hf["manifold_clusters"].shape[1]
+        master_pwm_vector = hf["master_pwm_vector"][:]
+
+
+
+    # set up output array
+    dmim_results = np.zeros((
+        num_clusters,
+        len(inference_tasks),
+        np.sum(master_pwm_vector > 0),
+        len(pwm_list)))
+        
+    # for each cluster, for each task, extract subset
+    for cluster_i in xrange(num_clusters):
+        print cluster_i
+        for task_j in xrange(len(inference_tasks)):
+
+            task_idx = inference_tasks[task_j]
+            task_dmim_prefix = "{}.taskidx-{}".format(dmim_prefix, task_idx)
+            task_pwm_prefix = "{}.taskidx-{}".format(pwm_prefix, task_idx)
+            
+            with h5py.File(results_h5_file, "r") as hf:
+                dmim_scores = hf[task_dmim_prefix][:][hf["manifold_clusters"][:,cluster_i] == 1]
+                pwm_scores = hf[task_pwm_prefix][:][hf["manifold_clusters"][:,cluster_i] == 1]
+
+            print dmim_scores.shape
+
+            # keep dmim results (sum) and pwm vector of things that are above importance thresh
+            dmim_results[cluster_i,task_j,:,:] = np.sum(dmim_scores, axis=0) # {mut, motif}
+            pwm_vector = reduce_pwms(pwm_scores, hclust, pwm_list, std_thresh=2)
+            indices = np.where(pwm_vector > 0)[0].tolist()
+            print [pwm_list[k].name for k in indices]
+            
+            # for each single mutant in set, check which ones responded
+            for mut_k in xrange(dmim_scores.shape[1]):
+                mut_data = dmim_scores[:,mut_k,:]
+                ttest_results = ttest_1samp(mut_data, 0)
+                #keep = pwm_vector * (ttest_results[1] < cutoff)
+                keep = ttest_results[1] < cutoff
+                
+                #print np.sum(keep > 0)
+                #indices = np.where(keep > 0)[0].tolist()
+                #print [pwm_list[k].name for k in indices]
+
+                dmim_results[cluster_i,task_j,mut_k,:] = np.multiply(
+                    keep, dmim_results[cluster_i,task_j,mut_k,:])
+
+    # save out dmim results
+    dataset_key = "{}.merged".format(dmim_prefix)
+    with h5py.File(results_h5_file, "a") as hf:
+        del hf[dataset_key]
+        hf.create_dataset(dataset_key, data=dmim_results)
+
+    # get ordering
+    flattened = np.reshape(
+        np.transpose(dmim_results, axes=[2, 0, 1, 3]),
+        [dmim_results.shape[2], -1])
+    hclust_dmim = linkage(flattened, method="ward")
+    ordered_indices = leaves_list(hclust_dmim)
+    
+    # get subset (mutated set) and reorder
+    dmim_results_master = dmim_results[:,:,:,master_pwm_vector > 0]
+    dmim_results_master = dmim_results_master[:,:,ordered_indices,:]
+    dmim_results_master = dmim_results_master[:,:,:,ordered_indices]
+
+    mut_indices = np.where(master_pwm_vector > 0)[0]
+    mut_indices = mut_indices[ordered_indices]
+    pwm_names = [pwm_list[i].name for i in mut_indices]
+    
+    dataset_key = "{}.merged.master".format(dmim_prefix)
+    with h5py.File(results_h5_file, "a") as hf:
+        del hf[dataset_key]
+        hf.create_dataset(dataset_key, data=dmim_results_master)
+        hf[dataset_key].attrs["pwm_names"] = pwm_names
+                
     return None

@@ -30,6 +30,7 @@ from tronn.interpretation.motifs import setup_pwm_metadata
 
 from tronn.interpretation.grammars import read_grammar_file
 from tronn.interpretation.grammars import get_significant_delta_motifs
+from tronn.interpretation.grammars import generate_grammars_from_dmim
 
 
 def visualize_scores(
@@ -132,6 +133,25 @@ def run(args):
             hf["delta_logits"].attrs["pwm_mut_names"] = pwm_names
             for task_idx in args.inference_tasks:
                 hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
+
+        # save out the master pwm vector
+        with h5py.File(results_h5_file, "a") as hf:
+            with h5py.File(args.manifold_file, "r") as manifold:
+                hf.create_dataset("master_pwm_vector", data=manifold["master_pwm_vector"][:])
+            
+    # TODO - here, now grab out clusters
+    # for each cluster,
+    # determine which motfis responded
+    # plot out the heatmap of results (pwm x pwm), thresholded by whether responded or not
+    # and make a directed graph network
+    generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)
+
+    # go to R and plot things out
+    if True:
+        "plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)
+    
+    quit()
+    
 
     # now for grammar, select out motifs that responded
     # final set of motifs to plot are mutated motifs (significant importance scores)
