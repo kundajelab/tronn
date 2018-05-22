@@ -443,5 +443,11 @@ def clip_edges(inputs, params):
     if params.get("raw-sequence-clipped-key") is not None:
         outputs[params["raw-sequence-clipped-key"]] = inputs[
             params["raw-sequence-key"]][:,:,left_clip:right_clip,:]
+
+    if params.get("clip_string") is not None:
+        outputs["features.string"] = tf.substr(
+            outputs["features.string"],
+            left_clip,
+            right_clip - left_clip)
         
     return outputs, params

@@ -10,12 +10,68 @@ library(RColorBrewer)
 # args
 args <- commandArgs(trailingOnly=TRUE)
 h5_file <- args[1]
-dataset_key <- args[2]
+key <- args[2]
+prefix <- args[3]
 
 #h5ls(h5_file)
 
 # read in data
-data <- h5read(h5_file, dataset_key, read.attributes=TRUE)[,2,]
+data <- h5read(h5_file, key, read.attributes=TRUE)
+
+num_mutations <- dim(data)[2]
+
+#pwm_names <- gsub(".UNK.*", "", attr(dmim_results, "pwm_names"))
+#pwm_names <- gsub("HCLUST-", "", pwm_names)
+
+# colors
+my_palette <- rev(colorRampPalette(brewer.pal(9, "RdBu"))(49))
+
+for (mut_i in 1:num_mutations) {
+
+    mut_data <- t(data[,mut_i,]) # {example, motif}
+    data_norm <- mut_data
+    
+    # draw ordered sample
+    plottable_nrow <- 1000
+    if (nrow(data_norm) > plottable_nrow) {
+        skip_int <- as.integer(nrow(data_norm) / plottable_nrow)
+        ordered_sample_indices <- seq(1, nrow(data_norm), skip_int)
+        data_ordered <- data_norm[ordered_sample_indices,]
+    } else {
+        data_ordered <- data_norm
+    }
+
+    print(dim(data_ordered))
+    
+    plot_file <- paste(prefix, ".mut-", mut_i, ".taskidx-0", ".pdf", sep="")
+    print(plot_file)
+    pdf(plot_file)
+    heatmap.2(
+        as.matrix(data_ordered),
+        Rowv=TRUE,
+        Colv=TRUE,
+        dendrogram="none",
+        trace="none",
+        density.info="none",
+        col=my_palette,
+        symkey=TRUE)
+    dev.off()
+    
+}
+
+
+
+
+
+
+
+
+
+
+quit()
+
+
+
 pwm_data <- h5read(h5_file, "pwm-scores.taskidx-0", read.attributes=TRUE)
 rownames(data) <- attr(data, "pwm_names") # TODO figure out how to make this a default setting
 

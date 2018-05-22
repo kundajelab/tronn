@@ -357,7 +357,8 @@ class H5Handler(object):
                 
             if "example_metadata" in key:
                 tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype="S100").reshape(self.batch_size, 1)
-                #tmp_arrays[key] = np.array(["false=chrY:0-0" for i in xrange(self.batch_size)], dtype=object) # .reshape(self.batch_size, 1)
+            elif "features.string" in key:
+                tmp_arrays[key] = np.array(["NNNNN" for i in xrange(self.batch_size)], dtype="S1000").reshape(self.batch_size, 1)
             else:
                 tmp_arrays[key] = np.zeros(dataset_shape)
         self.tmp_arrays = tmp_arrays
@@ -416,13 +417,15 @@ class H5Handler(object):
         """Go from the tmp array to the h5 file
         """
         for key in self.example_keys:
-            if len(self.tmp_arrays[key].shape) == 1:
-                self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key].reshape(
-                    self.tmp_arrays[key].shape[0], 1)
-            else:
+            try:
+                #if len(self.tmp_arrays[key].shape) == 1:
+                #    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key].reshape(
+                #        self.tmp_arrays[key].shape[0], 1)
+                #else:
                 self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
-            
-                
+            except:
+                import ipdb
+                ipdb.set_trace()
                 
                 #if "example_metadata" in key:
                 #    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key] #.reshape((self.batch_size, 1))

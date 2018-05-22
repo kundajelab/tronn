@@ -187,8 +187,9 @@ def run(args):
         # refine - remove small clusters
         # TODO - put out BED files - write a separate function to pull BED from cluster set
         refined_metacluster_key = "metaclusters-refined"
-        if refined_metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
-            refine_clusters(pwm_scores_h5, metacluster_key, refined_metacluster_key, null_cluster_present=False)
+        #if refined_metacluster_key not in h5py.File(pwm_scores_h5, "r").keys():
+        if True:
+            #refine_clusters(pwm_scores_h5, metacluster_key, refined_metacluster_key, null_cluster_present=False)
             if visualize:
                 for i in xrange(len(dataset_keys)):
                     visualize_clusters(
@@ -213,7 +214,13 @@ def run(args):
                 pwm_list,
                 pwm_dict)
 
-        # TODO also call significant motifs
+        quit()
+        # TODO generate a dataset that is just the called pwms
+        from tronn.interpretation.clustering import aggregate_pwm_results
+        aggregate_pwm_results(results_h5_file, dataset_keys, manifold_h5_file)
+
+        # and plot
+        
 
         quit()
                     

@@ -60,12 +60,14 @@ print(dim(data_ordered))
 
 # color palette
 my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
+my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
 
 # grid
 mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
 mylwid = c(2,6,2)
 mylhei = c(0.5,12,1.5)
 
+if (FALSE){
 # heatmap
 heatmap_file <- paste(
     sub(".h5", "", h5_file),
@@ -96,3 +98,41 @@ heatmap.2(
     lhei=mylhei,
     col=my_palette)
 dev.off()
+
+}
+
+print("here")
+
+heatmap_file <- paste(
+    sub(".h5", "", h5_file),
+    dataset_key,
+    paste(cluster_key, cluster_col-1, sep="-"), # to match 0-START from python
+    "pdf", sep=".")
+print(heatmap_file)
+pdf(heatmap_file, height=18, width=10)
+heatmap.2(
+    as.matrix(data_ordered),
+    Rowv=FALSE,
+    Colv=TRUE,
+    dendrogram="none",
+    trace="none",
+    density.info="none",
+    labRow="",
+    labCol="",
+    cexCol=0.5,
+    keysize=0.1,
+    key.title=NA,
+    key.xlab=NA,
+    key.par=list(pin=c(4,0.1),
+        mar=c(9.1,0,2.1,0),
+        mgp=c(3,2,0),
+        cex.axis=2.0,
+        font.axis=2),
+    margins=c(3,0),
+    lmat=mylmat,
+    lwid=mylwid,
+    lhei=mylhei,
+    col=my_palette,
+    useRaster=TRUE)
+dev.off()
+

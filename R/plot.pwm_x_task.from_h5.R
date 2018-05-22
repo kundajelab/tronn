@@ -73,6 +73,7 @@ print(dim(data_ordered))
 
 # color palette
 my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
+my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
 
 # grid
 mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))

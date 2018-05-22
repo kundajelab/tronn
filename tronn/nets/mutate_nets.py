@@ -27,6 +27,9 @@ def mutate_motif(inputs, params):
 
     # features
     features = inputs["features"]
+    # TODO grab the conditional here
+    
+    
     outputs = dict(inputs)
     
     # params
@@ -36,7 +39,7 @@ def mutate_motif(inputs, params):
     # use gather, with an index tensor that part of it gets shuffled
     features = features[0,0] # {1000, 4}
     
-    for pwm_idx, position in positions:
+    for pwm_idx, position, motif_present in positions:
         # set up start and end positions
         start_pos = tf.maximum(position - filter_width, 0)
         end_pos = tf.minimum(position + filter_width, features.get_shape()[0])
@@ -58,8 +61,11 @@ def mutate_motif(inputs, params):
         all_indices = tf.reshape(all_indices, [features.get_shape()[0]])
         
         # and gather
-        features = tf.gather(features, all_indices)
+        mut_features = tf.gather(features, all_indices)
 
+        # conditional on whether the motif actually had a positive score
+        features = tf.cond(motif_present, lambda: mut_features, lambda: features)
+        
     # readjust dims before returning
     outputs["features"] = tf.expand_dims(tf.expand_dims(features, axis=0), axis=0)
     
@@ -179,12 +185,17 @@ def generate_mutation_batch(inputs, params):
     
     # do it at the global level, on the importance score positions
     # adjust for start position shifts
-    motif_max_positions = tf.argmax(
-        tf.reduce_max(position_maps, axis=1), axis=1) # {N, M}
+    global_position_map = tf.reduce_max(position_maps, axis=1) # {N, pos, M}
+    motif_max_positions = tf.argmax(global_position_map, axis=1) # {N, M}
     motif_max_positions = tf.add(motif_max_positions, start_shift)
     outputs["pwm-max-positions"] = motif_max_positions # {N, M}
     print motif_max_positions
 
+    # only generate a mutation if the score is positive (not negative)
+    # build a conditional for it
+    motif_max_vals = tf.reduce_max(global_position_map, axis=1) # {N, M}
+    outputs["pwm-max-vals"] = motif_max_vals
+    
     # TODO - only generate the mutation if there is a positive log likelihood hit
 
     # get indices at global level
@@ -222,7 +233,9 @@ def generate_mutation_batch(inputs, params):
         for pwm1_idx in pwm_indices[0]:
             mutate_params = {
                 "pos": [
-                    (pwm1_idx, motif_max_positions[i,pwm1_idx])]}
+                    (pwm1_idx,
+                     motif_max_positions[i,pwm1_idx],
+                     tf.greater(motif_max_vals[i,pwm1_idx], 0))]}
             #mutate_params.update(params)
             new_features = {"features": features[i]}
             mutated_outputs, _ = mutate_motif(new_features, mutate_params)
@@ -277,6 +290,7 @@ def run_model_on_mutation_batch(inputs, params):
         model_outputs, params = model_fn(inputs, params) # {N_mutations, task}
         # save logits
         outputs["importance_logits"] = model_outputs["logits"]
+        outputs["mut_probs"] = tf.nn.sigmoid(model_outputs["logits"])
         # TODO - note that here you can then also get the mutation effects out
         
     return outputs, params

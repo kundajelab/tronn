@@ -209,7 +209,7 @@ def get_bp_overlap(features, labels, config, is_training=False):
     nonzero_bp_fraction_per_window = tf.reduce_sum(
         slim.avg_pool2d(
             features_present, [1, max_size], stride=[1,1], padding="VALID"),
-        axis=3, keep_dims=True)
+        axis=3, keepdims=True)
     #features = tf.multiply(
     #    features,
     #    nonzero_bp_fraction_per_window)
@@ -464,7 +464,7 @@ def pwm_position_squeeze(inputs, params):
     
     squeeze_type = params.get("squeeze_type", "max")
     if squeeze_type == "max":
-        max_vals = tf.reduce_max(tf.abs(features), axis=2, keep_dims=True) # {N, task, 1, M}
+        max_vals = tf.reduce_max(tf.abs(features), axis=2, keepdims=True) # {N, task, 1, M}
         max_mask = tf.cast(
             tf.greater_equal(tf.abs(features), max_vals),
             tf.float32) #{N, task, pos, M}
@@ -519,7 +519,7 @@ def multitask_global_pwm_scores(inputs, params):
     for example_features in features_by_example:
         motif_counts = tf.reduce_sum(
             tf.cast(tf.not_equal(example_features, 0), tf.float32),
-            axis=1, keep_dims=True) # sum across tasks {1, 1, M}
+            axis=1, keepdims=True) # sum across tasks {1, 1, M}
         #motif_max = tf.reduce_max(
         #    motif_counts, axis=[1, 3], keep_dims=True) # {1, 1, pos, 1}
         # then mask based on max position
@@ -535,11 +535,11 @@ def multitask_global_pwm_scores(inputs, params):
     reduce_type = params.get("reduce_type", "sum")
 
     if reduce_type == "sum":
-        features_max = tf.reduce_sum(features, axis=1, keep_dims=True)
+        features_max = tf.reduce_sum(features, axis=1, keepdims=True)
     elif reduce_type == "max":
-        features_max = tf.reduce_max(features, axis=1, keep_dims=True)
+        features_max = tf.reduce_max(features, axis=1, keepdims=True)
     elif reduce_type == "mean":
-        features_max = tf.reduce_mean(features, axis=1, keep_dims=True)
+        features_max = tf.reduce_mean(features, axis=1, keepdims=True)
 
     # append or replace
     if append:

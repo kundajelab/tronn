@@ -33,6 +33,7 @@ from tronn.learn.evaluation import get_global_avg_metrics
 
 from tronn.learn.learning_2 import RestoreHook
 
+from tronn.interpretation.interpret import visualize_region
 
 class TronnGraph(object):
     """Builds out a general purpose TRONN model graph"""
@@ -639,7 +640,7 @@ class TronnGraphV2(object):
         return inference_outputs, infer_params
 
 
-    def run_dataflow(self, driver, sess, coord, outputs, h5_file, sample_size=100000):
+    def run_dataflow(self, driver, sess, coord, outputs, h5_file, sample_size=100000, visualize=False):
         """run dataflow
         """
         # set up the outlayer (tensor --> numpy)
@@ -663,8 +664,21 @@ class TronnGraphV2(object):
                     
                     example = dataflow_driver.next()
 
-                    #import ipdb
-                    #ipdb.set_trace()
+                    import ipdb
+                    ipdb.set_trace()
+                    
+                    if visualize:
+
+                        if example["manifold_clusters"][2] > 0:
+                            print "visualize"
+                            import ipdb
+                            ipdb.set_trace()
+                            visualize_region(
+                                example["example_metadata"],
+                                example,
+                                {},
+                                prefix="{}/viz".format(os.path.dirname(h5_file)),
+                                global_idx=10)
                     
                     h5_handler.store_example(example)
                     total_examples += 1

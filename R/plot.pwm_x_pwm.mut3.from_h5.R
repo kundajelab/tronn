@@ -24,22 +24,60 @@ prefix <- args[3]
 
 # read in data
 dmim_results <- h5read(h5_file, key, read.attributes=TRUE)
+pwm_vectors <- h5read(h5_file, "dmim-scores.cluster_pwm_vectors", read.attributes=TRUE)
+#print(dim(pwm_vectors))
+#quit()
 
 num_clusters <- dim(dmim_results)[4]
 num_tasks <- dim(dmim_results)[3]
 
 pwm_names <- gsub(".UNK.*", "", attr(dmim_results, "pwm_names"))
-pwm_names <- gsub("HCLUST-", "", pwm_names)
+pwm_names <- gsub("HCLUST-.*_", "", pwm_names)
+
+days <- c(
+    "d0.0",
+    "d0.5",
+    "d1.0",
+    "d1.5",
+    "d2.0",
+    "d2.5",
+    "d3.0",
+    "d4.5",
+    "d5.0",
+    "d6.0")
+
+
+mut_probs <- h5read(h5_file, "dmim-scores.mut_probs", read.attributes=TRUE)
+print(dim(mut_probs))
 
 # colors
 my_palette <- rev(colorRampPalette(brewer.pal(9, "RdBu"))(49))
 
 # go through datasets
 for (cluster_i in 1:num_clusters) {
+
+    my_palette <- rev(colorRampPalette(brewer.pal(9, "RdBu"))(49))
+    
+    # get the min/max val
+    data <- dmim_results[,,,cluster_i]
+    min_val <- min(data)
+    max_val <- max(data)
+    max_val <- max(abs(min_val), max_val)
+    if (max_val == 0) {
+        max_val <- 0.1
+    }
+    breaks <- seq(-max_val, max_val, length=50)
+
+    # only get the rows and columns that are nonzero?
+    #data_sum <- apply(data, c(1,2), sum)
+    #data_max <- rowSums(data_sum) + colSums(data_sum)
+
+    use_pwms <- pwm_vectors[,cluster_i]
+    
     for (task_j in 1:num_tasks) {
 
         # extract subset
-        data <- dmim_results[,,task_j,cluster_i]
+        data <- t(dmim_results[,,task_j,cluster_i])
         colnames(data) <- pwm_names
         rownames(data) <- pwm_names
 
@@ -53,37 +91,243 @@ for (cluster_i in 1:num_clusters) {
             ordering <- hc$order
         }
         data <- data[ordering, ordering]
+        use_pwms_tmp <- use_pwms[ordering]
+
+        # remove rows and columns that are zeros?
+        data <- data[use_pwms_tmp > 0, use_pwms_tmp > 0]
         
         # plot out
-        plot_file <- paste(prefix, ".cluster-", cluster_i, ".task-", task_j, ".pdf", sep="")
-
-        #p <- ggplot(data_melted, aes(x=response_ordered, y=task)) +
-        #        geom_tile(
-        #            data=subset(data_melted, horiz_facet=="logits"),
-        #            aes(fill=mean),
-        #            colour="white") +
-        ##            geom_tile(
-        #                data=subset(data_melted, horiz_facet=="pwms" & target=="original"),
-        #                aes(fill=-mean),
-        #                colour="white") +
-
+        mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
+        mylwid = c(0.25,2,0.75)
+        mylhei = c(0.25,2.0,0.75)
         
+        plot_file <- paste(prefix, ".cluster-", cluster_i, ".task-", task_j, ".pdf", sep="")        
         print(plot_file)
-        pdf(plot_file)
+        pdf(plot_file, height=10, width=10, family="ArialMT")
         heatmap.2(
             as.matrix(data),
+            main=days[task_j],
             Rowv=FALSE,
             Colv=FALSE,
             dendrogram="none",
             trace="none",
             density.info="none",
-            #cexRow=0.2,
-            #cexCol=0.2,
+
+            colsep=1:ncol(data),
+            rowsep=1:nrow(data),
+            sepcolor="black",
+            sepwidth=c(0.01,0.01),
+            
+            margins=c(1,0),
+            keysize=0.1,
+            key.title=NA,
+            key.xlab=NA,
+            key.par=list(pin=c(4,0.1),
+                mar=c(4.1,0,10.1,0),
+                mgp=c(3,1,0),
+                cex.axis=1.0,
+                font.axis=2),
+
+            srtCol=45,
+            cexCol=3.0,
+            cexRow=3.0,
+            lmat=mylmat,
+            lwid=mylwid,
+            lhei=mylhei,
             col=my_palette,
+            breaks=breaks,
             symkey=TRUE)
         dev.off()
+
     }
+
+    # also plot out the change in probs
+    data <- mut_probs[,,cluster_i]
+    rownames(data) <- pwm_names
+    colnames(data) <- days
+    data <- data[ordering,]
+    print(dim(data))
+    use_pwms_tmp <- use_pwms[ordering]
+    data <- data[use_pwms_tmp > 0,]
+
+    # set up breaks
+    min_val <- min(data)
+    max_val <- max(data)
+    max_val <- max(abs(min_val), max_val, 0.25)
+    
+    breaks <- seq(-max_val, max_val, length=50)
+    
+    mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
+    mylwid = c(0.25,2,0.75)
+    mylhei = c(0.25,2.0,0.75)
+    #my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
+    
+    plot_file <- paste(prefix, ".cluster-", cluster_i,  ".mut_probs.pdf", sep="")        
+    print(plot_file)
+    pdf(plot_file, height=10, width=10, family="ArialMT")
+    heatmap.2(
+        as.matrix(data),
+        main="predictions",
+        Rowv=FALSE,
+        Colv=FALSE,
+        dendrogram="none",
+        trace="none",
+        density.info="none",
+        
+        colsep=1:ncol(data),
+        rowsep=1:nrow(data),
+        sepcolor="black",
+        sepwidth=c(0.01,0.01),
+            
+        margins=c(1,0),
+        keysize=0.1,
+        key.title=NA,
+        key.xlab=NA,
+        key.par=list(pin=c(4,0.1),
+            mar=c(4.1,0,10.1,0),
+            mgp=c(3,1,0),
+            cex.axis=1.0,
+            font.axis=2),
+
+        srtCol=45,
+        cexCol=3.0,
+        cexRow=3.0,
+        lmat=mylmat,
+        lwid=mylwid,
+        lhei=mylhei,
+        col=my_palette,
+        breaks=breaks,
+        symkey=TRUE)
+    dev.off()
+    
 }
+
+
+# for ordering
+data <- t(apply(dmim_results, c(1, 2), sum)) # sum?
+#print(data)
+print(dim(data))
+colnames(data) <- pwm_names
+rownames(data) <- pwm_names
+
+# set up breaks
+min_val <- min(data)
+max_val <- max(data)
+max_val <- max(abs(min_val), max_val) / 10
+breaks <- seq(-max_val, max_val, length=50)
+
+hc <- hclust(dist(data), method="ward.D2")
+ordering <- hc$order
+
+d0_data <- t(apply(dmim_results[,,1,], c(1, 2), sum))
+d0_data <- d0_data[ordering, ordering]
+
+my_palette <- rev(colorRampPalette(brewer.pal(9, "RdBu"))(49))
+
+for (task_i in 1:num_tasks) {
+
+    data <- t(apply(dmim_results[,,task_i,], c(1, 2), sum))
+    print(dim(data))
+    colnames(data) <- pwm_names
+    rownames(data) <- pwm_names
+    data <- data[ordering, ordering]
+
+    # orig plot
+    mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
+    mylwid = c(0.25,3,0.50)
+    mylhei = c(0.25,3,0.5)
+    
+    plot_file <- paste(prefix, ".global", ".task-", task_i, ".pdf", sep="")        
+    print(plot_file)
+    pdf(plot_file, height=10, width=10, family="ArialMT")
+    heatmap.2(
+        as.matrix(data),
+        main=paste("task-", task_i, sep=""),
+        Rowv=FALSE,
+        Colv=FALSE,
+        dendrogram="none",
+        trace="none",
+        density.info="none",
+        
+        colsep=1:ncol(data),
+        rowsep=1:nrow(data),
+        sepcolor="black",
+        sepwidth=c(0.01,0.01),
+            
+        margins=c(1,0),
+        keysize=0.1,
+        key.title=NA,
+        key.xlab=NA,
+        key.par=list(pin=c(4,0.1),
+            mar=c(2.1,0,5.1,0),
+            mgp=c(3,1,0),
+            cex.axis=1.0,
+            font.axis=2),
+        
+        lmat=mylmat,
+        lwid=mylwid,
+        lhei=mylhei,
+        
+        col=my_palette,
+        breaks=breaks,
+        symkey=TRUE)
+    dev.off()
+
+    if (task_i == 1) {
+        next
+    }
+    
+    # diff plot
+    plot_file <- paste(prefix, ".global", ".task-", task_i, ".diff", ".png", sep="")        
+    print(plot_file)
+    png(plot_file)
+    heatmap.2(
+        as.matrix(data - d0_data),
+        main=paste("task-", task_i, sep=""),
+        Rowv=FALSE,
+        Colv=FALSE,
+        dendrogram="none",
+        trace="none",
+        density.info="none",
+        col=my_palette,
+        breaks=breaks,
+        symkey=TRUE)
+    dev.off()
+    
+
+
+    
+}
+
+
+# make a global one
+data <- t(apply(dmim_results, c(1, 2), sum))
+print(data)
+print(dim(data))
+colnames(data) <- pwm_names
+rownames(data) <- pwm_names
+
+hc <- hclust(as.dist(data), method="ward.D2")
+ordering <- hc$order
+data <- data[ordering, ordering]
+
+plot_file <- paste(prefix, ".global.png", sep="")        
+print(plot_file)
+png(plot_file)
+heatmap.2(
+    as.matrix(data),
+    main="global",
+    Rowv=FALSE,
+    Colv=FALSE,
+    dendrogram="none",
+    trace="none",
+    density.info="none",
+    col=my_palette,
+    symkey=TRUE)
+dev.off()
+
+
+
 
 
 q()

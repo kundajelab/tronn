@@ -18,6 +18,8 @@ from collections import Counter
 from tronn.interpretation.motifs import PWM
 from tronn.interpretation.motifs import read_pwm_file
 
+from tronn.interpretation.clustering import sd_cutoff
+
 import phenograph
 
 import networkx as nx
@@ -27,6 +29,7 @@ from scipy.stats import pearsonr
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
 from scipy.spatial.distance import squareform
 
+from scipy.special import expit
 
 def read_grammar_file(grammar_file, pwm_file, as_dict=False):
     """Read in grammar and pwm file to set up grammars
@@ -725,6 +728,41 @@ def generate_networks(h5_file, pwm_vector_key, task_indices, pwm_list, pwm_dict)
     return None
 
 
+def make_network_from_adjacency(adj_array, pwm_names, node_sizes, gml_file):
+    """ given adjacency and pwm names, generate a networkx and gml file
+    """
+    node_scaling = 1.0
+    edge_scaling = 1.0
+    
+    # node list
+    nodes = dict(zip(pwm_names, node_sizes))
+    node_list = []
+    for node_name in nodes.keys():
+        node = (node_name, {"size": node_scaling*nodes[node_name]})
+        node_list.append(node)
+        
+    # edge list
+    edge_list = []
+    for i in xrange(adj_array.shape[0]):
+        for j in xrange(adj_array.shape[1]):
+            val = adj_array[i,j]
+            if val != 0:
+                from_node = pwm_names[i]
+                to_node = pwm_names[j]
+                edge_attrs = {"weight": edge_scaling * abs(val)}
+                edge = (from_node, to_node, edge_attrs)
+                edge_list.append(edge)
+
+    # build graph
+    graph = nx.MultiDiGraph()
+    graph.add_nodes_from(node_list)
+    graph.add_edges_from(edge_list)
+
+    # write out
+    nx.write_gml(graph, gml_file, stringizer=str)
+    
+    return None
+
 
 def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cutoff=0.05):
     """given the h5 file results, extract the grammar results
@@ -747,20 +785,61 @@ def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cuto
     # extract clusters
     with h5py.File(results_h5_file, "r") as hf:
         num_clusters = hf["manifold_clusters"].shape[1]
+        cluster_by_example = range(num_clusters)
+        #cluster_by_example = list(set(hf["manifold_clusters.onehot"][:].tolist()))
+        #num_clusters = len(cluster_by_example)
         master_pwm_vector = hf["master_pwm_vector"][:]
 
-
-
-    # set up output array
+    # set up output arrays
     dmim_results = np.zeros((
         num_clusters,
         len(inference_tasks),
         np.sum(master_pwm_vector > 0),
         len(pwm_list)))
-        
+
+    pwm_results = np.zeros((
+        num_clusters,
+        len(inference_tasks),
+        np.sum(master_pwm_vector > 0)))
+
+    label_results = np.zeros((
+        num_clusters,
+        len(inference_tasks)))
+    
+    prob_results = np.zeros((
+        num_clusters,
+        len(inference_tasks)))
+    
+    logit_results = np.zeros((
+        num_clusters,
+        len(inference_tasks)))
+
+    delta_prob_results = np.zeros((
+        num_clusters,
+        len(inference_tasks),
+        np.sum(master_pwm_vector > 0)))
+
+    # TODO keep track of individual pwm vectors for each cluster.
+    cluster_pwms_results = np.zeros((
+        num_clusters,
+        np.sum(master_pwm_vector >0)))
+    
+    
     # for each cluster, for each task, extract subset
     for cluster_i in xrange(num_clusters):
-        print cluster_i
+        cluster = cluster_by_example[cluster_i]
+        print cluster
+        with h5py.File(results_h5_file, "r") as hf:
+            #in_cluster = hf["manifold_clusters.onehot"][:] == cluster
+            in_cluster = hf["manifold_clusters"][:,cluster_i] == 1
+            delta_logits = hf["delta_logits"][:][in_cluster] # {N, logit, mut}
+            labels = hf["labels"][:][in_cluster][:,inference_tasks]
+            logits = hf["logits"][:][in_cluster][:,inference_tasks] # {N, logit}
+            probs = hf["probs"][:][in_cluster][:,inference_tasks]
+        
+        #cluster_pwms = np.zeros((np.sum(in_cluster > 0), master_pwm_vector.shape[0]))
+        cluster_pwms = np.zeros(master_pwm_vector.shape)
+        
         for task_j in xrange(len(inference_tasks)):
 
             task_idx = inference_tasks[task_j]
@@ -768,35 +847,126 @@ def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cuto
             task_pwm_prefix = "{}.taskidx-{}".format(pwm_prefix, task_idx)
             
             with h5py.File(results_h5_file, "r") as hf:
-                dmim_scores = hf[task_dmim_prefix][:][hf["manifold_clusters"][:,cluster_i] == 1]
-                pwm_scores = hf[task_pwm_prefix][:][hf["manifold_clusters"][:,cluster_i] == 1]
+                dmim_scores = hf[task_dmim_prefix][:][in_cluster]
+                pwm_scores = hf[task_pwm_prefix][:][in_cluster]
 
             print dmim_scores.shape
+            print pwm_scores.shape
 
             # keep dmim results (sum) and pwm vector of things that are above importance thresh
             dmim_results[cluster_i,task_j,:,:] = np.sum(dmim_scores, axis=0) # {mut, motif}
-            pwm_vector = reduce_pwms(pwm_scores, hclust, pwm_list, std_thresh=2)
+            pwm_vector = reduce_pwms(pwm_scores, hclust, pwm_list, std_thresh=1)
+            cluster_pwms = np.maximum(cluster_pwms, np.sum(pwm_scores, axis=0)) # {motif}
+            #cluster_pwms += pwm_scores
             indices = np.where(pwm_vector > 0)[0].tolist()
             print [pwm_list[k].name for k in indices]
-            
+
             # for each single mutant in set, check which ones responded
             for mut_k in xrange(dmim_scores.shape[1]):
                 mut_data = dmim_scores[:,mut_k,:]
                 ttest_results = ttest_1samp(mut_data, 0)
                 #keep = pwm_vector * (ttest_results[1] < cutoff)
-                keep = ttest_results[1] < cutoff
-                
-                #print np.sum(keep > 0)
-                #indices = np.where(keep > 0)[0].tolist()
-                #print [pwm_list[k].name for k in indices]
+                if True:
+                    #keep = (ttest_results[1] < cutoff) * pwm_vector
+                    keep = ttest_results[1] < cutoff
+                    dmim_results[cluster_i,task_j,mut_k,:] = np.multiply(
+                        keep, dmim_results[cluster_i,task_j,mut_k,:])
+                if False:
+                    task_pwm_indices = np.where(pwm_vector > 0)[0]
+                    task_mut_indices = np.where(master_pwm_vector > 0)[0]
+                    if task_mut_indices[mut_k] not in task_pwm_indices:
+                        dmim_results[cluster_i,task_j,mut_k,:] = np.multiply(
+                            [0], dmim_results[cluster_i,task_j,mut_k,:])
 
-                dmim_results[cluster_i,task_j,mut_k,:] = np.multiply(
-                    keep, dmim_results[cluster_i,task_j,mut_k,:])
+                # save out delta logits
+                mut_indices = np.where(master_pwm_vector > 0)[0]
+                mut_motif_present = np.where(pwm_scores[:,mut_indices[mut_k]] > 0)
+                #delta_prob_results[cluster_i,task_j,mut_k] = np.mean(
+                #        delta_logits[mut_motif_present,task_j,mut_k])
 
+                probs_orig = np.expand_dims(expit(logits), axis=2)
+                probs_mut = expit(np.expand_dims(logits, axis=2) + delta_logits)
+                delta_probs = probs_mut - probs_orig
+                delta_prob_results[cluster_i,task_j,mut_k] = np.mean(
+                    delta_probs[mut_motif_present,task_j,mut_k])
+                        
+            # also save out pwm results
+            pwm_results[cluster_i, task_j,:] = np.sum(pwm_scores, axis=0)[master_pwm_vector > 0]
+            
+            
+        # save out labels, logits, and delta logit results
+        label_results[cluster_i,:] = np.mean(labels, axis=0)
+        prob_results[cluster_i,:] = np.mean(probs, axis=0)
+        logit_results[cluster_i,:] = np.mean(logits, axis=0)
+            #delta_prob_results[cluster_i,:,:] = np.mean(
+            #    expit(np.expand_dims(logits, axis=2) + delta_logits), axis=0)
+
+            # TODO - ideally only average per mutation on regions that have that motif
+            # in orig pwm scores
+        #delta_prob_results[cluster_i,:,:] = np.mean(delta_logits, axis=0)
+
+        # save out cluster pwms
+        # TODO - do this using a max matrix across pwm scores
+        #with h5py.File(results_h5_file, "r") as hf:
+        #    in_cluster = hf["manifold_clusters"][:,cluster_i] == 1
+        #    global_prefix = "{}.taskidx-{}".format(pwm_prefix, len(inference_tasks))
+        #    print global_prefix
+        #    cluster_pwms = hf[global_prefix][:][in_cluster]
+        #cluster_pwms_results[cluster_i,:] = reduce_pwms(
+        #    pwm_global_scores, hclust, pwm_list, std_thresh=1)[master_pwm_vector > 0]
+        #cluster_pwms_results[cluster_i,:] = reduce_pwms(
+        #    cluster_pwms, hclust, pwm_list, std_thresh=1)[master_pwm_vector > 0]
+
+        # get best pwms
+        nonzero_means = np.hstack((cluster_pwms, -cluster_pwms))
+        mean_val = np.mean(nonzero_means)
+        std_val = np.std(nonzero_means)
+        sig_pwms = (cluster_pwms > (mean_val + (std_val * 2))).astype(int)
+        
+        #scores = np.sum(cluster_pwms, axis=0).tolist()
+        #test = dict(zip([pwm.name for pwm in pwm_list], cluster_pwms))
+        #for key in test.keys():
+        #    if "TEAD" in key:
+        #        print key, test[key]
+        #    elif "CEBP" in key:
+        #        print key, test[key]
+        #    elif "RELA" in key:
+        #        print key, test[key]
+        #print test
+        #sig_pwms = sd_cutoff(cluster_pwms, std_thresh=2)
+        indices = np.where(sig_pwms > 0)[0].tolist()
+        pwm_names = [pwm_list[k].name for k in indices]
+        #import ipdb
+        #ipdb.set_trace()
+        
+        cluster_pwms_results[cluster_i,:] = sig_pwms[master_pwm_vector > 0]
+        #sd_cutoff(cluster_pwms, std_thresh=2)[master_pwm_vector > 0]
+
+        for task_j in xrange(len(inference_tasks)):
+            # edges
+            adjacency_array = dmim_results[cluster_i,task_j,cluster_pwms_results[cluster_i,:]>0,:]
+            adjacency_array = adjacency_array[:,master_pwm_vector>0]
+            adjacency_array = adjacency_array[:,cluster_pwms_results[cluster_i,:]>0]
+            print adjacency_array.shape
+            
+            # nodes
+            node_sizes = pwm_results[cluster_i,task_j,cluster_pwms_results[cluster_i,:] > 0]
+            print node_sizes
+
+            # node names
+            mut_indices = np.where(master_pwm_vector > 0)[0]
+            mut_indices = mut_indices[cluster_pwms_results[cluster_i,:] > 0]
+            pwm_names = [pwm_list[k].name.split("_")[1].split(".")[0] for k in mut_indices]
+            print pwm_names
+
+            gml_file = "{}.cluster_{}.task_{}.gml".format(results_h5_file.split(".h5")[0], cluster_i, task_j)
+            make_network_from_adjacency(adjacency_array, pwm_names, node_sizes, gml_file)
+        
     # save out dmim results
     dataset_key = "{}.merged".format(dmim_prefix)
     with h5py.File(results_h5_file, "a") as hf:
-        del hf[dataset_key]
+        if hf.get(dataset_key) is not None:
+            del hf[dataset_key]
         hf.create_dataset(dataset_key, data=dmim_results)
 
     # get ordering
@@ -817,8 +987,54 @@ def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cuto
     
     dataset_key = "{}.merged.master".format(dmim_prefix)
     with h5py.File(results_h5_file, "a") as hf:
-        del hf[dataset_key]
+        if hf.get(dataset_key) is not None:
+            del hf[dataset_key]
         hf.create_dataset(dataset_key, data=dmim_results_master)
         hf[dataset_key].attrs["pwm_names"] = pwm_names
-                
+
+    # save out pwm results
+    dataset_key = "{}.pwm_scores_by_cluster".format(dmim_prefix)
+    with h5py.File(results_h5_file, "a") as hf:
+        if hf.get(dataset_key) is not None:
+            del hf[dataset_key]
+        hf.create_dataset(dataset_key, data=pwm_results[:,:,ordered_indices])
+        hf[dataset_key].attrs["pwm_names"] = pwm_names
+
+    # save out labels and logits
+    dataset_key = "{}.labels".format(dmim_prefix)
+    with h5py.File(results_h5_file, "a") as hf:
+        if hf.get(dataset_key) is not None:
+            del hf[dataset_key]
+        hf.create_dataset(dataset_key, data=label_results)
+
+    dataset_key = "{}.probs".format(dmim_prefix)
+    with h5py.File(results_h5_file, "a") as hf:
+        if hf.get(dataset_key) is not None:
+            del hf[dataset_key]
+        hf.create_dataset(dataset_key, data=prob_results)
+
+    dataset_key = "{}.logits".format(dmim_prefix)
+    with h5py.File(results_h5_file, "a") as hf:
+        if hf.get(dataset_key) is not None:
+            del hf[dataset_key]
+        hf.create_dataset(dataset_key, data=logit_results)
+
+
+    # save out delta logits
+    # subtract from logits and then convert to probs?
+    dataset_key = "{}.mut_probs".format(dmim_prefix)
+    with h5py.File(results_h5_file, "a") as hf:
+        if hf.get(dataset_key) is not None:
+            del hf[dataset_key]
+        hf.create_dataset(dataset_key, data=delta_prob_results[:,:,ordered_indices])
+
+    # save out cluster pwms
+    dataset_key = "{}.cluster_pwm_vectors".format(dmim_prefix)
+    with h5py.File(results_h5_file, "a") as hf:
+        if hf.get(dataset_key) is not None:
+            del hf[dataset_key]
+        hf.create_dataset(dataset_key,
+                          data=cluster_pwms_results[:,ordered_indices])
+        
+    
     return None

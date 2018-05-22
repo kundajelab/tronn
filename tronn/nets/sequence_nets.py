@@ -184,3 +184,55 @@ def generate_scaled_inputs(data, params):
     data, params = rebatch(data, {"name": "rebatch_dinuc"})
     
     return data, params
+
+
+
+def _make_basepair_array(features, basepair_string="N"):
+    """generate a tf.string array of basepairs, to be used with masks
+    """
+    # get shape
+    num_examples = features.get_shape().as_list()[0]
+    num_basepairs = features.get_shape().as_list()[1]
+
+    # get basepair array
+    basepair_array = tf.stack([tf.convert_to_tensor(basepair_string, dtype=tf.string)
+                               for i in xrange(num_basepairs)])
+    basepair_array = tf.stack([basepair_array for i in xrange(num_examples)], axis=0)
+    
+    return basepair_array
+
+
+def onehot_to_string(inputs, params):
+    """convert onehot back into a string
+    """
+    features = tf.squeeze(inputs["features"]) # {N, 1000, 4}
+    outputs = dict(inputs)
+
+    max_indices = tf.argmax(features, axis=2) # {N, 1000}
+    is_n = tf.reduce_sum(features, axis=2) # {N, 1000}
+
+    # set up the null string and basepair strings
+    basepair_strings = ["N", "A", "C", "G", "T"]
+    basepair_arrays = []
+    for basepair_string in basepair_strings:
+        basepair_arrays.append(_make_basepair_array(max_indices, basepair_string))
+
+    # set up the basepairs
+    string_array = basepair_arrays[0] # null
+    for i in xrange(1, len(basepair_strings)):
+        string_array = tf.where(
+            tf.equal(max_indices, i-1),
+            basepair_arrays[i],
+            string_array)
+        
+    # make sure that null basepairs stay null
+    string_array = tf.where(
+        tf.equal(is_n, 0),
+        basepair_arrays[0],
+        string_array)
+
+    # and reduce
+    features = tf.reduce_join(string_array, axis=1)
+    outputs["features.string"] = features
+    
+    return outputs, params

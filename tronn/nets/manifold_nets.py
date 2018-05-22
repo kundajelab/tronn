@@ -72,6 +72,9 @@ def score_manifold_distances(inputs, params):
         tf.greater_equal(outputs["manifold_distances"], manifold_thresholds),
         tf.float32)
     outputs["manifold_clusters"] = tf.reduce_mean(passes_thresholds, axis=1) # {N, cluster}
+    outputs["manifold_clusters.onehot"] = tf.argmax(
+        tf.reduce_mean(outputs["manifold_distances"], axis=1),
+        axis=1) # {N}
     
     # now get motif thresholds
     with h5py.File(manifold_h5_file, "r") as hf:

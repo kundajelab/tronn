@@ -63,7 +63,7 @@ def visualize_region(
 
     pwm_list = viz_params.get("pwms")
     grammars = viz_params.get("grammars")
-    assert pwm_list is not None
+    #assert pwm_list is not None
 
     pwm_x_pos_scores_file = None
     global_pwm_scores_file = None
@@ -76,8 +76,10 @@ def visualize_region(
             plot_name = "{}.{}.pdf".format(region_prefix, key)
             print plot_name
             plot_weights(np.squeeze(region_arrays[key]), plot_name) # array, fig name
-            
-        elif "global-pwm-scores" in key:
+
+        elif False:
+        #elif "global-pwm-scores" in key:
+        
             # save out to matrix
             pwm_x_pos_scores_file = "{}.{}.txt".format(region_prefix, key)
             motif_pos_scores = np.transpose(np.squeeze(region_arrays[key]))
@@ -106,7 +108,8 @@ def visualize_region(
                     grammar_pwm_scores_df = motif_pos_scores_df.loc[grammar.nodes]
                     grammar_pwm_scores_df.to_csv(grammar_pwm_scores_file, header=False, sep="\t")
             
-        elif "pwm-scores.taskidx-{}".format(global_idx) in key:
+        #elif "pwm-scores.taskidx-{}".format(global_idx) in key:
+        elif False:
             # save out to matrix
             global_pwm_scores_file = "{}.{}.txt".format(region_prefix, key)
             motif_pos_scores = np.transpose(np.squeeze(region_arrays[key]))
@@ -122,9 +125,10 @@ def visualize_region(
             print "logits:", region_arrays[key][0:12]
 
     # and plot
-    print pwm_x_pos_scores_file
-    print global_pwm_scores_file
-    if (pwm_x_pos_scores_file is not None) and (global_pwm_scores_file is not None):
+    #print pwm_x_pos_scores_file
+    #print global_pwm_scores_file
+    if False:
+    #if (pwm_x_pos_scores_file is not None) and (global_pwm_scores_file is not None):
         plot_motif_x_pos = "plot.pwm_x_position.R {} {}".format(pwm_x_pos_scores_file, global_pwm_scores_file)
         print plot_motif_x_pos
         os.system(plot_motif_x_pos)

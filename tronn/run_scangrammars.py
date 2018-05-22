@@ -100,6 +100,7 @@ def run(args):
     results_h5_file = "{0}/{1}.inference.h5".format(
         args.tmp_dir, args.prefix)
     if not os.path.isfile(results_h5_file):
+    #if False:
         infer_params = {
             "model_fn": net_fns[args.model["name"]],
             "inference_fn": net_fns[args.inference_fn],
@@ -109,36 +110,38 @@ def run(args):
             "manifold": args.manifold_file}
         interpret_v2(tronn_graph, results_h5_file, infer_params, num_evals=args.sample_size)
 
-        # attach useful information
-        with h5py.File(results_h5_file, "a") as hf:
-            # add in PWM names to the datasets
-            for dataset_key in hf.keys():
-                if "pwm-scores" in dataset_key:
-                    hf[dataset_key].attrs["pwm_names"] = [
-                        pwm.name for pwm in pwm_list]
-
-        # save PWM names with the mutation dataset in hdf5
-        with h5py.File(results_h5_file, "a") as hf:
-
-            # get motifs from grammar
-            motifs = []
-            for grammar in grammar_sets[0]:
-                motifs += np.where(grammar.pwm_thresholds > 0)[0].tolist()
-            pwm_indices = sorted(list(set(motifs)))
-
-            # get names
-            pwm_names = [pwm_list[i].name.split(".")[0].split("_")[1] for i in pwm_indices]
-
-            # attach to delta logits and mutated scores
-            hf["delta_logits"].attrs["pwm_mut_names"] = pwm_names
-            for task_idx in args.inference_tasks:
-                hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
-
-        # save out the master pwm vector
+        # save out master pwm vector
         with h5py.File(results_h5_file, "a") as hf:
             with h5py.File(args.manifold_file, "r") as manifold:
                 hf.create_dataset("master_pwm_vector", data=manifold["master_pwm_vector"][:])
-            
+
+
+        if False:
+            # attach useful information
+            with h5py.File(results_h5_file, "a") as hf:
+                # add in PWM names to the datasets
+                for dataset_key in hf.keys():
+                    if "pwm-scores" in dataset_key:
+                        hf[dataset_key].attrs["pwm_names"] = [
+                            pwm.name for pwm in pwm_list]
+                        
+            # save PWM names with the mutation dataset in hdf5
+            with h5py.File(results_h5_file, "a") as hf:
+                
+                # get motifs from grammar
+                motifs = []
+                for grammar in grammar_sets[0]:
+                    motifs += np.where(grammar.pwm_thresholds > 0)[0].tolist()
+                pwm_indices = sorted(list(set(motifs)))
+
+                # get names
+                pwm_names = [pwm_list[i].name.split(".")[0].split("_")[1] for i in pwm_indices]
+
+                # attach to delta logits and mutated scores
+                hf["delta_logits"].attrs["pwm_mut_names"] = pwm_names
+                for task_idx in args.inference_tasks:
+                    hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
+                
     # TODO - here, now grab out clusters
     # for each cluster,
     # determine which motfis responded
