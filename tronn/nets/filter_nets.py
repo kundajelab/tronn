@@ -129,7 +129,9 @@ def filter_singleton_labels(inputs, params):
         tf.reduce_sum(label_subset, axis=1), [1])
 
     # run through queue
+    params.update({"num_queue_threads": 4})
     outputs, params = filter_and_rebatch(outputs, params)
+    params.update({"num_queue_threads": 1})
     
     return outputs, params
 

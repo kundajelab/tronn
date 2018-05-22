@@ -376,6 +376,7 @@ def sequence_to_dmim(inputs, params):
         # generate mutations and run model and get dfim
         (generate_mutation_batch, {}),
         (run_model_on_mutation_batch, {}),
+        (onehot_to_string, {"string_key": "mut_features.string"}),
         (delta_logits, {"logits_to_features": False}),
         (multitask_importances, {"backprop": method, "relu": False}), # check relu - should this be done later?
         

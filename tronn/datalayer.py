@@ -6,6 +6,8 @@ import h5py
 import math
 import logging
 
+import abc
+
 import numpy as np
 import tensorflow as tf
 
@@ -27,60 +29,7 @@ def get_total_num_examples(data_files, features_key="features"):
     return num_examples
 
 
-def make_bed_from_h5(h5_file, bed_file):
-    """Extract the regions from an hdf5 to make a bed file
-    
-    Args:
-      h5_file: input file with 'regions'
-      bed_file: output BED format file
-
-    Returns:
-      None
-    """
-    with h5py.File(h5_file, 'r') as hf:
-        regions = hf['regions']
-        with open(bed_file, 'w') as out:
-            for i in range(regions.shape[0]):
-                region = regions[i,0]
-                chrom = region.split(':')[0]
-                start = region.split(':')[1].split('-')[0]
-                stop = region.split(':')[1].split('-')[1]
-                out.write('{0}\t{1}\t{2}\n'.format(chrom, start, stop))
-
-
-def load_data_from_feed_dict(
-        input_dict,
-        batch_size,
-        task_indices=[],
-        features_key='features',
-        shuffle=False,
-        shuffle_seed=0,
-        ordered_num_epochs=1,
-        fake_task_num=0,
-        filter_tasks=[]):
-    """Load from a feed dict
-    """
-    assert input_dict["features:0"] is not None
-    assert input_dict["labels:0"] is not None
-    assert input_dict["metadata:0"] is not None
-    
-    features = tf.placeholder(
-        tf.float32,
-        shape=[batch_size]+list(input_dict["features:0"].shape[1:]),
-        name="features")
-    labels = tf.placeholder(
-        tf.float32,
-        shape=[batch_size]+list(input_dict["labels:0"].shape[1:]),
-        name="labels")
-    metadata = tf.placeholder(
-        tf.string,
-        shape=[batch_size]+list(input_dict["metadata:0"].shape[1:]),
-        name="metadata")
-    
-    return features, labels, metadata
-
-
-def hdf5_to_slices(
+def _hdf5_to_slices(
         h5_handle,
         task_indices,
         start_idx,
@@ -139,7 +88,7 @@ def hdf5_to_slices(
     return [features, labels, metadata]
 
                 
-def hdf5_to_tensors(
+def _hdf5_to_tensors(
         hdf5_file,
         batch_size,
         task_indices=[],
@@ -188,7 +137,7 @@ def hdf5_to_tensors(
           tensors of features, labels, metadata
         """
         batch_start = batch_id*batch_size
-        return hdf5_to_slices(
+        return _hdf5_to_slices(
             h5_handle,
             task_indices,
             batch_start,
@@ -284,7 +233,7 @@ def hdf5_list_to_ordered_tensors(
         file_idx, local_batch = global_batch_to_file_idx[batch_id]
 	h5_handle = h5_handles[file_idx]
         batch_start = local_batch*batch_size
-        return hdf5_to_slices(
+        return _hdf5_to_slices(
             h5_handle,
             task_indices,
             batch_start,
@@ -706,7 +655,7 @@ def tflearn_input_fn(
     def load_onehot_sequences_from_filename_list():
         """Function to put into tflearn
         """
-        example_slices_list = [hdf5_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=True)
+        example_slices_list = [_hdf5_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=True)
                                for hdf5_file in hdf5_files]
         min_after_dequeue = 10000
         capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
@@ -726,31 +675,6 @@ def tflearn_input_fn(
         return features, labels
 
     return load_onehot_sequences_from_filename_list
-
-
-
-
-
-# main thing: want to set up the dataloader earlier
-# but only instantiate when you're in the graph
-
-# big overall flow: get stuff set up first, then set up graph, then run
-# all handled in the graph?
-# inputs = dataloader.build_dataflow()
-# model_outputs = model.build_inference_dataflow(inputs) # every model checks the inputs to make sure it has the right ones
-# inference_outputs = inference_stack(model_outputs)
-# outputs = outlayer.run(inference_outputs)
-
-# set up as inputs (dict, batched) and params (dict, singles)
-
-#filter_through_labels(features, labels, metadata, filter_tasks, batch_size)
-
-# possible transforms:
-# filter through labels
-# add variants (using vcf file?)
-# add shuffles (all cases)
-# add steps (IG)
-
 
 
 
@@ -776,7 +700,7 @@ class DataLoader(object):
         self.epochs = epochs
         self.fake_task_num = fake_task_num
         
-        # set up the transform stack
+        # set up the transform stack as needed
         self.transform_stack = []
         if len(self.filter_tasks) != 0:
             # go through the list to subset more finegrained
@@ -801,11 +725,13 @@ class DataLoader(object):
             self.transform_stack.append((
                 generate_scaled_inputs,
                 {"num_scaled_inputs": num_scaled_inputs}))
+
             
+    @abc.abstractmethod
     def load_raw_data(self, batch_size):
         """defined in inherited classes
         """
-        return None
+        pass
 
     
     def apply(self, transform_fn, params):
@@ -900,7 +826,8 @@ class H5DataLoader(DataLoader):
     def load_raw_data(self, batch_size, data_key):
         """call dataloading function
         """
-        # TODO - here would add in extra queues before final load to adjust ratio of positives to negatives
+        # TODO - here would add in extra queues before final load
+        # to adjust ratio of positives to negatives
         inputs = load_data_from_filename_list(
             self.data_files[data_key],
             batch_size,
@@ -971,21 +898,42 @@ class H5DataLoader(DataLoader):
 class ArrayDataLoader(DataLoader):
     """build a dataloader from numpy arrays"""
 
-    def __init__(self, array_names, array_shapes):
+    def __init__(self, feed_dict, array_names, array_types):
         """keep names and shapes
         """
+        self.feed_dict = feed_dict
         self.array_names = array_names
-        self.array_shapes = array_shapes
+        self.array_types = array_types
 
         # check
-        assert len(self.array_names) == len(array_shapes)
+        assert len(self.array_names) == len(array_types)
 
-
+        
     def load_raw_data(self, batch_size):
         """load data
         """
-        return None
+        inputs = {}
+        for i in xrange(len(array_names)):
+            array_name = array_names[i]
+            full_array_name = "{}:0".format(array_name)
+            assert input_dict[full_array_name] is not None
 
+            inputs[array_name] = tf.placeholder(
+                array_types[i],
+                shape=[batch_size]+list(feed_dict[full_array_name].shape[1:]),
+                name=array_name)
+            
+        return inputs
+
+    
+    def build_estimator_input_fn(self, feed_dict, batch_size):
+        """build the dataflow function for Estimator framework
+        """
+        my_input_fn = tf.estimator.inputs.numpy_input_fn(
+            [self.feed_dict, self.feed_dict])
+        
+        return my_input_fn
+    
 
 class VariantDataLoader(DataLoader):
     """build a dataloader that starts from a vcf file"""

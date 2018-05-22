@@ -824,7 +824,6 @@ def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cuto
         num_clusters,
         np.sum(master_pwm_vector >0)))
     
-    
     # for each cluster, for each task, extract subset
     for cluster_i in xrange(num_clusters):
         cluster = cluster_by_example[cluster_i]
@@ -836,6 +835,26 @@ def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cuto
             labels = hf["labels"][:][in_cluster][:,inference_tasks]
             logits = hf["logits"][:][in_cluster][:,inference_tasks] # {N, logit}
             probs = hf["probs"][:][in_cluster][:,inference_tasks]
+            metadata = hf["example_metadata"][:][in_cluster]
+
+        # save out the metadata as a bed file
+        metadata_file = "{0}.cluster-{1}.metadata.txt".format(dmim_prefix, cluster)
+        print metadata_file
+        np.savetxt(metadata_file, metadata, fmt="%s", delimiter="\t")
+        
+        # make bed from the active region
+        metadata_bed = "{0}.cluster-{1}.metadata.bed".format(dmim_prefix, cluster)
+        make_bed = (
+            "cat {0} | "
+            "awk -F ';' '{{ print $2 }}' | "
+            "awk -F '=' '{{ print $2 }}' | "
+            "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
+            "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
+            "sort -k1,1 -k2,2n | "
+            "bedtools merge -i stdin "
+            "> {1}").format(
+                metadata_file, metadata_bed)
+        os.system(make_bed)
         
         #cluster_pwms = np.zeros((np.sum(in_cluster > 0), master_pwm_vector.shape[0]))
         cluster_pwms = np.zeros(master_pwm_vector.shape)

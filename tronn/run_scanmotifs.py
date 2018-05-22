@@ -75,7 +75,7 @@ def run(args):
         singleton_filter_tasks=args.inference_tasks)
     input_fn = dataloader.build_estimator_input_fn("data", args.batch_size)
 
-    if False:
+    if True:
         # set up model
         model_manager = ModelManager(
             net_fns[args.model["name"]],
@@ -91,7 +91,7 @@ def run(args):
                 "backprop": args.backprop,
                 "importance_task_indices": args.inference_tasks,
                 "pwms": pwm_list},
-            checkpoint="blah", #args.model_checkpoints[0],
+            #checkpoint="blah", #args.model_checkpoints[0],
             yield_single_examples=True)
 
         # run inference and save out
@@ -215,6 +215,7 @@ def run(args):
                 pwm_dict)
 
         quit()
+        
         # TODO generate a dataset that is just the called pwms
         from tronn.interpretation.clustering import aggregate_pwm_results
         aggregate_pwm_results(results_h5_file, dataset_keys, manifold_h5_file)
@@ -252,228 +253,7 @@ def run(args):
 
         # 5) optional - separately, get metrics on all tasks and save out (AUPRC, etc)
         # think of as a giant confusion matrix
-        
-        
 
-
-
-    
-    quit()
-    
-    if not args.no_groups:
-        logger.info("Clustering regions per task.")
-    
-        # now for each timepoint task, go through and calculate communities
-        for i in xrange(len(args.inference_tasks)):
-
-            interpretation_task_idx = args.inference_tasks[i]
-            logger.info("finding communities for task {}".format(interpretation_task_idx))
-
-            # extract motif mat (region, motif) and save out to text file (to handle in R or python)
-            region_x_pwm_mat_file = "{0}/{1}.task-{2}.region_x_pwm.txt".format(
-                args.tmp_dir, args.prefix, interpretation_task_idx)
-            logger.info("extracting region x pwm matrix")
-            if not os.path.isfile(region_x_pwm_mat_file):
-                h5_dataset_to_text_file(
-                    pwm_scores_h5,
-                    "pwm-scores.taskidx-{}".format(i), # use i because the ordering in the file is just 0-10
-                    region_x_pwm_mat_file,
-                    range(len(pwm_list)),
-                    pwm_names)
-
-            # get a sorted (ie clustered) version of the motif mat using phenograph (Louvain)
-            # TODO somehow need to get the labels to exist with this file also....
-            region_x_pwm_sorted_mat_file = "{0}.phenograph_sorted.txt".format(
-                region_x_pwm_mat_file.split(".txt")[0])
-            logger.info("using louvain communities to cluster regions")
-            if not os.path.isfile(region_x_pwm_sorted_mat_file):
-                phenograph_cluster(region_x_pwm_mat_file, region_x_pwm_sorted_mat_file)
-
-            if visualize:
-                # here, plot a example x pwm plot
-                viz_file = "{0}/{1}.pdf".format(
-                    viz_dir,
-                    os.path.basename(region_x_pwm_sorted_mat_file).split(".txt")[0])
-                plot_example_x_pwm = "plot.example_x_pwm.R {0} {1}".format(
-                    region_x_pwm_sorted_mat_file, viz_file)
-                print(plot_example_x_pwm)
-                os.system(plot_example_x_pwm)
-                
-            # get the correlation matrix to look at, not really necessary?
-            pwm_x_pwm_corr_file = "{0}/{1}.task-{2}.pwm_x_pwm.corr.mat.txt".format(
-                args.tmp_dir, args.prefix, interpretation_task_idx)
-            logger.info("get the correlation matrix")
-            if not os.path.isfile(pwm_x_pwm_corr_file):
-                get_correlation_file(
-                    region_x_pwm_sorted_mat_file,
-                    pwm_x_pwm_corr_file,
-                    corr_method="continuous_jaccard")
-
-            if visualize:
-                # plot the correlation plot too
-                viz_file = "{0}/{1}.pdf".format(
-                    viz_dir,
-                    os.path.basename(pwm_x_pwm_corr_file).split(".mat.txt")[0])
-                plot_pwm_x_pwm = "plot.pwm_x_pwm.R {0} {1}".format(
-                    pwm_x_pwm_corr_file, viz_file)
-                print(plot_pwm_x_pwm)
-                os.system(plot_pwm_x_pwm)
-
-        # and then enumerate
-        community_files = [
-            "{0}/{1}.task-{2}.region_x_pwm.phenograph_sorted.txt".format(
-                args.out_dir, args.prefix, i)
-            for i in args.inference_tasks]
-
-        # maybe put these into separate folders?
-        # TODO figure out how to get labels in these h5 files too
-        logger.info("enumerating metacommunities")
-        metacommunity_files = sorted(
-            glob.glob("{}/{}.metacommunity_*.h5".format(
-                args.out_dir, args.prefix)))
-        if len(metacommunity_files) == 0:
-            enumerate_motifspace_communities(
-                community_files,
-                args.inference_tasks,
-                "{}/{}".format(args.out_dir, args.prefix),
-                pwm_list)
-        metacommunity_files = sorted(
-            glob.glob("{}/{}.metacommunity_*.h5".format(
-                args.out_dir, args.prefix)))
-
-        if visualize:
-            # plot!
-            pass
-
-        # get the constrained motif set
-        for i in xrange(len(metacommunity_files)):
-
-            metacommunity_file = metacommunity_files[i]
-            metacommunity_prefix = os.path.basename(metacommunity_file).split(".h5")[0]
-            metacommunity_region_file = "{}.region_ids.refined.txt".format(metacommunity_file.split(".h5")[0])
-            metacommunity_bed_file = "{}.bed".format(metacommunity_region_file.split(".txt")[0])
-            metacommunity_regions = []
-            metacommunity_pwms = []
-            metacommunity_pwm_x_task_means_file = "{}.means.txt".format(
-                metacommunity_region_file.split(".txt")[0])
-            print metacommunity_file
-            
-            with h5py.File(metacommunity_file, "r") as hf:
-                for task_idx in xrange(len(args.inference_tasks)):
-                    inference_task_idx = args.inference_tasks[task_idx]
-
-                    # get arrays
-                    data_tmp = hf["features"][:,:,task_idx] # {N, pwm}
-                    pwm_names = hf["pwm_names"][:]
-                    regions = hf["example_metadata"][:]
-                    
-                    # threshold motifs                    
-                    pwm_keep_indices = threshold_motifs(data_tmp)
-                    data_tmp = data_tmp[:, pwm_keep_indices[0]]
-                    pwm_names_thresh = pwm_names[pwm_keep_indices[0]]
-                    
-                    # reduce by motif similarity
-                    if len(pwm_names) > 1:
-                        task_pwms = [pwm_dict[pwm_name] for pwm_name in pwm_names_thresh]
-                        pwm_subset = reduce_pwm_redundancy(task_pwms, pwm_dict, data_tmp)
-                        pwm_subset = [pwm.name for pwm in pwm_subset]
-                        pwm_keep_indices = np.where([True if pwm.name in pwm_subset else False
-                                                     for pwm in task_pwms])
-                        data_tmp = data_tmp[:, pwm_keep_indices[0]]
-                        pwm_names = pwm_names[pwm_keep_indices[0]]
-                    else:
-                        pwm_subset = pwm_names
-                    
-                    # check set coverage
-                    region_keep_indices = np.where(~np.any(data_tmp == 0, axis=1))
-                    data_tmp = data_tmp[region_keep_indices[0],:]                    
-                    regions = regions[region_keep_indices[0]]
-
-                    # TODO - set up thresholds here. threshold at FDR 0.05?
-                    # get back TPR and FPR
-                    # now need a label matrix
-                    global_pwm_keep_indices = np.where([True if pwm_name in pwm_subset else False
-                                                        for pwm_name in pwm_names])
-                    scores = np.sum(hf["features"][:,:,task_idx][:, global_pwm_keep_indices[0]], axis=1) # {N}
-                    
-                    
-                    # save out a grammar file of the core PWMs
-                    grammar_file = "{}.motifset.grammar".format(
-                        metacommunity_file.split(".h5")[0])
-                    node_dict = {}
-                    for pwm in pwm_subset:
-                        node_dict[pwm] = 1.0 # motifset, so all are equal
-                    metacommunity_task_grammar = Grammar(
-                        args.pwm_file,
-                        node_dict,
-                        {},
-                        "taskidx={0};type=metacommunity;directed=no".format(task_idx),
-                        "{0}.taskidx-{1}".format(
-                            metacommunity_prefix,
-                            inference_task_idx))
-                    metacommunity_task_grammar.to_file(grammar_file)
-
-                    # keep union of all regions
-                    metacommunity_regions += regions.tolist()
-                    metacommunity_regions = list(set(metacommunity_regions))
-
-                    # keep union of all pwms
-                    metacommunity_pwms += pwm_subset
-                    metacommunity_pwms = list(set(metacommunity_pwms))
-                    
-                # use union of all regions and union of all pwms to get a pwm x task matrix
-                pwm_x_task_scores = pd.DataFrame()
-                for task_idx in xrange(len(args.inference_tasks)):
-                    inference_task_idx = args.inference_tasks[task_idx]
-                    
-                    # get arrays into a dataframe
-                    data_df = pd.DataFrame(
-                        hf["features"][:,:,task_idx],
-                        index=hf["example_metadata"][:],
-                        columns=hf["pwm_names"][:])
-
-                    # filter
-                    data_df = data_df.loc[metacommunity_pwms, metacommunity_pwms]
-
-                    # get the mean
-                    data_mean = data_df.mean(axis=0)
-                    
-                    # append
-                    pwm_x_task_scores = pwm_x_task_scores.append(
-                        data_mean, ignore_index=True)
-
-                # and save out
-                pwm_x_task_scores = pwm_x_task_scores.fillna(0)
-                pwm_x_task_scores.to_csv(metacommunity_pwm_x_task_means_file, sep="\t")
-                
-                # visualize
-                if visualize:
-                    viz_file = "{}.pdf".format(
-                        metacommunity_pwm_x_task_means_file.split(".txt")[0])
-                    plot_pwm_x_task = "plot.pwm_x_task.R {} {}".format(
-                        metacommunity_pwm_x_task_means_file, viz_file)
-                    print(plot_pwm_x_task)
-                    os.system(plot_pwm_x_task)
-
-                # write out master region set to file
-                with open(metacommunity_region_file, "w") as out:
-                    for region in metacommunity_regions:
-                        out.write("{}\n".format(region))
-
-                # convert to a bed file
-                to_bed = (
-                    "cat {0} | "
-                    "awk -F ';' '{{ print $3 }}' | "
-                    "awk -F '=' '{{ print $2 }}' | "
-                    "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
-                    "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
-                    "sort -k1,1 -k2,2n | "
-                    "bedtools merge -i stdin > "
-                    "{1}").format(
-                        metacommunity_region_file,
-                        metacommunity_bed_file)
-                print to_bed
-                os.system(to_bed)
 
     return None
 

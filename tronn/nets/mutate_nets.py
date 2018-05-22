@@ -380,9 +380,13 @@ def motif_dfim(inputs, params):
         tf.transpose(features[1:], perm=[1, 0, 2]),
         axis=0) # {1, task, M, M}
 
+    # keep the sequence strings
+    outputs["mut_features.string"] = tf.expand_dims(
+        outputs["mut_features.string"], axis=0) # {1, M}
+
     # unpad
     params["num_scaled_inputs"] = params["batch_size"]
-    params["ignore"] = ["features"]
+    params["ignore"] = ["features", "mut_features.string"]
     outputs, params = unpad_examples(outputs, params) 
     
     # rebatch

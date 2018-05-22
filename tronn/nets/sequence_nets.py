@@ -233,6 +233,7 @@ def onehot_to_string(inputs, params):
 
     # and reduce
     features = tf.reduce_join(string_array, axis=1)
-    outputs["features.string"] = features
+    key = params.get("string_key", "features.string")
+    outputs[key] = features
     
     return outputs, params
