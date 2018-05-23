@@ -67,13 +67,13 @@ def run(args):
     logger.info("{} motifs used".format(len(pwm_list)))
 
     # set up dataloader
-    dataloader = H5DataLoader(
-        {"data": data_files},
+    dataloader = H5DataLoader(data_files)
+    input_fn = dataloader.build_input_fn(
+        args.batch_size,
         filter_tasks=[
             args.inference_tasks,
             args.filter_tasks],
         singleton_filter_tasks=args.inference_tasks)
-    input_fn = dataloader.build_estimator_input_fn("data", args.batch_size)
 
     if True:
         # set up model

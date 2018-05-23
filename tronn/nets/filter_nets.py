@@ -104,7 +104,7 @@ def filter_by_labels(inputs, params):
 
 
 def filter_singleton_labels(inputs, params):
-    """Remove examples that are positive only in a single case
+    """Remove examples that are positive only in a single case in the subset
     """
     # assertions
     assert params.get("labels_key") is not None

@@ -18,800 +18,130 @@ from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 from tronn.nets.sequence_nets import generate_scaled_inputs
 
 
-# TODO try to factor this out eventually?
-def get_total_num_examples(data_files, features_key="features"):
-    """Get total examples in a dataset
-    """
-    num_examples = 0
-    for data_file in data_files:
-        with h5py.File(data_file, 'r') as hf:
-            num_examples += hf[features_key].shape[0]
-    return num_examples
-
-
-def _hdf5_to_slices(
-        h5_handle,
-        task_indices,
-        start_idx,
-        batch_size,
-        features_key="features",
-        labels_key="labels",
-        metadata_key="example_metadata"):
-    """Get slices from the datasets back, and pad with null sequences as needed to
-    fill the batch.
-
-    Args:
-      h5_handle: open h5py file
-      task_indices: list of task indices that you want
-      start_idx: start position in file
-      batch_size: size of batch
-      features_key: features key in h5 file. Can be features or importances
-      labels_key: labels key in h5 file
-      metadata_key: metadata key in h5 file
-
-    Returns:
-      slices of features, labels, metadata 
-    """
-    end_idx = start_idx + batch_size
-
-    # if end is within the file, extract out slice. otherwise, pad and pass out full batch
-    if end_idx < h5_handle[features_key].shape[0]:
-        features = h5_handle[features_key][start_idx:end_idx]
-        labels = h5_handle[labels_key][start_idx:end_idx, task_indices]
-        metadata = h5_handle[metadata_key][start_idx:end_idx].reshape(
-            (batch_size, 1))
-
-    else:
-        end_idx_file = h5_handle[features_key].shape[0]
-        batch_padding_num = batch_size - (end_idx_file - start_idx)
-
-        # features - {batch_size, 1, seq_len, 4}
-        features_tmp = h5_handle[features_key][start_idx:end_idx_file]
-        features_padding_shape = [batch_padding_num] + list(features_tmp.shape[1:])
-        features_padding_array = np.zeros(features_padding_shape, dtype=np.float32)
-        features = np.concatenate([features_tmp, features_padding_array], axis=0)
-            
-        # labels - {batch_size, task_num}
-        labels_tmp = h5_handle[labels_key][start_idx:end_idx_file, task_indices]
-        labels_padding_shape = [batch_padding_num, len(task_indices)]
-        labels_padding_array = np.zeros(labels_padding_shape, dtype=np.float32)
-        labels = np.concatenate([labels_tmp, labels_padding_array], axis=0)
-
-        # metadata - {batch_size, 1}
-        metadata_tmp = h5_handle[metadata_key][start_idx:end_idx_file].reshape(
-            (end_idx_file - start_idx, 1))
-        metadata_padding_array = np.array(
-            ["false=chrY:0-0" for i in xrange(batch_padding_num)]).reshape(
-                (batch_padding_num, 1))
-        metadata = np.concatenate([metadata_tmp, metadata_padding_array], axis=0)
-        
-    return [features, labels, metadata]
-
-                
-def _hdf5_to_tensors(
-        hdf5_file,
-        batch_size,
-        task_indices=[],
-        features_key="features",
-        labels_key="labels",
-        shuffle=True,
-        num_epochs=1,
-        fake_task_num=0):
-    """Extract batches from a single hdf5 file.
-    
-    Args:
-      hdf5_file: hdf5 file with input data 
-      batch_size: desired batch size to return to tensor
-      tasks: use if a subset of tasks desired
-      features_key: the key for the input dataset examples ('features' or 'importances')
-      shuffle: shuffle the batches
-      fake_task_num: how many EXTRA outputs to generate to fill in for multi-output
-
-    Returns:
-      features_tensor: a tensor (batch_size, feature_dims) for examples
-      labels_tensor: a tensor (batch_size, num_tasks) for labels
-      metadata_tensor: a tensor (batch_size, 1) for a metadata string (often region name)
-    """
-    # get hdf5 file params
-    h5_handle = h5py.File(hdf5_file, "r")
-    if len(task_indices) == 0:
-        task_indices = range(h5_handle[labels_key].shape[1])
-    
-    # set up batch id producer
-    max_batches = int(math.ceil(h5_handle[features_key].shape[0]/float(batch_size)))
-    logging.info("loading {0} with max batches {1}".format(
-        os.path.basename(hdf5_file), max_batches))
-    batch_id_queue = tf.train.range_input_producer(
-        max_batches, shuffle=shuffle, seed=0, num_epochs=num_epochs)
-    batch_id_tensor = batch_id_queue.dequeue()
-
-    # get examples based on batch_id
-    def batchid_to_examples(batch_id):
-        """Given a batch ID, get the features, labels, and metadata
-        This is an important wrapper to be able to use TensorFlow's pyfunc.
-
-        Args:
-          batch_id: an int that is the batch ID
-
-        Returns:
-          tensors of features, labels, metadata
-        """
-        batch_start = batch_id*batch_size
-        return _hdf5_to_slices(
-            h5_handle,
-            task_indices,
-            batch_start,
-            batch_size,
-            features_key=features_key)
-
-    # pyfunc
-    [features_tensor, labels_tensor, metadata_tensor] = tf.py_func(
-        func=batchid_to_examples,
-        inp=[batch_id_tensor],
-        Tout=[tf.float32, tf.float32, tf.string],
-        stateful=False, name='py_func_batchid_to_examples')
-
-    # set shapes
-    features_tensor.set_shape([batch_size] + list(h5_handle[features_key].shape[1:]))
-    labels_tensor.set_shape([batch_size, len(task_indices)])
-    metadata_tensor.set_shape([batch_size, 1])
-
-    # fake tasks num: this is to be able to check a multitask model on a single output dataset
-    if fake_task_num > 0:
-        labels_list = tf.unstack(labels_tensor, axis=1)
-        labels_final = labels_list + [labels_list[-1] for i in xrange(fake_task_num)]
-        labels_tensor = tf.stack(labels_final, axis=1)
-    
-    return features_tensor, labels_tensor, metadata_tensor
-
-
-def hdf5_list_to_ordered_tensors(
-        hdf5_files, 
-        batch_size, 
-        task_indices=[], 
-        features_key="features",
-        labels_key="labels",
-        shuffle=False,
-        num_epochs=1,
-        fake_task_num=0):
-    """Extract batches from hdf5 file list. This is used to get ordered examples out 
-    to re-merge back into regions.
-
-    Args:
-      hdf5_files: list of hdf5 files with input data 
-      batch_size: desired batch size to return to tensor
-      tasks: use if a subset of tasks desired
-      features_key: the key for the input dataset examples ('features' or 'importances')
-
-    Returns:
-      features_tensor: a tensor (batch_size, feature_dims) for examples
-      labels_tensor: a tensor (batch_size, num_tasks) for labels
-      metadata_tensor: a tensor (batch_size, 1) for a metadata string (often region name)
-    """
-    # get hdf5 file params
-    logging.info("loading {}".format(" ".join(hdf5_files)))
-    h5_handles = [h5py.File(hdf5_file, "r") for hdf5_file in hdf5_files]
-    num_examples_per_file = [get_total_num_examples([hdf5_file]) for hdf5_file in hdf5_files]
-    total_batches_per_file = [int(math.ceil(num_examples) / float(batch_size))
-                              for num_examples in num_examples_per_file ]
-    if len(task_indices) == 0:
-        task_indices = range(h5_handles[0][labels_key].shape[1])
-    
-    # set up batch id producer
-    max_batches = sum(total_batches_per_file)
-    logging.info("max batches: {}".format(max_batches))
-    batch_id_queue = tf.train.range_input_producer(
-        max_batches, shuffle=shuffle, seed=0, num_epochs=num_epochs)
-    batch_id_tensor = batch_id_queue.dequeue()
-    
-    # generate a batch_to_file dictionary so it's easy to get the file
-    global_batch_to_file_idx = {}
-    local_batch = 0
-    current_file_idx = 0
-    for global_batch in xrange(max_batches):
-        if local_batch > total_batches_per_file[current_file_idx]:
-            # go to next file idx
-            local_batch = 0
-            if (current_file_idx + 1) == len(h5_handles): # loop around as needed
-                current_file_idx = 0
-            else:
-                current_file_idx += 1
-        global_batch_to_file_idx[global_batch] = (current_file_idx, local_batch)
-        local_batch += 1
-
-    # Extract examples based on batch_id
-    def batchid_to_examples(batch_id):
-        """Given a batch ID, get the features, labels, and metadata
-
-        Args:
-          batch_id: an int that is the batch ID
-
-        Returns:
-          tensors of features, labels, metadata
-        """
-        # set up h5_handle and batch_start
-        file_idx, local_batch = global_batch_to_file_idx[batch_id]
-	h5_handle = h5_handles[file_idx]
-        batch_start = local_batch*batch_size
-        return _hdf5_to_slices(
-            h5_handle,
-            task_indices,
-            batch_start,
-            batch_size,
-            features_key=features_key)
-
-    # pyfunc
-    [features_tensor, labels_tensor, metadata_tensor] = tf.py_func(
-        func=batchid_to_examples,
-        inp=[batch_id_tensor],
-        Tout=[tf.float32, tf.float32, tf.string],
-        stateful=False, name='py_func_batchid_to_examples')
-
-    # set shapes
-    features_tensor.set_shape([batch_size] + list(h5_handles[0][features_key].shape[1:]))
-    labels_tensor.set_shape([batch_size, len(task_indices)])
-    metadata_tensor.set_shape([batch_size, 1])
-
-    # fake tasks num: this is to be able to check a multitask model on a single output dataset
-    if fake_task_num > 0:
-        labels_list = tf.unstack(labels_tensor, axis=1)
-        labels_final = labels_list + [labels_list[-1] for i in xrange(fake_task_num)]
-        labels_tensor = tf.stack(labels_final, axis=1)
-
-    return features_tensor, labels_tensor, metadata_tensor
-
-
-def filter_through_labels(features, labels, metadata, filter_tasks, batch_size):
-    """Given specific filter tasks, only push through examples 
-    if they are positive in these tasks
-    """
-    # set up labels mask for filter tasks
-    labels_mask_np = np.zeros((labels.get_shape()[1]))
-    for task_idx in filter_tasks:
-        labels_mask_np[task_idx] = 1
-    labels_mask = tf.cast(
-        tf.stack([tf.constant(labels_mask_np) for i in xrange(batch_size)], axis=0),
-        tf.float32)
-        
-    # run a conditional on the labels and get indices
-    pos_labels = tf.multiply(labels, labels_mask)
-    matches = tf.greater(tf.reduce_sum(pos_labels, axis=1), [0])
-    selected_items = tf.reshape(tf.where(matches), [-1])
-    
-    # gather
-    features_filtered = tf.gather(features, selected_items)
-    labels_filtered = tf.gather(labels, selected_items)
-    metadata_filtered = tf.gather(metadata, selected_items)
-        
-    # set up a second queue
-    features, labels, metadata = tf.train.batch(
-        [features_filtered, labels_filtered, metadata_filtered],
-        batch_size,
-        capacity=100000,
-        num_threads=4, # adjust as needed
-        enqueue_many=True,
-        name="filter_batcher")
-    
-    return features, labels, metadata
-
-
-def load_data_from_filename_list(
-        hdf5_files,
-        batch_size,
-        task_indices=[],
-        features_key='features',
-        shuffle=True,
-        shuffle_seed=0,
-        ordered_num_epochs=1,
-        fake_task_num=0,
-        filter_tasks=[]):
-    """Load data into queues from a filename list of hdf5 files
-
-    Args:
-      hdf_files: list of hdf5 filenames
-      batch_size: batch size
-      tasks: list of tasks if using subset of tasks
-      features_key: features key ('features' or 'importances')
-      shuffle_seed: seed to make randomness deterministic
-
-    Returns:
-      features: feature tensor
-      labels: label tensor
-      metadata: metadata tensor
-    """
-    logging.info("loading data for tasks:%s from hdf5_files:%s" % (task_indices, hdf5_files))
-
-    num_examples = get_total_num_examples(hdf5_files)
-    print num_examples
-    
-    if shuffle:
-        # use a thread for each hdf5 file to put together in parallel
-        example_slices_list = [hdf5_to_tensors(hdf5_file, batch_size, task_indices, features_key, shuffle=True, fake_task_num=fake_task_num)
-                               for hdf5_file in hdf5_files]
-        if num_examples < 10000:
-            min_after_dequeue = 0
-            capacity = 10000 - batch_size
-        else:
-            min_after_dequeue = 10000
-            capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
-        features, labels, metadata = tf.train.shuffle_batch_join(
-            example_slices_list,
-            batch_size,
-            capacity=capacity,
-            min_after_dequeue=min_after_dequeue,
-            seed=shuffle_seed,
-            enqueue_many=True,
-            name='batcher')
-
-    elif shuffle == False:
-        # since ordered, keep hdf5 files in a list
-    	example_slices_list = hdf5_list_to_ordered_tensors(
-            hdf5_files, batch_size, task_indices, features_key, fake_task_num=fake_task_num, num_epochs=ordered_num_epochs)
-    	features, labels, metadata = tf.train.batch(
-            example_slices_list,
-            batch_size,
-            capacity=100000,
-            enqueue_many=True,
-            name='batcher')
-
-    # filtering as desired
-    #if len(filter_tasks) > 0:
-    #    features, labels, metadata = filter_through_labels(
-    #        features, labels, metadata, filter_tasks, batch_size)
-        
-    return features, labels, metadata
-
-
-def load_step_scaled_data_from_filename_list(
-        hdf5_files,
-        batch_size,
-        task_indices=[],
-        features_key='features',
-        shuffle=True,
-        shuffle_seed=0,
-        ordered_num_epochs=1,
-        fake_task_num=0,
-        filter_tasks=[]):
-    """Wrapper around the usual loader that then takes the input and scales it
-    in this case, the batch size corresponds to the num steps that the features
-    will be scaled by.
-    """
-    steps = batch_size
-
-    # run core data loader
-    features, labels, metadata = load_data_from_filename_list(
-        hdf5_files,
-        batch_size,
-        task_indices=task_indices,
-        features_key=features_key,
-        shuffle=shuffle,
-        shuffle_seed=shuffle_seed,
-        ordered_num_epochs=ordered_num_epochs,
-        fake_task_num=fake_task_num,
-        filter_tasks=filter_tasks)
-
-    # separate out to individual real examples
-    features = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features, axis=0)]
-    labels = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(labels, axis=0)]
-    metadata = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(metadata, axis=0)]
-
-    join_list = []
-    new_features = []
-    new_labels = []
-    new_metadata = []
-    for example_idx in xrange(batch_size):
-        scaled_features = tf.concat(
-            [(float(i)/steps) * features[example_idx]
-             for i in xrange(1, steps+1)], axis=0)
-        new_features.append(scaled_features)
-        
-        scaled_labels = tf.concat(
-            [labels[example_idx]
-             for i in xrange(1, steps+1)], axis=0)
-        new_labels.append(scaled_labels)
-        
-        scaled_metadata = tf.concat(
-            [metadata[example_idx]
-             for i in xrange(1, steps+1)], axis=0)
-        new_metadata.append(scaled_metadata)
-
-    # concatenate all
-    features = tf.concat(new_features, axis=0)
-    labels = tf.concat(new_labels, axis=0)
-    metadata = tf.concat(new_metadata, axis=0)
-        
-    # put these into an ordered queue    
-    features, labels, metadata = tf.train.batch(
-        [features, labels, metadata],
-        batch_size,
-        capacity=100000,
-        num_threads=1, # adjust as needed
-        enqueue_many=True,
-        name="scaled_data_batcher")
-    
-    return features, labels, metadata
-
-
-def dinucleotide_shuffle(features):
-    """shuffle by dinucleotides
-    """
-    # make sure feature shape is {bp, 4}
-    assert features.get_shape().as_list()[1] == 4
-    num_bp = features.get_shape().as_list()[0]
-
-    # shuffle the indices
-    positions = tf.range(num_bp, delta=2)
-    shuffled_first_positions = tf.random_shuffle(positions)
-    shuffled_second_positions = tf.add(shuffled_first_positions, [1])
-
-    first_bps = tf.gather(features, shuffled_first_positions)
-    second_bps = tf.gather(features, shuffled_second_positions)
-
-    # interleave by concatenating on second axis, and then reshaping
-    pairs = tf.concat([first_bps, second_bps], axis=1)
-    features = tf.reshape(pairs, [num_bp, -1])
-    
-    return features
-
-
-def load_data_with_shuffles_from_filename_list(
-        hdf5_files,
-        batch_size,
-        task_indices=[],
-        features_key='features',
-        shuffle=True,
-        shuffle_seed=0,
-        ordered_num_epochs=1,
-        fake_task_num=0,
-        filter_tasks=[]):
-    """Wrapper around the usual loader that then takes the input and scales it
-    in this case, the batch size corresponds to the num steps that the features
-    will be scaled by.
-    """
-    # for now assert a certain batch size since
-    # downstream processing will assume a certain shape
-    # TODO factor this out
-    assert batch_size == 64
-
-    shuffles = 7
-    assert batch_size % (shuffles + 1) == 0
-
-    # run core data loader
-    features, labels, metadata = load_data_from_filename_list(
-        hdf5_files,
-        batch_size,
-        task_indices=task_indices,
-        features_key=features_key,
-        shuffle=shuffle,
-        shuffle_seed=shuffle_seed,
-        ordered_num_epochs=ordered_num_epochs,
-        fake_task_num=fake_task_num,
-        filter_tasks=filter_tasks)
-
-    # separate out to individual real examples
-    features = [tensor for tensor in tf.unstack(features, axis=0)]
-    labels = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(labels, axis=0)]
-    metadata = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(metadata, axis=0)]
-    
-    # for now, assume 1 real example every 8 (so 8 examples in a batch)
-    new_features = []
-    new_labels = []
-    new_metadata = []
-    for example_idx in xrange(batch_size):
-        features_w_shuffles = [tf.expand_dims(features[example_idx], axis=0)]
-        for shuffle_idx in xrange(shuffles):
-            shuffled_features = tf.expand_dims(
-                tf.expand_dims(
-                    dinucleotide_shuffle(tf.squeeze(features[example_idx])),
-                    axis=0),
-                axis=0)
-            features_w_shuffles.append(shuffled_features)
-        features_w_shuffles = tf.concat(features_w_shuffles, axis=0)
-        new_features.append(features_w_shuffles)
-            
-        labels_w_shuffles = tf.concat(
-            [labels[example_idx]
-             for i in xrange(shuffles+1)], axis=0)
-        new_labels.append(labels_w_shuffles)
-        
-        metadata_w_shuffles = tf.concat(
-            [metadata[example_idx]
-             for i in xrange(shuffles+1)], axis=0)
-        new_metadata.append(metadata_w_shuffles)
-
-    # concatenate all
-    features = tf.concat(new_features, axis=0)
-    labels = tf.concat(new_labels, axis=0)
-    metadata = tf.concat(new_metadata, axis=0)
-    
-    # put these into an ordered queue    
-    features, labels, metadata = tf.train.batch(
-        [features, labels, metadata],
-        batch_size,
-        capacity=100000,
-        num_threads=1, # adjust as needed
-        enqueue_many=True,
-        name="data_w_shuffles_batcher")
-    
-    return features, labels, metadata
-
-
-# =======================
-# other input functions
-# maybe defunct
-# =======================
-
-
-def hdf5_kmers_to_slices(hdf5_file, batch_size, tasks=[], features_key='features', shuffle=True):
-    """Reads in kmer feature file from hdf5
-
-    Args:
-      hdf5_file: hdf5 file with input data 
-      batch_size: desired batch size to return to tensor
-      tasks: use if a subset of tasks desired
-      features_key: the key for the input dataset examples ('features' or 'importances')
-
-    Returns:
-      features_tensor: a tensor (batch_size, feature_dims) for examples
-      labels_tensor: a tensor (batch_size, num_tasks) for labels
-      metadata_tensor: a tensor (batch_size, 1) for a metadata string (often region name)
-    """
-    # Extract hdf5 file params (number of examples, max batches, batch IDs)
-    print "Data layer: loading {}".format(hdf5_file)
-    h5py_handle = h5py.File(hdf5_file, "r")
-    num_examples = h5py_handle[features_key].shape[0]
-    max_batches = num_examples/batch_size
-    batch_id_queue = tf.train.range_input_producer(max_batches, shuffle=shuffle, seed=0)
-
-    # Check shapes from the hdf5 file so that we can set the tensor shapes
-    num_features = h5py_handle[features_key].shape[1]
-    num_labels= h5py_handle['labels'].shape[1]
-    if len(tasks) == 0:
-        tasks = range(num_labels)
-
-    # Extract examples based on batch_id
-    def batchid_to_examples(batch_id):
-        """Given a batch ID, get the features, labels, and metadata
-
-        Args:
-          batch_id: an int that is the batch ID
-
-        Returns:
-          features: feature array
-          labels: label array
-          metadata: metadata array
-        """
-        batch_start = batch_id*batch_size
-        batch_end = batch_start + batch_size
-        features = h5py_handle[features_key][batch_start:batch_end,:]
-        labels = h5py_handle['labels'][batch_start:batch_end, tasks]
-        metadata = h5py_handle['example_metadata'][batch_start:batch_end].reshape((batch_size, 1))
-        return [features, labels, metadata]
-
-    batch_id_tensor = batch_id_queue.dequeue()
-    [features_tensor, labels_tensor, metadata_tensor] = tf.py_func(
-        func=batchid_to_examples,
-        inp=[batch_id_tensor],
-        Tout=[tf.float32, tf.float32, tf.string], 
-        stateful=False, name='py_func_batchid_to_examples')
-
-    # set shapes
-    features_tensor.set_shape([batch_size, num_features])
-    labels_tensor.set_shape([batch_size, len(tasks)])
-    metadata_tensor.set_shape([batch_size, 1])
-
-    return features_tensor, labels_tensor, metadata_tensor
-
-
-def tflearn_kmer_input_fn(
-        hdf5_files,
-        batch_size,
-        tasks=[],
-        features_key='features',
-        shuffle=True,
-        shuffle_seed=0,
-        featurize_fn=None,
-        featurize_params={}): 
-    """Wrapper to make input function work in TFLearn
-    """
-
-    def load_kmer_data_from_filename_list():
-        """Load kmer features into TFLearn style output (features, labels)
-        """
-        
-        example_slices_list = [hdf5_kmers_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=shuffle) for hdf5_file in hdf5_files]
-        min_after_dequeue = 10000
-        capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
-        features, labels, metadata = tf.train.shuffle_batch_join(example_slices_list,
-                                                                 batch_size,
-                                                                 capacity=capacity,
-                                                                 min_after_dequeue=min_after_dequeue,
-                                                                 seed=shuffle_seed,
-                                                                 enqueue_many=True,
-                                                                 name='batcher')
-
-        if featurize_fn is not None:
-            features = featurize_fn(features, **featurize_params)
-
-            print features.get_shape()
-            
-        return features, labels
-
-    return load_kmer_data_from_filename_list
-
-
-def tflearn_input_fn(
-        hdf5_files,
-        batch_size,
-        tasks=[],
-        features_key='features',
-        shuffle=True,
-        shuffle_seed=0,
-        featurize_fn=None,
-        featurize_params={}): 
-    """Wrapper to make input function work in TFLearn
-    """
-    
-    def load_onehot_sequences_from_filename_list():
-        """Function to put into tflearn
-        """
-        example_slices_list = [_hdf5_to_slices(hdf5_file, batch_size, tasks, features_key, shuffle=True)
-                               for hdf5_file in hdf5_files]
-        min_after_dequeue = 10000
-        capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
-        features, labels, metadata = tf.train.shuffle_batch_join(
-            example_slices_list,
-            batch_size,
-            capacity=capacity,
-            min_after_dequeue=min_after_dequeue,
-            seed=shuffle_seed,
-            enqueue_many=True,
-            name='batcher')
-        
-        if featurize_fn is not None:
-            #with tf.device("/cpu:0"):
-            features = featurize_fn(features, **featurize_params)
-
-        return features, labels
-
-    return load_onehot_sequences_from_filename_list
-
-
-
 class DataLoader(object):
     """build the base level dataloader"""
 
-    def __init__(
-            self,
-            tasks=[],
-            filter_tasks=[],
-            singleton_filter_tasks=[],
-            shuffle_examples=True,
-            epochs=1,
-            fake_task_num=0,
-            num_dinuc_shuffles=0,
-            num_scaled_inputs=0):
+    __metaclass__ = abc.ABCMeta
+
+    @abc.abstractmethod
+    def __init__(self):
         """set up dataloader
         """
-        self.tasks = tasks
-        self.filter_tasks = filter_tasks
-        self.singleton_filter_tasks = filter_tasks
-        self.shuffle_examples = shuffle_examples
-        self.epochs = epochs
-        self.fake_task_num = fake_task_num
-        
-        # set up the transform stack as needed
-        self.transform_stack = []
-        if len(self.filter_tasks) != 0:
+        pass
+
+    
+    @abc.abstractmethod
+    def build_raw_dataflow(self, batch_size, task_indices=[]):
+        """build a raw dataflow from the files to tensors
+        """
+        pass
+
+    
+    def build_filtered_dataflow(
+            self,
+            batch_size,
+            label_tasks=[],
+            filter_tasks=[],
+            singleton_filter_tasks=[],
+            num_dinuc_shuffles=0,
+            num_scaled_inputs=0,
+            keep_keys=[]):
+        """build dataflow with additional preprocessing
+        """
+        # set up transform stack
+        # TODO eventually set up different preprocessing stacks
+        transform_stack = []
+        if len(filter_tasks) != 0:
             # go through the list to subset more finegrained
             # in a hierarchical way
-            for i in xrange(len(self.filter_tasks)):
-                self.transform_stack.append((
+            for i in xrange(len(filter_tasks)):
+                transform_stack.append((
                     filter_by_labels,
                     {"labels_key": "labels",
-                     "filter_tasks": self.filter_tasks[i],
+                     "filter_tasks": filter_tasks[i],
                      "name": "label_filter_{}".format(i)}))
         if len(singleton_filter_tasks) != 0:
-            self.transform_stack.append((
+            transform_stack.append((
                 filter_singleton_labels,
                 {"labels_key": "labels",
                  "filter_tasks": singleton_filter_tasks,
                  "name": "singleton_label_filter"}))
         if num_dinuc_shuffles > 0:
-            self.transform_stack.append((
+            transform_stack.append((
                 generate_dinucleotide_shuffles,
                 {"num_shuffles": num_dinuc_shuffles}))
         if num_scaled_inputs > 0:
-            self.transform_stack.append((
+            transform_stack.append((
                 generate_scaled_inputs,
                 {"num_scaled_inputs": num_scaled_inputs}))
 
+        # build all together
+        with tf.variable_scope("dataloader"):
+            # build raw dataflow
+            inputs = self.build_raw_dataflow(batch_size, task_indices=label_tasks)
             
-    @abc.abstractmethod
-    def load_raw_data(self, batch_size):
-        """defined in inherited classes
-        """
-        pass
+            # build transform stack
+            master_params = {}
+            master_params.update({"batch_size": batch_size})
+            for transform_fn, params in transform_stack:
+                master_params.update(params)
+                print transform_fn
+                inputs, _ = transform_fn(inputs, master_params)
 
-    
-    def apply(self, transform_fn, params):
-        """Given a function, apply to the given feature key
-        """
-        return transform_fn(self.inputs, params)
-
-        
-    def build_dataflow(self, batch_size, data_key, keep_keys=[]):
-        """initialize in a TF graph
-        """
-        self.batch_size = batch_size
-        # this is where you would actually run all the functions
-        with tf.variable_scope("datalayer"):
-            self.inputs = self.load_raw_data(self.batch_size, data_key)
-
-        master_params = {}
-        master_params.update({"batch_size": batch_size})
-        for transform_fn, params in self.transform_stack:
-            master_params.update(params)
-            print transform_fn
-            self.inputs, _ = self.apply(transform_fn, master_params)
-
-        if len(keep_keys) > 0:
-            new_inputs = {}
-            for key in keep_keys:
-                new_inputs[key] =self.inputs[key]
-            self.inputs = new_inputs
+            # adjust outputs as needed
+            if len(keep_keys) > 0:
+                new_inputs = {}
+                for key in keep_keys:
+                    new_inputs[key] = inputs[key]
+                inputs = new_inputs
                 
-        return self.inputs
+        return inputs
 
     
-    def build_dataflow_fn(self, data_key, batch_size, keys=[]):
-        """build the dataflow function to be called later
+    def build_input_fn(self, batch_size, **kwargs):
+        """build the dataflow function. will be called later in graph
         """
-
         def dataflow_fn():
-            """dataflow function
+            """dataflow function. must have no args.
             """
-            return self.build_dataflow(batch_size, data_key, keys=keys)
-            
-        return dataflow_fn
-
-
-    def build_estimator_input_fn(self, data_key, batch_size):
-        """build the dataflow function for Estimator framework
-        """
-        
-        def dataflow_fn():
-            """dataflow function
-            """
-            inputs = self.build_dataflow(batch_size, data_key)
-            #return inputs["features"], inputs["labels"]
-            return inputs, inputs
+            inputs = self.build_filtered_dataflow(batch_size, **kwargs)
+            return inputs, None
 
         return dataflow_fn
 
-    
     
 
 class H5DataLoader(DataLoader):
     """build a dataloader from h5"""
 
-    def __init__(self, data_files, **kwargs):
-        """keep data files list
+    def __init__(self, h5_files, **kwargs):
+        """initialize with data files
         """
         super(H5DataLoader, self).__init__(**kwargs)
-        self.data_files = data_files
+        self.h5_files = h5_files
+        self.num_examples = self.get_num_examples()
+        self.num_examples_per_file = self.get_num_examples_per_file()
 
-
-    def get_num_total_examples(self, data_key, features_key="features"):
-        """Get total examples in a dataset
+        
+    def get_num_examples(self, features_key="features"):
+        """get total num examples in the dataset
         """
         num_examples = 0
-        data_files = self.data_files[data_key]
-        for data_file in data_files:
-            with h5py.File(data_file, 'r') as hf:
+        for h5_file in self.h5_files:
+            with h5py.File(h5_file, 'r') as hf:
                 num_examples += hf[features_key].shape[0]
         return num_examples
 
+    
+    def get_num_examples_per_file(self, features_key="features"):
+        """get num examples per h5 file
+        """
+        num_examples_per_file = []
+        for h5_file in self.h5_files:
+            with h5py.File(h5_file, "r") as hf:
+                num_examples_per_file.append(hf[features_key].shape[0])
+        return num_examples_per_file
+    
     
     def get_dataset_metrics(self):
         """Get class imbalances, num of outputs, etc
@@ -821,45 +151,306 @@ class H5DataLoader(DataLoader):
             print ""
         
         return
+
     
+    @staticmethod
+    def h5_to_slices(
+            h5_handle,
+            start_idx,
+            batch_size,
+            task_indices=[],
+            keys=None,
+            features_key="features",
+            labels_key="labels",
+            skip_keys=["label_metadata"]):
+        """Get slices from the (open) h5 file back and pad with 
+        null sequences as needed to fill the batch.
+
+        Args:
+        h5_handle: h5py handle on an opened file
+        start_idx: start position in file
+        batch_size: size of batch
+        task_indices: list of task indices that you want, requires label set
+        keys: what keys you want to pull out of data
+        features_key: key of features
+        labels_key: key of labels
+        skip_keys: what keys to ignore
         
-    def load_raw_data(self, batch_size, data_key):
-        """call dataloading function
+        Returns:
+        slices of data
+        """
+        # calculate end idx
+        end_idx = start_idx + batch_size
+
+        # get keys
+        if keys is None:
+            keys = [key for key in h5_handle.keys() if key not in skip_keys]
+            
+        # if end is within the file, extract out slice. otherwise, pad and pass out full batch
+        slices = {}
+        if end_idx < h5_handle[keys[0]].shape[0]:
+            for key in keys:
+                if labels_key in key:
+                    slices[key] = h5_handle[key][start_idx:end_idx, task_indices]
+                elif "metadata" in key:
+                    slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1)) # TODO don't reshape?
+                else:
+                    slices[key] = h5_handle[key][start_idx:end_idx]
+        else:
+            end_idx = h5_handle[keys[0]].shape[0]
+            batch_padding_num = batch_size - (end_idx - start_idx)
+            for key in keys:
+                if labels_key in key:
+                    slice_tmp = h5_handle[key][start_idx:end_idx, task_indices]
+                    slice_pad_shape = [batch_padding_num, len(task_indices)]
+                    slice_pad = np.zeros(slice_pad_shape, dtype=np.float32)
+                elif "metadata" in key:
+                    slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
+                    slice_pad = np.array(
+                        ["false=chrY:0-0" for i in xrange(batch_padding_num)]).reshape(
+                            (batch_padding_num, 1))
+                else:
+                    slice_tmp = h5_handle[key][start_idx:end_idx]
+                    slice_pad_shape = [batch_padding_num] + list(slice_tmp.shape[1:])
+                    slice_pad = np.zeros(slice_pad_shape, dtype=np.float32)
+                    
+                slices[key] = np.concatenate([slice_tmp, slice_pad], axis=0)
+
+        return slices
+
+    
+    @staticmethod
+    def h5_to_tensors(
+            h5_file,
+            batch_size,
+            task_indices=[],
+            features_key="features",
+            labels_key="labels",
+            metadata_key="example_metadata",
+            shuffle=True,
+            num_epochs=1):
+        """Extract batches from a single hdf5 file.
+        
+        Args:
+        hdf5_file: hdf5 file with input data 
+        batch_size: desired batch size to return to tensor
+        tasks: use if a subset of tasks desired
+        features_key: the key for the input dataset examples ('features' or 'importances')
+        shuffle: shuffle the batches
+        fake_task_num: how many EXTRA outputs to generate to fill in for multi-output
+        
+        Returns:
+        features_tensor: a tensor (batch_size, feature_dims) for examples
+        labels_tensor: a tensor (batch_size, num_tasks) for labels
+        metadata_tensor: a tensor (batch_size, 1) for a metadata string (often region name)
+        """
+        # get hdf5 file params
+        h5_handle = h5py.File(h5_file, "r")
+    
+        # set up batch id producer
+        max_batches = int(math.ceil(h5_handle[features_key].shape[0]/float(batch_size)))
+        batch_id_producer = tf.train.range_input_producer(
+            max_batches, shuffle=shuffle, seed=0, num_epochs=num_epochs)
+        batch_id = batch_id_producer.dequeue()
+        logging.debug("loading {0} with max batches {1}".format(
+            os.path.basename(h5_file), max_batches))
+        
+        # function to get examples based on batch_id (for py_func)
+        def batch_id_to_examples(batch_id):
+            """Given a batch ID, get the features, labels, and metadata
+            This is an important wrapper to be able to use TensorFlow's pyfunc.
+            """
+            batch_start = batch_id*batch_size
+            slice_array = H5DataLoader.h5_to_slices(
+                h5_handle,
+                batch_start,
+                batch_size,
+                task_indices=task_indices,
+                features_key=features_key,
+                labels_key=labels_key)
+            return slice_array[features_key], slice_array[labels_key], slice_array[metadata_key]
+            
+        # py_func
+        [features, labels, metadata] = tf.py_func(
+            func=batch_id_to_examples,
+            inp=[batch_id],
+            Tout=[tf.float32, tf.float32, tf.string],
+            stateful=False, name='py_func_batch_id_to_examples')
+
+        # set shapes
+        features.set_shape([batch_size] + list(h5_handle[features_key].shape[1:]))
+        labels.set_shape([batch_size, len(task_indices)])
+        metadata.set_shape([batch_size, 1])
+        
+        return features, labels, metadata
+
+
+    def _generate_global_batch_to_file_dict(
+            total_batches, total_batches_per_file):
+        """generate a dictionary that maps the global batch idx 
+        to the file index and local batch index
+        """
+        global_batch_to_file_idx = {}
+        local_batch = 0
+        current_file_idx = 0
+        for global_batch in xrange(total_batches):
+            if local_batch > total_batches_per_file[current_file_idx]:
+                # go to next file idx
+                local_batch = 0
+                if (current_file_idx + 1) == len(h5_handles): # loop around as needed
+                    current_file_idx = 0
+                else:
+                    current_file_idx += 1
+            global_batch_to_file_idx[global_batch] = (current_file_idx, local_batch)
+            local_batch += 1
+
+        return global_batch_to_file_idx
+    
+    
+    def h5_to_ordered_tensors(
+            hdf5_files, 
+            batch_size, 
+            task_indices=[], 
+            features_key="features",
+            labels_key="labels",
+            shuffle=False,
+            num_epochs=1,
+            fake_task_num=0):
+        """Extract batches from hdf5 file list. This is used to get ordered examples out 
+        to re-merge back into regions.
+        
+        Args:
+        hdf5_files: list of hdf5 files with input data 
+        batch_size: desired batch size to return to tensor
+        tasks: use if a subset of tasks desired
+        features_key: the key for the input dataset examples ('features' or 'importances')
+        
+        Returns:
+        features_tensor: a tensor (batch_size, feature_dims) for examples
+        labels_tensor: a tensor (batch_size, num_tasks) for labels
+        metadata_tensor: a tensor (batch_size, 1) for a metadata string (often region name)
+        """
+        # get hdf5 file params
+        logging.info("loading {}".format(" ".join(hdf5_files)))
+        h5_handles = [h5py.File(hdf5_file, "r") for hdf5_file in hdf5_files]
+        num_examples_per_file = [get_total_num_examples([hdf5_file]) for hdf5_file in hdf5_files]
+        total_batches_per_file = [int(math.ceil(num_examples) / float(batch_size))
+                                  for num_examples in num_examples_per_file ]
+        
+        # set up batch id producer
+        max_batches = sum(total_batches_per_file)
+        batch_id_queue = tf.train.range_input_producer(
+            max_batches, shuffle=shuffle, seed=0, num_epochs=num_epochs)
+        batch_id_tensor = batch_id_queue.dequeue()
+        logging.info("max batches: {}".format(max_batches))
+        
+        # generate a batch_to_file dictionary so it's easy to get the file
+        global_batch_to_file_idx = self._generate_global_batch_to_file_dict(
+            total_batches, total_batches_per_file)
+
+        # Extract examples based on batch_id
+        def batchid_to_examples(batch_id):
+            """Given a batch ID, get the features, labels, and metadata
+            
+            Args:
+            batch_id: an int that is the batch ID
+            
+            Returns:
+            tensors of features, labels, metadata
+            """
+            # set up h5_handle and batch_start
+            file_idx, local_batch = global_batch_to_file_idx[batch_id]
+	    h5_handle = h5_handles[file_idx]
+            batch_start = local_batch*batch_size
+            slice_array = H5DataLoader.h5_to_slices(
+                h5_handle,
+                task_indices,
+                batch_start,
+                batch_size,
+                features_key=features_key)
+            return slice_array["features"], slice_array["labels"], slice_array["metadata"]
+
+        # pyfunc
+        [features_tensor, labels_tensor, metadata_tensor] = tf.py_func(
+            func=batchid_to_examples,
+            inp=[batch_id_tensor],
+            Tout=[tf.float32, tf.float32, tf.string],
+            stateful=False, name='py_func_batchid_to_examples')
+
+        # set shapes
+        features_tensor.set_shape([batch_size] + list(h5_handles[0][features_key].shape[1:]))
+        labels_tensor.set_shape([batch_size, len(task_indices)])
+        metadata_tensor.set_shape([batch_size, 1])
+
+        return features_tensor, labels_tensor, metadata_tensor
+
+
+    def build_raw_dataflow(
+            self,
+            batch_size,
+            task_indices=[],
+            features_key="features",
+            labels_key="labels",
+            metadata_key="example_metadata",
+            shuffle=True,
+            shuffle_seed=1337):
+        """build dataflow from files to tensors
         """
         # TODO - here would add in extra queues before final load
         # to adjust ratio of positives to negatives
-        inputs = load_data_from_filename_list(
-            self.data_files[data_key],
-            batch_size,
-            task_indices=self.tasks, # maybe deprecate this?
-            features_key='features',
-            shuffle=self.shuffle_examples,
-            shuffle_seed=0,
-            ordered_num_epochs=1,
-            fake_task_num=0,
-            filter_tasks=[])
-        inputs = {
-            "features": inputs[0],
-            "labels": inputs[1],
-            "example_metadata": inputs[2]}
+        logging.info(
+            "loading data for task indices {0} from {1} hdf5_files: {2} examples".format(
+                task_indices, len(self.h5_files), self.num_examples))
 
+        # adjust task indices as needed
+        if len(task_indices) == 0:
+            with h5py.File(self.h5_files[0], "r") as hf:
+                task_indices = range(hf[labels_key].shape[1])
+        
+        if shuffle:
+            # use a thread for each hdf5 file to put together in parallel
+            example_slices_list = [
+                H5DataLoader.h5_to_tensors(
+                    h5_file, batch_size, task_indices, features_key, shuffle=True)
+                for h5_file in self.h5_files]
+            min_after_dequeue = 10000
+            capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
+            features, labels, metadata = tf.train.shuffle_batch_join(
+                example_slices_list,
+                batch_size,
+                capacity=capacity,
+                min_after_dequeue=min_after_dequeue,
+                seed=shuffle_seed,
+                enqueue_many=True,
+                name='batcher')
+        else:
+            # since ordered, keep hdf5 files in a list. unfortunately will not take
+            # advantage of parallelism as well
+    	    example_slices_list = self.h5_to_ordered_tensors(
+                self.h5_files, batch_size, task_indices, features_key, fake_task_num=0, num_epochs=1)
+    	    features, labels, metadata = tf.train.batch(
+                example_slices_list,
+                batch_size,
+                capacity=100000,
+                enqueue_many=True,
+                name='batcher')
+
+        # adjust into a dict
+        inputs = {
+            features_key: features,
+            labels_key: labels,
+            metadata_key: metadata}
+        
         return inputs
 
 
     def get_positive_weights_per_task(self):
         """Calculates positive weights to be used in weighted cross entropy
-    
-        Args:
-        hdf_filename_list: a list of hdf5 filenames.
-        
-        Returns:
-        List of positive weights calculated as (total_negs / total_pos)
         """
         for filename_idx in range(len(self.data_files)):
             with h5py.File(self.data_files[filename_idx], 'r') as hf:
                 file_pos = np.sum(hf['labels'], axis=0)
                 file_tot = np.repeat(hf['labels'].shape[0], hf['labels'].shape[1])
-                
                 if filename_idx == 0:
                     total_pos = file_pos
                     total_examples = file_tot
@@ -872,18 +463,11 @@ class H5DataLoader(DataLoader):
 
     def get_task_and_class_weights(self):
         """Calculates task and class weights to be used in positives focused loss
-        
-        Args:
-        hdf_filename_list: a list of hdf5 filenames.
-
-        Returns:
-        List of task weights (pos/negs) and class weights (negs/pos)
         """
         for filename_idx in range(len(self.data_files)):
             with h5py.File(self.data_files[filename_idx], 'r') as hf:
                 file_pos = np.sum(hf['labels'], axis=0)
                 file_tot = np.repeat(hf['labels'].shape[0], hf['labels'].shape[1])
-
                 if filename_idx == 0:
                     total_pos = file_pos
                     total_examples = file_tot
@@ -898,7 +482,7 @@ class H5DataLoader(DataLoader):
 class ArrayDataLoader(DataLoader):
     """build a dataloader from numpy arrays"""
 
-    def __init__(self, feed_dict, array_names, array_types):
+    def __init__(self, feed_dict, array_names, array_types, **kwargs):
         """keep names and shapes
         """
         self.feed_dict = feed_dict
@@ -909,32 +493,24 @@ class ArrayDataLoader(DataLoader):
         assert len(self.array_names) == len(array_types)
 
         
-    def load_raw_data(self, batch_size):
+    def build_raw_dataflow(self, batch_size):
         """load data
         """
-        inputs = {}
-        for i in xrange(len(array_names)):
-            array_name = array_names[i]
-            full_array_name = "{}:0".format(array_name)
-            assert input_dict[full_array_name] is not None
-
-            inputs[array_name] = tf.placeholder(
-                array_types[i],
-                shape=[batch_size]+list(feed_dict[full_array_name].shape[1:]),
-                name=array_name)
-            
-        return inputs
+        if False:
+            inputs = {}
+            for i in xrange(len(array_names)):
+                array_name = array_names[i]
+                full_array_name = "{}:0".format(array_name)
+                assert input_dict[full_array_name] is not None
+                
+                inputs[array_name] = tf.placeholder(
+                    array_types[i],
+                    shape=[batch_size]+list(feed_dict[full_array_name].shape[1:]),
+                    name=array_name)
+                
+        return tf.estimator.inputs.numpy_input_fn([self.feed_dict, None])
 
     
-    def build_estimator_input_fn(self, feed_dict, batch_size):
-        """build the dataflow function for Estimator framework
-        """
-        my_input_fn = tf.estimator.inputs.numpy_input_fn(
-            [self.feed_dict, self.feed_dict])
-        
-        return my_input_fn
-    
-
 class VariantDataLoader(DataLoader):
     """build a dataloader that starts from a vcf file"""
 
