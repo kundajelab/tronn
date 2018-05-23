@@ -55,7 +55,6 @@ def parse_args():
     add_dream_parser(subparsers)
     
     # command for motif scan
-    # TODO dissect the motif density info
     add_scanmotifs_parser(subparsers)
 
     # command for dmim scan
@@ -64,18 +63,10 @@ def parse_args():
     # command for rational design with sig motifs
     
     
-    # command for ISM tuning
-    #add_ism_parser(subparsers)
-
-
-    
     # TODO:    
     # modisco
 
     # TODO command for variant predictions
-
-    
-    # TODO a viz command given a subset of sequences (ie an hdf5 file)
 
     
     # baseline model
@@ -490,6 +481,9 @@ def add_scanmotifs_parser(subparsers):
         '--sample_size', default=100000, type=int,
         help='number of regions to scan')
     group_params.add_argument(
+        "--cluster", action="store_true",
+        help="run clustering")
+    group_params.add_argument(
         "--no_groups", action="store_true",
         help="don't run region clustering/motif sets")
 
@@ -818,19 +812,19 @@ def main():
     elif subcommand == 'train':
         add_model_params(args)
         print 'model args: %s' % args.model
-        from tronn.run_train import run
+        from tronn.train_cmd import run
         run(args)
     elif subcommand == "evaluate":
         if args.model_type == "nn":
             add_model_params(args)
         print "model args: %s" % args.model
-        from tronn.run_evaluate import run
+        from tronn.evaluate_cmd import run
         run(args)
     elif subcommand == "predict":
     	if args.model_type == "nn":
             add_model_params(args)
             print "model args: %s" % args.model
-        from tronn.run_predict import run
+        from tronn.predict_cmd import run
         run(args)
     elif subcommand == "scanmotifs":
         add_model_params(args)

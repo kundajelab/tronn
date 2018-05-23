@@ -25,41 +25,6 @@ from tronn.interpretation.motifs import read_pwm_file
 
 from tronn.nets.importance_nets import input_x_grad
 
-def load_pwms(pwm_file_list):
-    """Load pwm files from list of filenames into one dict
-    """
-    pwms = {}
-    for pwm_file in pwm_file_list:
-        pwms_tmp = read_pwm_file(pwm_file, as_dict=True)
-        pwms.update(pwms_tmp)
-        
-    return pwms
-
-
-# TODO - change this to basically run inference graph instead, as needed.
-# but i guess arent motifs and grammars taken care of now by scanmotifs and scangrammars?
-def setup_model(args):
-    """setup model params for various types of nets
-    """
-    if args.model_type == "nn":
-        assert(args.model is not None) and ((args.model_dir is not None) or (args.model_checkpoint is not None))
-        model_params = args.model
-        net_fn = net_fns[args.model['name']]
-        
-    elif args.model_type == "motif":
-        assert args.pwm_files is not None
-        model_params = {"pwms": load_pwms(args.pwm_files)}
-        net_fn = net_fns["pwm_convolve"]
-        
-    elif args.model_type == "grammar":
-        assert (args.pwm_files is not None) and (args.grammar_files is not None)
-        model_params = {
-            "pwms": load_pwms(args.pwm_files),
-            "grammars": args.grammar_files}
-        net_fn = net_fns["grammars"]
-        
-    return net_fn, model_params
-
 
 def scores_to_probs(np_array):
     """In a case where prediction scores are in a numpy matrix,

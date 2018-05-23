@@ -64,16 +64,6 @@ def run(args):
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     logging.info("Found {} chrom files".format(len(data_files)))
 
-    # TODO - adjust here to pull in manifold info
-    # maybe easiest thing to do is just pass in the h5 file?
-    
-    # given a grammar file (always with pwm file) scan for grammars.
-    #grammar_sets = []
-    #for grammar_file in args.grammar_files:
-    #    grammar_sets.append(read_grammar_file(grammar_file, args.pwm_file))
-
-    #assert len(grammar_sets) == 1
-
     # pull in motif annotation
     pwm_list = read_pwm_file(args.pwm_file)
     pwm_names = [pwm.name for pwm in pwm_list]
@@ -81,12 +71,59 @@ def run(args):
     logger.info("{} motifs used".format(len(pwm_list)))
 
     # set up dataloader
-    dataloader = H5DataLoader(
-        {"data": data_files},
+    dataloader = H5DataLoader(data_files)
+    input_fn = dataloader.build_input_fn(
+        args.batch_size,
         filter_tasks=[
             args.inference_tasks,
-            args.filter_tasks])
+            args.filter_tasks],
+        singleton_filter_tasks=args.inference_tasks)
 
+    # set up model
+    model_manager = ModelManager(
+        net_fns[args.model["name"]])
+
+    # set up inference generator
+    inference_generator = model_manager.infer(
+        input_fn,
+        args.out_dir,
+        net_fns[args.inference_fn],
+        inference_params={
+            "model_fn": net_fns[args.model["name"]],
+            "backprop": args.backprop,
+            "importance_task_indices": args.inference_tasks,
+            "pwms": pwm_list,
+            "manifold": args.manifold_file},
+        checkpoint=args.model_checkpoints[0],
+        yield_single_examples=True)
+
+    # run inference and save out
+    results_h5_file = "{0}/{1}.inference.h5".format(
+        args.tmp_dir, args.prefix)
+    if not os.path.isfile(results_h5_file):
+        model_manager.infer_and_save_to_h5(
+            inference_generator,
+            results_h5_file,
+            args.sample_size)
+    
+        # save out additional useful information
+        with h5py.File(results_h5_file, "a") as hf:
+
+            # save master pwm vector
+            with h5py.File(args.manifold_file, "r") as manifold:
+                hf.create_dataset("master_pwm_vector", data=manifold["master_pwm_vector"][:])
+                
+            # attach to delta logits and mutated scores
+            hf["delta_logits"].attrs["pwm_mut_names"] = pwm_names
+            for task_idx in args.inference_tasks:
+                hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
+
+    generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)
+    "plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)
+
+
+
+    quit()
     # set up graph
     tronn_graph = TronnGraphV2(
         dataloader,
@@ -109,77 +146,6 @@ def run(args):
             "pwms": pwm_list,
             "manifold": args.manifold_file}
         interpret_v2(tronn_graph, results_h5_file, infer_params, num_evals=args.sample_size)
-
-        # save out master pwm vector
-        with h5py.File(results_h5_file, "a") as hf:
-            with h5py.File(args.manifold_file, "r") as manifold:
-                hf.create_dataset("master_pwm_vector", data=manifold["master_pwm_vector"][:])
-
-
-        if False:
-            # attach useful information
-            with h5py.File(results_h5_file, "a") as hf:
-                # add in PWM names to the datasets
-                for dataset_key in hf.keys():
-                    if "pwm-scores" in dataset_key:
-                        hf[dataset_key].attrs["pwm_names"] = [
-                            pwm.name for pwm in pwm_list]
-                        
-            # save PWM names with the mutation dataset in hdf5
-            with h5py.File(results_h5_file, "a") as hf:
-                
-                # get motifs from grammar
-                motifs = []
-                for grammar in grammar_sets[0]:
-                    motifs += np.where(grammar.pwm_thresholds > 0)[0].tolist()
-                pwm_indices = sorted(list(set(motifs)))
-
-                # get names
-                pwm_names = [pwm_list[i].name.split(".")[0].split("_")[1] for i in pwm_indices]
-
-                # attach to delta logits and mutated scores
-                hf["delta_logits"].attrs["pwm_mut_names"] = pwm_names
-                for task_idx in args.inference_tasks:
-                    hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
-                
-    # TODO - here, now grab out clusters
-    # for each cluster,
-    # determine which motfis responded
-    # plot out the heatmap of results (pwm x pwm), thresholded by whether responded or not
-    # and make a directed graph network
-    generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)
-
-    # go to R and plot things out
-    if True:
-        "plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)
-    
-    quit()
-    
-
-    # now for grammar, select out motifs that responded
-    # final set of motifs to plot are mutated motifs (significant importance scores)
-    # and those that responded.
-    dmim_motifs_key = "dmim-motifs"
-    if h5py.File(results_h5_file, "r").get(dmim_motifs_key) is None:
-        pwm_vector = np.zeros((len(pwm_list)))
-        for task_idx in args.inference_tasks:
-            pwm_vector += get_significant_delta_motifs(
-                results_h5_file,
-                "dmim-scores.taskidx-{}".format(task_idx),
-                "pwm-scores.taskidx-{}".format(task_idx),
-                pwm_list,
-                pwm_dict)
-
-            indices = np.where(pwm_vector > 0)[0].tolist()
-            print [pwm_list[k].name for k in indices]
-            print np.sum(pwm_vector)
-
-        # TODO one more condensation here on the collected motifs? 
-
-        print "final", [pwm_list[k].name for k in indices]
-
-        with h5py.File(results_h5_file, "a") as hf:
-            hf.create_dataset(dmim_motifs_key, data=pwm_vector)
         
     # with this vector, generate a reduced heatmap
     # and then threshold and make a directed graph
@@ -192,52 +158,5 @@ def run(args):
             pwm_list,
             pwm_dict)
     
-
-    import ipdb
-    ipdb.set_trace()
-    
-    # selection criteria: within each dmim-scores set,
-    # calculate a t test value (paired t-test) with null mean (all except test column)
-    # compared to column. use SE cutoff?
-                
-    # then within this set, merge based on pwm similarity.
-
-    # the remaining pwm indices are the ones to plot out. use networkx.
-    
-    # and plot stuff out
-    plot_summary = (
-        "plot.pwm_x_pwm.mut2.from_h5.R {0} "
-        "logits pwm-scores delta_logits dmim-scores pwm_mut_names {1}/{2} {3}").format(
-            results_h5_file,
-            args.out_dir,
-            grammar_sets[0][0].name.split(".")[0],
-            " ".join([str(i) for i in args.inference_tasks]))
-    print plot_summary
-    os.system(plot_summary)
-        
-    # get back the dataset keys and plot out
-    if False:
-        dataset_keys = ["dmim-scores.taskidx-{}".format(i)
-                        for i in args.inference_tasks]
-        for i in xrange(len(dataset_keys)):
-            visualize_scores(
-                results_h5_file,
-                dataset_keys[i])
-
-    # give an option here to optimize thresholds and save into new grammar files?
-    
-
-    if args.validate:
-        # here always give back position plot, so can look at where the motifs are
-        # relative to each other
-
-        # NOTE: this is a larger general function - use labels in h5 file in conjunction with
-        # example information
-        # TODO - confusion matrix - what timepoints and what tasks are most enriched? should be able to
-        # recover expected timepoints and tasks.
-        # make a region x timepoint (for 1 grammar) matrix - pull from the hdf5 file
-        # make a grammar x timepoint (collapse the regions grammar)
-        # make a grammar x task matrix (tasks ordered by waves of accessibility)
-        pass
     
     return None

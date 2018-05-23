@@ -87,73 +87,10 @@ def dream_and_save_to_h5(generator, feed_dict, h5_file, key, num_iter=100):
     return None
 
 
+
+
+
 def run(args):
-    """Run activation maximization
-    """
-    # setup
-    logger = logging.getLogger(__name__)
-    logger.info("Dreaming")
-    
-    # set up the inputs
-    # set up random sequence
-    onehot_vectors = np.eye(4)
-    sequence = onehot_vectors[np.random.choice(onehot_vectors.shape[0], size=1000)]
-    #sequence = np.ones((1000, 4)) * 0.25
-    sequence = np.expand_dims(np.expand_dims(sequence, axis=0), axis=0)
-    sequences = [sequence]
-        
-    # set up dataloader
-    feed_dict = {
-        "features:0": sequences[0],
-        "labels:0": np.ones((1, 119)), # TODO fix this
-        "metadata:0": np.array(["random"])}
-    dataloader = ArrayDataLoader(
-        feed_dict,
-        ["features", "labels", "metadata"],
-        [tf.float32, tf.float32, tf.string])
-    input_fn = dataloader.build_estimator_input_fn(feed_dict, 1)
-    
-    # set up model
-    model_manager = ModelManager(
-        net_fns[args.model["name"]],
-        args.model)
-
-    # set up dream generator
-    with h5py.File(args.sequence_file, "r") as hf:
-        num_examples = hf["features"].shape[0]
-        dream_generator = model_manager.dream(
-            hf["features"],
-            input_fn,
-            args.out_dir,
-            net_fns[args.inference_fn],
-            inference_params={
-                "checkpoint": args.model_checkpoints[0],
-                "backprop": args.backprop,
-                "importance_task_indices": args.inference_tasks,
-                "pwms": pwm_list,
-                "dream": True,
-                "dream_pattern": desired_pattern})
-
-        # run dream generator and save to hdf5
-        dream_and_save_to_h5(
-            dream_generator,
-            feed_dict,
-            args.sequence_file,
-            "dream.results",
-            num_iter=num_examples)
-        
-
-    quit()
-
-
-
-
-
-
-
-
-
-
     
     # set up a file loader and the input dict
     data_loader_fn = load_data_from_feed_dict

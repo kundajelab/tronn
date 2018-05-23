@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 
 
-def split_region(region):
+def split_region_old(region):
     """Split region into a list of [chr, start, stop]
     """
     region = region.split(";")[-1].split("=")[1] # to account for new region names
@@ -17,7 +17,7 @@ def split_region(region):
     return [chrom, start, stop]
 
 
-class RegionObject(object):
+class RegionObjectOLD(object):
 
     def __init__(self, shape, merge_type):
         """Basically a region object must be some form of numpy array
@@ -75,7 +75,7 @@ class RegionObject(object):
         return self.merge_type
 
 
-class RegionTracker(object):
+class RegionTrackerOLD(object):
     """Builds a flexible region tracker that updates a dictionary
     """
 
@@ -128,7 +128,7 @@ class RegionTracker(object):
         return self.region, region_data
 
 
-class ExampleGenerator(object):
+class ExampleGeneratorOLD(object):
 
     def __init__(
             self,
@@ -548,71 +548,3 @@ class OutLayer(object):
         self.batch_idx += 1
 
         return out_arrays
-
-    
-    
-# TODO delete this
-class H5InputHandler(object):
-
-    def __init__(self, h5_handle, batch_size=512, flatten=False, skip=["label_metadata"]):
-        self.h5_handle = h5_handle
-        self.example_idx = 0
-        self.batch_end = batch_size
-        self.batch_size = batch_size
-        self.batch_idx = 0
-        self.total_examples = self.h5_handle["example_metadata"].shape[0]
-        self.skip = skip
-        self.flatten = flatten
-        self.pull_batch()
-        
-
-    def pull_batch(self):
-        """Pull out a batch of examples
-        """
-        if self.example_idx + self.batch_size > self.total_examples:
-            self.batch_end = self.total_examples
-        
-        batch_arrays = {}
-        for key in self.h5_handle.keys():
-            if key in self.skip:
-                continue
-
-            if self.flatten and key == "features":
-                batch_arrays[key] = np.squeeze(self.h5_handle[key][self.example_idx:self.batch_end]).transpose(0, 2, 1)
-            else:
-                batch_arrays[key] = self.h5_handle[key][self.example_idx:self.batch_end]
-            
-            #if "example_metadata" in key:
-            #    batch_arrays[key] = self.h5_handle[key][self.example_idx:self.batch_end]
-            #elif "feature" in key:
-            #    batch_arrays[key] = self.h5_handle[key][self.example_idx:self.batch_end,:,:,:]
-            #else:
-            #    batch_arrays[key] = self.h5_handle[key][self.example_idx:self.batch_end,:]
-            
-        self.batch_arrays = batch_arrays
-        self.batch_idx = 0
-        self.example_idx = self.batch_end
-        self.batch_end += self.batch_size
-                
-        return
-
-
-    def get_example_array(self):
-        """Pull out one example
-        """
-        example_array = {}
-        for key in self.batch_arrays.keys():
-            example_array[key] = self.batch_arrays[key][self.batch_idx]
-            
-            #if "example_metadata" in key:
-            #    example_array[key] = self.batch_arrays[key][self.batch_idx,0]
-            #elif "feature" in key:
-            #    example_array[key] = self.batch_arrays[key][self.batch_idx,:,:,:]
-            #else:
-            #    example_array[key] = self.batch_arrays[key][self.batch_idx,:]
-        self.batch_idx += 1
-                
-        if self.batch_idx == self.batch_size:
-            self.pull_batch()
-
-        return example_array
