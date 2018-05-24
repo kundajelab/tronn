@@ -9,12 +9,8 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-from tronn.graphs import TronnGraph
-from tronn.graphs import TronnNeuralNetGraph
-
 from tronn.datalayer import ArrayDataLoader
 
-from tronn.datalayer import load_data_from_feed_dict
 from tronn.nets.nets import net_fns
 
 from tronn.util.tf_utils import setup_tensorflow_session
@@ -36,18 +32,25 @@ def dream_one_sequence(
         sequence,
         sess,
         feed_dict,
-        outputs,
+        output_tensors,
         max_iter=100,
         num_bp_per_iter=10):
     """run dream on one sequence
     """
     for i in xrange(max_iter):
 
-        # get the input function
-        feed_dict["features:0"] = sequence
+        # new feed dict
+        new_feed_dict = {}
+        for key in feed_dict.keys():
+            g = sess.graph
+            #g = tf.get_default_graph()
+            if key == "features":
+                new_feed_dict[g.get_tensor_by_name("dataloader/{}:0".format(key))] = sequence
+            else:
+                new_feed_dict[g.get_tensor_by_name("dataloader/{}:0".format(key))] = feed_dict[key]
         
         # run model and get gradients and logits
-        outputs = sess.run(outputs, feed_dict)
+        outputs = sess.run(output_tensors, feed_dict=new_feed_dict)
         gradients = outputs["gradients"]
         logits = outputs["logits"]
 
@@ -56,7 +59,7 @@ def dream_one_sequence(
         
         # only change top k base pairs
         max_grad_by_bp = np.squeeze(np.max(gradients, axis=3))
-        best_indices = np.argpartition(max_grad_by_bp, -k)[-k:]
+        best_indices = np.argpartition(max_grad_by_bp, -num_bp_per_iter)[-num_bp_per_iter:]
                     
         # generate sequence based on grad
         new_sequence = np.zeros_like(sequence)
@@ -68,21 +71,21 @@ def dream_one_sequence(
         
         # TODO keep track of motif scores too - this way you have which motif changed
 
+        # TODO also track other outputs and save out
+        
     return sequence
 
 
-def dream_and_save_to_h5(generator, feed_dict, h5_file, key, num_iter=100):
+def dream_and_save_to_h5(generator, feed_dict, h5_handle, key, num_iter=100):
     """run the dream generator and save out
     """
-    out_shape = [num_iter] + feed_dict["features"].shape
-    with h5py.File(h5_file, "w") as hf:
-        hf.create_dataset(key, out_shape)
+    out_shape = [num_iter] + list(feed_dict["features"].shape[1:])
+    del h5_handle[key]
+    h5_handle.create_dataset(key, out_shape)
         
     for i in xrange(num_iter):
         new_sequence = generator.next()
-        
-        with h5py.File(h5_file, "w") as hf:
-            hf[key][i] = new_sequence
+        h5_handle[key][i] = new_sequence
 
     return None
 

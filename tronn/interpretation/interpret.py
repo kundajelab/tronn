@@ -22,9 +22,9 @@ from tronn.util.tf_utils import close_tensorflow_session
 from tronn.visualization import plot_weights
 from tronn.interpretation.regions import RegionImportanceTracker
 
-from tronn.outlayer import ExampleGenerator
-from tronn.outlayer import H5Handler
-from tronn.outlayer import OutLayer
+#from tronn.outlayer import ExampleGenerator
+#from tronn.outlayer import H5Handler
+#from tronn.outlayer import OutLayer
 
 from tronn.util.tf_ops import restore_variables_op
 

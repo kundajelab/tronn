@@ -604,6 +604,9 @@ def add_dream_parser(subparsers):
     group_input.add_argument(
         "--sequence_file",
         help="sequence file of starting points with activation patterns")
+    group_input.add_argument(
+        "--pwm_file", help="pwm_file")
+
     
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -840,7 +843,7 @@ def main():
         run(args)
     elif subcommand == "dream":
         add_model_params(args)
-        from tronn.run_dream import run
+        from tronn.dream_cmd import run
         run(args)
     elif subcommand == "baseline":
         from tronn.run_tensorforest import run

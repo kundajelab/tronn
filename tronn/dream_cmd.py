@@ -9,16 +9,24 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-from tronn.graphs import TronnGraph
-from tronn.graphs import TronnNeuralNetGraph
+#from tronn.graphs import TronnGraph
+#from tronn.graphs import TronnNeuralNetGraph
+from tronn.graphs import ModelManager
 
-from tronn.datalayer import load_data_from_feed_dict
+#from tronn.datalayer import load_data_from_feed_dict
+from tronn.datalayer import ArrayDataLoader
 from tronn.nets.nets import net_fns
 
 from tronn.util.tf_utils import setup_tensorflow_session
 from tronn.util.tf_utils import close_tensorflow_session
 
 from tronn.util.tf_ops import restore_variables_op
+
+from tronn.interpretation.motifs import PWM
+from tronn.interpretation.motifs import read_pwm_file
+
+
+from tronn.interpretation.dreaming import dream_and_save_to_h5
 
 
 def run(args):
@@ -27,10 +35,6 @@ def run(args):
     # setup
     logger = logging.getLogger(__name__)
     logger.info("Dreaming")
-    if args.tmp_dir is not None:
-        os.system('mkdir -p {}'.format(args.tmp_dir))
-    else:
-        args.tmp_dir = args.out_dir
     
     # motif annotations
     pwm_list = read_pwm_file(args.pwm_file)
@@ -47,23 +51,41 @@ def run(args):
         
     # set up dataloader
     feed_dict = {
-        "features:0": sequences[0],
-        "labels:0": np.ones((1, 119)), # TODO fix this
-        "metadata:0": np.array(["random"])}
-    dataloader = ArrayDataLoader(feed_dict)
-    input_fn = dataloader.build_input_fn(feed_dict, 1)
+        "features": sequences[0],
+        "labels": np.ones((1, 119)), # TODO fix this
+        "example_metadata": np.array(["random"])}
+    array_names = ["features", "labels", "example_metadata"]
+    array_types = [tf.float32, tf.float32, tf.string]
+    dataloader = ArrayDataLoader(feed_dict, array_names, array_types)
+    input_fn = dataloader.build_input_fn(1)
+
+    
+    #feed_dict = {
+    #    "dataloader/features:0": sequences[0],
+    #    "dataloader/labels:0": np.ones((1, 119)), # TODO fix this
+    #    "dataloader/metadata:0": np.array(["random"])}
+
+    #print feed_dict
+    #print feed_dict["dataloader/metadata:0"].shape
+    #quit()
     
     # set up model
     model_manager = ModelManager(
         net_fns[args.model["name"]],
         args.model)
+
+
+    # desired pattern - factor out
+    desired_pattern = np.linspace(5, -5, num=10).astype(np.float32)
+
     
     # set up dream generator
-    with h5py.File(args.sequence_file, "r") as hf:
-        num_examples = hf["features"].shape[0]
+    with h5py.File(args.sequence_file, "a") as hf:
+        num_examples = hf["raw-sequence"].shape[0]
         dream_generator = model_manager.dream(
-            hf["features"],
+            hf["raw-sequence"],
             input_fn,
+            feed_dict,
             args.out_dir,
             net_fns[args.inference_fn],
             inference_params={
@@ -71,14 +93,14 @@ def run(args):
                 "importance_task_indices": args.inference_tasks,
                 "pwms": pwm_list,
                 "dream": True,
-                "dream_pattern": desired_pattern},
+                "all_grad_ys": desired_pattern},
             checkpoint=args.model_checkpoints[0])
 
         # run dream generator and save to hdf5
         dream_and_save_to_h5(
             dream_generator,
             feed_dict,
-            args.sequence_file,
+            hf,
             "dream.results",
             num_iter=num_examples)
                 

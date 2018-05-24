@@ -96,32 +96,6 @@ def unstack_tasks(inputs, params):
     return outputs, params
 
 
-def sequence_to_importance_scores_unfiltered(
-        features,
-        labels,
-        config,
-        is_training=False):
-    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
-    """
-    method = config.get("importances_fn")
-    
-    inference_stack = [
-        (multitask_importances, {"backprop": method, "relu": False}),
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (clip_edges, {"left_clip": 400, "right_clip": 600}),
-    ]
-    
-    # set up inference stack
-    features, labels, config = build_inference_stack(
-        features, labels, config, inference_stack)
-
-    # unstack
-    if config.get("keep_importances") is not None:
-        config = unstack_tasks(features, labels, config, prefix=config["keep_importances"])
-        
-    return features, labels, config
-
-
 def sequence_to_importance_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
@@ -142,6 +116,38 @@ def sequence_to_importance_scores(inputs, params):
         (normalize_to_weights, {"weight_key": "probs"}), 
         (clip_edges, {"left_clip": 400, "right_clip": 600}),
         (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
+    ]
+
+    # build inference stack
+    outputs, params = build_inference_stack(
+        inputs, params, inference_stack)
+
+    # unstack
+    if unstack:
+        params["name"] = "importances"
+        outputs, params = unstack_tasks(outputs, params)
+        
+    return outputs, params
+
+
+def sequence_to_importance_scores_unfiltered(inputs, params):
+    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
+    """
+    # params
+    params["is_training"] = False
+    unstack = params.get("unstack_importances", True)
+    params["keep_gradients"] = True
+    
+    # set up importance logits
+    inputs["importance_logits"] = inputs["logits"]
+    
+    # set up inference stack
+    inference_stack = [
+        (multitask_importances, {"relu": False}),
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+        (normalize_to_weights, {"weight_key": "probs"}), 
+        (clip_edges, {"left_clip": 400, "right_clip": 600}),
     ]
 
     # build inference stack

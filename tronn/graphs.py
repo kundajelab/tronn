@@ -7,6 +7,7 @@ import h5py
 
 import six
 
+import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -31,6 +32,7 @@ from tronn.learn.evaluation import get_global_avg_metrics
 from tronn.learn.learning_2 import RestoreHook
 
 from tronn.interpretation.interpret import visualize_region
+from tronn.interpretation.dreaming import dream_one_sequence
 
 
 # long term goal - make it possible to replace the core with a high level estimator (or any other type of model)
@@ -505,8 +507,15 @@ class TronnEstimator(tf.estimator.Estimator):
                                 for key, value in six.iteritems(preds_evaluated)
                             }
 
-
-    def dream_generator(self, array, input_fn, feed_dict):
+                
+    def dream_generator(
+            self,
+            array,
+            input_fn,
+            feed_dict,
+            predict_keys=None,
+            hooks=[],
+            checkpoint_path=None):
         """given array of onehot sequences, run dream
         """
         num_examples = array.shape[0]
@@ -530,11 +539,11 @@ class TronnEstimator(tf.estimator.Estimator):
                         scaffold=estimator_spec.scaffold,
                         config=self._session_config),
                     hooks=all_hooks) as mon_sess:
-
                 # run through examples
                 for example_idx in xrange(num_examples):
+                    print example_idx
                     new_sequence = dream_one_sequence(
-                        array[example_idx][:],
+                        np.expand_dims(array[example_idx][:], axis=0),
                         mon_sess,
                         feed_dict,
                         predictions,
@@ -855,6 +864,7 @@ class ModelManager(object):
             self,
             dream_dataset,
             input_fn,
+            feed_dict,
             out_dir,
             inference_fn,
             inference_params={},
@@ -867,11 +877,13 @@ class ModelManager(object):
         """
         # build inference estimator
         params = {
-            "checkpoint": inference_params.get("checkpoint"), # TODO factor out somehow?
+            "checkpoint": checkpoint,
             "inference_mode": True,
             "inference_fn": inference_fn,
             "inference_params": inference_params} # TODO pwms etc etc
 
+        # link up feed dict here?
+        
         # build estimator
         estimator = self.build_estimator(
             params=params,

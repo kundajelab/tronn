@@ -77,6 +77,7 @@ class DataLoader(object):
 
         # build all together
         with tf.variable_scope("dataloader"):
+        #with tf.variable_scope(""):
             # build raw dataflow
             inputs = self.build_raw_dataflow(batch_size, task_indices=label_tasks)
             
@@ -87,7 +88,7 @@ class DataLoader(object):
                 master_params.update(params)
                 print transform_fn
                 inputs, _ = transform_fn(inputs, master_params)
-
+            
             # adjust outputs as needed
             if len(keep_keys) > 0:
                 new_inputs = {}
@@ -483,33 +484,40 @@ class ArrayDataLoader(DataLoader):
     """build a dataloader from numpy arrays"""
 
     def __init__(self, feed_dict, array_names, array_types, **kwargs):
+    #def __init__(self, feed_dict, **kwargs):
         """keep names and shapes
         """
         self.feed_dict = feed_dict
+        #for key in feed_dict.keys():
+        #    full_key = "dataloader/{}:0".format(key)
+        #    self.feed_dict[full_key] = feed_dict[key]
         self.array_names = array_names
         self.array_types = array_types
 
-        # check
-        assert len(self.array_names) == len(array_types)
-
         
-    def build_raw_dataflow(self, batch_size):
+    def build_raw_dataflow(self, batch_size, task_indices=[]):
         """load data
         """
-        if False:
-            inputs = {}
-            for i in xrange(len(array_names)):
-                array_name = array_names[i]
-                full_array_name = "{}:0".format(array_name)
-                assert input_dict[full_array_name] is not None
+        inputs = {}
+        for i in xrange(len(self.array_names)):
+            array_name = self.array_names[i]
+            #full_array_name = "dataloader/{}:0".format(array_name)
+            assert self.feed_dict[array_name] is not None
                 
-                inputs[array_name] = tf.placeholder(
-                    array_types[i],
-                    shape=[batch_size]+list(feed_dict[full_array_name].shape[1:]),
-                    name=array_name)
-                
-        return tf.estimator.inputs.numpy_input_fn([self.feed_dict, None])
+            inputs[array_name] = tf.placeholder(
+                self.array_types[i],
+                shape=[batch_size]+list(self.feed_dict[array_name].shape[1:]),
+                name=array_name)
 
+        #new_inputs = tf.train.batch(
+        #    inputs,
+        #    batch_size,
+        #    capacity=batch_size*3,
+        #    enqueue_many=True,
+        #    name='batcher')
+            
+        return inputs
+            
     
 class VariantDataLoader(DataLoader):
     """build a dataloader that starts from a vcf file"""
