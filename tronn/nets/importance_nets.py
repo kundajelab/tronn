@@ -40,7 +40,6 @@ def input_x_grad(inputs, params):
     if params.get("grad_ys") is None:
         [feature_grad] = tf.gradients(anchor, [features])
     else:
-        print params["grad_ys"]
         [feature_grad] = tf.gradients(anchor, [features], grad_ys=params["grad_ys"])
 
     # input x grad
@@ -213,7 +212,7 @@ def multitask_importances(inputs, params):
     # split out anchors by task
     anchors = [tf.expand_dims(tensor, axis=1)
                for tensor in tf.unstack(anchors, axis=1)] # {N, 1}
-
+    
     # get task specific importances
     task_importances = []
     task_gradients = []
@@ -228,9 +227,9 @@ def multitask_importances(inputs, params):
         
         if params.get("keep_gradients") is not None:
             task_gradients.append(task_outputs["gradients"])
-        
-    features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
 
+    features = tf.concat(task_importances, axis=1) # {N, task, pos, C}
+    
     outputs["features"] = features
     if params.get("keep_gradients") is not None:
         outputs["gradients"] = tf.reduce_mean(

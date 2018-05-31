@@ -110,6 +110,7 @@ def sequence_to_importance_scores(inputs, params):
     inference_stack = [
         (multitask_importances, {"relu": False}),
         #(threshold_shufflenull, {"pval_thresh": 0.05}),
+        
         (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
         (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
         (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),

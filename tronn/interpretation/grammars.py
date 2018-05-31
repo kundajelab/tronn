@@ -911,6 +911,9 @@ def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cuto
                         
             # also save out pwm results
             pwm_results[cluster_i, task_j,:] = np.sum(pwm_scores, axis=0)[master_pwm_vector > 0]
+
+            # TODO - for each motif, get the best global hit position
+            # and save out a bed file centered on the motif position.
             
             
         # save out labels, logits, and delta logit results

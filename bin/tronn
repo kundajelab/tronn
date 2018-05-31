@@ -831,7 +831,7 @@ def main():
         run(args)
     elif subcommand == "scanmotifs":
         add_model_params(args)
-        from tronn.run_scanmotifs import run
+        from tronn.scanmotifs_cmd import run
         run(args)
     elif subcommand == "ism": # this checks dependencies
     	add_model_params(args)

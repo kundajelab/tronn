@@ -488,9 +488,6 @@ class ArrayDataLoader(DataLoader):
         """keep names and shapes
         """
         self.feed_dict = feed_dict
-        #for key in feed_dict.keys():
-        #    full_key = "dataloader/{}:0".format(key)
-        #    self.feed_dict[full_key] = feed_dict[key]
         self.array_names = array_names
         self.array_types = array_types
 
@@ -501,7 +498,6 @@ class ArrayDataLoader(DataLoader):
         inputs = {}
         for i in xrange(len(self.array_names)):
             array_name = self.array_names[i]
-            #full_array_name = "dataloader/{}:0".format(array_name)
             assert self.feed_dict[array_name] is not None
                 
             inputs[array_name] = tf.placeholder(
@@ -509,6 +505,7 @@ class ArrayDataLoader(DataLoader):
                 shape=[batch_size]+list(self.feed_dict[array_name].shape[1:]),
                 name=array_name)
 
+        # TODO this might be useful
         #new_inputs = tf.train.batch(
         #    inputs,
         #    batch_size,

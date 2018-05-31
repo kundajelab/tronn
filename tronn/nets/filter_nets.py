@@ -123,7 +123,7 @@ def filter_singleton_labels(inputs, params):
     label_subset = tf.concat(
         [labels[i] for i in filter_tasks],
         axis=1)
-
+    
     # condition mask
     outputs["condition_mask"] = tf.greater(
         tf.reduce_sum(label_subset, axis=1), [1])

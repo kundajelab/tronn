@@ -43,11 +43,8 @@ def run(args):
     train_files, valid_files, test_files = setup_cv(data_files, cvfold=args.cvfold)
 
     # set up dataloader
-    dataloader = H5DataLoader(
-        {"valid": valid_files, "test": test_files},
-        tasks=args.tasks,
-        shuffle_examples=True if args.reconstruct_regions else False)
-    test_input_fn = dataloader.build_estimator_input_fn("test", args.batch_size)
+    dataloader = H5DataLoader(test_files)
+    test_input_fn = dataloader.build_input_fn(args.batch_size)
 
     # set up model
     model_manager = ModelManager(
@@ -55,27 +52,31 @@ def run(args):
         args.model)
 
     # evaluate
-    eval_metrics = model_manager.evaluate(
+    predictor = model_manager.predict(
         test_input_fn,
         args.out_dir,
-        steps=100,
         checkpoint=args.model_checkpoints[0])
-    print eval_metrics
-    
-    # set up neural net graph
-    tronn_graph = TronnGraphV2(
-        dataloader,
-        net_fns[args.model["name"]],
-        args.model,
-        args.batch_size,
-        final_activation_fn=tf.nn.sigmoid,
-        loss_fn=tf.losses.sigmoid_cross_entropy,
-        checkpoints=args.model_checkpoints)
 
     # run eval graph
     eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)
     if not os.path.isfile(eval_h5_file):
-        full_evaluate(tronn_graph, eval_h5_file)
+        model_manager.infer_and_save_to_h5(predictor, eval_h5_file, 100)
+
+    if False:
+        # set up neural net graph
+        tronn_graph = TronnGraphV2(
+            dataloader,
+            net_fns[args.model["name"]],
+            args.model,
+            args.batch_size,
+            final_activation_fn=tf.nn.sigmoid,
+            loss_fn=tf.losses.sigmoid_cross_entropy,
+            checkpoints=args.model_checkpoints)
+
+        # run eval graph
+        eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)
+        if not os.path.isfile(eval_h5_file):
+            full_evaluate(tronn_graph, eval_h5_file)
 
     # extract arrays
     with h5py.File(eval_h5_file, "r") as hf:

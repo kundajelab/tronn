@@ -217,63 +217,6 @@ def get_bp_overlap(features, labels, config, is_training=False):
     return nonzero_bp_fraction_per_window, labels, config
 
 
-def pwm_match_filtered_convolve_old(features, labels, config, is_training=False):
-    """Run pwm convolve twice, with importance scores and without.
-    Choose max for motif across positions using raw sequence
-    """
-    raw_sequence = config["outputs"].get("onehot_sequence_clipped")
-    #reuse = config.get("reuse_pwm_layer", False)
-    assert raw_sequence is not None
-
-    # run on raw sequence
-    if raw_sequence is not None:
-        binarized_features = raw_sequence
-        if config["keep_ism_scores"] is None:
-            del config["outputs"]["onehot_sequence"] # remove this from outputs now
-        else:
-            print "WARNING DID NOT DELETE RAW SEQUENCE"
-    
-    #with tf.variable_scope("binarize_filt"):
-    pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
-        binarized_features, labels, config, is_training=is_training) # {N, 1, pos, M}
-
-    # adjust the raw scores and save out
-    if config.get("keep_pwm_raw_scores") is not None:
-        raw_bp_overlap, _, _ = get_bp_overlap(binarized_features, labels, config)
-        raw_scores = tf.multiply(
-            pwm_binarized_feature_scores,
-            raw_bp_overlap)
-        raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2)) # {N, M}
-        config["outputs"][config["keep_pwm_raw_scores"]] = raw_scores
-
-    # multiply by raw sequence matches
-    pwm_binarized_feature_maxfilt_mask = tf.cast(
-        tf.greater(pwm_binarized_feature_scores, [0]), tf.float32)
-    
-    # run on impt weighted features
-    #with tf.variable_scope("impt_weighted"):
-    pwm_impt_weighted_scores, _, _ = pwm_convolve_inputxgrad(
-        features, labels, config, is_training=is_training)
-    
-    # and filter through mask
-    filt_features = tf.multiply(
-        pwm_binarized_feature_maxfilt_mask,
-        pwm_impt_weighted_scores)
-
-    # at this stage also need to perform the weighting by bp presence
-    impt_bp_overlap, _, _ = get_bp_overlap(features, labels, config)
-    features = tf.multiply(
-        filt_features,
-        impt_bp_overlap)
-
-    # keep for grammars
-    if config.get("keep_pwm_scores_full") is not None:
-        # attach to config
-        config["outputs"][config["keep_pwm_scores_full"]] = features # {N, task, pos, M}
-        
-    return features, labels, config
-
-
 def pwm_match_filtered_convolve(inputs, params):
     """Run pwm convolve twice, with importance scores and without.
     Choose max for motif across positions using raw sequence
@@ -313,6 +256,10 @@ def pwm_match_filtered_convolve(inputs, params):
     # multiply by raw sequence matches
     pwm_binarized_feature_maxfilt_mask = tf.cast(
         tf.greater(pwm_binarized_feature_scores, [0]), tf.float32)
+
+    # testing using the actual raw scores?
+    #pwm_binarized_feature_maxfilt_mask = tf.nn.relu(
+    #    pwm_binarized_feature_scores)
     
     # run on impt weighted features
     #with tf.variable_scope("impt_weighted"):
@@ -431,26 +378,6 @@ def pwm_positional_max(features, labels, config, is_training=False):
     features = tf.concat(features_pos_max, axis=1) # {N, task, pos, M}
 
     return features, labels, config
-
-
-def pwm_position_squeeze(features, labels, config, is_training=False):
-    """Squeeze position
-    """
-    squeeze_type = config.get("squeeze_type", "max")
-    if squeeze_type == "max":
-        max_vals = tf.reduce_max(tf.abs(features), axis=2, keep_dims=True) # {N, task, 1, M}
-        max_mask = tf.cast(
-            tf.greater_equal(tf.abs(features), max_vals),
-            tf.float32) #{N, task, pos, M}
-        features = tf.reduce_sum(
-            tf.multiply(max_mask, features), axis=2) # {N, task, M}
-    elif squeeze_type == "mean":
-        features = tf.reduce_mean(features, axis=2)
-    elif squeeze_type == "sum":
-        features = tf.reduce_sum(features, axis=2)
-
-    return features, labels, config
-
 
 
 def pwm_position_squeeze(inputs, params):

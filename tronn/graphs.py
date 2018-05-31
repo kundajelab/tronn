@@ -34,6 +34,8 @@ from tronn.learn.learning_2 import RestoreHook
 from tronn.interpretation.interpret import visualize_region
 from tronn.interpretation.dreaming import dream_one_sequence
 
+from tronn.util.tf_utils import setup_tensorflow_session
+from tronn.util.tf_utils import close_tensorflow_session
 
 # long term goal - make it possible to replace the core with a high level estimator (or any other type of model)
 class TronnGraphV2(object):
@@ -87,7 +89,7 @@ class TronnGraphV2(object):
         training_params = {}
         
         # dataloader
-        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        inputs = self.data_loader.build_filtered_dataflow(self.batch_size, data_key)
         training_params["data_key"] = data_key
 
         # model
@@ -132,7 +134,7 @@ class TronnGraphV2(object):
         eval_params = {}
         
         # dataloader
-        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        inputs = self.data_loader.build_filtered_dataflow(self.batch_size, data_key)
         eval_params["data_key"] = data_key
         
         # model
@@ -173,7 +175,7 @@ class TronnGraphV2(object):
         prediction_params = {}
         
         # dataloader
-        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
+        inputs = self.data_loader.build_filtered_dataflow(self.batch_size, data_key)
         prediction_params["data_key"] = data_key
         
         # model
@@ -191,6 +193,7 @@ class TronnGraphV2(object):
 
     def build_inference_dataflow(
             self,
+            inputs,
             infer_params={},
             data_key="data",
             features_key="features",
@@ -202,8 +205,8 @@ class TronnGraphV2(object):
         logging.info("building inference dataflow")
         
         # dataloader
-        inputs = self.data_loader.build_dataflow(self.batch_size, data_key)
-        infer_params["data_key"] = data_key
+        #inputs = self.data_loader.build_filtered_dataflow(self.batch_size)
+        #infer_params["data_key"] = data_key
         
         # model
         assert inputs.get(features_key) is not None
@@ -464,7 +467,7 @@ class TronnGraphV2(object):
 class TronnEstimator(tf.estimator.Estimator):
     """Extended estimator to have an inference function"""
 
-    def infer(
+    def infer_old(
             self,
             input_fn,
             predict_keys=None,
@@ -491,6 +494,11 @@ class TronnEstimator(tf.estimator.Estimator):
                         scaffold=estimator_spec.scaffold,
                         config=self._session_config),
                     hooks=all_hooks) as mon_sess:
+                # fix the loading
+                #mon_sess.run(
+                #    estimator_spec.scaffold.init_op,
+                #    estimator_spec.scaffold.init_feed_dict)
+
                 print "session created"
                 while not mon_sess.should_stop():
                     preds_evaluated = mon_sess.run(predictions)
@@ -507,7 +515,52 @@ class TronnEstimator(tf.estimator.Estimator):
                                 for key, value in six.iteritems(preds_evaluated)
                             }
 
-                
+    def infer(
+            self,
+            input_fn,
+            predict_keys=None,
+            hooks=[],
+            checkpoint_path=None,
+            yield_single_examples=True):
+        """adjust predict function to do inference
+        """
+        with ops.Graph().as_default() as g:
+            random_seed.set_random_seed(self._config.tf_random_seed)
+            self._create_and_assert_global_step(g)
+            features, input_hooks = self._get_features_from_input_fn(
+                input_fn, model_fn_lib.ModeKeys.PREDICT)
+            estimator_spec = self._call_model_fn(
+                features, None, model_fn_lib.ModeKeys.PREDICT, self.config)
+            predictions = self._extract_keys(estimator_spec.predictions, predict_keys)
+            #all_hooks = list(input_hooks)
+            #all_hooks.extend(hooks)
+            #all_hooks.extend(list(estimator_spec.prediction_hooks or []))
+            
+            # set up session
+            sess, coord, threads = setup_tensorflow_session()
+            
+            # restore
+            sess.run(
+                estimator_spec.scaffold.init_op,
+                estimator_spec.scaffold.init_feed_dict)
+            print "restored"
+            
+            while not coord.should_stop():
+                preds_evaluated = sess.run(predictions)
+                print "run session"
+                if not yield_single_examples:
+                    yield preds_evaluated
+                elif not isinstance(predictions, dict):
+                    for pred in preds_evaluated:
+                        yield pred
+                else:
+                    for i in range(self._extract_batch_length(preds_evaluated)):
+                        yield {
+                            key: value[i]
+                            for key, value in six.iteritems(preds_evaluated)
+                        }
+
+                        
     def dream_generator(
             self,
             array,
@@ -551,11 +604,49 @@ class TronnEstimator(tf.estimator.Estimator):
                         num_bp_per_iter=10)
                     yield new_sequence
 
+                    
+    def build_restore_graph_function(self, checkpoints, is_ensemble=False, skip=[], scope_change=None):
+        """build the restore function
+        """
+        if is_ensemble: # this is really determined by there being more than 1 ckpt - can use as test?
+            def restore_function(sess):
+                # TODO adjust this function to be like below
+                # for ensemble, just need to adjust scoping
+                for i in xrange(len(self.checkpoints)):
+                    new_scope = "model_{}/".format(i)
+                    print new_scope
+                    init_assign_op, init_feed_dict = restore_variables_op(
+                        checkpoints[i],
+                        skip=skip,
+                        include_scope=new_scope,
+                        scope_change=["", new_scope])
+                    sess.run(init_assign_op, init_feed_dict)
+        else:
+            print checkpoints
+            if len(checkpoints) > 0:
+                init_assign_op, init_feed_dict = restore_variables_op(
+                    checkpoints[0], skip=skip, scope_change=scope_change)
+                def restore_function(sess):
+                    sess.run(init_assign_op, init_feed_dict)
+            else:
+                print "WARNING NO CHECKPOINTS USED"
+                
+        return restore_function
+
+    
+    def restore_graph(self, sess, checkpoints, is_ensemble=False, skip=[], scope_change=None):
+        """restore saved model from checkpoint into sess
+        """
+        restore_function = self.build_restore_graph_function(
+            checkpoints, is_ensemble=is_ensemble, skip=skip, scope_change=scope_change)
+        restore_function(sess)
+        
+        return None
 
 
     
 class ModelManager(object):
-    """Manages the full model pipeline (utilizes Estimator)"""
+    """Manages the full model pipeline (utilizes Estimator framework)"""
     
     def __init__(
             self,
@@ -593,10 +684,8 @@ class ModelManager(object):
         # add final activation, loss, and train op
         outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
         loss = self._add_loss(outputs[labels_key], outputs["logits"])
-        #optimizer = optimizer_fn(**optimizer_params)
 
-
-        # TODO fix the train op
+        # TODO fix the train op so that doesn't rely on slim
         train_op = self._add_train_op(loss, optimizer_fn, optimizer_params)
         #train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
 
@@ -656,19 +745,19 @@ class ModelManager(object):
         """build inference dataflow. links up input tensors
         to the model with is_training as False
         """
+        # assertions
+        assert inputs.get(features_key) is not None
+        
         # set up prediction dataflow
         outputs = self.build_prediction_dataflow(inputs, features_key=features_key)
 
         # get the variables to restore here
+        # TODO remove reliance on slim
         variables_to_restore = slim.get_model_variables()
         variables_to_restore.append(tf.train.get_or_create_global_step())
-
-        # adjust inference params as needed
-        #inference_params.update({})
         
         # run inference with an inference stack
         outputs, _ = inference_fn(outputs, inference_params)
-        print outputs
 
         return outputs, variables_to_restore
 
@@ -694,7 +783,7 @@ class ModelManager(object):
             """model fn in the Estimator framework
             """
             # set up the input dict for model fn
-            #inputs = {"features": features, "labels": labels}
+            # note that all input goes through features (including labels)
             inputs = features
             
             # attach necessary things and return EstimatorSpec
@@ -708,23 +797,26 @@ class ModelManager(object):
                         inputs,
                         params["inference_fn"],
                         params.get("inference_params", {}))
+                    
+                    # create custom init op
                     init_op, init_feed_dict = restore_variables_op(
                         params["checkpoint"],
                         skip=["pwm"])
-                    init_op = control_flow_ops.group(
-                        variables.global_variables_initializer(),
-                        variables.local_variables_initializer(),
-                        resources.initialize_resources(resources.shared_resources()),
-                        init_op)
 
-                    # TODO figure out how to collect standard scaffold and adjust just the saver
+                    #def init_fn(scaffold, sess):
+                    #    sess.run(init_op, init_feed_dict)
+                    
+                    #init_op = control_flow_ops.group(
+                    #    variables.global_variables_initializer(),
+                    #    variables.local_variables_initializer(),
+                    #    resources.initialize_resources(resources.shared_resources()),
+                    #    init_op) # dummy here to make sure to not overwrite pwm?
+
+                    # custom scaffold to load checkpoint
                     scaffold = monitored_session.Scaffold(
                         #init_fn=init_fn,
                         init_op=init_op,
-                        #local_init_op=None,
                         init_feed_dict=init_feed_dict)
-                        #local_init_op=[tf.global_variables_initializer(), tf.local_variables_initializer()], # fyi hack
-                        #saver=tf.train.Saver(variables_to_restore))
                     
                     return tf.estimator.EstimatorSpec(
                         mode,
@@ -744,7 +836,6 @@ class ModelManager(object):
             return None
             
         # instantiate the custom estimator
-        #estimator = tf.estimator.Estimator(
         estimator = TronnEstimator(
             estimator_model_fn,
             model_dir=out_dir,
@@ -764,21 +855,11 @@ class ModelManager(object):
         """train an estimator. if steps is None, goes on forever or until input_fn
         runs out.
         """
-        # build estimator
-        estimator = self.build_estimator(
-            config=config,
-            out_dir=out_dir)
+        # build estimator and train
+        estimator = self.build_estimator(config=config, out_dir=out_dir)
+        estimator.train(input_fn=input_fn, max_steps=steps, hooks=hooks)
         
-        # train until input producers are out
-        estimator.train(
-            input_fn=input_fn,
-            max_steps=steps,
-            hooks=hooks)
-
-        # return the latest checkpoint
-        latest_checkpoint = tf.train.latest_checkpoint(out_dir)
-        
-        return latest_checkpoint
+        return tf.train.latest_checkpoint(out_dir)
 
 
     def evaluate(
@@ -791,12 +872,8 @@ class ModelManager(object):
             hooks=[]):
         """evaluate a trained estimator
         """
-        # build evaluation estimator
-        estimator = self.build_estimator(
-            config=config,
-            out_dir=out_dir)
-        
-        # evaluate
+        # build evaluation estimator and evaluate
+        estimator = self.build_estimator(config=config, out_dir=out_dir)
         eval_metrics = estimator.evaluate(
             input_fn=input_fn,
             steps=steps,
@@ -818,11 +895,9 @@ class ModelManager(object):
         """predict on a trained estimator
         """
         # build prediction estimator
-        estimator = self.build_estimator(
-            config=config,
-            out_dir=out_dir)
-        
-        # evaluate
+        estimator = self.build_estimator(config=config, out_dir=out_dir)
+
+        # return prediction generator
         return estimator.predict(
             input_fn=input_fn,
             checkpoint_path=checkpoint)
@@ -857,7 +932,7 @@ class ModelManager(object):
         # return generator
         return estimator.infer(
             input_fn=input_fn,
-            checkpoint_path=None)
+            checkpoint_path=checkpoint)
 
     
     def dream(
@@ -880,9 +955,7 @@ class ModelManager(object):
             "checkpoint": checkpoint,
             "inference_mode": True,
             "inference_fn": inference_fn,
-            "inference_params": inference_params} # TODO pwms etc etc
-
-        # link up feed dict here?
+            "inference_params": inference_params} # TODO pwms
         
         # build estimator
         estimator = self.build_estimator(
@@ -891,7 +964,7 @@ class ModelManager(object):
             out_dir=out_dir)
 
         # return generator
-        return estimator.dream_generator( # adjusted here for tronn
+        return estimator.dream_generator(
             dream_dataset,
             input_fn,
             feed_dict)
@@ -951,7 +1024,6 @@ class ModelManager(object):
                 checkpoint=latest_checkpoint)
 
             # early stopping and saving best model
-            # TODO fix the early stopping logic conditions
             if best_metric_val is None or ('loss' in early_stopping_metric) != (
                     eval_metrics[early_stopping_metric] > best_metric_val):
                 best_metric_val = eval_metrics[early_stopping_metric]
@@ -961,20 +1033,22 @@ class ModelManager(object):
                     fp.write('epoch %d\n'%epoch)
                     fp.write("checkpoint path: {}\n".format(best_checkpoint))
                     fp.write(str(eval_metrics))
-                with open(stopping_log, 'w') as out:
-                    out.write("{}\t{}\t{}\t{}".format(
-                        epoch,
-                        best_metric_val,
-                        consecutive_bad_epochs,
-                        best_checkpoint))
             else:
-                # break
+                # break if consecutive bad epochs are too high
                 consecutive_bad_epochs += 1
                 if consecutive_bad_epochs > epoch_patience:
-                    logging.info("early stopping triggered")
+                    logging.info(
+                        "early stopping triggered on epoch {} with patience {}".format(epoch, epoch_patience))
                     break
 
-        # return the best checkpoint
+            # save to stopping log
+            with open(stopping_log, 'w') as out:
+                out.write("{}\t{}\t{}\t{}".format(
+                    epoch,
+                    best_metric_val,
+                    consecutive_bad_epochs,
+                    best_checkpoint))
+
         return best_checkpoint
 
     
@@ -1035,7 +1109,7 @@ class ModelManager(object):
             optimizer_params):
         """set up the optimizer and generate the training op
         """
-        # TODO adjust this to remove reliance on contrib
+        # TODO adjust this to remove reliance on slim
         optimizer = optimizer_fn(**optimizer_params)
         train_op = slim.learning.create_train_op(
             loss,
@@ -1044,7 +1118,6 @@ class ModelManager(object):
             summarize_gradients=True)
 
         return train_op
-
     
     
     def _add_metrics(self, labels, probs, loss, metrics_fn=get_global_avg_metrics):
@@ -1058,13 +1131,6 @@ class ModelManager(object):
                 tf.GraphKeys.UPDATE_OPS, update)
 
         metric_map = metrics_fn(labels, probs)
-        # Add losses to metrics
-        #mean_loss, _ = tf.metrics.mean(
-        #    loss, updates_collections=tf.GraphKeys.UPDATE_OPS)
-        ##metric_map.update({
-        #    "total_loss": loss,
-        #    "mean_loss": mean_loss
-        #})
 
         return metric_map
 
@@ -1072,10 +1138,7 @@ class ModelManager(object):
     def _add_summaries(self):
         """add things you want to track on tensorboard
         """
-        
-
-        
-        return
+        return None
 
     
     @staticmethod
@@ -1084,7 +1147,7 @@ class ModelManager(object):
         """
         # generate first set of outputs to know shapes
         print "starting inference"
-        first_example = generator.next() # put in try except
+        first_example = generator.next()
 
         # set up the saver
         with h5py.File(h5_file, "w") as hf:
@@ -1102,28 +1165,16 @@ class ModelManager(object):
 
             # now run
             total_examples = 1
-            total_visualized = 0
-            passed_cutoff = 0 # debug
+            #total_visualized = 0
+            #passed_cutoff = 0 # debug
             try:
-                #while not coord.should_stop():
                 for i in xrange(1, sample_size):
-
                     if total_examples % 1000 == 0:
                         print total_examples
 
                     example = generator.next()
-
-                    #import ipdb
-                    #ipdb.set_trace()
-
                     h5_handler.store_example(example)
                     total_examples += 1
-
-                    #if (sample_size is not None) and (total_examples >= sample_size):
-                    #    break
-
-            except tf.errors.OutOfRangeError:
-                print "Done reading data"
 
             except StopIteration:
                 print "Done reading data"
@@ -1134,8 +1185,6 @@ class ModelManager(object):
 
         return None
 
-
-    
     
 
 class SlimManager(ModelManager):
@@ -1226,90 +1275,3 @@ class MetaGraphManager(ModelManager):
         
         return metagraph_model_fn
     
-    
-    
-
-    
-
-class KerasManager(ModelManager):
-    """Model manager for Keras models, uses Estimator framework"""
-    
-    def __init__():
-        pass
-
-
-    def train():
-        pass
-
-
-    def eval():
-        pass
-
-
-    def predict():
-        pass
-
-
-    def infer():
-        pass
-
-
-
-
-
-
-
-def infer_and_save_to_hdf5(generator, h5_file, sample_size):
-    """wrapper routine to run inference and save the results out
-    """
-    # generate first set of outputs to know shapes
-    print "starting inference"
-    first_example = generator.next() # put in try except
-
-    # set up the saver
-    with h5py.File(h5_file, "w") as hf:
-        
-        h5_handler = H5Handler(
-            hf,
-            first_example,
-            sample_size,
-            resizable=True,
-            batch_size=4096,
-            is_tensor_input=False)
-
-        # and store first outputs
-        h5_handler.store_example(first_example)
-        
-        # now run
-        total_examples = 1
-        total_visualized = 0
-        passed_cutoff = 0 # debug
-        try:
-            #while not coord.should_stop():
-            for i in xrange(1, sample_size):
-                
-                if total_examples % 1000 == 0:
-                    print total_examples
-                    
-                example = generator.next()
-                
-                #import ipdb
-                #ipdb.set_trace()
-                    
-                h5_handler.store_example(example)
-                total_examples += 1
-                
-                #if (sample_size is not None) and (total_examples >= sample_size):
-                #    break
-
-        except tf.errors.OutOfRangeError:
-            print "Done reading data"
-
-        except StopIteration:
-            print "Done reading data"
-                
-        finally:
-            h5_handler.flush()
-            h5_handler.chomp_datasets()
-            
-    return None
