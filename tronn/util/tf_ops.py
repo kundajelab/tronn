@@ -118,7 +118,7 @@ def restore_variables_op(checkpoint, skip=[], include_scope="", scope_change=Non
     
     variables_to_restore = [var for var in variables_to_restore if (include_scope in var.name)]
         
-    logging.info(str(variables_to_restore))
+    logging.debug(str(variables_to_restore))
     print checkpoint
     
     # TODO adjust variable names as needed (if ensembling, etc etc)
@@ -136,7 +136,7 @@ def restore_variables_op(checkpoint, skip=[], include_scope="", scope_change=Non
             checkpoint_name_to_var[checkpoint_var_name] = v
         variables_to_restore = checkpoint_name_to_var
 
-    logging.info(str(variables_to_restore))
+    logging.debug(str(variables_to_restore))
     # tool for debug as needed
     #from tensorflow.python.tools import inspect_checkpoint as chkp
     #chkp.print_tensors_in_checkpoint_file(checkpoint, tensor_name='', all_tensors=True)

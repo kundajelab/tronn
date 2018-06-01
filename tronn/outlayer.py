@@ -333,10 +333,10 @@ class H5Handler(object):
             if is_tensor_input:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
             else:
-                if isinstance(tensor_dict[key], basestring):
-                    dataset_shape = [sample_size]
-                else:
-                    dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
+                #if isinstance(tensor_dict[key], basestring):
+                #    dataset_shape = [sample_size]
+                #else:
+                dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
             maxshape = dataset_shape if resizable else None
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(key, dataset_shape, maxshape=maxshape, dtype="S100")
@@ -359,17 +359,13 @@ class H5Handler(object):
         for key in self.example_keys:
             
             dataset_shape = [self.batch_size] + [int(i) for i in self.h5_handle[key].shape[1:]]
-                
-            if "example_metadata" in key:
-                tmp_arrays[key] = np.array(
-                    ["false=chrY:0-0"
-                     for i in xrange(self.batch_size)],
-                    dtype="S100").reshape(self.batch_size, 1)
+
+            if key == "example_metadata":
+                tmp_arrays[key] = np.empty(dataset_shape, dtype="S100")
+                tmp_arrays[key].fill("false=chrY:0-0")
             elif "features.string" in key:
-                tmp_arrays[key] = np.array(
-                    ["NNNNN"
-                     for i in xrange(self.batch_size)],
-                    dtype="S1000")
+                tmp_arrays[key] = np.empty(dataset_shape, dtype="S1000")
+                tmp_arrays[key].fill("NNNN")
             else:
                 tmp_arrays[key] = np.zeros(dataset_shape)
         self.tmp_arrays = tmp_arrays
@@ -394,16 +390,11 @@ class H5Handler(object):
         """Store an example into the tmp numpy arrays, push batch out if done with batch
         """
         for key in self.example_keys:
-            self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
-                
-            #if "example_metadata" in key:
-            #    self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
-            #elif "importance" in key:
-            #    self.tmp_arrays[key][self.tmp_arrays_idx,:,:] = example_arrays[key]
-            #elif "seqlets" in key:
-            #    self.tmp_arrays[key][self.tmp_arrays_idx,:,:] = example_arrays[key]
-            #else:
-            #    self.tmp_arrays[key][self.tmp_arrays_idx,:] = example_arrays[key]
+            try:
+                self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
+            except:
+                import ipdb
+                ipdb.set_trace()
         self.tmp_arrays_idx += 1
         
         # now if at end of batch, push out and reset tmp
@@ -429,21 +420,10 @@ class H5Handler(object):
         """
         for key in self.example_keys:
             try:
-                #if len(self.tmp_arrays[key].shape) == 1:
-                #    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key].reshape(
-                #        self.tmp_arrays[key].shape[0], 1)
-                #else:
                 self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
             except:
                 import ipdb
                 ipdb.set_trace()
-                
-                #if "example_metadata" in key:
-                #    self.h5_handle[key][self.batch_start:self.batch_end] = self.tmp_arrays[key] #.reshape((self.batch_size, 1))
-                #elif "importance" in key:
-                #    self.h5_handle[key][self.batch_start:self.batch_end,:,:] = self.tmp_arrays[key]
-                #else:
-                #    self.h5_handle[key][self.batch_start:self.batch_end,:] = self.tmp_arrays[key]
             
         # set new point in batch
         self.batch_start = self.batch_end
@@ -544,10 +524,12 @@ class OutLayer(object):
                 raise StopIteration
         # collect batch outputs and return
         for key in self.graph_tensor_outputs.keys():
-            if "example_metadata" in key:
-                out_arrays[key] = self.outputs[key][self.batch_idx][0]
+            # check if string
+            result = self.outputs[key][self.batch_idx]
+            if isinstance(result[0], basestring):
+                out_arrays[key] = result[0]
             else:
-                out_arrays[key] = self.outputs[key][self.batch_idx]
+                out_arrays[key] = result
         self.batch_idx += 1
 
         return out_arrays
