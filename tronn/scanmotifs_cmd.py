@@ -13,7 +13,6 @@ import tensorflow as tf
 
 from collections import Counter
 
-from tronn.graphs import TronnGraphV2
 from tronn.graphs import ModelManager
 
 from tronn.datalayer import H5DataLoader
@@ -29,7 +28,7 @@ from tronn.interpretation.clustering import visualize_clusters
 from tronn.interpretation.clustering import aggregate_pwm_results
 from tronn.interpretation.clustering import get_manifold_centers
 
-from tronn.interpretation.interpret import interpret_v2
+#from tronn.interpretation.interpret import interpret_v2
 
 
 def run(args):
@@ -62,76 +61,39 @@ def run(args):
             args.filter_tasks],
         singleton_filter_tasks=args.inference_tasks)
 
-    if True:
-        # set up model
-        model_manager = ModelManager(
-            net_fns[args.model["name"]],
-            args.model)
 
-        # set up inference generator
-        inference_generator = model_manager.infer(
-            input_fn,
-            args.out_dir,
-            net_fns[args.inference_fn],
-            inference_params={
-                "backprop": args.backprop,
-                "importance_task_indices": args.inference_tasks,
-                "pwms": pwm_list},
-            checkpoint=args.model_checkpoints[0],
-            yield_single_examples=True)
+    # set up model
+    model_manager = ModelManager(
+        net_fns[args.model["name"]],
+        args.model)
 
-        #inference_generator = model_manager.predict(
-        #    input_fn,
-        #    args.out_dir,
-        #    checkpoint=args.model_checkpoints[0])
-        
+    # set up inference generator
+    inference_generator = model_manager.infer(
+        input_fn,
+        args.out_dir,
+        net_fns[args.inference_fn],
+        inference_params={
+            "backprop": args.backprop,
+            "importance_task_indices": args.inference_tasks,
+            "pwms": pwm_list},
+        checkpoint=args.model_checkpoints[0],
+        yield_single_examples=True)
 
-        # run inference and save out
-        results_h5_file = "{0}/{1}.inference.h5".format(
-            args.tmp_dir, args.prefix)
-        if not os.path.isfile(results_h5_file):
-            model_manager.infer_and_save_to_h5(
-                inference_generator,
-                results_h5_file,
-                args.sample_size)
+    # run inference and save out
+    results_h5_file = "{0}/{1}.inference.h5".format(
+        args.tmp_dir, args.prefix)
+    if not os.path.isfile(results_h5_file):
+        model_manager.infer_and_save_to_h5(
+            inference_generator,
+            results_h5_file,
+            args.sample_size)
 
-            # add in PWM names to the datasets
-            with h5py.File(results_h5_file, "a") as hf:
-                for dataset_key in hf.keys():
-                    if "pwm-scores" in dataset_key:
-                        hf[dataset_key].attrs["pwm_names"] = [
-                            pwm.name for pwm in pwm_list]
-
-    if False:
-        # set up graph
-        tronn_graph = TronnGraphV2(
-            dataloader,
-            net_fns[args.model["name"]],
-            args.model,
-            args.batch_size,
-            final_activation_fn=tf.nn.sigmoid,
-            checkpoints=args.model_checkpoints)
-        
-        # run interpretation graph
-        results_h5_file = "{0}/{1}.inference.h5".format(
-            args.tmp_dir, args.prefix)
-        if not os.path.isfile(results_h5_file):
-            infer_params = {
-                "inference_fn": net_fns[args.inference_fn],
-                #"importances_fn": args.backprop,
-                "backprop": args.backprop,
-                "importance_task_indices": args.inference_tasks,
-                "pwms": pwm_list}
-            interpret_v2(tronn_graph, results_h5_file, infer_params)
-            
-            # add in PWM names to the datasets
-            with h5py.File(results_h5_file, "a") as hf:
-                for dataset_key in hf.keys():
-                    if "pwm-scores" in dataset_key:
-                        hf[dataset_key].attrs["pwm_names"] = [
-                            pwm.name for pwm in pwm_list]
-
-
+        # add in PWM names to the datasets
+        with h5py.File(results_h5_file, "a") as hf:
+            for dataset_key in hf.keys():
+                if "pwm-scores" in dataset_key:
+                    hf[dataset_key].attrs["pwm_names"] = [
+                        pwm.name for pwm in pwm_list]
                         
     # now run clustering
     if args.cluster:
@@ -164,7 +126,7 @@ def run(args):
             args.tmp_dir, args.prefix)
         if not os.path.isfile(manifold_h5_file):
             get_manifold_centers(
-                pwm_scores_h5,
+                results_h5_file,
                 dataset_keys,
                 refined_metacluster_key,
                 manifold_h5_file,

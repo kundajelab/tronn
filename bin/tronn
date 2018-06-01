@@ -58,13 +58,13 @@ def parse_args():
     add_scanmotifs_parser(subparsers)
 
     # command for dmim scan
-    add_scangrammars_parser(subparsers)
+    add_dmim_parser(subparsers)
 
     # command for rational design with sig motifs
     
     
     # TODO:    
-    # modisco
+    # modisco?
 
     # TODO command for variant predictions
 
@@ -507,11 +507,11 @@ def add_scanmotifs_parser(subparsers):
     return
 
 
-def add_scangrammars_parser(subparsers):
+def add_dmim_parser(subparsers):
     """scan grammars from a grammar file
     """
     argparser_multitask = subparsers.add_parser(
-        "scangrammars",
+        "dmim",
         help="score sequences for grammars")
     
     # group for input files
@@ -837,9 +837,9 @@ def main():
     	add_model_params(args)
     	from tronn.run_ism import run
     	run(args)
-    elif subcommand == "scangrammars":
+    elif subcommand == "dmim":
         add_model_params(args)
-        from tronn.run_scangrammars import run
+        from tronn.dmim_cmd import run
         run(args)
     elif subcommand == "dream":
         add_model_params(args)

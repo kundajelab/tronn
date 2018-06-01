@@ -193,7 +193,7 @@ def sequence_to_motif_scores(inputs, params):
     inference_stack = [
         (pwm_match_filtered_convolve, {}),
         (multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
-        (pwm_position_squeeze, {"squeeze_type": "max"}),
+        (pwm_position_squeeze, {"squeeze_type": "sum"}),
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
     ]
 

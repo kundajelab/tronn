@@ -286,7 +286,7 @@ def run_model_on_mutation_batch(inputs, params):
 
     # set up model
     with tf.variable_scope("", reuse=True):
-        model_fn = params["model"]
+        model_fn = params["model_fn"]
         model_outputs, params = model_fn(inputs, params) # {N_mutations, task}
         # save logits
         outputs["importance_logits"] = model_outputs["logits"]

@@ -333,7 +333,10 @@ class H5Handler(object):
             if is_tensor_input:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
             else:
-                dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
+                if isinstance(tensor_dict[key], basestring):
+                    dataset_shape = [sample_size]
+                else:
+                    dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
             maxshape = dataset_shape if resizable else None
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(key, dataset_shape, maxshape=maxshape, dtype="S100")

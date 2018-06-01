@@ -588,7 +588,7 @@ def aggregate_pwm_results(results_h5_file, dataset_keys, manifold_h5_file):
 
             
         # and save out
-        del hf["pwm-scores.tasks_x_pwm"]
+        #del hf["pwm-scores.tasks_x_pwm"]
         hf.create_dataset("pwm-scores.tasks_x_pwm", data=tasks_x_pwm)
         hf["pwm-scores.tasks_x_pwm"].attrs["pwm_names"] = pwm_names
         

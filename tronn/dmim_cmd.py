@@ -11,24 +11,15 @@ import tensorflow as tf
 
 from tronn.util.h5_utils import h5_dataset_to_text_file
 
-#from tronn.graphs import TronnGraph
-#from tronn.graphs import TronnNeuralNetGraph
-from tronn.graphs import TronnGraphV2
-
-#from tronn.datalayer import load_data_from_filename_list
-#from tronn.datalayer import load_data_with_shuffles_from_filename_list
+from tronn.graphs import ModelManager
 from tronn.datalayer import H5DataLoader
-
 from tronn.nets.nets import net_fns
-
-#from tronn.interpretation.interpret import interpret
-from tronn.interpretation.interpret import interpret_v2
 
 from tronn.interpretation.motifs import read_pwm_file
 from tronn.interpretation.motifs import setup_pwms
 from tronn.interpretation.motifs import setup_pwm_metadata
 
-from tronn.interpretation.grammars import read_grammar_file
+#from tronn.interpretation.grammars import read_grammar_file
 from tronn.interpretation.grammars import get_significant_delta_motifs
 from tronn.interpretation.grammars import generate_grammars_from_dmim
 
@@ -81,7 +72,8 @@ def run(args):
 
     # set up model
     model_manager = ModelManager(
-        net_fns[args.model["name"]])
+        net_fns[args.model["name"]],
+        args.model)
 
     # set up inference generator
     inference_generator = model_manager.infer(
@@ -91,6 +83,7 @@ def run(args):
         inference_params={
             "model_fn": net_fns[args.model["name"]],
             "backprop": args.backprop,
+            "importances_fn": args.backprop, # TODO fix this
             "importance_task_indices": args.inference_tasks,
             "pwms": pwm_list,
             "manifold": args.manifold_file},
