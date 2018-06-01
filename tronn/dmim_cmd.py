@@ -6,21 +6,13 @@ import glob
 import logging
 
 import numpy as np
-import pandas as pd
 import tensorflow as tf
-
-from tronn.util.h5_utils import h5_dataset_to_text_file
 
 from tronn.graphs import ModelManager
 from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns
 
 from tronn.interpretation.motifs import read_pwm_file
-from tronn.interpretation.motifs import setup_pwms
-from tronn.interpretation.motifs import setup_pwm_metadata
-
-#from tronn.interpretation.grammars import read_grammar_file
-from tronn.interpretation.grammars import get_significant_delta_motifs
 from tronn.interpretation.grammars import generate_grammars_from_dmim
 
 
@@ -114,32 +106,7 @@ def run(args):
     generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)
     "plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)
 
-
-
     quit()
-    # set up graph
-    tronn_graph = TronnGraphV2(
-        dataloader,
-        net_fns[args.model["name"]],
-        args.model,
-        args.batch_size,
-        final_activation_fn=tf.nn.sigmoid,
-        checkpoints=args.model_checkpoints)
-
-    # run interpretation graph
-    results_h5_file = "{0}/{1}.inference.h5".format(
-        args.tmp_dir, args.prefix)
-    if not os.path.isfile(results_h5_file):
-    #if False:
-        infer_params = {
-            "model_fn": net_fns[args.model["name"]],
-            "inference_fn": net_fns[args.inference_fn],
-            "importances_fn": args.backprop,
-            "importance_task_indices": args.inference_tasks,
-            "pwms": pwm_list,
-            "manifold": args.manifold_file}
-        interpret_v2(tronn_graph, results_h5_file, infer_params, num_evals=args.sample_size)
-        
     # with this vector, generate a reduced heatmap
     # and then threshold and make a directed graph
     if True:

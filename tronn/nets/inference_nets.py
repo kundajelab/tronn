@@ -102,55 +102,33 @@ def sequence_to_importance_scores(inputs, params):
     # params
     params["is_training"] = False
     unstack = params.get("unstack_importances", True)
+    use_filtering = params.get("use_filtering", True)
     
     # set up importance logits
     inputs["importance_logits"] = inputs["logits"]
-    
+
     # set up inference stack
-    inference_stack = [
-        (multitask_importances, {"relu": False}),
-        #(threshold_shufflenull, {"pval_thresh": 0.05}),
+    if use_filtering:
+        inference_stack = [
+            (multitask_importances, {"relu": False}),
+            #(threshold_shufflenull, {"pval_thresh": 0.05}),
+            
+            (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
+            (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+            (normalize_to_weights, {"weight_key": "probs"}), 
+            (clip_edges, {"left_clip": 400, "right_clip": 600}),
+            (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
+        ]
+    else:
+        inference_stack = [
+            (multitask_importances, {"relu": False}),
+            (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+            (normalize_to_weights, {"weight_key": "probs"}), 
+            (clip_edges, {"left_clip": 400, "right_clip": 600}),
+        ]
         
-        (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        (normalize_to_weights, {"weight_key": "probs"}), 
-        (clip_edges, {"left_clip": 400, "right_clip": 600}),
-        (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
-    ]
-
-    # build inference stack
-    outputs, params = build_inference_stack(
-        inputs, params, inference_stack)
-
-    # unstack
-    if unstack:
-        params["name"] = "importances"
-        outputs, params = unstack_tasks(outputs, params)
-        
-    return outputs, params
-
-
-def sequence_to_importance_scores_unfiltered(inputs, params):
-    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
-    """
-    # params
-    params["is_training"] = False
-    unstack = params.get("unstack_importances", True)
-    params["keep_gradients"] = True
-    
-    # set up importance logits
-    inputs["importance_logits"] = inputs["logits"]
-    
-    # set up inference stack
-    inference_stack = [
-        (multitask_importances, {"relu": False}),
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        (normalize_to_weights, {"weight_key": "probs"}), 
-        (clip_edges, {"left_clip": 400, "right_clip": 600}),
-    ]
-
     # build inference stack
     outputs, params = build_inference_stack(
         inputs, params, inference_stack)

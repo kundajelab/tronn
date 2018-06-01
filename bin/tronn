@@ -17,13 +17,18 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(
         description='TRONN: Transcriptional Regulation Optimized Neural Nets')
-    parser.add_argument( # TODO eventually probably remove this
+    parser.add_argument( # TODO eventually remove this
         "--cluster", default="kundaje",
         help="what cluster you're on (get annotations)")
     subparsers = parser.add_subparsers(dest='subcommand_name')
 
     # command for preprocessing data
+    # ideally do as minimal as possible? how much can be done on fly...
+    # likely need to convert BED to FASTA seq and can go from there
     add_preprocess_parser(subparsers)
+
+    # preprocess variants
+    add_preprocess_variants_parser(subparsers)
     
     # command for training
     add_train_parser(subparsers)
@@ -33,40 +38,24 @@ def parse_args():
 
     # command for prediction
     add_predict_parser(subparsers)
-
-    # TODO command for activation matching
-    # aim for those with best pearson and largest min-max diff.
-    # should return original, correlation coefficient
-    # should return the delta
-    # should also have option for clustering
-
-    
-    # TODO command for optimizing endogenous sequence
-    # give option for number of mutated sequences returned
-    # should return original, mutated, and huffman distance
-
-    
-    # TODO command for breaking sequence
-    # give option for number of mutated sequences returned
-    # should return original, mutated, and huffman distance
-
-    
-    # command for activation maximization
-    add_dream_parser(subparsers)
     
     # command for motif scan
     add_scanmotifs_parser(subparsers)
 
     # command for dmim scan
     add_dmim_parser(subparsers)
+    
+    # command for activation maximization
+    add_dream_parser(subparsers)
 
     # command for rational design with sig motifs
+
     
+    # TODO command for variant predictions
+
     
     # TODO:    
     # modisco?
-
-    # TODO command for variant predictions
 
     
     # baseline model
@@ -77,9 +66,6 @@ def parse_args():
     
     # TODO call this model export
     add_extract_params_parser(subparsers)
-
-    # preprocess variants
-    add_preprocess_variants_parser(subparsers)
     
     # parse args
     args = parser.parse_args()

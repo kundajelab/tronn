@@ -91,6 +91,7 @@ class TronnEstimator(tf.estimator.Estimator):
             input_fn,
             feed_dict,
             predict_keys=None,
+            dream_key="dream.results",
             hooks=[],
             checkpoint_path=None):
         """given array of onehot sequences, run dream
@@ -118,15 +119,15 @@ class TronnEstimator(tf.estimator.Estimator):
                     hooks=all_hooks) as mon_sess:
                 # run through examples
                 for example_idx in xrange(num_examples):
-                    print example_idx
-                    new_sequence = dream_one_sequence(
+                    preds_evaluated = dream_one_sequence(
                         np.expand_dims(array[example_idx][:], axis=0),
                         mon_sess,
                         feed_dict,
                         predictions,
+                        dream_key,
                         max_iter=1,
                         num_bp_per_iter=10)
-                    yield new_sequence
+                    yield preds_evaluated
 
                     
     def build_restore_graph_function(self, checkpoints, is_ensemble=False, skip=[], scope_change=None):
@@ -482,7 +483,8 @@ class ModelManager(object):
         return estimator.dream_generator(
             dream_dataset,
             input_fn,
-            feed_dict)
+            feed_dict,
+            predict_keys=predict_keys)
 
     
     def train_and_evaluate_with_early_stopping(
@@ -553,7 +555,9 @@ class ModelManager(object):
                 consecutive_bad_epochs += 1
                 if consecutive_bad_epochs > epoch_patience:
                     logging.info(
-                        "early stopping triggered on epoch {} with patience {}".format(epoch, epoch_patience))
+                        "early stopping triggered "
+                        "on epoch {} "
+                        "with patience {}".format(epoch, epoch_patience))
                     break
 
             # save to stopping log
@@ -698,6 +702,47 @@ class ModelManager(object):
                 h5_handler.flush()
                 h5_handler.chomp_datasets()
 
+        return None
+
+    
+    @staticmethod
+    def dream_and_save_to_h5(generator, h5_handle, group, sample_size=100000):
+        """wrapper routine to run dreaming and save results out
+        """
+        logging.info("starting dream")
+        first_example = generator.next()
+        
+        # set up saver
+        h5_handler = H5Handler(
+            h5_handle,
+            first_example,
+            sample_size,
+            group=group,
+            resizable=True,
+            batch_size=4096,
+            is_tensor_input=False)
+
+        # and score first output
+        h5_handler.store_example(first_example)
+
+        # now run
+        total_examples = 1
+        try:
+            for i in xrange(1, sample_size):
+                if total_examples % 1000 == 0:
+                    print total_examples
+
+                example = generator.next()
+                h5_handler.store_example(example)
+                total_examples += 1
+
+        except StopIteration:
+            print "Done reading data"
+
+        finally:
+            h5_handler.flush()
+            h5_handler.chomp_datasets()
+        
         return None
 
     

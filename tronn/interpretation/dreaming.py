@@ -33,26 +33,25 @@ def dream_one_sequence(
         sess,
         feed_dict,
         output_tensors,
+        key,
         max_iter=100,
         num_bp_per_iter=10):
     """run dream on one sequence
     """
     for i in xrange(max_iter):
 
-        # new feed dict
+        # new feed dict with updated sequence
         new_feed_dict = {}
         for key in feed_dict.keys():
-            g = sess.graph
-            #g = tf.get_default_graph()
             if key == "features":
-                new_feed_dict[g.get_tensor_by_name("dataloader/{}:0".format(key))] = sequence
+                new_feed_dict[sess.graph.get_tensor_by_name("dataloader/{}:0".format(key))] = sequence
             else:
-                new_feed_dict[g.get_tensor_by_name("dataloader/{}:0".format(key))] = feed_dict[key]
+                new_feed_dict[sess.graph.get_tensor_by_name("dataloader/{}:0".format(key))] = feed_dict[key]
         
         # run model and get gradients and logits
         outputs = sess.run(output_tensors, feed_dict=new_feed_dict)
         gradients = outputs["gradients"]
-        logits = outputs["logits"]
+        #logits = outputs["logits"]
 
         # calculate step size for updating sequence
         step_size = 1.0 / (gradients.std() + 1e-8)
@@ -68,32 +67,15 @@ def dream_one_sequence(
                     
         # replace
         sequence[0,0,best_indices,:] = new_sequence[0,0,best_indices,:]
+
+        # save to outputs also
+        outputs[key] = sequence
         
-        # TODO keep track of motif scores too - this way you have which motif changed
-
-        # TODO also track other outputs and save out
-        
-    return sequence
-
-
-def dream_and_save_to_h5(generator, feed_dict, h5_handle, key, num_iter=100):
-    """run the dream generator and save out
-    """
-    out_shape = [num_iter] + list(feed_dict["features"].shape[1:])
-    del h5_handle[key]
-    h5_handle.create_dataset(key, out_shape)
-        
-    for i in xrange(num_iter):
-        new_sequence = generator.next()
-        h5_handle[key][i] = new_sequence
-
-    return None
+    return outputs
 
 
 
-
-
-def run(args):
+def run_old(args):
     
     # set up a file loader and the input dict
     data_loader_fn = load_data_from_feed_dict
