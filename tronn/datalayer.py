@@ -186,6 +186,8 @@ class H5DataLoader(DataLoader):
         # get keys
         if keys is None:
             keys = [key for key in h5_handle.keys() if key not in skip_keys]
+        else:
+            keys = [key for key in keys if key not in skip_keys]
             
         # if end is within the file, extract out slice. otherwise, pad and pass out full batch
         slices = {}
@@ -225,6 +227,8 @@ class H5DataLoader(DataLoader):
             h5_file,
             batch_size,
             task_indices=[],
+            keys=None,
+            skip_keys=["label_metadata"],
             features_key="features",
             labels_key="labels",
             metadata_key="example_metadata",
@@ -247,14 +251,27 @@ class H5DataLoader(DataLoader):
         """
         # get hdf5 file params
         h5_handle = h5py.File(h5_file, "r")
-    
+
+        # keys
+        if keys is None:
+            keys = sorted(h5_handle.keys())
+        keys = [key for key in keys if key not in skip_keys]
+        
         # set up batch id producer
-        max_batches = int(math.ceil(h5_handle[features_key].shape[0]/float(batch_size)))
+        max_batches = int(math.ceil(h5_handle[keys[0]].shape[0]/float(batch_size)))
         batch_id_producer = tf.train.range_input_producer(
             max_batches, shuffle=shuffle, seed=0, num_epochs=num_epochs)
         batch_id = batch_id_producer.dequeue()
         logging.debug("loading {0} with max batches {1}".format(
             os.path.basename(h5_file), max_batches))
+        
+        # determine the Tout
+        tensor_dtypes = []
+        for key in keys:
+            if isinstance(h5_handle[key][0], basestring):
+                tensor_dtypes.append(tf.string)
+            else:
+                tensor_dtypes.append(tf.float32)
         
         # function to get examples based on batch_id (for py_func)
         def batch_id_to_examples(batch_id):
@@ -269,21 +286,42 @@ class H5DataLoader(DataLoader):
                 task_indices=task_indices,
                 features_key=features_key,
                 labels_key=labels_key)
-            return slice_array[features_key], slice_array[labels_key], slice_array[metadata_key]
+            slice_list = []
+            for key in keys:
+                slice_list.append(slice_array[key])
+            return slice_list
+            #return slice_array[features_key], slice_array[labels_key], slice_array[metadata_key]
             
         # py_func
-        [features, labels, metadata] = tf.py_func(
+        # TODO adjust here to be able to read out more streams
+        # ie, given a dict, for each key in the dict, put into ordered list of tensors
+        # and also tensorflow datatypes.
+        if False:
+            [features, labels, metadata] = tf.py_func(
+                func=batch_id_to_examples,
+                inp=[batch_id],
+                Tout=[tf.float32, tf.float32, tf.string],
+                stateful=False, name='py_func_batch_id_to_examples')
+
+        inputs = tf.py_func(
             func=batch_id_to_examples,
             inp=[batch_id],
-            Tout=[tf.float32, tf.float32, tf.string],
+            Tout=tensor_dtypes,
             stateful=False, name='py_func_batch_id_to_examples')
 
         # set shapes
-        features.set_shape([batch_size] + list(h5_handle[features_key].shape[1:]))
-        labels.set_shape([batch_size, len(task_indices)])
-        metadata.set_shape([batch_size, 1])
-        
-        return features, labels, metadata
+        for i in xrange(len(inputs)):
+            if "labels" in keys[i]:
+                inputs[i].set_shape([batch_size, len(task_indices)])
+            elif "metadata" in keys[i]:
+                inputs[i].set_shape([batch_size, 1])
+            else:
+                inputs[i].set_shape([batch_size] + list(h5_handle[keys[i]].shape[1:]))
+
+        # make dict
+        inputs = dict(zip(keys, inputs))
+                
+        return inputs
 
 
     def _generate_global_batch_to_file_dict(
@@ -412,11 +450,11 @@ class H5DataLoader(DataLoader):
             # use a thread for each hdf5 file to put together in parallel
             example_slices_list = [
                 H5DataLoader.h5_to_tensors(
-                    h5_file, batch_size, task_indices, features_key, shuffle=True)
+                    h5_file, batch_size, task_indices, shuffle=True)
                 for h5_file in self.h5_files]
             min_after_dequeue = 10000
             capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
-            features, labels, metadata = tf.train.shuffle_batch_join(
+            inputs = tf.train.shuffle_batch_join(
                 example_slices_list,
                 batch_size,
                 capacity=capacity,
@@ -429,18 +467,12 @@ class H5DataLoader(DataLoader):
             # advantage of parallelism as well
     	    example_slices_list = self.h5_to_ordered_tensors(
                 self.h5_files, batch_size, task_indices, features_key, fake_task_num=0, num_epochs=1)
-    	    features, labels, metadata = tf.train.batch(
+    	    inputs = tf.train.batch(
                 example_slices_list,
                 batch_size,
                 capacity=100000,
                 enqueue_many=True,
                 name='batcher')
-
-        # adjust into a dict
-        inputs = {
-            features_key: features,
-            labels_key: labels,
-            metadata_key: metadata}
         
         return inputs
 

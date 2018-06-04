@@ -30,7 +30,7 @@ def run(args):
     pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
     logger.info("{} motifs used".format(len(pwm_list)))
 
-    # set up random sequence
+    # set up random sequence if starting from random
     seq_len = 1000 # convert to parameter
     onehot_vectors = np.eye(4)
     sequence = onehot_vectors[np.random.choice(onehot_vectors.shape[0], size=seq_len)]
