@@ -6,6 +6,7 @@ files that are input to deep learning models
 import os
 import glob
 import time
+import logging
 
 from tronn.preprocess.bed import generate_master_regions
 from tronn.preprocess.preprocess import generate_h5_datasets
@@ -14,12 +15,19 @@ from tronn.preprocess.preprocess import generate_h5_datasets
 def run(args):
     """Main function to generate dataset
     """
+    # set up
+    logger = logging.getLogger(__name__)
+    logger.info("Preprocessing data")
+    logging.info("Remember to load both bedtools and ucsc_tools!")
+    logging.info("Using {} label sets".format(len(args.labels)))
     start = time.time()
-    print "Remember to load both bedtools and ucsc_tools!"
-    print "Using {} label sets".format(len(args.labels))
-
+    
+    # tmp dir
+    if args.tmp_dir is None:
+        args.tmp_dir = "{}/tmp".format(args.out_dir)
+    os.system("mkdir -p {}".format(args.tmp_dir))
+    
     # adjust signals into a dict
-    print args.signals
     signals = {}
     for signal in args.signals:
         key, val = signal.split("=")
@@ -28,7 +36,8 @@ def run(args):
     args.signals = signals
     
     # generate master bed file
-    master_regions_bed = '{0}/{1}.master.bed.gz'.format(args.out_dir, args.prefix)
+    master_regions_bed = '{0}/{1}.master.bed.gz'.format(
+        args.out_dir, args.prefix)
     if not os.path.isfile(master_regions_bed):
         generate_master_regions(master_regions_bed, args.labels)
 
@@ -44,7 +53,8 @@ def run(args):
         superset_bed_file=args.annotations["univ_dhs"],
         reverse_complemented=args.rc,
         genome_wide=args.genomewide,
-        parallel=1)  #args.parallel
+        parallel=args.parallel,
+        tmp_dir=args.tmp_dir)  
 
     end = time.time()
     print "Execution time: {}".format(end - start)

@@ -5,27 +5,23 @@ files that are input to deep learning models
 
 import os
 import re
-import sys
 import gzip
 import glob
-import subprocess
 import h5py
 import time
 import logging
+import subprocess
 
 import numpy as np
 import pandas as pd
 
+from tronn.preprocess.fasta import generate_one_hot_sequences
+
 from tronn.preprocess.bed import generate_master_regions
 from tronn.preprocess.bed import bin_regions
-#from tronn.preprocess.bed import split_bed_to_chrom_bed
 from tronn.preprocess.bed import split_bed_to_chrom_bed_parallel
-from tronn.preprocess.bed import bin_regions_in_data_dict
 from tronn.preprocess.bed import generate_labels
 from tronn.preprocess.bed import extract_active_centers
-
-from tronn.preprocess.fasta import generate_examples_in_data_dict
-from tronn.preprocess.fasta import generate_one_hot_sequences
 
 from tronn.preprocess.bigwig import generate_signal_vals
 
@@ -37,14 +33,14 @@ def setup_h5_dataset(
         master_bed_file,
         ref_fasta,
         h5_file,
-        label_files={},
-        signal_files={},
-        bin_size=200,
-        stride=50,
-        final_length=1000,
-        reverse_complemented=False,
-        onehot_features_key="features",
-        tmp_dir="."):
+        label_files,
+        signal_files,
+        bin_size,
+        stride,
+        final_length,
+        reverse_complemented,
+        onehot_features_key,
+        tmp_dir):
     """given a region file, set up dataset
     conventionally, this is 1 chromosome
     """
@@ -85,7 +81,6 @@ def setup_h5_dataset(
     extract_active_centers(bin_active_center_file, fasta_sequences_file)
     
     # generate BED annotations on the active center
-    print label_files
     for key in label_files.keys():
         generate_labels(
             bin_active_center_file,
@@ -235,19 +230,21 @@ def select_all_negatives(
     return None
 
 
-
 def setup_negatives(
         positives_bed_file,
         dhs_bed_file,
         chrom_sizes,
         bin_size=200,
         stride=50,
-        genome_wide=True):
+        genome_wide=True,
+        tmp_dir="."):
     """wrapper to set up reasonable negative sets 
     for various needs
     """
     # set up
-    prefix = positives_bed_file.split(".bed")[0]
+    prefix = "{}/{}".format(
+        tmp_dir,
+        os.path.basename(positives_bed_file).split(".bed")[0])
     num_positive_regions = 0
     with gzip.open(positives_bed_file, "r") as fp:
         for line in fp:
@@ -320,44 +317,48 @@ def generate_h5_datasets(
         superset_bed_file=None,
         reverse_complemented=False,
         genome_wide=True,
-        parallel=24):
+        parallel=24,
+        tmp_dir="."):
     """generate a full h5 dataset
     """
-    if False:
-        # first select negatives
-        training_negatives_bed_file, genomewide_negatives_bed_file = setup_negatives(
+    # first select negatives
+    training_negatives_bed_file, genomewide_negatives_bed_file = setup_negatives(
+        positives_bed_file,
+        superset_bed_file,
+        chrom_sizes,
+        bin_size=bin_size,
+        stride=stride,
+        tmp_dir=tmp_dir)
+
+    # collect the bed files
+    if genome_wide:
+        all_bed_files = [
             positives_bed_file,
-            superset_bed_file,
-            chrom_sizes,
-            bin_size=bin_size,
-            stride=stride)
-
-        # then split all of these into chromosomes
-        if genome_wide:
-            all_bed_files = [
-                positives_bed_file,
-                training_negatives_bed_file,
-                genomewide_negatives_bed_file]
-        else:
-            all_bed_files = [
-                positives_bed_file,
-                training_negatives_bed_file]
-
-    chrom_dir = "{}/by_chrom".format(work_dir)
-    #os.system("mkdir -p {}".format(chrom_dir))
-    #split_bed_to_chrom_bed_parallel(all_bed_files, chrom_dir)
+            training_negatives_bed_file,
+            genomewide_negatives_bed_file]
+    else:
+        all_bed_files = [
+            positives_bed_file,
+            training_negatives_bed_file]
+        
+    # split to chromosomes
+    chrom_dir = "{}/by_chrom".format(tmp_dir)
+    os.system("mkdir -p {}".format(chrom_dir))
+    split_bed_to_chrom_bed_parallel(all_bed_files, chrom_dir)
 
     # grab all of these and process in parallel
     h5_dir = "{}/h5".format(work_dir)
     os.system("mkdir -p {}".format(h5_dir))
-    #chrom_bed_files = glob.glob("{}/*.bed.gz".format(chrom_dir))
-    chrom_bed_files = glob.glob("{}/*chrY*.bed.gz".format(chrom_dir))
+    chrom_bed_files = glob.glob("{}/*.bed.gz".format(chrom_dir))
+    #chrom_bed_files = glob.glob("{}/*chrY*.bed.gz".format(chrom_dir))
     logging.info("Found {} bed files".format(chrom_bed_files))
     h5_queue = setup_multiprocessing_queue()
     for bed_file in chrom_bed_files:
+        print bed_file
         h5_file = "{}/{}.h5".format(
             h5_dir,
             os.path.basename(bed_file).split(".bed")[0])
+        print h5_file
         process_args = [
             bed_file,
             ref_fasta,
@@ -369,9 +370,9 @@ def generate_h5_datasets(
             final_length,
             reverse_complemented,
             "features",
-            "."]
+            tmp_dir]
         h5_queue.put([setup_h5_dataset, process_args])
-        
+    
     # run the queue
     run_in_parallel(h5_queue, parallel=parallel, wait=True)
 
@@ -400,163 +401,6 @@ def generate_variant_h5_dataset():
 
 
 
-
-def generate_nn_dataset(
-        celltype_master_regions, # master bed file
-        univ_master_regions, # superset bed file
-        ref_fasta, # annotation
-        label_files,
-        work_dir,
-        prefix,
-        neg_region_num=None,
-        use_dhs=True,
-        use_random=False,
-        chrom_sizes=None, # isn't this required now
-        bin_size=200,
-        bin_method='plus_flank_negs',
-        stride=50,
-        final_length=1000,
-        parallel=12,
-        softmax=False,
-        reverse_complemented=False):
-    """Convenient wrapper to run all relevant functions
-    requires: ucsc_tools, bedtools
-    """
-    os.system('mkdir -p {}'.format(work_dir))
-    tmp_dir = "{}/tmp".format(work_dir)
-    os.system("mkdir -p {}".format(tmp_dir))
-
-    # set up negatives
-    completely_neg_file = '{0}/{1}.negatives.bed.gz'.format(tmp_dir, prefix)
-    if not os.path.isfile(completely_neg_file):
-
-        # count regions in master regions
-        total_master_regions = 0
-        with gzip.open(celltype_master_regions) as fp:
-            for line in fp:
-                total_master_regions += 1
-        
-        # count regions in dhs regions
-        total_dhs_regions = 0
-        with gzip.open(univ_master_regions) as fp:
-            for line in fp:
-                total_dhs_regions += 1
-        
-        # determine settings for negative region total
-        if neg_region_num is None:
-            neg_region_num = total_master_regions
-
-        # determine division of negatives
-        if use_dhs and use_random:
-            # split evenly
-            neg_region_num = int(neg_region_num / 2.)
-
-        # select negs from DHS regions
-        if use_dhs:
-            select_negs = (
-                "bedtools intersect -v -a {0} -b {1} | "
-                "shuf -n {2} | "
-                "awk '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
-                "gzip -c >> {3}").format(
-                    univ_master_regions,
-                    celltype_master_regions,
-                    neg_region_num,
-                    completely_neg_file)
-            print select_negs
-            os.system(select_negs)
-
-        # select negs randomly from genome
-        if use_random:
-            assert chrom_sizes is not None
-            tmp_chrom_sizes = "{0}/{1}.tmp".format(tmp_dir, os.path.basename(chrom_sizes))
-            setup_chrom_sizes = (
-                "cat {0} | grep -v '_' | grep -v 'chrM' > "
-                "{1}").format(chrom_sizes, tmp_chrom_sizes)
-            print setup_chrom_sizes
-            os.system(setup_chrom_sizes)
-            random_neg_left = neg_region_num
-            while random_neg_left > 0:
-                random_negs_to_select = min(random_neg_left, total_master_regions)
-                select_negs = (
-                    "bedtools shuffle -i {0} -excl {0} -g {1} | "
-                    "head -n {2} | "
-                    "gzip -c >> {3}").format(
-                        celltype_master_regions,
-                        tmp_chrom_sizes,
-                        random_negs_to_select,
-                        completely_neg_file)
-                print select_negs
-                os.system(select_negs)
-                random_neg_left -= random_negs_to_select
-        
-        # if still nothing, copy over cell type file
-        if not os.path.isfile(completely_neg_file):
-            os.system("cp {} {}".format(celltype_master_regions, completely_neg_file))
-
-
-    # merge in to have a file of positive and negative regions
-    final_master = '{0}/{1}.master.ml.bed.gz'.format(tmp_dir, prefix)
-    merge_pos_neg = ("zcat {0} {1} | "
-                     "awk -F '\t' '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
-                     "sort -k1,1 -k2,2n | "
-                     "bedtools merge -i stdin | "
-                     "gzip -c > {2}").format(celltype_master_regions,
-                                             completely_neg_file,
-                                             final_master)
-    if not os.path.isfile(final_master):
-        print merge_pos_neg
-        os.system(merge_pos_neg)
-
-    # TODO separate out top part from here?
-        
-    # split into chromosomes, everything below done by chromosome
-    chrom_master_dir = '{}/master_by_chrom'.format(tmp_dir)
-    if not os.path.isfile('{0}/{1}.chrY.bed.gz'.format(chrom_master_dir, prefix)):
-        os.system('mkdir -p {}'.format(chrom_master_dir))
-        split_bed_to_chrom_bed(chrom_master_dir, final_master, prefix)
-
-    # bin the files
-    # NOTE: this does not check for chromosome lengths and WILL contain inappropriate regions
-    bin_dir = '{}/binned'.format(tmp_dir)
-    if not os.path.isfile('{0}/{1}.chrY.binned.bed.gz'.format(bin_dir, prefix)):
-        os.system('mkdir -p {}'.format(bin_dir))
-        bin_regions_chrom(chrom_master_dir, bin_dir, prefix,
-                          bin_size, stride, bin_method, parallel=parallel)
-
-    # generate one-hot encoding sequence files (examples) and then labels
-    regions_fasta_dir = '{}/regions_fasta'.format(tmp_dir)
-    bin_ext_dir = '{}/bin_ext'.format(tmp_dir)
-    intersect_dir = '{}/intersect'.format(tmp_dir)
-    chrom_hdf5_dir = '{}/h5'.format(work_dir)
-
-    # now run example generation and label generation
-    if not os.path.isfile('{0}/{1}.chrY.h5'.format(chrom_hdf5_dir, prefix)):
-        os.system('mkdir -p {}'.format(chrom_hdf5_dir))
-        os.system('mkdir -p {}'.format(regions_fasta_dir))
-        os.system('mkdir -p {}'.format(bin_ext_dir))
-        generate_examples_chrom(
-            bin_dir,
-            bin_ext_dir,
-            regions_fasta_dir,
-            chrom_hdf5_dir,
-            prefix,
-            bin_size,
-            final_length,
-            ref_fasta,
-            reverse_complemented,
-            parallel=parallel)
-        os.system('mkdir -p {}'.format(intersect_dir))
-        generate_labels_chrom(
-            bin_ext_dir,
-            intersect_dir,
-            prefix,
-            label_files,
-            regions_fasta_dir,
-            chrom_hdf5_dir,
-            parallel=parallel)
-        os.system("rm -r {}".format(intersect_dir))
-
-    return '{}/h5'.format(work_dir)
 
 
 # TODO ideally generate just 1 h5 file with two feature sets (features_ref, features_alt) and then use the keys to switch

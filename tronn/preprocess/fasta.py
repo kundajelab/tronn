@@ -7,7 +7,7 @@ import gzip
 import glob
 import subprocess
 import h5py
-import time
+#import time
 import logging
 
 import numpy as np
@@ -111,10 +111,13 @@ def generate_one_hot_sequences(
         ['wc','-l', fasta_sequences]).strip().split()[0])
     
     with h5py.File(examples_file, 'a') as hf:
-        features_hf = hf.create_dataset(examples_key,
-                                         (num_bins, 1, final_length, 4))
-        metadata_hf = hf.create_dataset('example_metadata',
-                                        (num_bins,), dtype='S1000')
+        features_hf = hf.create_dataset(
+            examples_key,
+            (num_bins, 1, final_length, 4),
+            dtype="u1")
+        metadata_hf = hf.create_dataset(
+            'example_metadata',
+            (num_bins,), dtype='S1000')
         
         counter = 0
         with open(fasta_sequences, 'rb') as fp:
@@ -139,68 +142,3 @@ def generate_one_hot_sequences(
     os.system('gzip {}'.format(fasta_sequences))
 
     return None
-
-
-def generate_examples_in_data_dict(
-        data_dict,
-        bin_dir,
-        bin_ext_dir,
-        fasta_dir,
-        out_dir,
-        prefix,
-        bin_size,
-        final_length,
-        ref_fasta_file,
-        reverse_complemented,
-        parallel=12):
-    """Utilize func_workder to run on chromosomes
-
-    Args:
-      bin_dir: directory with binned BED files
-      bin_ext_dir: directory to put extended length binned BED files
-      fasta_dir: directory to store FASTA sequences for each bin
-      out_dir: directory to store h5 files
-      prefix: prefix to append to output files
-      bin_size: bin size
-      final_length: final length of example
-      ref_fasta_file: reference FASTA file
-      reverse_complemented: boolean on whether to produce RC examples
-      parallel: number of parallel processes
-
-    Returns:
-      None
-    """
-    example_queue = setup_multiprocessing_queue()
-
-    for chrom in data_dict.keys():
-
-        # set up filenames?
-        chrom_prefix = data_dict[chrom]["bin_bed"].split('/')[-1].split('.bin')[0]
-        data_dict["bin_ext_bed"] = '{0}/{1}.extbin.bed.gz'.format(
-            bin_ext_dir,
-            chrom_prefix)
-        data_dict["fasta_seq"] = '{0}/{1}.fa'.format(
-            fasta_dir,
-            chrom_prefix)
-        data_dict["h5_file"] = "{0}/{1}.h5".format(
-            out_dir,
-            chrom_prefix)
-        
-        example_args = [
-            data_dict[chrom]["bin_bed"],
-            data_dict[chrom]["bin_ext_bed"],
-            data_dict[chrom]["fasta_seq"],
-            data_dict[chrom]["h5_file"],
-            final_length,
-            ref_fasta_file,
-            reverse_complemented]
-
-        example_queue.put(
-            [generate_one_hot_sequences, example_args])
-
-    run_in_parallel(example_queue, parallel=parallel, wait=True)
-
-    return data_dict
-
-
-

@@ -441,6 +441,7 @@ class H5DataLoader(DataLoader):
             "loading data for task indices {0} from {1} hdf5_files: {2} examples".format(
                 task_indices, len(self.h5_files), self.num_examples))
 
+        quit()
         # adjust task indices as needed
         if len(task_indices) == 0:
             with h5py.File(self.h5_files[0], "r") as hf:

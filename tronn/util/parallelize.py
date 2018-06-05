@@ -20,10 +20,8 @@ def func_worker(queue, wait):
 
     Args:
       queue: multiprocessing Queue where each elem is (function, args)
-
-    Returns:
-      None
     """
+    if wait: time.sleep(5.0)
     while not queue.empty():
         if wait: time.sleep(5.0)
         try:

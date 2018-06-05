@@ -1,13 +1,9 @@
 # descriptions: preprocess information from BED files
 
 import os
-import re
-import sys
+import h5py
 import gzip
 import glob
-import subprocess
-import h5py
-import time
 import logging
 
 import numpy as np
@@ -100,8 +96,6 @@ def split_bed_to_chrom_bed(
     return data_dict
 
 
-
-
 def split_bed_to_chrom_bed_parallel(
         bed_files,
         out_dir,
@@ -124,13 +118,12 @@ def split_bed_to_chrom_bed_parallel(
     return None
 
 
-
 def bin_regions(
         in_file,
         out_file,
         bin_size,
         stride,
-        method='plus_flank_negs'):
+        method='naive'):
     """Bin regions based on bin size and stride
 
     Args:
@@ -182,53 +175,10 @@ def bin_regions(
     return None
 
 
-# TODO convert to data dict setup
-def bin_regions_in_data_dict(
-        data_dict,
-        out_dir,
-        bin_size,
-        stride,
-        bin_method,
-        parallel=12):
-    """Utilize func_workder to run on chromosomes
-    
-    Args:
-      in_dir: directory with BED files to bin
-      out_dir: directory to put binned files
-      prefix: desired prefix on the output files
-      bin_size: bin size
-      stride: how many base pairs to jump for next bin
-      parallel: how many processes in parallel
-
-    Returns:
-      None
-    """
-    bin_queue = setup_multiprocessing_queue()
-
-    for chrom in data_dict.keys():
-        data_dict[chrom]["bin_bed"] = "{}/{}.bin-{}_stride-{}.bed.gz".format(
-            out_dir, data_dict[chrom]["prefix"], bin_size, stride)
-        bin_args = [
-            data_dict[chrom]["bed"],
-            data_dict[chrom]["bin_bed"],
-            bin_size,
-            stride,
-            bin_method]
-        bin_queue.put(
-            [bin_regions, bin_args])
-
-    run_in_parallel(bin_queue, parallel=parallel, wait=True)
-
-    return data_dict
-
-
 def extract_active_centers(binned_file, fasta_file):
     """given a fasta file produced in this pipeline, extract out
     the active center 
     """
-    # Then generate new short bins for labeling
-    #fasta_prefix = fasta_file.split('/')[-1].split('.fa')[0]
-    #binned_file = '{0}/{1}.activecenter.bed.gz'.format(bin_dir, fasta_prefix)
     bin_count = 0
     with gzip.open(binned_file, 'w') as out:
         with gzip.open(fasta_file, 'r') as fp:
@@ -307,17 +257,21 @@ def generate_labels(
             names=['Chr', 'Start', 'Stop', "pos"]) 
         if i == 0:
             num_rows = bed_labels.shape[0]
-            labels = np.zeros((num_rows, num_files))
-            labels[:,i] = (bed_labels["pos"] >= 1.0).astype(int)
+            labels = np.zeros((num_rows, num_files), dtype=np.bool)
+            labels[:,i] = (bed_labels["pos"] >= 1.0).astype(np.bool)
         else:
-            labels[:,i] = (bed_labels["pos"] >= 1.0).astype(int)
+            labels[:,i] = (bed_labels["pos"] >= 1.0).astype(np.bool)
 
         # delete tmp file
         os.system("rm {}".format(out_tmp_file))
 
     # add data into h5 file
     with h5py.File(h5_file, "a") as hf:
-        hf.create_dataset(key, data=np.zeros((num_rows, num_files)))
+        hf.create_dataset(
+            key,
+            dtype="u1",
+            shape=labels.shape)
+            #data=np.zeros((num_rows, num_files), dtype=np.bool))
         print "storing in file"
         for i in range(num_rows):
             if i % 10000 == 0:
@@ -328,40 +282,3 @@ def generate_labels(
     # remove tmp dir?
                 
     return None
-
-
-def generate_labels_in_data_dict(
-        data_dict,
-        label_files,
-        key,
-        parallel=12):
-    """Utilize func_worker to run on chromosomes
-
-    Args:
-      bin_ext_dir: directory to store extended bin files
-      intersect_dir: directory to put temp intersect files
-      prefix: output prefix
-      label_files: list of peak files to use for labeling
-      fasta_dir: directory of tab delim FASTA sequence examples
-      out_dir: h5 file directory
-      bin_size: bin_size
-      final_length: final length
-      parallel: nunmber to run in parallel
-
-    Returns: 
-      None
-    """
-    label_queue = setup_multiprocessing_queue()
-
-    for chrom in data_dict.keys():
-        label_args = [
-            data_dict[chrom]["bin_ext_bed"],
-            label_bed_files,
-            key,
-            data_dict[chrom]["h5_file"]]
-        label_queue.put(
-            [generate_labels, label_args])
-
-    run_in_parallel(label_queue, parallel=parallel, wait=True)
-
-    return data_dict

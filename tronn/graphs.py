@@ -504,8 +504,10 @@ class ModelManager(object):
         if os.path.isfile(stopping_log):
             # if there is a stopping log, restart using the info in the log
             with open(stopping_log, "r") as fp:
-                start_epoch, best_metric_val, consecutive_bad_epochs, best_checkpoint = map(
-                    float, fp.readline().strip().split())
+                start_epoch, best_metric_val, consecutive_bad_epochs, best_checkpoint = fp.readline().strip().split()
+                start_epoch, consecutive_bad_epochs =  map(
+                    int, [start_epoch, consecutive_bad_epochs])
+                best_metric_val = float(best_metric_val)
         else:
             # fresh run
             start_epoch = 0

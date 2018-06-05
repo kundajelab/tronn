@@ -187,6 +187,8 @@ def add_preprocess_parser(subparsers):
     group_output = argparser_preprocess.add_argument_group(
         "Output files and folders")
     add_output_options(group_output, out_dir="dataset")
+    group_output.add_argument(
+        "--tmp_dir", help="directory for tmp files")
 
     return
 
