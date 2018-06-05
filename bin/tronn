@@ -150,6 +150,9 @@ def add_preprocess_parser(subparsers):
     group_input.add_argument(
         "--labels", nargs='+', required=True,
         help='list of label file peak sets (BED/narrowPeak)')
+    group_input.add_argument(
+        "--signals", nargs='+',
+        help='list of annotations (keys, files) can be bed or bigwig')
     load_data_files(group_input)
 
     # group for options

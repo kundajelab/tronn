@@ -6,13 +6,10 @@ files that are input to deep learning models
 import os
 import glob
 import time
-import h5py
 
-from tronn.preprocess import generate_master_regions
-from tronn.preprocess import generate_genomewide_negatives_dataset
-from tronn.preprocess import generate_nn_dataset
+from tronn.preprocess.bed import generate_master_regions
+from tronn.preprocess.preprocess import generate_h5_datasets
 
-from tronn.preprocess import generate_variant_datasets
 
 def run(args):
     """Main function to generate dataset
@@ -21,10 +18,39 @@ def run(args):
     print "Remember to load both bedtools and ucsc_tools!"
     print "Using {} label sets".format(len(args.labels))
 
+    # adjust signals into a dict
+    print args.signals
+    signals = {}
+    for signal in args.signals:
+        key, val = signal.split("=")
+        val = val.split(",")
+        signals[key] = val
+    args.signals = signals
+    
     # generate master bed file
     master_regions_bed = '{0}/{1}.master.bed.gz'.format(args.out_dir, args.prefix)
     if not os.path.isfile(master_regions_bed):
         generate_master_regions(master_regions_bed, args.labels)
+
+    # generate nn dataset
+    generate_h5_datasets(
+        master_regions_bed,
+        args.annotations["ref_fasta"],
+        args.annotations["chrom_sizes"],
+        {"labels": args.labels},
+        args.signals,
+        args.prefix,
+        args.out_dir,
+        superset_bed_file=args.annotations["univ_dhs"],
+        reverse_complemented=args.rc,
+        genome_wide=args.genomewide,
+        parallel=1)  #args.parallel
+
+    end = time.time()
+    print "Execution time: {}".format(end - start)
+    print "DONE"
+
+    quit()
 
     if not args.genomewide:
         # then run generate nn dataset

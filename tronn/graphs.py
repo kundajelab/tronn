@@ -530,7 +530,7 @@ class ModelManager(object):
             latest_checkpoint = self.train(
                 train_input_fn,
                 "{}/train".format(out_dir),
-                steps=None,
+                steps=None, # TODO here calculate steps?
                 hooks=training_hooks)
             
             # eval

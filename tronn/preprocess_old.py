@@ -59,6 +59,29 @@ def split_bed_to_chrom_bed(out_dir, peak_file, prefix):
     return None
 
 
+def split_bed_to_chrom_bed_parallel(
+        bed_files,
+        out_dir,
+        parallel=12):
+    """
+    """
+    split_queue = setup_multiprocessing_queue()
+
+    for bed_file in bed_files:
+        prefix = bed_file.split(".narrowPeak")[0].split(".bed")[0]
+        split_args = [
+            out_dir,
+            bed_file,
+            prefix]
+        split_queue.put([split_bed_to_chrom_bed, split_args])
+
+    # run the queue
+    run_in_parallel(split_queue, parallel=parallel, wait=True)
+
+    return None
+
+
+
 # =====================================================================
 # Binning
 # =====================================================================
@@ -524,6 +547,9 @@ def generate_labels_chrom(
     run_in_parallel(label_queue, parallel=parallel, wait=True)
 
     return None
+
+# TODO set up bigwig info generation
+
 
 # =====================================================================
 # Dataset generation
