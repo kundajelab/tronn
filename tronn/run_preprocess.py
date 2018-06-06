@@ -21,7 +21,7 @@ def run(args):
     logging.info("Remember to load both bedtools and ucsc_tools!")
     logging.info("Using {} label sets".format(len(args.labels)))
     start = time.time()
-    
+
     # tmp dir
     if args.tmp_dir is None:
         args.tmp_dir = "{}/tmp".format(args.out_dir)

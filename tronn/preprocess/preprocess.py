@@ -44,16 +44,19 @@ def setup_h5_dataset(
     """given a region file, set up dataset
     conventionally, this is 1 chromosome
     """
+    # make sure tmp dir exists
+    os.system("mkdir -p {}".format(tmp_dir))
+    
     # set up prefix
     prefix = os.path.basename(master_bed_file).split(
         ".narrrowPeak")[0].split(".bed")[0]
     
     # bin the master bed file
-    bin_dir = "{}/bin-{}.stride-{}".format(
-        tmp_dir, bin_size, stride)
-    os.system("mkdir -p {}".format(bin_dir))
+    #bin_dir = "{}/bin-{}.stride-{}".format(
+    #    tmp_dir, bin_size, stride)
+    #os.system("mkdir -p {}".format(bin_dir))
     bin_file = "{}/{}.bin-{}.stride-{}.bed.gz".format(
-        bin_dir, prefix, bin_size, stride)
+        tmp_dir, prefix, bin_size, stride)
     if not os.path.isfile(bin_file):
         bin_regions(master_bed_file, bin_file, bin_size, stride, method="naive")
         
@@ -86,7 +89,8 @@ def setup_h5_dataset(
             bin_active_center_file,
             label_files[key],
             key,
-            h5_file)
+            h5_file,
+            tmp_dir=tmp_dir)
 
     # generate bigwig annotations on the active center
     for key in signal_files:
@@ -94,10 +98,13 @@ def setup_h5_dataset(
             bin_active_center_file,
             signal_files[key],
             key,
-            h5_file)
+            h5_file,
+            tmp_dir=tmp_dir)
 
     # TODO matrix annotations? ie using DESeq2 normalized matrix here?
-        
+
+    # TODO and then clean up the tmp dir (for now debug so dont do it)
+    
     return h5_file
 
 
@@ -344,7 +351,8 @@ def generate_h5_datasets(
     # split to chromosomes
     chrom_dir = "{}/by_chrom".format(tmp_dir)
     os.system("mkdir -p {}".format(chrom_dir))
-    split_bed_to_chrom_bed_parallel(all_bed_files, chrom_dir)
+    split_bed_to_chrom_bed_parallel(
+        all_bed_files, chrom_dir, parallel=parallel)
 
     # grab all of these and process in parallel
     h5_dir = "{}/h5".format(work_dir)
@@ -354,11 +362,9 @@ def generate_h5_datasets(
     logging.info("Found {} bed files".format(chrom_bed_files))
     h5_queue = setup_multiprocessing_queue()
     for bed_file in chrom_bed_files:
-        print bed_file
-        h5_file = "{}/{}.h5".format(
-            h5_dir,
-            os.path.basename(bed_file).split(".bed")[0])
-        print h5_file
+        prefix = os.path.basename(bed_file).split(".bed")[0].split(".narrowPeak")[0]
+        h5_file = "{}/{}.h5".format(h5_dir, prefix)
+        parallel_tmp_dir = "{}/{}_tmp".format(tmp_dir, prefix)
         process_args = [
             bed_file,
             ref_fasta,
@@ -370,7 +376,7 @@ def generate_h5_datasets(
             final_length,
             reverse_complemented,
             "features",
-            tmp_dir]
+            parallel_tmp_dir]
         h5_queue.put([setup_h5_dataset, process_args])
     
     # run the queue

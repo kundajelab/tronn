@@ -33,9 +33,12 @@ def generate_signal_vals(
         bigwig_file = bigwig_files[i]
 
         # generate signals        
-        out_tmp_file = "{}/{}_x_{}.signal.tmp".format(
+        #out_tmp_file = "{}/{}_x_{}.signal.tmp".format(
+        #    tmp_dir,
+        #    os.path.basename(bed_file),
+        #    os.path.basename(bigwig_file))
+        out_tmp_file = "{}/{}.signal.tmp".format(
             tmp_dir,
-            os.path.basename(bed_file),
             os.path.basename(bigwig_file))
         get_average_signal = (
             "bigWigAverageOverBed {} {} {}").format(

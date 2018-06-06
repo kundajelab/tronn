@@ -225,11 +225,14 @@ def generate_labels(
         label_bed_file = label_bed_files[i]
 
         # generate intersect
-        out_tmp_file = "{}/{}_x_{}.bed.gz".format(
+        #out_tmp_file = "{}/{}_x_{}.bed.gz".format(
+        #    tmp_dir,
+        #    os.path.basename(bed_file).split(".narrowPeak")[0].split(".bed.gz")[0],
+        #    os.path.basename(label_bed_file).split(".narrowPeak")[0].split(".bed.gz")[0])
+        out_tmp_file = "{}/{}.intersect.bed.gz".format(
             tmp_dir,
-            os.path.basename(bed_file).split(".narrowPeak")[0].split(".bed.gz")[0],
             os.path.basename(label_bed_file).split(".narrowPeak")[0].split(".bed.gz")[0])
-
+        
         # Do the intersection to get a series of 1s and 0s
         if method == 'summit': # Must overlap with summit
             intersect = (
