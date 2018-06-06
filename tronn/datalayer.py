@@ -18,6 +18,18 @@ from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 from tronn.nets.sequence_nets import generate_scaled_inputs
 
 
+def setup_h5_files(data_dir):
+    """quick helper function to go into h5 directory and organize h5 files
+    """
+    positives_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
+    positives_files = [filename for filename in positives_files if "negative" not in filename]
+    negatives_files = sorted(glob.glob("{}/*training-negatives*.h5".format(args.data_dir)))
+    h5_files = zip(positives_files, negatives_files)
+    logging.info('Finding data: found {} chromosomes'.format(len(h5_files)))
+    
+    return h5_files
+
+
 class DataLoader(object):
     """build the base level dataloader"""
 
@@ -194,17 +206,17 @@ class H5DataLoader(DataLoader):
         if end_idx < h5_handle[keys[0]].shape[0]:
             for key in keys:
                 if labels_key in key:
-                    slices[key] = h5_handle[key][start_idx:end_idx, task_indices]
+                    slices[key] = h5_handle[key][start_idx:end_idx, task_indices][:].astype(np.float32)
                 elif "metadata" in key:
                     slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1)) # TODO don't reshape?
                 else:
-                    slices[key] = h5_handle[key][start_idx:end_idx]
+                    slices[key] = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
         else:
             end_idx = h5_handle[keys[0]].shape[0]
             batch_padding_num = batch_size - (end_idx - start_idx)
             for key in keys:
                 if labels_key in key:
-                    slice_tmp = h5_handle[key][start_idx:end_idx, task_indices]
+                    slice_tmp = h5_handle[key][start_idx:end_idx, task_indices][:].astype(np.float32)
                     slice_pad_shape = [batch_padding_num, len(task_indices)]
                     slice_pad = np.zeros(slice_pad_shape, dtype=np.float32)
                 elif "metadata" in key:
@@ -213,7 +225,7 @@ class H5DataLoader(DataLoader):
                         ["false=chrY:0-0" for i in xrange(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
                 else:
-                    slice_tmp = h5_handle[key][start_idx:end_idx]
+                    slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
                     slice_pad_shape = [batch_padding_num] + list(slice_tmp.shape[1:])
                     slice_pad = np.zeros(slice_pad_shape, dtype=np.float32)
                     
@@ -440,8 +452,7 @@ class H5DataLoader(DataLoader):
         logging.info(
             "loading data for task indices {0} from {1} hdf5_files: {2} examples".format(
                 task_indices, len(self.h5_files), self.num_examples))
-
-        quit()
+        
         # adjust task indices as needed
         if len(task_indices) == 0:
             with h5py.File(self.h5_files[0], "r") as hf:
