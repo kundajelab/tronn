@@ -32,9 +32,10 @@ from tronn.util.parallelize import run_in_parallel
 def setup_h5_dataset(
         master_bed_file,
         ref_fasta,
+        chromsizes,
         h5_file,
-        label_files,
-        signal_files,
+        label_sets,
+        signal_sets,
         bin_size,
         stride,
         final_length,
@@ -84,19 +85,26 @@ def setup_h5_dataset(
     extract_active_centers(bin_active_center_file, fasta_sequences_file)
     
     # generate BED annotations on the active center
-    for key in label_files.keys():
+    for key in label_sets.keys():
+        label_files = label_sets[key][0]
+        label_params = label_sets[key][1]
+        method = label_params.get("method", "half_peak")
         generate_labels(
             bin_active_center_file,
-            label_files[key],
+            label_files,
             key,
             h5_file,
+            method=method,
+            chromsizes=chromsizes,
             tmp_dir=tmp_dir)
 
     # generate bigwig annotations on the active center
-    for key in signal_files:
+    for key in signal_sets.keys():
+        signal_files = signal_sets[key][0]
+        signal_params = signal_sets[key][1]
         generate_signal_vals(
             bin_active_center_file,
-            signal_files[key],
+            signal_files,
             key,
             h5_file,
             tmp_dir=tmp_dir)
@@ -313,7 +321,7 @@ def setup_negatives(
 def generate_h5_datasets(
         positives_bed_file,
         ref_fasta,
-        chrom_sizes,
+        chromsizes,
         label_files,
         signal_files,
         prefix,
@@ -332,7 +340,7 @@ def generate_h5_datasets(
     training_negatives_bed_file, genomewide_negatives_bed_file = setup_negatives(
         positives_bed_file,
         superset_bed_file,
-        chrom_sizes,
+        chromsizes,
         bin_size=bin_size,
         stride=stride,
         tmp_dir=tmp_dir)
@@ -368,6 +376,7 @@ def generate_h5_datasets(
         process_args = [
             bed_file,
             ref_fasta,
+            chromsizes,
             h5_file,
             label_files,
             signal_files,
@@ -389,12 +398,10 @@ def generate_variant_h5_dataset():
     """take in a variant file and generate a dataset
     """
 
-    # should be the same as above, just make two adjustments
+    # call generate h5 datasets twice, with two different fasta files
 
-    # 1) when generating the BED files, include extra metadata in the names column
+    
 
-
-    # 2) after generating fasta files, go in and adjust the relevant base pair.
     
 
     return

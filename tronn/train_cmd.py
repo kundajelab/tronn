@@ -14,7 +14,7 @@ from tronn.learn.cross_validation import setup_train_valid_test
 
 
 def run(args):
-    """Runs training pipeline
+    """command to run training
     """
     logging.info("Training...")
 

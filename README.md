@@ -11,11 +11,13 @@ conda create -n tronn python=2 anaconda
 ```
 
 Within the environment, install tensorflow according to tensorflow instructions for installing in Anaconda
-(NOTE: I believe tronn is compatible with 1.5.0, but we're currently missing CUDA 9.0)
+(currently on tensorflow 1.7)
 
 ```
 pip install --ignore-installed --upgrade https://storage.googleapis.com/tensorflow/linux/gpu/tensorflow_gpu-1.4.0-cp27-none-linux_x86_64.whl
 ```
+
+Also may require seqtk, bedtools, ucsc_tools
 
 Then, install tronn.
 

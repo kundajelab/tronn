@@ -149,10 +149,10 @@ def add_preprocess_parser(subparsers):
         "Input files and folders")
     group_input.add_argument(
         "--labels", nargs='+', required=True,
-        help='list of label file peak sets (BED/narrowPeak)')
+        help='list of key=files_separated_by_commas;params, files are in BED/narrowPeak format')
     group_input.add_argument(
         "--signals", nargs='+',
-        help='list of annotations (keys, files) can be bed or bigwig')
+        help='list of key=files_separated_by_commas;params, files are in bigwig format')
     load_data_files(group_input)
 
     # group for options

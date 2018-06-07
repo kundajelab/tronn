@@ -207,6 +207,7 @@ def generate_labels(
         key,
         h5_file,
         method="half_peak",
+        chromsizes=None,
         tmp_dir="."):
     """given a bed file and label files, intersect 
     and return an array of labels
@@ -223,12 +224,6 @@ def generate_labels(
     # for each label bed file
     for i in xrange(len(label_bed_files)):
         label_bed_file = label_bed_files[i]
-
-        # generate intersect
-        #out_tmp_file = "{}/{}_x_{}.bed.gz".format(
-        #    tmp_dir,
-        #    os.path.basename(bed_file).split(".narrowPeak")[0].split(".bed.gz")[0],
-        #    os.path.basename(label_bed_file).split(".narrowPeak")[0].split(".bed.gz")[0])
         out_tmp_file = "{}/{}.intersect.bed.gz".format(
             tmp_dir,
             os.path.basename(label_bed_file).split(".narrowPeak")[0].split(".bed.gz")[0])
@@ -248,6 +243,21 @@ def generate_labels(
                 "-b <(zcat {1}) | "
                 "gzip -c > "
                 "{2}").format(bed_file, label_bed_file, out_tmp_file)
+        elif method == "histone_overlap":
+            # label file is histone, so look for nearby histone mark
+            extend_len = 1000
+            intersect = (
+                "bedtools slop -i {0} -g {1} -b {2} | "
+                "bedtools intersect -c "
+                "-a <(zcat {3}) "
+                "-b stdin | "
+                "gzip -c > "
+                "{4}").format(
+                    label_bed_file,
+                    chromsizes,
+                    extend_len,
+                    bed_file,
+                    out_tmp_file)
                 
         # TODO(dk) do a counts version (for regression)
         print '{0}: {1}'.format(bed_file, intersect)

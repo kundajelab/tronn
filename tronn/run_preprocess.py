@@ -12,6 +12,31 @@ from tronn.preprocess.bed import generate_master_regions
 from tronn.preprocess.preprocess import generate_h5_datasets
 
 
+def parse_files(file_list):
+    """given an arg string, parse out into a dict
+    assumes a format of: key=file1,file2,..;param1=val,param2=val,...
+    """
+    file_dict = {}
+    for file_set in file_list:
+        # split out files and params
+        key, vals = file_set.split(":")
+        files_and_params = vals.split(";")
+        files = files_and_params[0].split(",")
+        if len(files_and_params) == 1:
+            # no params - make empty dict
+            params = {}
+        else:
+            # has params - adjust
+            params = files_and_params[1]
+            params = dict(
+                [param.split("=")
+                 for param in params.split(",")])
+        file_dict[key] = (files, params)
+    
+    return file_dict
+
+
+
 def run(args):
     """Main function to generate dataset
     """
@@ -19,21 +44,17 @@ def run(args):
     logger = logging.getLogger(__name__)
     logger.info("Preprocessing data")
     logging.info("Remember to load both bedtools and ucsc_tools!")
-    logging.info("Using {} label sets".format(len(args.labels)))
     start = time.time()
 
     # tmp dir
     if args.tmp_dir is None:
         args.tmp_dir = "{}/tmp".format(args.out_dir)
     os.system("mkdir -p {}".format(args.tmp_dir))
-    
-    # adjust signals into a dict
-    signals = {}
-    for signal in args.signals:
-        key, val = signal.split("=")
-        val = val.split(",")
-        signals[key] = val
-    args.signals = signals
+
+    # parse labels and signals
+    labels = parse_files(args.labels)
+    signals = parse_files(args.signals)
+    logging.info("Using {} label sets".format(len(labels["labels"][0])))
     
     # generate master bed file
     master_regions_bed = '{0}/{1}.master.bed.gz'.format(
@@ -46,8 +67,8 @@ def run(args):
         master_regions_bed,
         args.annotations["ref_fasta"],
         args.annotations["chrom_sizes"],
-        {"labels": args.labels},
-        args.signals,
+        labels,
+        signals,
         args.prefix,
         args.out_dir,
         superset_bed_file=args.annotations["univ_dhs"],
