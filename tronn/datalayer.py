@@ -2,6 +2,7 @@
 """
 
 import os
+import glob
 import h5py
 import math
 import logging
@@ -21,9 +22,9 @@ from tronn.nets.sequence_nets import generate_scaled_inputs
 def setup_h5_files(data_dir):
     """quick helper function to go into h5 directory and organize h5 files
     """
-    positives_files = sorted(glob.glob("{}/*.h5".format(args.data_dir)))
+    positives_files = sorted(glob.glob("{}/*.h5".format(data_dir)))
     positives_files = [filename for filename in positives_files if "negative" not in filename]
-    negatives_files = sorted(glob.glob("{}/*training-negatives*.h5".format(args.data_dir)))
+    negatives_files = sorted(glob.glob("{}/*training-negatives*.h5".format(data_dir)))
     h5_files = zip(positives_files, negatives_files)
     logging.info('Finding data: found {} chromosomes'.format(len(h5_files)))
     
@@ -52,6 +53,7 @@ class DataLoader(object):
     def build_filtered_dataflow(
             self,
             batch_size,
+            label_keys=["labels"],
             label_tasks=[],
             filter_tasks=[],
             singleton_filter_tasks=[],
@@ -91,7 +93,10 @@ class DataLoader(object):
         with tf.variable_scope("dataloader"):
         #with tf.variable_scope(""):
             # build raw dataflow
-            inputs = self.build_raw_dataflow(batch_size, task_indices=label_tasks)
+            inputs = self.build_raw_dataflow(
+                batch_size,
+                task_indices=label_tasks,
+                label_keys=label_keys)
             
             # build transform stack
             master_params = {}
@@ -122,6 +127,28 @@ class DataLoader(object):
 
         return dataflow_fn
 
+
+    def build_variant_input_fn(self, batch_size, features_prefix, **kwargs):
+        """build a dataflow function that interleaves the variants
+        """
+        def dataflow_fn():
+            """dataflow function. must have no args.
+            """
+            inputs = self.build_filtered_dataflow(batch_size, **kwargs)
+            # interleave the variants
+            ref_features = inputs["{}.ref".format(features_prefix)]
+            alt_features = inputs["{}.alt".format(features_prefix)]
+            
+            tmp_features = tf.stack([ref_features, alt_features], axis=1)
+            tmp_features = tf.reshape(tmp_features, [-1, tf.shape(ref_features)[1]])
+            print tmp_features
+            inputs["features"] = tmp_features
+            quit()
+            return inputs, None
+        
+        return dataflow_fn
+    
+    
     
 
 class H5DataLoader(DataLoader):
@@ -174,7 +201,7 @@ class H5DataLoader(DataLoader):
             task_indices=[],
             keys=None,
             features_key="features",
-            labels_key="labels",
+            label_keys=["labels"],
             skip_keys=["label_metadata"]):
         """Get slices from the (open) h5 file back and pad with 
         null sequences as needed to fill the batch.
@@ -197,7 +224,7 @@ class H5DataLoader(DataLoader):
 
         # get keys
         if keys is None:
-            keys = [key for key in h5_handle.keys() if key not in skip_keys]
+            keys = sorted([key for key in h5_handle.keys() if key not in skip_keys])
         else:
             keys = [key for key in keys if key not in skip_keys]
             
@@ -205,9 +232,9 @@ class H5DataLoader(DataLoader):
         slices = {}
         if end_idx < h5_handle[keys[0]].shape[0]:
             for key in keys:
-                if labels_key in key:
-                    slices[key] = h5_handle[key][start_idx:end_idx, task_indices][:].astype(np.float32)
-                elif "metadata" in key:
+                #if labels_key in key:
+                #    slices[key] = h5_handle[key][start_idx:end_idx, task_indices][:].astype(np.float32)
+                if "metadata" in key:
                     slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1)) # TODO don't reshape?
                 else:
                     slices[key] = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
@@ -215,11 +242,11 @@ class H5DataLoader(DataLoader):
             end_idx = h5_handle[keys[0]].shape[0]
             batch_padding_num = batch_size - (end_idx - start_idx)
             for key in keys:
-                if labels_key in key:
-                    slice_tmp = h5_handle[key][start_idx:end_idx, task_indices][:].astype(np.float32)
-                    slice_pad_shape = [batch_padding_num, len(task_indices)]
-                    slice_pad = np.zeros(slice_pad_shape, dtype=np.float32)
-                elif "metadata" in key:
+                #if labels_key in key:
+                #    slice_tmp = h5_handle[key][start_idx:end_idx, task_indices][:].astype(np.float32)
+                #    slice_pad_shape = [batch_padding_num, len(task_indices)]
+                #    slice_pad = np.zeros(slice_pad_shape, dtype=np.float32)
+                if "metadata" in key:
                     slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                     slice_pad = np.array(
                         ["false=chrY:0-0" for i in xrange(batch_padding_num)]).reshape(
@@ -231,6 +258,14 @@ class H5DataLoader(DataLoader):
                     
                 slices[key] = np.concatenate([slice_tmp, slice_pad], axis=0)
 
+        # adjust labels - concatenate desired labels and then get task indices
+        labels = []
+        for key in label_keys:
+            labels.append(slices[key])
+            slices["labels"] = np.concatenate(labels, axis=1)
+            
+        slices["labels"] = slices["labels"][:,task_indices]
+                
         return slices
 
     
@@ -241,8 +276,8 @@ class H5DataLoader(DataLoader):
             task_indices=[],
             keys=None,
             skip_keys=["label_metadata"],
-            features_key="features",
-            labels_key="labels",
+            features_key="features", # TODO do we need this?
+            label_keys=["labels"],
             metadata_key="example_metadata",
             shuffle=True,
             num_epochs=1):
@@ -284,6 +319,10 @@ class H5DataLoader(DataLoader):
                 tensor_dtypes.append(tf.string)
             else:
                 tensor_dtypes.append(tf.float32)
+
+        # labels get set up in the file so need to append to get them out
+        keys.append("labels")
+        tensor_dtypes.append(tf.float32)
         
         # function to get examples based on batch_id (for py_func)
         def batch_id_to_examples(batch_id):
@@ -297,7 +336,7 @@ class H5DataLoader(DataLoader):
                 batch_size,
                 task_indices=task_indices,
                 features_key=features_key,
-                labels_key=labels_key)
+                label_keys=label_keys)
             slice_list = []
             for key in keys:
                 slice_list.append(slice_array[key])
@@ -308,12 +347,12 @@ class H5DataLoader(DataLoader):
         # TODO adjust here to be able to read out more streams
         # ie, given a dict, for each key in the dict, put into ordered list of tensors
         # and also tensorflow datatypes.
-        if False:
-            [features, labels, metadata] = tf.py_func(
-                func=batch_id_to_examples,
-                inp=[batch_id],
-                Tout=[tf.float32, tf.float32, tf.string],
-                stateful=False, name='py_func_batch_id_to_examples')
+        #if False:
+        #    [features, labels, metadata] = tf.py_func(
+        #        func=batch_id_to_examples,
+        #        inp=[batch_id],
+        #        Tout=[tf.float32, tf.float32, tf.string],
+        #        stateful=False, name='py_func_batch_id_to_examples')
 
         inputs = tf.py_func(
             func=batch_id_to_examples,
@@ -323,7 +362,7 @@ class H5DataLoader(DataLoader):
 
         # set shapes
         for i in xrange(len(inputs)):
-            if "labels" in keys[i]:
+            if "labels" == keys[i]:
                 inputs[i].set_shape([batch_size, len(task_indices)])
             elif "metadata" in keys[i]:
                 inputs[i].set_shape([batch_size, 1])
@@ -441,7 +480,7 @@ class H5DataLoader(DataLoader):
             batch_size,
             task_indices=[],
             features_key="features",
-            labels_key="labels",
+            label_keys=["labels"],
             metadata_key="example_metadata",
             shuffle=True,
             shuffle_seed=1337):
@@ -455,14 +494,17 @@ class H5DataLoader(DataLoader):
         
         # adjust task indices as needed
         if len(task_indices) == 0:
+            num_labels = 0
             with h5py.File(self.h5_files[0], "r") as hf:
-                task_indices = range(hf[labels_key].shape[1])
+                for key in label_keys:
+                    num_labels += hf[key].shape[1]
+            task_indices = range(num_labels)
         
         if shuffle:
             # use a thread for each hdf5 file to put together in parallel
             example_slices_list = [
                 H5DataLoader.h5_to_tensors(
-                    h5_file, batch_size, task_indices, shuffle=True)
+                    h5_file, batch_size, task_indices, label_keys=label_keys, shuffle=True)
                 for h5_file in self.h5_files]
             min_after_dequeue = 10000
             capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size

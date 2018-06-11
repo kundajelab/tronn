@@ -55,7 +55,9 @@ def generate_one_hot_sequences(
         bin_size,
         final_length,
         ref_fasta_file,
-        reverse_complemented):
+        reverse_complemented,
+        include_metadata=True,
+        include_variant_metadata=False):
     """Generate one hot encoded sequence examples from binned regions
 
     Args:
@@ -115,26 +117,40 @@ def generate_one_hot_sequences(
             examples_key,
             (num_bins, 1, final_length, 4),
             dtype="u1")
-        metadata_hf = hf.create_dataset(
-            'example_metadata',
-            (num_bins,), dtype='S1000')
-        
+        if include_metadata:
+            metadata_hf = hf.create_dataset(
+                'example_metadata',
+                (num_bins,), dtype='S1000')
+        if include_variant_metadata:
+            variant_pos_hf = hf.create_dataset(
+                "variant_relative_pos", (num_bins,))
+            
         counter = 0
         with open(fasta_sequences, 'rb') as fp:
             for line in fp:
                 
                 if counter % 50000 == 0:
                     print counter
-
-                sequence = line.strip().split()[1].upper()
-                metadata = line.strip().split()[0]
                 
                 # convert each sequence into one hot encoding
                 # and load into hdf5 file
+                sequence = line.strip().split()[1].upper()
                 features_hf[counter,:,:,:] = one_hot_encode(sequence)
 
                 # track the region name too.
-                metadata_hf[counter] = metadata
+                if include_metadata:
+                    metadata = line.strip().split()[0]
+                    metadata_hf[counter] = metadata
+
+                # if variant, save out position (0-index)
+                if include_variant_metadata:
+                    metadata_dict = dict([
+                        field.split("=")
+                        for field in line.strip().split()[0].split(";")])
+                    example_start = int(metadata_dict["features"].split(":")[1].split("-")[0])
+                    variant_abs_pos = int(metadata_dict["snp_pos"].split(":")[1])
+                    variant_relative_pos = variant_abs_pos - example_start
+                    variant_pos_hf[counter] = variant_relative_pos
                 
                 counter += 1
 

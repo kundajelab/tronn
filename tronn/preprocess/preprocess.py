@@ -25,6 +25,9 @@ from tronn.preprocess.bed import extract_active_centers
 
 from tronn.preprocess.bigwig import generate_signal_vals
 
+from tronn.preprocess.variants import generate_new_fasta
+from tronn.preprocess.variants import generate_bed_file_from_variant_file
+
 from tronn.util.parallelize import setup_multiprocessing_queue
 from tronn.util.parallelize import run_in_parallel
 
@@ -229,7 +232,7 @@ def select_all_negatives(
     # set up chrom sizes - remove chrM
     tmp_chrom_sizes = "{0}/{1}.tmp".format(tmp_dir, os.path.basename(chrom_sizes))
     setup_chrom_sizes = (
-        "cat {0} | grep -v '_' | grep -v 'chrM' > "
+        "cat {0} | grep -v '_' | sort -k1,1 -k2,2n | grep -v 'chrM' > "
         "{1}").format(chrom_sizes, tmp_chrom_sizes)
     print setup_chrom_sizes
     os.system(setup_chrom_sizes)
@@ -241,6 +244,8 @@ def select_all_negatives(
             positives_bed_file,
             tmp_chrom_sizes,
             negatives_bed_file)
+    print select_negs
+    os.system(select_negs)
     
     return None
 
@@ -331,7 +336,7 @@ def generate_h5_datasets(
         final_length=1000,
         superset_bed_file=None,
         reverse_complemented=False,
-        genome_wide=True,
+        genome_wide=False,
         parallel=24,
         tmp_dir="."):
     """generate a full h5 dataset
@@ -343,6 +348,7 @@ def generate_h5_datasets(
         chromsizes,
         bin_size=bin_size,
         stride=stride,
+        genome_wide=genome_wide,
         tmp_dir=tmp_dir)
 
     # collect the bed files
@@ -355,7 +361,7 @@ def generate_h5_datasets(
         all_bed_files = [
             positives_bed_file,
             training_negatives_bed_file]
-        
+
     # split to chromosomes
     chrom_dir = "{}/by_chrom".format(tmp_dir)
     os.system("mkdir -p {}".format(chrom_dir))
@@ -394,17 +400,164 @@ def generate_h5_datasets(
     return None
 
 
-def generate_variant_h5_dataset():
+
+def setup_variant_h5_dataset(
+        master_bed_file,
+        ref_fasta,
+        alt_fasta,
+        chromsizes,
+        h5_file,
+        label_sets,
+        signal_sets,
+        bin_size,
+        stride,
+        final_length,
+        reverse_complemented,
+        onehot_features_key,
+        tmp_dir):
+    """given a region file, set up dataset
+    conventionally, this is 1 chromosome
+    """
+    # make sure tmp dir exists
+    os.system("mkdir -p {}".format(tmp_dir))
+    
+    # set up prefix
+    prefix = os.path.basename(master_bed_file).split(
+        ".narrrowPeak")[0].split(".bed")[0]
+    
+    # bin the master bed file
+    bin_file = "{}/{}.bin-{}.stride-{}.bed.gz".format(
+        tmp_dir, prefix, bin_size, stride)
+    if not os.path.isfile(bin_file):
+        bin_regions(master_bed_file, bin_file, bin_size, stride, method="naive")
+        
+    # generate the one hot sequence encoding
+    bin_ext_file = "{}.len-{}.bed.gz".format(
+        bin_file.split(".bed")[0], final_length)
+    ref_fasta_sequences_file = "{}.ref.fa".format(
+        bin_ext_file.split(".bed")[0])
+    alt_fasta_sequences_file = "{}.alt.fa".format(
+        bin_ext_file.split(".bed")[0])
+    if not os.path.isfile(h5_file):
+        generate_one_hot_sequences(
+            bin_file,
+            bin_ext_file,
+            ref_fasta_sequences_file,
+            h5_file,
+            "{}.ref".format(onehot_features_key),
+            bin_size,
+            final_length,
+            ref_fasta,
+            reverse_complemented,
+            include_variant_metadata=True)
+        generate_one_hot_sequences(
+            bin_file,
+            bin_ext_file,
+            alt_fasta_sequences_file,
+            h5_file,
+            "{}.alt".format(onehot_features_key),
+            bin_size,
+            final_length,
+            alt_fasta,
+            reverse_complemented,
+            include_metadata=False)
+
+    # TODO somewhere here I also want to save out position of variant
+    
+    
+    # extract out the active center again
+    bin_active_center_file = "{}.active.bed.gz".format(
+        bin_ext_file.split(".bed")[0])
+    ref_fasta_sequences_file = "{}.gz".format(ref_fasta_sequences_file)
+    alt_fasta_sequences_file = "{}.gz".format(alt_fasta_sequences_file)
+    extract_active_centers(bin_active_center_file, ref_fasta_sequences_file)
+    
+    # generate BED annotations on the active center
+    for key in label_sets.keys():
+        label_files = label_sets[key][0]
+        label_params = label_sets[key][1]
+        method = label_params.get("method", "half_peak")
+        generate_labels(
+            bin_active_center_file,
+            label_files,
+            key,
+            h5_file,
+            method=method,
+            chromsizes=chromsizes,
+            tmp_dir=tmp_dir)
+
+    # generate bigwig annotations on the active center
+    for key in signal_sets.keys():
+        signal_files = signal_sets[key][0]
+        signal_params = signal_sets[key][1]
+        generate_signal_vals(
+            bin_active_center_file,
+            signal_files,
+            key,
+            h5_file,
+            tmp_dir=tmp_dir)
+
+    # TODO matrix annotations? ie using DESeq2 normalized matrix here?
+
+    # TODO and then clean up the tmp dir (for now debug so dont do it)
+    
+    return h5_file
+
+
+def generate_variant_h5_dataset(
+        vcf_file,
+        init_fasta,
+        chromsizes,
+        label_sets,
+        signal_sets,
+        prefix,
+        work_dir,
+        bin_size=200,
+        stride=50,
+        final_length=1000,
+        reverse_complemented=False,
+        tmp_dir="."):
     """take in a variant file and generate a dataset
     """
-
-    # call generate h5 datasets twice, with two different fasta files
-
+    # first, make two fastas, one for ref and one for alt
+    ref_fasta = "{}/{}.ref.fa".format(work_dir, os.path.basename(init_fasta).split(".fa")[0])
+    alt_fasta = "{}/{}.alt.fa".format(work_dir, os.path.basename(init_fasta).split(".fa")[0])
+    generate_new_fasta(vcf_file, init_fasta, ref_fasta, ref=True)
+    generate_new_fasta(vcf_file, init_fasta, alt_fasta, ref=False)
     
+    # then, given the snp positions, set up BED file with regions
+    # TODO need to keep snp information
+    variant_bed_file = "{}/{}.variants.bed.gz".format(
+        work_dir, os.path.basename(vcf_file).split(".vcf")[0])
+    generate_bed_file_from_variant_file(vcf_file, variant_bed_file, bin_size)
 
-    
+    h5_file = "{}/{}.h5".format(work_dir, prefix)
 
-    return
+    # call generate variant h5 datasets (which creates two feature sets, one for each)
+    setup_variant_h5_dataset(
+        variant_bed_file,
+        ref_fasta,
+        alt_fasta,
+        chromsizes,
+        h5_file,
+        label_sets,
+        signal_sets,
+        bin_size,
+        stride,
+        final_length,
+        reverse_complemented,
+        "features",
+        tmp_dir)
+
+    # downstream, build a variant dataloader that interleaves things (so that variants are
+    # processed togehter)
+    # and then also build a stack that knows of this procedure and then deconvolves the results
+
+    return None
+
+
+
+
 
 
 
@@ -565,72 +718,3 @@ def generate_variant_datasets(variant_file, ref_fasta_file, out_dir, prefix, seq
             labels_hf[:] = np.ones((num_bins, 1))
                     
     return
-
-
-def generate_ordered_single_file_nn_dataset(
-        celltype_master_regions,
-        ref_fasta,
-        label_files,
-        work_dir,
-        prefix,
-        bin_size=200,
-        bin_method='plus_flank_negs',
-        stride=50,
-        final_length=1000,
-        parallel=12,
-        reverse_complemented=False):
-    """Convenient wrapper to run all relevant functions
-    requires: ucsc_tools, bedtools
-    NOTE: this version is used to produce a single hdf5 file with all data
-    """
-    os.system('mkdir -p {}'.format(work_dir))
-    tmp_dir = "{}/tmp".format(work_dir)
-    os.system("mkdir -p {}".format(tmp_dir))
-
-    # bin the files
-    # NOTE: this does not check for chromosome lengths and WILL contain inappropriate regions
-    bin_dir = '{}/binned'.format(tmp_dir)
-    binned_file = "{0}/{1}.binned.bed.gz".format(bin_dir, prefix)
-    if not os.path.isfile(binned_file):
-        os.system('mkdir -p {}'.format(bin_dir))
-        bin_regions(celltype_master_regions, binned_file, bin_size, stride,
-            method='plus_flank_negs')
-
-    # generate one-hot encoding sequence files (examples) and then labels
-    regions_fasta_dir = '{}/regions_fasta'.format(tmp_dir)
-    bin_ext_dir = '{}/bin_ext'.format(tmp_dir)
-    intersect_dir = '{}/intersect'.format(tmp_dir)
-    chrom_hdf5_dir = '{}/h5'.format(work_dir)
-
-    # now run example generation and label generation
-    out_h5_file = "{0}/{1}.ordered.h5".format(chrom_hdf5_dir, prefix)
-    if not os.path.isfile(out_h5_file):
-        os.system('mkdir -p {}'.format(chrom_hdf5_dir))
-        os.system('mkdir -p {}'.format(regions_fasta_dir))
-        os.system('mkdir -p {}'.format(bin_ext_dir))
-        binned_extended_file = "{0}/{1}.extbin.bed.gz".format(
-            bin_ext_dir, os.path.basename(binned_file).split(".bed")[0])
-        fasta_sequences = "{0}/{1}.fa".format(
-            regions_fasta_dir,
-            "{}.ordered".format(os.path.basename(binned_file).split(".binned")[0]))
-        generate_examples(
-            binned_file,
-            binned_extended_file,
-            fasta_sequences,
-            out_h5_file,
-            bin_size,
-            final_length,
-            ref_fasta,
-            reverse_complemented)
-        os.system('mkdir -p {}'.format(intersect_dir))
-        generate_labels_chrom(
-            bin_ext_dir,
-            intersect_dir,
-            prefix,
-            label_files,
-            regions_fasta_dir,
-            chrom_hdf5_dir,
-            parallel=parallel)
-        os.system("rm -r {}".format(intersect_dir))
-
-    return '{}/h5'.format(work_dir)

@@ -57,6 +57,7 @@ def run(args):
     dataloader = H5DataLoader(data_files)
     input_fn = dataloader.build_input_fn(
         args.batch_size,
+        label_keys=args.label_keys,
         filter_tasks=[
             args.inference_tasks,
             args.filter_tasks],

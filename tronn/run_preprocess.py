@@ -54,14 +54,25 @@ def run(args):
     # parse labels and signals
     labels = parse_files(args.labels)
     signals = parse_files(args.signals)
-    logging.info("Using {} label sets".format(len(labels["labels"][0])))
+    total_labels = [len(labels[key][0]) for key in labels.keys()]
+    total_signals = [len(signals[key][0]) for key in signals.keys()]
+    logging.info("Using {} label files".format(total_labels))
+    logging.info("Using {} signal files".format(total_signals))
     
-    # generate master bed file
-    master_regions_bed = '{0}/{1}.master.bed.gz'.format(
-        args.out_dir, args.prefix)
-    if not os.path.isfile(master_regions_bed):
-        generate_master_regions(master_regions_bed, args.labels)
-
+    # generate master bed file if one is not given
+    if args.master_bed_file is None:
+        master_file_labels = []
+        if len(args.master_label_keys) == 0:
+            args.master_label_keys = labels.keys()
+        for key in args.master_label_keys:
+            master_file_labels += labels[key][0]
+        master_regions_bed = '{0}/{1}.master.bed.gz'.format(
+            args.out_dir, args.prefix)
+        if not os.path.isfile(master_regions_bed):
+            generate_master_regions(master_regions_bed, master_file_labels)
+    else:
+        master_regions_bed = args.master_bed_file    
+            
     # generate nn dataset
     generate_h5_datasets(
         master_regions_bed,
@@ -83,53 +94,6 @@ def run(args):
 
     quit()
 
-    if not args.genomewide:
-        # then run generate nn dataset
-        generate_nn_dataset(
-            master_regions_bed,
-            args.annotations["univ_dhs"],
-            args.annotations["ref_fasta"],
-            args.labels,
-            args.out_dir,
-            args.prefix,
-            parallel=args.parallel,
-            neg_region_num=args.univ_neg_num,
-            use_dhs=not args.no_dhs_negs,
-            use_random=args.random_negs,
-            chrom_sizes=args.annotations["chrom_sizes"],
-            bin_method="naive" if args.no_flank_negs else "plus_flank_negs",
-            reverse_complemented=args.rc)
-
-    else:
-        # then run generate nn dataset
-        generate_nn_dataset(
-            master_regions_bed,
-            None,
-            args.annotations["ref_fasta"],
-            args.labels,
-            args.out_dir,
-            args.prefix,
-            parallel=args.parallel,
-            neg_region_num=None,
-            use_dhs=False,
-            use_random=False,
-            chrom_sizes=args.annotations["chrom_sizes"],
-            bin_method="naive",
-            reverse_complemented=args.rc)
-
-        # and generate the negatives also
-        generate_genomewide_negatives_dataset(
-            master_regions_bed,
-            args.annotations["ref_fasta"],
-            args.labels,
-            args.out_dir,
-            "{}.negs".format(args.prefix),
-            parallel=args.parallel,
-            chrom_sizes=args.annotations["chrom_sizes"])
-
-    quit()
-
-    
 
     if False:
         from tronn.graphs import TronnGraph
@@ -188,14 +152,3 @@ def run(args):
     
     return None
 
-
-def run_variants(args):
-    """Run variants 
-    """
-    generate_variant_datasets(
-        args.variant_file,
-        args.annotations["ref_fasta"],
-        args.out_dir,
-        args.prefix)
-    
-    return None

@@ -23,8 +23,6 @@ def parse_args():
     subparsers = parser.add_subparsers(dest='subcommand_name')
 
     # command for preprocessing data
-    # ideally do as minimal as possible? how much can be done on fly...
-    # likely need to convert BED to FASTA seq and can go from there
     add_preprocess_parser(subparsers)
 
     # preprocess variants
@@ -133,6 +131,9 @@ def add_hdf5_data_options(parser):
         "--data_dir", required=True,
         help="hdf5 file directory")
     parser.add_argument(
+        "--label_keys", nargs="+", default=["labels"],
+        help="which datasets to load as labels")
+    parser.add_argument(
         "--tasks", nargs="+", default=[], type=int,
         help="tasks to train on (default is all)")
     
@@ -153,6 +154,12 @@ def add_preprocess_parser(subparsers):
     group_input.add_argument(
         "--signals", nargs='+',
         help='list of key=files_separated_by_commas;params, files are in bigwig format')
+    group_input.add_argument(
+        "--master_label_keys", nargs="+", default=[],
+        help="subset of label files to use to make master regions file")
+    group_input.add_argument(
+        "--master_bed_file", default=None,
+        help="master regions file for all examples")
     load_data_files(group_input)
 
     # group for options
@@ -161,27 +168,27 @@ def add_preprocess_parser(subparsers):
     group_opts.add_argument(
         "--rc", action="store_true",
         help='Reverse complement')
-    group_opts.add_argument(
-        "--no_flank_negs", action="store_true",
-        help="turn off flank negatives")
-    group_opts.add_argument(
-        "--no_dhs_negs", action="store_true",
-        help="turn off flank negatives")
-    group_opts.add_argument(
-        "--random_negs", action="store_true",
-        help="add random negatives")
-    group_opts.add_argument(
-        "--univ_neg_num", type=int,
-        help='number of universal negatives to grab from univ DHS regions')
+    #group_opts.add_argument(
+    #    "--no_flank_negs", action="store_true",
+    #    help="turn off flank negatives")
+    #group_opts.add_argument(
+    #    "--no_dhs_negs", action="store_true",
+    #    help="turn off flank negatives")
+    #group_opts.add_argument(
+    #    "--random_negs", action="store_true",
+    #    help="add random negatives")
+    #group_opts.add_argument(
+    #    "--univ_neg_num", type=int,
+    #    help='number of universal negatives to grab from univ DHS regions')
     group_opts.add_argument(
         "--genomewide", action="store_true",
         help='build examples across whole genome')
     group_opts.add_argument(
         "--parallel", default=12, type=int,
         help='Number of parallel threads to use')
-    group_opts.add_argument(
-        "--kmerize", action='store_true',
-        help="generate kmer datasets also")
+    #group_opts.add_argument(
+    #    "--kmerize", action='store_true',
+    #    help="generate kmer datasets also")
     
     # group for output files
     group_output = argparser_preprocess.add_argument_group(
@@ -194,7 +201,7 @@ def add_preprocess_parser(subparsers):
 
 
 def add_preprocess_variants_parser(subparsers):
-    """Specifically preprocess a variants file to generate examples for prediction
+    """Add data generation function argument parser
     """
     argparser_preprocess = subparsers.add_parser(
         "preprocess_variants",
@@ -204,12 +211,25 @@ def add_preprocess_variants_parser(subparsers):
     group_input = argparser_preprocess.add_argument_group(
         "Input files and folders")
     group_input.add_argument(
-        "--variant_file", help="variant_file")
+        "--labels", nargs='+', required=True,
+        help='list of key=files_separated_by_commas;params, files are in BED/narrowPeak format')
+    group_input.add_argument(
+        "--signals", nargs='+',
+        help='list of key=files_separated_by_commas;params, files are in bigwig format')
+    group_input.add_argument(
+        "--master_label_keys", nargs="+", default=[],
+        help="subset of label files to use to make master regions file")
+    group_input.add_argument(
+        "--vcf_file",
+        help="vcf file with ref/alt")
     load_data_files(group_input)
 
     # group for options
     group_opts = argparser_preprocess.add_argument_group(
         "Data generation options")
+    group_opts.add_argument(
+        "--rc", action="store_true",
+        help='Reverse complement')
     group_opts.add_argument(
         "--parallel", default=12, type=int,
         help='Number of parallel threads to use')
@@ -218,6 +238,8 @@ def add_preprocess_variants_parser(subparsers):
     group_output = argparser_preprocess.add_argument_group(
         "Output files and folders")
     add_output_options(group_output, out_dir="dataset")
+    group_output.add_argument(
+        "--tmp_dir", help="directory for tmp files")
 
     return
 
@@ -304,9 +326,9 @@ def add_model_picker(parser):
     for prediction/evaluation functions where you might want to test
     motif, grammar, or the full neural net
     """
-    parser.add_argument(
-        "--model_type", required=True, default="nn",
-        help="what kind of model: nn, motif, grammar")
+    #parser.add_argument(
+    #    "--model_type", required=False, default="nn",
+    #    help="what kind of model: nn, motif, grammar")
     
     # arguments for nn model
     add_trained_nn_model_options(parser, required=False)
@@ -317,9 +339,9 @@ def add_model_picker(parser):
         help='list of PWM files (all will be loaded and run')
 
     # arguments for grammar model
-    parser.add_argument(
-        '--grammar_files', nargs="+",
-        help='list of grammar files (all will be loaded and run')
+    #parser.add_argument(
+    #    '--grammar_files', nargs="+",
+    #    help='list of grammar files (all will be loaded and run')
     
     return
 
@@ -801,8 +823,9 @@ def main():
         from tronn.run_preprocess import run
         run(args)
     elif subcommand == "preprocess_variants":
-        from tronn.run_preprocess import run_variants
-        run_variants(args)
+        args.annotations = args.annotations[args.cluster]
+        from tronn.preprocess_variants_cmd import run
+        run(args)
     elif subcommand == 'train':
         add_model_params(args)
         print 'model args: %s' % args.model

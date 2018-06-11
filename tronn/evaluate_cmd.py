@@ -36,13 +36,15 @@ def run(args):
     os.system("mkdir -p {}".format(args.out_dir))
 
     # set up dataset
+    # TODO figure out how to adjust for genomewide files
     h5_files = setup_h5_files(args.data_dir)
     train_files, valid_files, test_files = setup_train_valid_test(
         h5_files, 10) # TODO provide folds as param
 
     # set up dataloader
     dataloader = H5DataLoader(test_files)
-    test_input_fn = dataloader.build_input_fn(args.batch_size)
+    test_input_fn = dataloader.build_input_fn(
+        args.batch_size, label_keys=args.label_keys)
 
     # set up model
     model_manager = ModelManager(

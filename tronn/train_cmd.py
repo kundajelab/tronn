@@ -22,12 +22,14 @@ def run(args):
     h5_files = setup_h5_files(args.data_dir)
     train_files, valid_files, test_files = setup_train_valid_test(
         h5_files, 10) # TODO provide folds as param
-
+    
     # set up dataloader and buid the input functions needed to serve tensor batches
     train_dataloader = H5DataLoader(train_files)
-    train_input_fn = train_dataloader.build_input_fn(args.batch_size)
+    train_input_fn = train_dataloader.build_input_fn(
+        args.batch_size, label_keys=args.label_keys)
     validation_dataloader = H5DataLoader(valid_files)
-    validation_input_fn = validation_dataloader.build_input_fn(args.batch_size)
+    validation_input_fn = validation_dataloader.build_input_fn(
+        args.batch_size, label_keys=args.label_keys)
     
     # set up model
     model_manager = ModelManager(

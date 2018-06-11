@@ -146,7 +146,11 @@ def bin_regions(
             for line in fp:
                 fields = line.strip().split('\t')
                 chrom, start, stop = fields[0], int(fields[1]), int(fields[2])
-
+                if len(fields) > 3:
+                    metadata = fields[3]
+                else:
+                    metadata = ""
+                    
                 if method == 'naive':
                     # Just go from start of region to end of region
                     mark = start
@@ -163,11 +167,13 @@ def bin_regions(
                     # write out bins
                     out.write((
                         "{0}\t{1}\t{2}\t"
-                        "active={0}:{1}-{2};"
-                        "region={0}:{3}-{4}\n").format(
+                        "{3};"
+                        "region={0}:{4}-{5};"
+                        "active={0}:{1}-{2}\n").format(
                             chrom, 
                             mark, 
                             mark + bin_size,
+                            metadata,
                             start,
                             stop))
                     mark += stride
@@ -187,8 +193,8 @@ def extract_active_centers(binned_file, fasta_file):
 
                 # extract bin only
                 metadata = fields[0].split("::")[0]
-                metadata_fields = metadata.split(";")
-                region_bin = metadata_fields[1].split("=")[1] # active is field 1
+                metadata_dict = dict([field.split("=") for field in metadata.split(";")])
+                region_bin = metadata_dict["region"]
 
                 chrom = region_bin.split(":")[0]
                 start = int(region_bin.split(':')[1].split('-')[0])
