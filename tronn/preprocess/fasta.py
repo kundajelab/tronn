@@ -89,12 +89,12 @@ def generate_one_hot_sequences(
                     new_stop = int(stop) + extend_length
 
                 if reverse_complemented:
-                    out.write('{0}\t{1}\t{2}\tfeatures={0}:{1}-{2}(+);{3}\t1\t+\n'.format(
+                    out.write('{0}\t{1}\t{2}\t{3};features={0}:{1}-{2}(+)\t1\t+\n'.format(
                         chrom, new_start, new_stop, metadata))
-                    out.write('{0}\t{1}\t{2}\tfeatures={0}:{1}-{2}(-);{3}\t1\t-\n'.format(
+                    out.write('{0}\t{1}\t{2}\t{3};features={0}:{1}-{2}(-)\t1\t-\n'.format(
                         chrom, new_start, new_stop, metadata))
                 else:
-                    out.write('{0}\t{1}\t{2}\tfeatures={0}:{1}-{2};{3}\n'.format(
+                    out.write('{0}\t{1}\t{2}\t{3};features={0}:{1}-{2}\n'.format(
                         chrom, new_start, new_stop, metadata))
 
     # Then run get fasta to get sequences

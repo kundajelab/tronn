@@ -237,3 +237,22 @@ def onehot_to_string(inputs, params):
     outputs[key] = features
     
     return outputs, params
+
+
+
+def get_variance_importance(inputs, params):
+    """read off the importance score at the specific variant position? is this important to read off?
+    """
+    assert inputs.get("features") is not None
+    assert inputs.get("snp_relative_pos") is not None
+    
+    outputs = dict(inputs)
+
+    # need to do it a task level
+    importance_at_all_positions = tf.reduce_sum(inputs["features"], axis=3) # {N, task, seq_len}
+    importance_at_snp_pos = importance_at_snp_pos[:,:,inputs["snp_relative_pos"]] # {N, task, 1}
+
+    # save to outputs
+    outputs["snp_importance_scores"] = importance_at_snp_pos
+    
+    return None

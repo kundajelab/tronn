@@ -147,7 +147,7 @@ def bin_regions(
                 fields = line.strip().split('\t')
                 chrom, start, stop = fields[0], int(fields[1]), int(fields[2])
                 if len(fields) > 3:
-                    metadata = fields[3]
+                    metadata = "{};".format(fields[3])
                 else:
                     metadata = ""
                     
@@ -167,7 +167,7 @@ def bin_regions(
                     # write out bins
                     out.write((
                         "{0}\t{1}\t{2}\t"
-                        "{3};"
+                        "{3}"
                         "region={0}:{4}-{5};"
                         "active={0}:{1}-{2}\n").format(
                             chrom, 
@@ -230,6 +230,7 @@ def generate_labels(
     # for each label bed file
     for i in xrange(len(label_bed_files)):
         label_bed_file = label_bed_files[i]
+        assert label_bed_file.endswith(".gz")
         out_tmp_file = "{}/{}.intersect.bed.gz".format(
             tmp_dir,
             os.path.basename(label_bed_file).split(".narrowPeak")[0].split(".bed.gz")[0])

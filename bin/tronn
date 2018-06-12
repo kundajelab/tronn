@@ -50,7 +50,7 @@ def parse_args():
 
     
     # TODO command for variant predictions
-
+    add_analyzevariants_parser(subparsers)
     
     # TODO:    
     # modisco?
@@ -651,6 +651,58 @@ def add_dream_parser(subparsers):
     return 
 
 
+def add_analyzevariants_parser(subparsers):
+    """analyze variants
+    """
+    cmd_argparser = subparsers.add_parser(
+        "analyzevariants",
+        help="Scan sequence with motifs from a PWM file")
+    
+    # group for input files
+    group_input = cmd_argparser.add_argument_group(
+    	"Input files and folders")
+    add_hdf5_data_options(group_input)
+    group_input.add_argument(
+        "--inference_tasks", nargs="+", required=True, type=int,
+        help="tasks to extract motif maps")
+
+    # add in PWM information
+    group_input.add_argument(
+        "--pwm_file", help="pwm_file")
+    
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model definition")
+    add_trained_nn_model_options(group_model)
+    group_model.add_argument(
+        "--backprop", default="input_x_grad",
+        help="what method to use for interpretation")
+    group_model.add_argument(
+        "--inference_fn", help="inference stack")
+
+    # group for parameters
+    group_params = cmd_argparser.add_argument_group(
+        "Interpretation hyperparameters")
+    group_params.add_argument(
+        '--batch_size', default=64, type=int,
+        help='batch size')
+    group_params.add_argument(
+        '--sample_size', default=100000, type=int,
+        help='number of regions to scan')
+
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="motifs")
+    group_output.add_argument(
+        '--tmp_dir',
+        help='temporary scratch directory as needed')
+    
+    return
+
+
+
+
 def add_vizimpts_parser(subparsers):
     """
     """
@@ -832,8 +884,7 @@ def main():
         from tronn.train_cmd import run
         run(args)
     elif subcommand == "evaluate":
-        if args.model_type == "nn":
-            add_model_params(args)
+        add_model_params(args)
         print "model args: %s" % args.model
         from tronn.evaluate_cmd import run
         run(args)
@@ -858,6 +909,10 @@ def main():
     elif subcommand == "dream":
         add_model_params(args)
         from tronn.dream_cmd import run
+        run(args)
+    elif subcommand == "analyzevariants":
+        add_model_params(args)
+        from tronn.analyzevariants_cmd import run
         run(args)
     elif subcommand == "baseline":
         from tronn.run_tensorforest import run

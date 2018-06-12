@@ -34,9 +34,6 @@ from tronn.nets.grammar_nets import check_motifset_presence
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_singleton_labels
 
-
-#from tronn.nets.filter_nets import filter_by_motifset_presence
-
 from tronn.nets.mutate_nets import generate_mutation_batch
 from tronn.nets.mutate_nets import run_model_on_mutation_batch
 from tronn.nets.mutate_nets import dfim
@@ -52,6 +49,10 @@ from tronn.nets.manifold_nets import filter_by_manifold_distance
 from tronn.nets.manifold_nets import filter_by_sig_pwm_presence
 
 from tronn.nets.sequence_nets import onehot_to_string
+
+from tronn.nets.variant_nets import get_variant_importance_scores
+from tronn.nets.variant_nets import blank_variant_sequence
+
 
 
 def build_inference_stack(inputs, params, inference_stack):
@@ -263,3 +264,49 @@ def sequence_to_dmim(inputs, params):
         
     return outputs, params
 
+
+def variants_to_predictions(inputs, params):
+    """assumes an interleaved set of features to run in model
+    """
+
+    # need to read out:
+    # logits on the ref/alt - {N, task, 2} ref/alt
+    # delta motif scores at the original site - {N, delta_motif}
+    # importance scores at the original site - {N, task, 2} ref/alt
+    # delta motif scores elsewhere - {N, delta_motif} (reverse mask of above)
+    # position of the delta motif scores relative to position
+    
+    inference_stack = [
+        (onehot_to_string, {}),
+
+        # get importance scores
+        (sequence_to_importance_scores, {}),
+
+        # collect importance scores at these locations
+        (get_variant_importance_scores, {}),
+        
+        # blank the sequence, but then put together? {N, task+mask, seqlen, 4}
+        (blank_variant_sequence, {"inverse": False, "blanked_name": "features.nonvariant-blanked"}),
+        (blank_variant_sequence, {"inverse": True, "blanked_name": "features.variant-blanked"}),
+        
+        # clip edges
+        (clip_edges, {"left_clip": 400, "right_clip": 600, "clip_string": True}),
+
+        # scan motifs
+        (pwm_match_filtered_convolve, {"positional-pwm-scores-key": None}), # TODO set up to adjust keys?
+        (pwm_position_squeeze, {"squeeze_type": "max"}),
+        
+    ]
+
+    # build inference stack
+    outputs, params = build_inference_stack(
+        inputs, params, inference_stack)
+
+    # unstack
+    if params.get("dmim-scores-key") is not None:
+        params["name"] = params["dmim-scores-key"]
+        outputs, params = unstack_tasks(outputs, params)
+        
+    quit()
+
+    return outputs, params
