@@ -268,7 +268,7 @@ def variants_to_predictions(inputs, params):
     # need to read out:
     # logits on the ref/alt - {N, task, 2} ref/alt
     # delta motif scores at the original site - {N, delta_motif}
-    # importance scores at the original site - {N, task, 2} ref/alt
+    # importance scores at the original site - {N, task, 2} ref/alt - Ignore this for now
     # delta motif scores elsewhere - {N, delta_motif} (reverse mask of above)
     # position of the delta motif scores relative to position
 
@@ -307,24 +307,16 @@ def variants_to_predictions(inputs, params):
         (clip_edges, {"left_clip": 400, "right_clip": 600, "clip_string": True}),
 
         # scan motifs
+        # NOTE - no RELU here!!
         (pwm_match_filtered_convolve, {"positional-pwm-scores-key": None}), # TODO set up to adjust keys?
         (pwm_position_squeeze, {"squeeze_type": "max"}),
 
         # and then readjust for variant read outs
         (reduce_alleles, {})
-        
-        
     ]
 
     # build inference stack
     outputs, params = build_inference_stack(
         inputs, params, inference_stack)
-
-    # unstack
-    if params.get("dmim-scores-key") is not None:
-        params["name"] = params["dmim-scores-key"]
-        outputs, params = unstack_tasks(outputs, params)
-        
-    quit()
 
     return outputs, params

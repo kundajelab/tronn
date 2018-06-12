@@ -29,13 +29,10 @@ from tronn.util.tf_ops import positives_focused_loss_fn
 from tronn.outlayer import H5Handler
 from tronn.learn.evaluation import get_global_avg_metrics
 
-from tronn.learn.learning_2 import RestoreHook
+from tronn.learn.learning import RestoreHook
 
 from tronn.interpretation.interpret import visualize_region
 from tronn.interpretation.dreaming import dream_one_sequence
-
-#from tronn.util.tf_utils import setup_tensorflow_session
-#from tronn.util.tf_utils import close_tensorflow_session
 
 
 class TronnEstimator(tf.estimator.Estimator):

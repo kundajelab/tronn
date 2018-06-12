@@ -872,7 +872,7 @@ def main():
 
     if subcommand == "preprocess":
         args.annotations = args.annotations[args.cluster]
-        from tronn.run_preprocess import run
+        from tronn.preprocess_cmd import run
         run(args)
     elif subcommand == "preprocess_variants":
         args.annotations = args.annotations[args.cluster]

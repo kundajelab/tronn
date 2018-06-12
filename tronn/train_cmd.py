@@ -1,6 +1,7 @@
 """Contains the run function for training a model
 """
 
+import json
 import logging
 
 from tronn.datalayer import setup_h5_files
@@ -37,7 +38,7 @@ def run(args):
         args.model)
     
     # train and evaluate
-    model_manager.train_and_evaluate_with_early_stopping(
+    best_checkpoint = model_manager.train_and_evaluate_with_early_stopping(
         train_input_fn,
         validation_input_fn,
         args.out_dir,
@@ -45,5 +46,15 @@ def run(args):
         warm_start_params={
             "skip":["logit"],
             "scope_change": ["", "basset/"]}) # <- this is for larger model - adjust this
-
+    
+    # save out training info into a json
+    # need: model, model checkpoint (best), label sets.
+    model_info = {
+        "model": args.model["name"],
+        "model_params": args.model,
+        "model_checkpoint": best_checkpoint,
+        "label_keys": args.label_keys}
+    with open("{}/model_info.json".format(args.out_dir), "w") as fp:
+        json.dump(training_dict, fp, sort_keys=True, indent=4)
+    
     return None

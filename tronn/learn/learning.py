@@ -1,298 +1,172 @@
-""" Contains light wrappers for learning and evaluation
-
-The wrappers follow the tf-slim structure for setting up and running a model
-
+"""functions to support learning
 """
 
-import os
 import logging
 
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
 from tronn.util.tf_ops import restore_variables_op
-from tronn.util.tf_utils import setup_tensorflow_session
-from tronn.util.tf_utils import close_tensorflow_session
-from tronn.util.tf_utils import get_checkpoint_steps
-from tronn.util.tf_utils import add_summaries
-from tronn.util.tf_utils import add_var_summaries
-from tronn.util.tf_utils import make_summary_op
-from tronn.util.tf_utils import print_param_count
-
-from tronn.interpretation.regions import ExampleGenerator
-
-from tronn.outlayer import OutLayer
 
 
-def train(
-        tronn_graph,
-        stop_step,
-        out_dir,
-        restore_model_checkpoint=None,
-        transfer_model_checkpoint=None):
-    """Training routine utilizing tf-slim
+class RestoreHook(tf.train.SessionRunHook):
+    """Hook that runs initialization functions at beginning of session"""
 
-    Args:
-      tronn_graph: a TronnNeuralNetGraph instance
-      stop_step: global stepping stop point
-      out_dir: where to save the model and events
-      restore_model_dir: restore EXACT same model
-      transfer_model_dir: transfer EXACT model minus output nodes
+    def __init__(self, warm_start, warm_start_params):
+        self.warm_start = warm_start
+        self.skip = warm_start_params.get("skip", [])
+        self.include_scope = warm_start_params.get("include_scope", "")
+        self.scope_change = warm_start_params.get("scope_change", None)
+        #self.init_assign_op = init_assign_op
+        #self.init_feed_dict = init_feed_dict
 
-    Returns:
-      None
-    """
-    logging.info("Training until {} steps".format(str(stop_step)))
-    assert not ((restore_model_checkpoint is not None)
-                and (transfer_model_checkpoint is not None))
-    
-    with tf.Graph().as_default():
-
-        # build graph
-        outputs, params = tronn_graph.build_training_dataflow(data_key="train")
-        train_op = params["train_op"]
         
-        # summaries
-        metric_values = tronn_graph.metric_values
-        add_summaries(metric_values)
-        for var in tf.model_variables(): add_var_summaries(var)
-        summary_op = make_summary_op(tronn_graph.metric_values,
-                                     print_out=True)
-        
-        # print parameter count
-        if (restore_model_checkpoint is None) and (transfer_model_checkpoint is None):
-            print 'Created new model:'
-            print_param_count()
+    def begin(self):
+        """set up the init functions and feed dict
+        """
+        self.init_assign_op, self.init_feed_dict = restore_variables_op(
+            self.warm_start,
+            skip=self.skip,
+            include_scope=self.include_scope,
+            scope_change=self.scope_change)
 
-        # Generate an initial assign op if restoring/transferring
-        if restore_model_checkpoint is not None:
-            restore_fn = tronn_graph.build_restore_graph_function()
-            #init_assign_op, init_feed_dict = restore_variables_op(
-            #    restore_model_checkpoint)
-            #def restoreFn(sess):
-            #    sess.run(init_assign_op, init_feed_dict)
-        elif transfer_model_checkpoint is not None:
-            print transfer_model_checkpoint
-            restore_fn = tronn_graph.build_restore_graph_function(
-                skip=["logit", "out"],
-                scope_change=["", "basset/"]) # TODO this should be factored out eventually
-            #init_assign_op, init_feed_dict = restore_variables_op(
-            #    transfer_model_checkpoint, skip=['logit','out'])
-            #def restore_fn(sess):
-            #    sess.run(init_assign_op, init_feed_dict)
+        
+    def after_create_session(self, session, coord=None):
+        """Restore the model from checkpoint, given params above
+        """
+        session.run(self.init_assign_op, self.init_feed_dict)
+        print "RESTORED FROM CHECKPOINT"
+
+        
+class EarlyStoppingHook(tf.train.SessionRunHook):
+    """Hook that requests stop based on early stopping criteria"""
+
+    def __init__(self, monitor="mean_auprc", min_delta=0, patience=0, mode="auto"):
+        self.monitor = monitor
+        self.patience = patience
+        self.min_delta = min_delta
+        self.wait = 0
+
+        if mode not in ['auto', 'min', 'max']:
+            logging.warning('EarlyStopping mode %s is unknown, '
+                            'fallback to auto mode.', mode, RuntimeWarning)
+            mode = 'auto'
+        
+        if mode == 'min':
+            self.monitor_op = np.less
+        elif mode == 'max':
+            self.monitor_op = np.greater
         else:
-            restore_fn = None
-            #restoreFn = None
-
-        # tf-slim to train
-        slim.learning.train(
-            train_op,
-            out_dir,
-            init_fn=restore_fn,
-            number_of_steps=None,
-            log_every_n_steps=1000,
-            summary_op=summary_op,
-            save_summaries_secs=60,
-            saver=tf.train.Saver(max_to_keep=None),
-            save_interval_secs=0) # change this? yes
-        
-    return
-
-
-def evaluate(
-        tronn_graph,
-        out_dir,
-        model_dir,
-        stop_step):
-    """Evaluation routine using tf-slim
-
-    Args:
-      tronn_graph: a TronnNeuralNetGraph instance
-      out_dir: output directory
-      model_dir: directory with trained model
-      stop_step: how many evals to run
-
-    Returns:
-      metrics_dict: dictionary of metrics from metrics fn
-    """
-    checkpoint_path = tf.train.latest_checkpoint(model_dir)
-    logging.info('evaluating %s...'%checkpoint_path)
-    
-    with tf.Graph().as_default():
-
-        # build graph
-        #tronn_graph.build_evaluation_graph(data_key="valid")
-        tronn_graph.build_evaluation_dataflow(data_key="valid")
-
-        # add summaries
-        add_summaries(tronn_graph.metric_values)
-        summary_op = make_summary_op(tronn_graph.metric_values)
-
-        # evaluate the checkpoint
-        metrics_dict = slim.evaluation.evaluate_once(
-            None,
-            checkpoint_path,
-            out_dir,
-            num_evals=stop_step,
-            summary_op=summary_op,
-            eval_op=tronn_graph.metric_updates,
-            final_op=tronn_graph.metric_values)
-        
-        print 'Validation metrics:\n%s'%metrics_dict
-    
-    return metrics_dict
-
-
-def train_and_evaluate_once(
-        tronn_graph,
-        train_stop_step,
-        train_dir,
-        valid_dir,
-        restore_model_checkpoint=None,
-        transfer_model_checkpoint=None,
-        valid_stop_step=100): # 10k
-    """Routine to train and evaluate for some number of steps
-    
-    Args:
-      tronn_graph: a TronnNeuralNetGraph instance
-      train_stop_step: number of train steps to run
-      out_dir: output directory (fn makes train/valid dirs)
-      restore_model_dir: location of a checkpoint that is
-        EXACTLY the same as the train model
-      transfer_model_dir: location of a checkpoint that is
-        exactly the same as the train model EXCEPT for the
-        last layer (logits)
-      valid_stop_step: number of valid steps to run
-
-    Returns:
-      eval_metrics: metric dictionary with stop metric
-    """
-
-    # Run training
-    train(
-        tronn_graph,
-        train_stop_step,
-        train_dir,
-        restore_model_checkpoint=restore_model_checkpoint,
-        transfer_model_checkpoint=transfer_model_checkpoint)
-
-    # Evaluate after training (use for stopping criteria)
-    eval_metrics = evaluate(
-        tronn_graph,
-        valid_dir,
-        train_dir,
-        valid_stop_step)
-
-    return eval_metrics
-
-
-def train_and_evaluate(
-        tronn_graph,
-        out_dir,
-        train_steps,
-        stop_metric,
-        patience,
-        epoch_limit=10,
-        restore_model_checkpoint=None,
-        transfer_model_checkpoint=None):
-    """Runs training and evaluation for {epoch_limit} epochs
-
-    Args:
-      tronn_graph: a TronnNeuralNetGraph instance
-      out_dir: where to save outputs
-      train_steps: number of train steps to run before evaluating
-      stop_metric: metric used for early stopping
-      patience: number of epochs to wait for improvement
-      epoch_limit: number of max epochs
-      restore_model_dir: location of a checkpoint that is
-        EXACTLY the same as the train model
-      transfer_model_dir: location of a checkpoint that is
-        exactly the same as the train model EXCEPT for the
-        last layer (logits)
-
-    Returns:
-      None
-    """
-    assert not ((restore_model_checkpoint is not None)
-                and (transfer_model_checkpoint is not None))
-    
-    # track metric and bad epochs and steps
-    metric_best = None
-    consecutive_bad_epochs = 0
-    step_log = "{}/train/step.log".format(out_dir)
-    stopping_log = "{}/train/stopping.log".format(out_dir)
-
-    for epoch in xrange(epoch_limit):
-        logging.info("CURRENT EPOCH:", str(epoch))
-        print "CURRENT EPOCH:", epoch
-
-        # change model checkpoint as needed
-        if epoch > 0:
-            # make sure that transfer_model_dir is None
-            # and restore_model_dir is set correctly
-            transfer_model_checkpoint = None
-            restore_model_checkpoint = tf.train.latest_checkpoint(
-                "{}/train".format(out_dir))
-            tronn_graph.checkpoints = [restore_model_checkpoint]
-            
-        # if a log file does not exist, you're freshly in the folder! instantiate and set init_steps
-        if not os.path.isfile(step_log):
-            if transfer_model_checkpoint is not None:
-                init_steps = get_checkpoint_steps(transfer_model_checkpoint)
+            if 'acc' in self.monitor:
+                self.monitor_op = np.greater
             else:
-                init_steps = 0
-            os.system("mkdir -p {}/train".format(out_dir))
-            with open(step_log, "w") as out:
-                out.write("{}\t{}".format(init_steps, init_steps)) # NOTE: may not need to write last step, may not be used
+                self.monitor_op = np.less
+
+        if self.monitor_op == np.greater:
+            self.min_delta *= 1
         else:
-            with open(step_log, "r") as fp:
-                init_steps, last_steps = map(int, fp.readline().strip().split())
-            # also if there is a log file, check for a model checkpoint! if so, set and remove transfer
-            restore_model_checkpoint = tf.train.latest_checkpoint(
-                "{}/train".format(out_dir))
-            if restore_model_checkpoint is not None:
-                transfer_model_checkpoint = None
+            self.min_delta *= -1
+            
+        self.best = np.Inf if self.monitor_op == np.less else -np.Inf
 
-        # set stop step for epoch
-        stop_step = init_steps + (epoch+1)*train_steps
+    def begin(self):
+        # Convert names to tensors if given
+        graph = tf.get_default_graph()
 
-        # train and evaluate one epoch
-        eval_metrics = train_and_evaluate_once(
-            tronn_graph,
-            stop_step,
-            "{}/train".format(out_dir),
-            "{}/valid".format(out_dir),
-            restore_model_checkpoint=restore_model_checkpoint,
-            transfer_model_checkpoint=transfer_model_checkpoint)
+        self.monitor = tf.get_collection("auprc")[0]
+        print self.monitor
         
-        # refresh log with latest step count (counting from start of folder, NOT including transfer)
-        with open(step_log, "w") as out:
-            out.write("{}\t{}".format(init_steps, stop_step)) # may not need to write stop step, may not be used
-
-        # check for stopping log details.
-        if os.path.isfile(stopping_log):
-            with open(stopping_log, "r") as fp:
-                best_epoch, metric_best = map(float, fp.readline().strip().split())
-            consecutive_bad_epochs = epoch - best_epoch
-
-        # Early stopping and saving best model
-        if metric_best is None or ('loss' in stop_metric) != (eval_metrics[stop_metric] > metric_best):
-            consecutive_bad_epochs = 0
-            metric_best = eval_metrics[stop_metric]
-            checkpoint_path = tf.train.latest_checkpoint("{}/train".format(out_dir))
-            with open(os.path.join(out_dir, 'best.txt'), 'w') as fp:
-                fp.write('epoch %d\n'%epoch)
-                fp.write("checkpoint path: {}\n".format(checkpoint_path))
-                fp.write(str(eval_metrics))
-            with open(stopping_log, 'w') as out:
-                out.write("{}\t{}".format(epoch, metric_best))
+        #self.monitor = graph.as_graph_element(self.monitor)
+        if isinstance(self.monitor, tf.Operation):
+            self.monitor = self.monitor.outputs[0]
+                
+    def before_run(self, run_context):  # pylint: disable=unused-argument
+        return tf.train.SessionRunArgs(self.monitor)
+    
+    def after_run(self, run_context, run_values):
+        current = run_values.results
+        
+        if self.monitor_op(current - self.min_delta, self.best):
+            self.best = current
+            self.wait = 0
         else:
-            consecutive_bad_epochs += 1
-            if consecutive_bad_epochs > patience:
-                print "early stopping triggered"
-                logging.info("early stopping triggered")
-                break
+            self.wait += 1
+            if self.wait >= self.patience:
+                run_context.request_stop()
 
-    return restore_model_checkpoint
+# TODO - 2 different run styles - one where you run continuously and stop
+# when the loss stops dropping (the eval criteria)
+# the other is when you train for an epoch and then continue
+# TODO add this as a function into the model manager
+# makes use of early stopping hook so keep
 
+
+def train_and_evaluate_with_early_stopping(
+        model_manager,
+        train_input_fn,
+        eval_input_fn,
+        metrics_fn=None, # TODO adjust this to just get loss?
+        out_dir=".",
+        warm_start=None):
+    """wrapper for training
+    """
+    # run config
+    run_config = tf.estimator.RunConfig(
+        save_summary_steps=30,
+        save_checkpoints_secs=None,
+        save_checkpoints_steps=10000000000,
+        keep_checkpoint_max=None) # TODO add summary here?
+
+    # set up estimator
+    estimator = model_manager.build_estimator(
+        config=run_config,
+        params={
+            "optimizer_fn": tf.train.RMSPropOptimizer,
+            "optimizer_params": {
+                "learning_rate": 0.002,
+                "decay": 0.98,
+                "momentum": 0.0}},
+        out_dir=out_dir)
+
+    # restore from transfer as needed
+    restore_hook = RestoreHook(
+        warm_start,
+        skip=["logit"],
+        include_scope="",
+        scope_change=["", "basset/"])
+
+    # train until input producers are out
+    estimator.train(
+        input_fn=train_input_fn,
+        max_steps=None,
+        hooks=[restore_hook])
+
+    quit()
+
+    # hooks
+    early_stopping_hook = EarlyStoppingHook(
+        monitor="mean_auprc",
+        patience=2)
+
+    # TODO set up warm start hook here
+    
+    # set up estimator specs
+    train_spec = tf.estimator.TrainSpec(
+        input_fn=train_input_fn,
+        max_steps=442648+100,
+        hooks=[restore_hook])
+    eval_spec = tf.estimator.EvalSpec(
+        input_fn=eval_input_fn,
+        steps=100,
+        start_delay_secs=60000000,
+        throttle_secs=60000000,
+        hooks=[early_stopping_hook])
+
+    # utilize train and evaluate functionality
+    tf.logging.set_verbosity("DEBUG")
+    tf.estimator.train_and_evaluate(
+        estimator,
+        train_spec,
+        eval_spec)
+    
+    return None

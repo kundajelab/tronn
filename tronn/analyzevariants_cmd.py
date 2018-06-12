@@ -89,9 +89,11 @@ def run(args):
                     hf[dataset_key].attrs["pwm_names"] = [
                         pwm.name for pwm in pwm_list]
                     
-    # here, downstream processing
-    # TODO look at ref vs alt in the output predictions for ATAC and H3K27ac
-
+    # here, downstream processing?
+    # TODO look at ref vs alt in the output predictions
+    # use label tags?
+    # maybe just some simple clustering here?
+    
     
 
     return None

@@ -5,8 +5,6 @@ import h5py
 import glob
 import logging
 
-#import phenograph
-
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -27,8 +25,6 @@ from tronn.interpretation.clustering import visualize_clusters
 
 from tronn.interpretation.clustering import aggregate_pwm_results
 from tronn.interpretation.clustering import get_manifold_centers
-
-#from tronn.interpretation.interpret import interpret_v2
 
 
 def run(args):
