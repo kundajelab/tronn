@@ -15,8 +15,6 @@ from sklearn.metrics import roc_curve
 from tronn.util.tf_utils import setup_tensorflow_session
 from tronn.util.tf_utils import close_tensorflow_session
 
-from tronn.outlayer import OutLayer
-
 def get_global_avg_metrics(labels, probabilities):
     """Get global metric values: predictions, mean metric values
     Note that the inputs must be tensors!
@@ -260,27 +258,4 @@ def plot_all(plot_folder, prefix, param_sets):
         os.system(plot_cmd)
 
     return
-
-
-def full_evaluate(tronn_graph, h5_file, num_evals=1000, reconstruct_regions=False):
-    """run a more complete evaluation
-    """
-    with tf.Graph().as_default():
-
-        # set up evaluation graph
-        outputs, _ = tronn_graph.build_evaluation_dataflow(data_key="test")
-
-        # set up session
-        sess, coord, threads = setup_tensorflow_session()
-
-        # restore graph
-        tronn_graph.restore_graph(sess, is_ensemble=False, skip=["pwm"])
-
-        # run dataflow
-        tronn_graph.run_dataflow(OutLayer, sess, coord, outputs, h5_file, sample_size=num_evals)
-
-        # close session
-        close_tensorflow_session(coord, threads)
-    
-    return None
 

@@ -4,22 +4,17 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 from tronn.nets.importance_nets import multitask_importances
-#from tronn.nets.importance_nets import multitask_global_importance
 from tronn.nets.importance_nets import filter_by_importance
 from tronn.nets.importance_nets import filter_singles_twotailed
 
 from tronn.nets.normalization_nets import normalize_w_probability_weights
 from tronn.nets.normalization_nets import normalize_to_weights
 from tronn.nets.normalization_nets import normalize_to_delta_logits
-#from tronn.nets.normalization_nets import normalize_to_logits
-#from tronn.nets.normalization_nets import zscore_and_scale_to_weights
 
 from tronn.nets.threshold_nets import threshold_gaussian
 from tronn.nets.threshold_nets import threshold_shufflenull
 from tronn.nets.threshold_nets import clip_edges
 
-#from tronn.nets.motif_nets import pwm_convolve_inputxgrad
-#from tronn.nets.motif_nets import pwm_maxpool
 from tronn.nets.motif_nets import pwm_consistency_check
 from tronn.nets.motif_nets import pwm_positional_max
 from tronn.nets.motif_nets import pwm_position_squeeze
@@ -52,6 +47,7 @@ from tronn.nets.sequence_nets import onehot_to_string
 
 from tronn.nets.variant_nets import get_variant_importance_scores
 from tronn.nets.variant_nets import blank_variant_sequence
+from tronn.nets.variant_nets import reduce_alleles
 
 
 
@@ -275,26 +271,48 @@ def variants_to_predictions(inputs, params):
     # importance scores at the original site - {N, task, 2} ref/alt
     # delta motif scores elsewhere - {N, delta_motif} (reverse mask of above)
     # position of the delta motif scores relative to position
+
+    # params
+    params["is_training"] = False
+    params["raw-sequence-key"] = "raw-sequence"
+    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
+    params["raw-pwm-scores-key"] = "raw-pwm-scores"
+    
+    # set up importance logits
+    inputs["importance_logits"] = inputs["logits"]
+
+    if params.get("raw-sequence-key") is not None:
+        inputs[params["raw-sequence-key"]] = inputs["features"]
+    if params.get("raw-sequence-clipped-key") is not None:
+        inputs[params["raw-sequence-clipped-key"]] = inputs["features"]
     
     inference_stack = [
         (onehot_to_string, {}),
-
-        # get importance scores
-        (sequence_to_importance_scores, {}),
+        
+        # get importance scores        
+        (multitask_importances, {"relu": False}),
+        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+        (normalize_to_weights, {"weight_key": "probs"}), 
 
         # collect importance scores at these locations
         (get_variant_importance_scores, {}),
+
+        # think about whether to have this here or not
+        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
         
         # blank the sequence, but then put together? {N, task+mask, seqlen, 4}
-        (blank_variant_sequence, {"inverse": False, "blanked_name": "features.nonvariant-blanked"}),
-        (blank_variant_sequence, {"inverse": True, "blanked_name": "features.variant-blanked"}),
+        (blank_variant_sequence, {}),
         
-        # clip edges
+        # clip edges NOTE this has to happen after, for the coordinates to line up
         (clip_edges, {"left_clip": 400, "right_clip": 600, "clip_string": True}),
 
         # scan motifs
         (pwm_match_filtered_convolve, {"positional-pwm-scores-key": None}), # TODO set up to adjust keys?
         (pwm_position_squeeze, {"squeeze_type": "max"}),
+
+        # and then readjust for variant read outs
+        (reduce_alleles, {})
+        
         
     ]
 

@@ -21,7 +21,6 @@ from tronn.learn.evaluation import auprc
 from tronn.learn.evaluation import make_recall_at_fdr
 from tronn.learn.evaluation import run_and_plot_metrics
 from tronn.learn.evaluation import plot_all
-from tronn.learn.evaluation import full_evaluate
 
 from sklearn.metrics import auc
 from sklearn.metrics import precision_recall_curve

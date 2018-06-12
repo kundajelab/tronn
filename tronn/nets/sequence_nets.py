@@ -54,9 +54,14 @@ def unpad_examples(inputs, params):
 
     # params
     batch_size = params["batch_size"]
-    num_scaled_inputs = params["num_scaled_inputs"]
     ignore_keys = params["ignore"]
 
+    # calculate the offsets
+    reduced_size = inputs[ignore_keys[0]].get_shape().as_list()[0]
+    num_scaled_inputs = batch_size / float(reduced_size)
+    assert num_scaled_inputs.is_integer()
+    num_scaled_inputs = int(num_scaled_inputs)
+    
     # for all keys, grab the first one and keep
     keep_indices = tf.range(0, batch_size, num_scaled_inputs)
     outputs = {}
