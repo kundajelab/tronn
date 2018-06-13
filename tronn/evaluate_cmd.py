@@ -2,8 +2,10 @@
 """
 
 import os
-import logging
+import json
 import h5py
+import logging
+
 
 import numpy as np
 import pandas as pd
@@ -34,27 +36,25 @@ def run(args):
     logging.info("Evaluating trained model...")
     os.system("mkdir -p {}".format(args.out_dir))
 
-    # set up dataset
-    # TODO figure out how to adjust for genomewide files
-    h5_files = setup_h5_files(args.data_dir)
-    train_files, valid_files, test_files = setup_train_valid_test(
-        h5_files, 10) # TODO provide folds as param
+    # set up model info
+    with open(args.model_info, "r") as fp:
+        model_info = json.load(fp)
 
     # set up dataloader
-    dataloader = H5DataLoader(test_files)
+    dataloader = H5DataLoader(model_info["test_files"])
     test_input_fn = dataloader.build_input_fn(
-        args.batch_size, label_keys=args.label_keys)
+        args.batch_size, label_keys=model_info["label_keys"])
 
     # set up model
     model_manager = ModelManager(
-        net_fns[args.model["name"]],
-        args.model)
+        net_fns[model_info["name"]],
+        model_info["params"])
 
     # evaluate
     predictor = model_manager.predict(
         test_input_fn,
         args.out_dir,
-        checkpoint=args.model_checkpoints[0])
+        checkpoint=model_info["checkpoint"])
 
     # run eval and save to h5
     eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)

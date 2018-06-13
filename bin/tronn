@@ -257,7 +257,7 @@ def add_train_parser(subparsers):
     add_hdf5_data_options(group_input)
     group_input.add_argument(
         "--cvfold", default=0, type=int,
-        help="which files to train on [0, 1, 2]")
+        help="which files to train on [0, 1, 2]") # TODO adjust this
     group_input.add_argument(
         '--restore_model_dir', default=None,
         help='restore from last checkpoint in dir')
@@ -326,10 +326,6 @@ def add_model_picker(parser):
     for prediction/evaluation functions where you might want to test
     motif, grammar, or the full neural net
     """
-    #parser.add_argument(
-    #    "--model_type", required=False, default="nn",
-    #    help="what kind of model: nn, motif, grammar")
-    
     # arguments for nn model
     add_trained_nn_model_options(parser, required=False)
     
@@ -337,11 +333,6 @@ def add_model_picker(parser):
     parser.add_argument(
         '--pwm_files', nargs="+", default=None,
         help='list of PWM files (all will be loaded and run')
-
-    # arguments for grammar model
-    #parser.add_argument(
-    #    '--grammar_files', nargs="+",
-    #    help='list of grammar files (all will be loaded and run')
     
     return
 
@@ -356,18 +347,12 @@ def add_evaluate_parser(subparsers):
     # group for input files
     group_input = argparser_test.add_argument_group(
         "Input files and folders")
-    add_hdf5_data_options(group_input)
+    # TODO add an option for different eval set?
+    # but better to force user to pre-define test set
+    #add_hdf5_data_options(group_input)
     group_input.add_argument(
-        "--fake_task_num", default=0, type=int,
-        help="extra tasks to add (to match a smaller output dataset to larger model)")
-    group_input.add_argument(
-        "--cvfold", default=0, type=int,
-        help="which files to train on [0, 1, 2]")
-
-    # group for model
-    group_model = argparser_test.add_argument_group(
-        "Model definition")
-    add_model_picker(group_model)
+        "--model_info", required=True,
+        help="json with training info")
     
     # group for parameters
     group_params = argparser_test.add_argument_group(
@@ -376,14 +361,11 @@ def add_evaluate_parser(subparsers):
     	"--num_evals", default=512000, type=int,
     	help="Number of steps to run for prediction")
     group_params.add_argument(
-    	"--reconstruct_regions", action="store_true",
-    	help="Produce files where values are merged")
-    group_params.add_argument(
         '--batch_size', default=128, type=int,
         help='batch size')
-    group_params.add_argument(
-        "--single_task", default=None, type=int,
-        help="Evaluate ALL predictions on ONE task (give idx here)")
+    #group_params.add_argument(
+    #    "--single_task", default=None, type=int,
+    #    help="Evaluate ALL predictions on ONE task (give idx here)")
     
     # group for output files
     group_output = argparser_test.add_argument_group(
@@ -408,8 +390,8 @@ def add_predict_parser(subparsers):
         "--data_dir", required=False,
         help="hdf5 file directory")
     group_input.add_argument(
-        "--tasks", nargs="+", default=[], type=int,
-        help="tasks to train on (default is all)")
+        "--model_info", required=True,
+        help="json with training info")
 
     group_input.add_argument(
         "--input_bed", default=None,
@@ -464,20 +446,22 @@ def add_scanmotifs_parser(subparsers):
     	"Input files and folders")
     add_hdf5_data_options(group_input)
     group_input.add_argument(
+        "--model_info", required=True,
+        help="json with training info")
+    group_input.add_argument(
         "--inference_tasks", nargs="+", required=True, type=int,
         help="tasks to extract motif maps")
     group_input.add_argument(
         "--filter_tasks", nargs="+", default=[], type=int,
         help="tasks to filter on")
-
-    # add in PWM information
     group_input.add_argument(
         "--pwm_file", help="pwm_file")
     
     # group for model
     group_model = cmd_argparser.add_argument_group(
         "Model definition")
-    add_trained_nn_model_options(group_model)
+    #add_trained_nn_model_options(group_model)
+
     group_model.add_argument(
         "--backprop", default="input_x_grad",
         help="what method to use for interpretation")
@@ -884,8 +868,8 @@ def main():
         from tronn.train_cmd import run
         run(args)
     elif subcommand == "evaluate":
-        add_model_params(args)
-        print "model args: %s" % args.model
+        #add_model_params(args)
+        #print "model args: %s" % args.model
         from tronn.evaluate_cmd import run
         run(args)
     elif subcommand == "predict":

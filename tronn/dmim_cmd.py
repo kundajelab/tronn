@@ -33,7 +33,7 @@ def visualize_scores(
 
 
 def run(args):
-    """Scan and score grammars
+    """run delta motif interaction mutagenesis (DMIM)
     """
     # setup
     logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ def run(args):
     
     # data files
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
+    data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
     logging.info("Found {} chrom files".format(len(data_files)))
 
     # pull in motif annotation

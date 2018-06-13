@@ -505,6 +505,9 @@ class ModelManager(object):
                 start_epoch, consecutive_bad_epochs =  map(
                     int, [start_epoch, consecutive_bad_epochs])
                 best_metric_val = float(best_metric_val)
+            if consecutive_bad_epochs >= epoch_patience:
+                # move start epochs to max epoch so training doesn't run
+                start_epoch = max_epochs
         else:
             # fresh run
             start_epoch = 0

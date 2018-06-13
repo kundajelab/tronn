@@ -76,7 +76,7 @@ def split_bed_to_chrom_bed(
     """
     logging.info("Splitting BED file into chromosome BED files...")
     assert os.path.splitext(peak_file)[1] == '.gz'
-    
+
     current_chrom = ''
     data_dict = {}
     with gzip.open(peak_file, 'r') as fp:
@@ -179,6 +179,104 @@ def bin_regions(
                     mark += stride
 
     return None
+
+
+def bin_regions_sharded(
+        in_file,
+        out_prefix,
+        bin_size,
+        stride,
+        method='naive',
+        max_size=100000): # max size: total num of bins allowed in one file
+    """Bin regions based on bin size and stride
+
+    Args:
+      in_file: BED file to bin
+      out_file: name of output binned file
+      bin_size: length of the bin 
+      stride: how many base pairs to jump for next window
+      method: how to do binning (add flanks or not)
+
+    Returns:
+      None
+    """
+    logging.info("binning regions for {}...".format(in_file))
+    assert os.path.splitext(in_file)[1] == '.gz'
+
+    total_bins_in_file = 0
+    idx = 0
+    # Open input and output files and bin regions
+    with gzip.open(in_file, 'rb') as fp:
+        for line in fp:
+            fields = line.strip().split('\t')
+            chrom, start, stop = fields[0], int(fields[1]), int(fields[2])
+            if len(fields) > 3:
+                metadata = "{};".format(fields[3])
+            else:
+                metadata = ""
+
+            if method == 'naive':
+                # Just go from start of region to end of region
+                mark = start
+                adjusted_stop = stop
+            elif method == 'plus_flank_negs':
+                # Add 3 flanks to either side
+                mark = max(start - 3 * stride, 0)
+                adjusted_stop = stop + 3 * stride
+            # add other binning strategies as needed here
+            else:
+                raise Exception
+
+            while mark < adjusted_stop:
+                # write out bins
+                out_file = "{}.{}.bed.gz".format(out_prefix, str(idx).zfill(3))
+                with gzip.open(out_file, 'a') as out:
+                    out.write((
+                        "{0}\t{1}\t{2}\t"
+                        "{3}"
+                        "region={0}:{4}-{5};"
+                        "active={0}:{1}-{2}\n").format(
+                            chrom, 
+                            mark, 
+                            mark + bin_size,
+                            metadata,
+                            start,
+                            stop))
+                mark += stride
+                total_bins_in_file += 1
+            if total_bins_in_file >= max_size:
+                # reset and go into new file
+                idx += 1
+                total_bins_in_file = 0
+
+    return None
+
+
+def bin_regions_parallel(
+        bed_files,
+        out_dir,
+        bin_size=200,
+        stride=50,
+        parallel=12):
+    """bin in parallel
+    """
+    split_queue = setup_multiprocessing_queue()
+    
+    for bed_file in bed_files:
+        prefix = os.path.basename(bed_file).split(".narrowPeak")[0].split(".bed")[0]
+        split_args = [
+            bed_file,
+            "{}/{}".format(out_dir, prefix),
+            bin_size,
+            stride,
+            "naive"]
+        split_queue.put([bin_regions_sharded, split_args])
+
+    # run the queue
+    run_in_parallel(split_queue, parallel=parallel, wait=True)
+
+    return None
+
 
 
 def extract_active_centers(binned_file, fasta_file):

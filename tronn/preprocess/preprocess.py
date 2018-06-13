@@ -19,6 +19,7 @@ from tronn.preprocess.fasta import generate_one_hot_sequences
 
 from tronn.preprocess.bed import generate_master_regions
 from tronn.preprocess.bed import bin_regions
+from tronn.preprocess.bed import bin_regions_parallel
 from tronn.preprocess.bed import split_bed_to_chrom_bed_parallel
 from tronn.preprocess.bed import generate_labels
 from tronn.preprocess.bed import extract_active_centers
@@ -44,7 +45,8 @@ def setup_h5_dataset(
         final_length,
         reverse_complemented,
         onehot_features_key,
-        tmp_dir):
+        tmp_dir,
+        binned=True):
     """given a region file, set up dataset
     conventionally, this is 1 chromosome
     """
@@ -56,14 +58,15 @@ def setup_h5_dataset(
         ".narrrowPeak")[0].split(".bed")[0]
     
     # bin the master bed file
-    #bin_dir = "{}/bin-{}.stride-{}".format(
-    #    tmp_dir, bin_size, stride)
-    #os.system("mkdir -p {}".format(bin_dir))
-    bin_file = "{}/{}.bin-{}.stride-{}.bed.gz".format(
-        tmp_dir, prefix, bin_size, stride)
-    if not os.path.isfile(bin_file):
-        bin_regions(master_bed_file, bin_file, bin_size, stride, method="naive")
-        
+    # TODO move this out?
+    if not binned:
+        bin_file = "{}/{}.bin-{}.stride-{}.bed.gz".format(
+            tmp_dir, prefix, bin_size, stride)
+        if not os.path.isfile(bin_file):
+            bin_regions(master_bed_file, bin_file, bin_size, stride, method="naive")
+    else:
+        bin_file = master_bed_file
+            
     # generate the one hot sequence encoding
     bin_ext_file = "{}.len-{}.bed.gz".format(
         bin_file.split(".bed")[0], final_length)
@@ -368,10 +371,17 @@ def generate_h5_datasets(
     split_bed_to_chrom_bed_parallel(
         all_bed_files, chrom_dir, parallel=parallel)
 
+    # split to equally sized bin groups
+    chrom_files = glob.glob("{}/*.bed.gz".format(chrom_dir))
+    bin_dir = "{}/bin-{}.stride-{}".format(tmp_dir, bin_size, stride)
+    os.system("mkdir -p {}".format(bin_dir))
+    bin_regions_parallel(
+        chrom_files, bin_dir, bin_size=bin_size, stride=stride, parallel=parallel)
+    
     # grab all of these and process in parallel
     h5_dir = "{}/h5".format(work_dir)
     os.system("mkdir -p {}".format(h5_dir))
-    chrom_bed_files = glob.glob("{}/*.bed.gz".format(chrom_dir))
+    chrom_bed_files = glob.glob("{}/*.bed.gz".format(bin_dir))
     #chrom_bed_files = glob.glob("{}/*chrY*.bed.gz".format(chrom_dir))
     logging.info("Found {} bed files".format(chrom_bed_files))
     h5_queue = setup_multiprocessing_queue()

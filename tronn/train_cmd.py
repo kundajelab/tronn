@@ -50,11 +50,15 @@ def run(args):
     # save out training info into a json
     # need: model, model checkpoint (best), label sets.
     model_info = {
-        "model": args.model["name"],
-        "model_params": args.model,
-        "model_checkpoint": best_checkpoint,
-        "label_keys": args.label_keys}
+        "name": args.model["name"],
+        "params": args.model,
+        "checkpoint": best_checkpoint,
+        "label_keys": args.label_keys,
+        "tasks": args.tasks,
+        "train_files": train_files,
+        "valid_files": valid_files,
+        "test_files": test_files}
     with open("{}/model_info.json".format(args.out_dir), "w") as fp:
-        json.dump(training_dict, fp, sort_keys=True, indent=4)
+        json.dump(model_info, fp, sort_keys=True, indent=4)
     
     return None
