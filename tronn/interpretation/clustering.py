@@ -163,8 +163,15 @@ def refine_clusters(
                     
     return None
 
+# TODO visualize_clustering_by_task - gives plots per task
+# TODO visualize_clusters - gives plots per cluster. {N, task, pwm} {cluster} -> 2d
+# TODO visualize_clusters_agg - gives aggregate across various keys? {N, task} {cluster} -> 2d??
 
-def visualize_clusters(
+# both need to take indices (to choose which tasks?) - default is all
+
+
+
+def visualize_clustering_by_key(
         h5_file,
         dataset_key,
         cluster_key,
@@ -175,7 +182,7 @@ def visualize_clusters(
     """
     # do this in R
     plot_example_x_pwm = (
-        "plot.example_x_pwm.from_h5.R {0} {1} {2} {3} {4}").format(
+        "plot-h5.example_x_pwm.per_task.R {0} {1} {2} {3} {4}").format(
             h5_file, dataset_key, cluster_key, cluster_col+1, remove_final_cluster)
     print plot_example_x_pwm
     os.system(plot_example_x_pwm)

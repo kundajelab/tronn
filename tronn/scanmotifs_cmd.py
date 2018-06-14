@@ -21,7 +21,7 @@ from tronn.interpretation.motifs import read_pwm_file
 
 from tronn.interpretation.clustering import generate_simple_metaclusters
 from tronn.interpretation.clustering import refine_clusters
-from tronn.interpretation.clustering import visualize_clusters
+from tronn.interpretation.clustering import visualize_clustering_by_key
 
 from tronn.interpretation.clustering import aggregate_pwm_results
 from tronn.interpretation.clustering import get_manifold_centers
@@ -100,23 +100,77 @@ def run(args):
             "pwm-scores.taskidx-{}".format(i)
             for i in args.inference_tasks]
 
-        # clustering
+        # clustering: do this using all information (across all tasks)
         metacluster_key = "metaclusters"
         if metacluster_key not in h5py.File(results_h5_file, "r").keys():
             generate_simple_metaclusters(results_h5_file, dataset_keys, metacluster_key)
 
         # refine
         refined_metacluster_key = "metaclusters-refined"
-        if refined_metacluster_key not in h5py.File(results_h5_file, "r").keys():
-            refine_clusters(results_h5_file, metacluster_key, refined_metacluster_key, null_cluster_present=False)
+        if True:
+        #if refined_metacluster_key not in h5py.File(results_h5_file, "r").keys():
+            #refine_clusters(
+            #    results_h5_file,
+            #    metacluster_key,
+            #    refined_metacluster_key,
+            #    null_cluster_present=False)
             if visualize:
+                # TODO separate all this code out into functions!!!
+                
+                # first global - ALL indices
+                # then for each label set (with given indices)
+                # do the following:
+
+                # easiest input method:
+                # TODO make sure consistent with preprocessing syntax
+                # --inference_tasks key;indices=indices key;indices=indices key
+                # --signals key=key;indices=indices;label_key=labels
+                
+                # in advance need to have:
+                # label sets = list of lists
+                # signal sets = list of (keys, indices) (where each elem matches label elem)
+                
+                # (1)
+                # look at examples x key of interest (all same R script):
+                # key: pwm scores (each task idx)
+                # key: probs (split by task index set?)
+                # key: labels (split by task index set?)
+                # key: all signals desired (use keys and the indices with the keys)
+
+                # can actually split out since the subsample is technically deterministic?
+                # that way the script takes the key, absolute task indices, and does the rest
+                
+                # (2)
+                # look at aggregate for each cluster, per
+                # key: pwm scores (motif x task)
+
+                # (3)
+                # look at aggregate, comparing probs to labels/signal
+                # key: probs + labels (1 plot) (split by task index set?)
+                # script needs to take key (probs, labels), absolute task indices (probs, labels)
+
+                # (4)
+                # key: probs + signals (1 plot) (split by task index set?)
+                # script needs to take key (probs), absolute task indices (probs), signal key, signal indices
+                # need to match absolute indices with signal key....
+                
+                # first look at the motif score results (clustered)
+                # set up to be able to do an append?
+                # key: pwm scores
                 for i in xrange(len(dataset_keys)):
-                    visualize_clusters(
+                    visualize_clustering_by_key(
                         results_h5_file,
                         dataset_keys[i],
                         refined_metacluster_key, 0,
                         remove_final_cluster=1)
 
+
+                # finally, if there is a given signal set want to compare that
+                # to predictions (need to figure out how to match)
+
+
+        quit()
+                
         # get the manifold descriptions out per cluster
         manifold_key = "motifspace-centers"
         manifold_h5_file = "{0}/{1}.manifold.h5".format(

@@ -238,13 +238,13 @@ def add_train_parser(subparsers):
     # group for input files
     group_input = argparser_train.add_argument_group(
         "Input files and folders")
-    parser.add_argument(
+    group_input.add_argument(
         "--data_dir", required=True,
         help="h5 file directory")
-    parser.add_argument(
+    group_input.add_argument(
         "--label_keys", nargs="+", default=[],
         help="which datasets to load as labels")
-    parser.add_argument(
+    group_input.add_argument(
         "--tasks", nargs="+", default=[], type=int,
         help="tasks to train on (default is all)")
     #group_input.add_argument(
@@ -420,6 +420,10 @@ def _add_interpretation_inputs(parser):
 def _add_interpretation_options(parser):
     """set up trained model info
     """
+    # REMEMBER important that inference tasks are strong predictor tasks
+    # TODO: consider set up like --inference_tasks ATAC_labels=0,1,2,3,4,5,6,9,10,12 tf_labels
+    # this requires downstream conversion into correct indices
+    
     parser.add_argument(
         "--inference_tasks", nargs="+", required=True, type=int,
         help="tasks to extract importance scores")
@@ -435,6 +439,9 @@ def _add_interpretation_options(parser):
     parser.add_argument(
         "--sample_size", default=100000, type=int,
         help="total regions (post filtering) to return")
+    parser.add_argument(
+        "--visualize", action="store_true",
+        help="visualize results")
 
     return
 
@@ -483,12 +490,12 @@ def add_scanmotifs_parser(subparsers):
 def add_dmim_parser(subparsers):
     """scan grammars from a grammar file
     """
-    argparser_multitask = subparsers.add_parser(
+    cmd_argparser = subparsers.add_parser(
         "dmim",
         help="score sequences for grammars")
     
     # group for input files
-    group_input = argparser_multitask.add_argument_group(
+    group_input = cmd_argparser.add_argument_group(
     	"Input files and folders")
     _add_interpretation_inputs(group_input)
     group_input.add_argument(
@@ -511,7 +518,7 @@ def add_dmim_parser(subparsers):
         "--manifold_file", help="manifold h5 file")
     
     # group for output files
-    group_output = argparser_multitask.add_argument_group(
+    group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     add_output_options(group_output, out_dir="dmim")
     group_output.add_argument(
@@ -748,7 +755,7 @@ def _setup_logs(args):
     return
 
 
-def _setup_dicts(args):
+def _setup_inputs(args):
     """for specific inputs, if they exist, read in
     from json
     """
@@ -759,6 +766,10 @@ def _setup_dicts(args):
         with open(args.model_info, "r") as fp:
             model_info = json.load(fp)
         args.model_info = model_info
+
+    # motifs
+    if args.pwm_file is not None:
+        pass
         
     return args
 
@@ -771,7 +782,7 @@ def main():
     args = parse_args()
     os.system("mkdir -p {}".format(args.out_dir))
     _setup_logs(args)
-    _setup_dicts(args)
+    _setup_inputs(args)
 
     # get subcommand run function and run
     subcommand = args.subcommand_name

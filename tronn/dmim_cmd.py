@@ -45,8 +45,7 @@ def run(args):
         args.tmp_dir = args.out_dir
 
     # set up model info
-    with open(args.model_info, "r") as fp:
-        model_info = json.load(fp)
+    model_info = args.model_info
         
     # data files
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
