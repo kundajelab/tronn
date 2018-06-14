@@ -1,6 +1,7 @@
 # description: scan for grammar scores
 
 import os
+import json
 import h5py
 import glob
 import logging
@@ -42,7 +43,11 @@ def run(args):
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
         args.tmp_dir = args.out_dir
-    
+
+    # set up model info
+    with open(args.model_info, "r") as fp:
+        model_info = json.load(fp)
+        
     # data files
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
@@ -58,7 +63,7 @@ def run(args):
     dataloader = H5DataLoader(data_files)
     input_fn = dataloader.build_input_fn(
         args.batch_size,
-        label_keys=args.label_keys,
+        label_keys=model_info["label_keys"],
         filter_tasks=[
             args.inference_tasks,
             args.filter_tasks],
@@ -66,8 +71,8 @@ def run(args):
 
     # set up model
     model_manager = ModelManager(
-        net_fns[args.model["name"]],
-        args.model)
+        net_fns[model_info["name"]],
+        model_info["params"])
 
     # set up inference generator
     inference_generator = model_manager.infer(
@@ -75,13 +80,13 @@ def run(args):
         args.out_dir,
         net_fns[args.inference_fn],
         inference_params={
-            "model_fn": net_fns[args.model["name"]],
+            "model_fn": net_fns[model_info["name"]],
             "backprop": args.backprop,
             "importances_fn": args.backprop, # TODO fix this
             "importance_task_indices": args.inference_tasks,
             "pwms": pwm_list,
             "manifold": args.manifold_file},
-        checkpoint=args.model_checkpoints[0],
+        checkpoint=model_info["checkpoint"],
         yield_single_examples=True)
 
     # run inference and save out

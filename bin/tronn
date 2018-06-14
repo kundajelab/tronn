@@ -5,11 +5,11 @@
 
 import os
 import sys
+import json
+import glob
 import logging
 import argparse
-import glob
 import pkg_resources
-import json
 
 
 def parse_args():
@@ -17,7 +17,7 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(
         description='TRONN: Transcriptional Regulation Optimized Neural Nets')
-    parser.add_argument( # TODO eventually remove this
+    parser.add_argument( # TODO eventually remove this, set up as an annotations json?
         "--cluster", default="kundaje",
         help="what cluster you're on (get annotations)")
     subparsers = parser.add_subparsers(dest='subcommand_name')
@@ -25,7 +25,7 @@ def parse_args():
     # command for preprocessing data
     add_preprocess_parser(subparsers)
 
-    # preprocess variants
+    # command for preprocessing variants
     add_preprocess_variants_parser(subparsers)
     
     # command for training
@@ -47,20 +47,17 @@ def parse_args():
     add_dream_parser(subparsers)
 
     # command for rational design with sig motifs
-
+    # add_design_parser(subparsers)
     
     # TODO command for variant predictions
     add_analyzevariants_parser(subparsers)
     
     # TODO:    
     # modisco?
-
+    # add_modisco_parser(subparsers)
     
     # baseline model
     add_baseline_parser(subparsers)
-
-    # TODO consider a model import function?
-
     
     # TODO call this model export
     add_extract_params_parser(subparsers)
@@ -71,6 +68,7 @@ def parse_args():
     return args
 
 
+# TODO delete this and replace with annotations arg
 def load_data_files(parser):
     """Load all json files in so that we have handles on all data
     """
@@ -123,20 +121,6 @@ def add_output_options(parser, out_dir="./"):
 
     return
 
-
-def add_hdf5_data_options(parser):
-    """Add data options for hdf5 files
-    """
-    parser.add_argument(
-        "--data_dir", required=True,
-        help="hdf5 file directory")
-    parser.add_argument(
-        "--label_keys", nargs="+", default=["labels"],
-        help="which datasets to load as labels")
-    parser.add_argument(
-        "--tasks", nargs="+", default=[], type=int,
-        help="tasks to train on (default is all)")
-    
     
 def add_preprocess_parser(subparsers):
     """Add data generation function argument parser
@@ -254,10 +238,18 @@ def add_train_parser(subparsers):
     # group for input files
     group_input = argparser_train.add_argument_group(
         "Input files and folders")
-    add_hdf5_data_options(group_input)
-    group_input.add_argument(
-        "--cvfold", default=0, type=int,
-        help="which files to train on [0, 1, 2]") # TODO adjust this
+    parser.add_argument(
+        "--data_dir", required=True,
+        help="h5 file directory")
+    parser.add_argument(
+        "--label_keys", nargs="+", default=[],
+        help="which datasets to load as labels")
+    parser.add_argument(
+        "--tasks", nargs="+", default=[], type=int,
+        help="tasks to train on (default is all)")
+    #group_input.add_argument(
+    #    "--cvfold", default=0, type=int,
+    #    help="which files to train on [0, 1, 2]") # TODO adjust this
     group_input.add_argument(
         '--restore_model_dir', default=None,
         help='restore from last checkpoint in dir')
@@ -305,6 +297,7 @@ def add_train_parser(subparsers):
     return
 
 
+# TODO deprecate in favor of json loading
 def add_trained_nn_model_options(parser, required=True):
     """Set up standard necessary args for a trained NN model
     """
@@ -317,22 +310,6 @@ def add_trained_nn_model_options(parser, required=True):
     parser.add_argument(
         "--model_checkpoints", nargs="+", default=[],
         help="restore from specific checkpoints (they are loaded in order)")
-    
-    return
-
-
-def add_model_picker(parser):
-    """Set up model picker arguments. This is used 
-    for prediction/evaluation functions where you might want to test
-    motif, grammar, or the full neural net
-    """
-    # arguments for nn model
-    add_trained_nn_model_options(parser, required=False)
-    
-    # arguments for motif model
-    parser.add_argument(
-        '--pwm_files', nargs="+", default=None,
-        help='list of PWM files (all will be loaded and run')
     
     return
 
@@ -385,10 +362,12 @@ def add_predict_parser(subparsers):
     # group for input files
     group_input = argparser_predict.add_argument_group(
         "Input files and folders")
-    #add_hdf5_data_options(group_input)
     group_input.add_argument(
         "--data_dir", required=False,
         help="hdf5 file directory")
+    group_input.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
     group_input.add_argument(
         "--model_info", required=True,
         help="json with training info")
@@ -401,27 +380,15 @@ def add_predict_parser(subparsers):
         help='list of label file peak sets (BED/narrowPeak). MUST MATCH INITIAL LABEL SET')
     load_data_files(group_input)
 
-    # group for model
-    group_model = argparser_predict.add_argument_group(
-        "Model definition")
-    # TODO change this to be based on whether inference fn was passed or not
-    add_model_picker(group_model)
-    
     # group for parameters
     group_params = argparser_predict.add_argument_group(
         "Parameters")
     group_params.add_argument(
     	"--num_evals", default=1000, type=int,
     	help="Number of steps to run for prediction")
-    group_params.add_argument(
-    	"--reconstruct_regions", action="store_true",
-    	help="Produce files where values are merged")
-    group_params.add_argument(
-    	"--variants", action="store_true",
-    	help="Inputs are variants")
-    group_params.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
+    #group_params.add_argument(
+   # 	"--reconstruct_regions", action="store_true",
+   # 	help="Produce files where values are merged")
     group_params.add_argument(
         "--single_task", default=None, type=int,
         help="Get ALL predictions on ONE task (give idx here)")
@@ -434,6 +401,44 @@ def add_predict_parser(subparsers):
     return
 
 
+def _add_interpretation_inputs(parser):
+    """set up interpretation inputs
+    """
+    parser.add_argument(
+        "--data_dir", required=True,
+        help="h5 data directory for inference")
+    parser.add_argument(
+        '--batch_size', default=64, type=int,
+        help='batch size')
+    parser.add_argument(
+        "--model_info", required=True,
+        help="json with training info")
+    
+    return
+
+
+def _add_interpretation_options(parser):
+    """set up trained model info
+    """
+    parser.add_argument(
+        "--inference_tasks", nargs="+", required=True, type=int,
+        help="tasks to extract importance scores")
+    parser.add_argument(
+        "--backprop", default="input_x_grad",
+        help="what method to use for interpretation")
+    parser.add_argument(
+        "--inference_fn",
+        help="inference stack")
+    parser.add_argument(
+        "--pwm_file", default=None,
+        help="pwm file")
+    parser.add_argument(
+        "--sample_size", default=100000, type=int,
+        help="total regions (post filtering) to return")
+
+    return
+
+
 def add_scanmotifs_parser(subparsers):
     """Scan motifs
     """
@@ -441,49 +446,26 @@ def add_scanmotifs_parser(subparsers):
         "scanmotifs",
         help="Scan sequence with motifs from a PWM file")
     
-    # group for input files
+    # group for input, input filtering, and model
     group_input = cmd_argparser.add_argument_group(
     	"Input files and folders")
-    add_hdf5_data_options(group_input)
-    group_input.add_argument(
-        "--model_info", required=True,
-        help="json with training info")
-    group_input.add_argument(
-        "--inference_tasks", nargs="+", required=True, type=int,
-        help="tasks to extract motif maps")
+    _add_interpretation_inputs(group_input)
     group_input.add_argument(
         "--filter_tasks", nargs="+", default=[], type=int,
         help="tasks to filter on")
-    group_input.add_argument(
-        "--pwm_file", help="pwm_file")
     
-    # group for model
-    group_model = cmd_argparser.add_argument_group(
-        "Model definition")
-    #add_trained_nn_model_options(group_model)
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    _add_interpretation_options(group_interpret)
 
-    group_model.add_argument(
-        "--backprop", default="input_x_grad",
-        help="what method to use for interpretation")
-    group_model.add_argument(
-        "--inference_fn", help="inference stack")
-
-    # group for parameters
-    group_params = cmd_argparser.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=64, type=int,
-        help='batch size')
-    group_params.add_argument(
-        '--sample_size', default=100000, type=int,
-        help='number of regions to scan')
-    group_params.add_argument(
+    # group for cmd specific functions
+    group_other = cmd_argparser.add_argument_group(
+        "Misc params")
+    group_other.add_argument(
         "--cluster", action="store_true",
         help="run clustering")
-    group_params.add_argument(
-        "--no_groups", action="store_true",
-        help="don't run region clustering/motif sets")
-
+    
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
@@ -491,15 +473,9 @@ def add_scanmotifs_parser(subparsers):
     group_output.add_argument(
         '--tmp_dir',
         help='temporary scratch directory as needed')
-    group_output.add_argument(
-        '--plot_importance_sample', action='store_true',
-        help='plot some sample importance score weighted samples')
-    group_output.add_argument(
-        "--validate", action="store_true",
-        help="provide helpful plots")
-    group_output.add_argument(
-        "--diagnose", action="store_true",
-        help="provide helpful diagnostics")
+    #group_output.add_argument(
+    #    '--plot_importance_sample', action='store_true',
+    #    help='plot some sample importance score weighted samples')
 
     return
 
@@ -514,59 +490,33 @@ def add_dmim_parser(subparsers):
     # group for input files
     group_input = argparser_multitask.add_argument_group(
     	"Input files and folders")
-    add_hdf5_data_options(group_input)
+    _add_interpretation_inputs(group_input)
     group_input.add_argument(
-        "--inference_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-    group_input.add_argument( # TODO decide, need this or not?
         "--filter_tasks", nargs="+", default=[], type=int,
         help="tasks to filter on")
-    group_input.add_argument(
+        
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    _add_interpretation_options(group_interpret)
+    # TODO need this or no
+    group_interpret.add_argument(
         "--predict_tasks", nargs="+", default=None, type=int,
         help="tasks to get prediction metrics on")
 
-    # add in grammar information
-    group_input.add_argument(
-        "--pwm_file", help="pwm_file")
-    group_input.add_argument(
-        "--pwm_metadata_file", help="pwm_metadata_file")
-    group_input.add_argument(
-        "--grammar_files", nargs="+", help="pwm_file")
-    group_input.add_argument(
+    # group for cmd specific functions
+    group_other = cmd_argparser.add_argument_group(
+        "Misc params")
+    group_other.add_argument(
         "--manifold_file", help="manifold h5 file")
     
-    # group for model
-    group_model = argparser_multitask.add_argument_group(
-        "Model definition")
-    add_trained_nn_model_options(group_model)
-    group_model.add_argument(
-        "--backprop", help="what method to use for interpretation")
-    group_model.add_argument(
-        "--inference_fn", help="inference stack")
-
-    # group for parameters
-    group_params = argparser_multitask.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=64, type=int,
-        help='batch size')
-    group_params.add_argument(
-        '--sample_size', default=100000, type=int,
-        help='number of regions to get importance scores')
-
     # group for output files
     group_output = argparser_multitask.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir="importances")
+    add_output_options(group_output, out_dir="dmim")
     group_output.add_argument(
         '--tmp_dir',
         help='temporary scratch directory')
-    group_output.add_argument(
-        '--plot_importance_sample', action='store_true',
-        help='plot some sample importance score weighted samples')
-    group_output.add_argument(
-        "--validate", action="store_true",
-        help="provides additional diagnostic/validation plots")
     
     return
 
@@ -574,55 +524,34 @@ def add_dmim_parser(subparsers):
 def add_dream_parser(subparsers):
     """activation maximization
     """
-    # dreaming starts from a list of given starting points
-    # as such, if you want to start from a specific endogenous
-    # sequence that you've selected, you'll want to run grammars
-    # etc and then choose the best, and input the sequences to dream.
-
-    # constraints for dreaming:
-    # match a specific logit pattern
-
-    # params:
-    # edit distance allowed - how far can you vary?
-    # maybe allow adjusting 1-2 motifs? so 20bp max?
-    
     cmd_argparser = subparsers.add_parser(
         "dream",
         help="use activation maximization to generate novel synthetic sequences")
 
-    # for input files, allow a (fasta format) sequence file
-    # this means you can iterate through each sequence
-    # if not given, start from random input
+    # inputs
     group_input = cmd_argparser.add_argument_group(
     	"Input files and folders")
-    group_input.add_argument(
-        "--inference_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
     group_input.add_argument(
         "--sequence_file",
         help="sequence file of starting points with activation patterns")
     group_input.add_argument(
-        "--pwm_file", help="pwm_file")
+        "--model_info", required=True,
+        help="json with training info")
 
-    
-    # group for model
-    group_model = cmd_argparser.add_argument_group(
-        "Model definition")
-    add_trained_nn_model_options(group_model)
-    group_model.add_argument(
-        "--inference_fn", help="inference stack")
-    group_model.add_argument(
-        "--backprop", help="what method to use for interpretation")
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    _add_interpretation_options(group_interpret)
 
     # group for parameters
     group_params = cmd_argparser.add_argument_group(
         "dream hyperparameters")
     group_params.add_argument(
-        "--max_iter", default=20,
-        type=int, help="number of iterations for dreaming")
+        "--max_iter", default=20, type=int,
+        help="number of iterations for dreaming")
     group_params.add_argument(
-        "--edit_dist", default=1000,
-        type=int, help="edit distance from start position allowed")
+        "--edit_dist", default=1000, type=int,
+        help="edit distance from start position allowed")
 
     # group for output files
     group_output = cmd_argparser.add_argument_group(
@@ -645,34 +574,12 @@ def add_analyzevariants_parser(subparsers):
     # group for input files
     group_input = cmd_argparser.add_argument_group(
     	"Input files and folders")
-    add_hdf5_data_options(group_input)
-    group_input.add_argument(
-        "--inference_tasks", nargs="+", required=True, type=int,
-        help="tasks to extract motif maps")
+    _add_interpretation_inputs(group_input)
 
-    # add in PWM information
-    group_input.add_argument(
-        "--pwm_file", help="pwm_file")
-    
-    # group for model
-    group_model = cmd_argparser.add_argument_group(
-        "Model definition")
-    add_trained_nn_model_options(group_model)
-    group_model.add_argument(
-        "--backprop", default="input_x_grad",
-        help="what method to use for interpretation")
-    group_model.add_argument(
-        "--inference_fn", help="inference stack")
-
-    # group for parameters
-    group_params = cmd_argparser.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=64, type=int,
-        help='batch size')
-    group_params.add_argument(
-        '--sample_size', default=100000, type=int,
-        help='number of regions to scan')
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    _add_interpretation_options(group_interpret)
 
     # group for output files
     group_output = cmd_argparser.add_argument_group(
@@ -683,8 +590,6 @@ def add_analyzevariants_parser(subparsers):
         help='temporary scratch directory as needed')
     
     return
-
-
 
 
 def add_vizimpts_parser(subparsers):
@@ -788,12 +693,7 @@ def add_extract_params_parser(subparsers):
     # group for input files
     group_input = argparser_extractparams.add_argument_group(
         "Input files and folders")
-    add_hdf5_data_options(group_input)
-
-    # group for model
-    group_model = argparser_extractparams.add_argument_group(
-        "Model definition")
-    add_model_picker(group_model)
+    #add_hdf5_data_options(group_input)
     
     # group for parameters
     group_params = argparser_extractparams.add_argument_group(
@@ -808,7 +708,6 @@ def add_extract_params_parser(subparsers):
     add_output_options(group_output, out_dir='params')
     
     return
-
 
 
 def track_runs(args):
@@ -832,14 +731,9 @@ def track_runs(args):
     return logging_file
 
 
-def main():
-    """Main function for running TRoNN functions
+def _setup_logs(args):
+    """set up logging
     """
-    # parse args
-    args = parse_args()
-    os.system("mkdir -p {}".format(args.out_dir))
-
-    # set up logging
     logging_file = track_runs(args)
     reload(logging)
     logging.basicConfig(
@@ -850,6 +744,34 @@ def main():
     for arg in sorted(vars(args)):
         logging.info("{}: {}".format(arg, getattr(args, arg)))
     logging.info("")
+
+    return
+
+
+def _setup_dicts(args):
+    """for specific inputs, if they exist, read in
+    from json
+    """
+    # TODO annotations
+    
+    # model info
+    if args.model_info is not None:
+        with open(args.model_info, "r") as fp:
+            model_info = json.load(fp)
+        args.model_info = model_info
+        
+    return args
+
+
+
+def main():
+    """Main function for running TRoNN functions
+    """
+    # parse args and set up
+    args = parse_args()
+    os.system("mkdir -p {}".format(args.out_dir))
+    _setup_logs(args)
+    _setup_dicts(args)
 
     # get subcommand run function and run
     subcommand = args.subcommand_name
@@ -868,48 +790,33 @@ def main():
         from tronn.train_cmd import run
         run(args)
     elif subcommand == "evaluate":
-        #add_model_params(args)
-        #print "model args: %s" % args.model
         from tronn.evaluate_cmd import run
         run(args)
     elif subcommand == "predict":
-    	if args.model_type == "nn":
-            add_model_params(args)
-            print "model args: %s" % args.model
         from tronn.predict_cmd import run
         run(args)
     elif subcommand == "scanmotifs":
-        add_model_params(args)
         from tronn.scanmotifs_cmd import run
         run(args)
     elif subcommand == "ism": # this checks dependencies
-    	add_model_params(args)
     	from tronn.run_ism import run
     	run(args)
     elif subcommand == "dmim":
-        add_model_params(args)
         from tronn.dmim_cmd import run
         run(args)
     elif subcommand == "dream":
-        add_model_params(args)
         from tronn.dream_cmd import run
         run(args)
     elif subcommand == "analyzevariants":
-        add_model_params(args)
         from tronn.analyzevariants_cmd import run
         run(args)
     elif subcommand == "baseline":
         from tronn.run_tensorforest import run
         run(args)
     elif subcommand == "extractparams":
-        add_model_params(args)
         from tronn.util.extract_params import run
         run(args)
-    elif subcommand == "vizimportances": # this needs to be cleaned up?
-        args.annotations = args.annotations[args.cluster]
-        add_model_params(args)
-        from tronn.run_vizimpts import run
-        run(args)
+    # add new commands here
         
     return None
 

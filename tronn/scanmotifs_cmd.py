@@ -1,7 +1,6 @@
 # description: scan motifs and get motif sets (co-occurring motifs) back
 
 import os
-import json
 import h5py
 import glob
 import logging
@@ -38,10 +37,6 @@ def run(args):
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
         args.tmp_dir = args.out_dir
-
-    # set up model info
-    with open(args.model_info, "r") as fp:
-        model_info = json.load(fp)
         
     # data files
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
@@ -58,7 +53,7 @@ def run(args):
     dataloader = H5DataLoader(data_files)
     input_fn = dataloader.build_input_fn(
         args.batch_size,
-        label_keys=model_info["label_keys"],
+        label_keys=args.model_info["label_keys"],
         filter_tasks=[
             args.inference_tasks,
             args.filter_tasks],
@@ -66,8 +61,8 @@ def run(args):
 
     # set up model
     model_manager = ModelManager(
-        net_fns[model_info["name"]],
-        model_info["params"])
+        net_fns[args.model_info["name"]],
+        args.model_info["params"])
 
     # set up inference generator
     inference_generator = model_manager.infer(
@@ -78,7 +73,7 @@ def run(args):
             "backprop": args.backprop,
             "importance_task_indices": args.inference_tasks,
             "pwms": pwm_list},
-        checkpoint=model_info["checkpoint"],
+        checkpoint=args.model_info["checkpoint"],
         yield_single_examples=True)
 
     # run inference and save out
