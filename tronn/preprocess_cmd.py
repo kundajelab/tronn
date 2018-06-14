@@ -14,7 +14,7 @@ from tronn.preprocess.preprocess import generate_h5_datasets
 
 def parse_files(file_list):
     """given an arg string, parse out into a dict
-    assumes a format of: key=file1,file2,..;param1=val,param2=val,...
+    assumes a format of: key:file1,file2,..;param1=val,param2=val,...
     """
     file_dict = {}
     for file_set in file_list:

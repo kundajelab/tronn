@@ -1,5 +1,0 @@
-{
-    "ggr":"/srv/scratch/shared/indra/dskim89/ggr/freeze_2017-12/models/ggr.encode-roadmap_dnase-chip/train/model.ckpt-450870",
-    "encode-roadmap_dnase":"/scratch/PI/khavari/users/dskim89/dannk/v0.1.7/multitask/models/nn/multitask.encode-roadmap_dnase.cv0/train/model.ckpt-43772",
-    "encode-roadmap_dnase-tfchip":"/srv/scratch/shared/indra/dskim89/ggr/freeze_2017-12/models/encode-roadmap.dnase_tfchip/train/model.ckpt-442648"
-}

@@ -5,11 +5,14 @@
 
 import os
 import sys
+import h5py
 import json
 import glob
 import logging
 import argparse
 import pkg_resources
+
+from tronn.interpretation.motifs import read_pwm_file
 
 
 def parse_args():
@@ -68,25 +71,6 @@ def parse_args():
     return args
 
 
-# TODO delete this and replace with annotations arg
-def load_data_files(parser):
-    """Load all json files in so that we have handles on all data
-    """
-    json_files = glob.glob(
-        pkg_resources.resource_filename('tronn', 'data/*.json'))
-    data_files = {}
-    
-    for json_file in json_files:
-        key_name = os.path.basename(json_file).split('.json')[0]
-        with open(json_file, 'r') as fp:
-            parser.add_argument(
-                "--{}".format(key_name),
-                type=dict, default=json.load(fp),
-                help="Support data files")
-
-    return
-
-
 # TODO(dk) fix this to add more options to model param setup
 def add_model_params(args):
     """Add model configs
@@ -121,7 +105,7 @@ def add_output_options(parser, out_dir="./"):
 
     return
 
-    
+
 def add_preprocess_parser(subparsers):
     """Add data generation function argument parser
     """
@@ -132,6 +116,9 @@ def add_preprocess_parser(subparsers):
     # group for input files
     group_input = argparser_preprocess.add_argument_group(
         "Input files and folders")
+    group_input.add_argument(
+        "--annotations", required=True,
+        help="json file of annotation files")
     group_input.add_argument(
         "--labels", nargs='+', required=True,
         help='list of key=files_separated_by_commas;params, files are in BED/narrowPeak format')
@@ -144,7 +131,6 @@ def add_preprocess_parser(subparsers):
     group_input.add_argument(
         "--master_bed_file", default=None,
         help="master regions file for all examples")
-    load_data_files(group_input)
 
     # group for options
     group_opts = argparser_preprocess.add_argument_group(
@@ -195,6 +181,9 @@ def add_preprocess_variants_parser(subparsers):
     group_input = argparser_preprocess.add_argument_group(
         "Input files and folders")
     group_input.add_argument(
+        "--annotations", required=True,
+        help="json file of annotation files")
+    group_input.add_argument(
         "--labels", nargs='+', required=True,
         help='list of key=files_separated_by_commas;params, files are in BED/narrowPeak format')
     group_input.add_argument(
@@ -206,7 +195,6 @@ def add_preprocess_variants_parser(subparsers):
     group_input.add_argument(
         "--vcf_file",
         help="vcf file with ref/alt")
-    load_data_files(group_input)
 
     # group for options
     group_opts = argparser_preprocess.add_argument_group(
@@ -378,7 +366,6 @@ def add_predict_parser(subparsers):
     group_input.add_argument(
         "--input_labels", nargs='+', default=[],
         help='list of label file peak sets (BED/narrowPeak). MUST MATCH INITIAL LABEL SET')
-    load_data_files(group_input)
 
     # group for parameters
     group_params = argparser_predict.add_argument_group(
@@ -425,8 +412,11 @@ def _add_interpretation_options(parser):
     # this requires downstream conversion into correct indices
     
     parser.add_argument(
-        "--inference_tasks", nargs="+", required=True, type=int,
+        "--inference_tasks", nargs="+", required=True,
         help="tasks to extract importance scores")
+    parser.add_argument(
+        "--filter_tasks", nargs="+", default=[],
+        help="tasks to filter on") # TODO make sure that filtering is OFF for dreaming
     parser.add_argument(
         "--backprop", default="input_x_grad",
         help="what method to use for interpretation")
@@ -439,9 +429,58 @@ def _add_interpretation_options(parser):
     parser.add_argument(
         "--sample_size", default=100000, type=int,
         help="total regions (post filtering) to return")
+
+    return
+
+
+def _setup_interpretation_options(args):
+    """given parsed args, adjust inputs as needed
+    matches _add_interpretation_options
+    """
+    # inference tasks
+    args.inference_tasks = _parse_files(args.inference_tasks)
+    args.inference_task_indices = _get_absolute_label_indices(
+        args.model_info, args.inference_tasks)
+
+    # filter tasks
+    args.filter_tasks = _parse_files(args.filter_tasks)
+    args.filter_task_indices = _get_absolute_label_indices(
+        args.model_info, args.filter_tasks)
+
+    # pwm file
+    args.pwm_list = read_pwm_file(args.pwm_file)
+    args.pwm_names = [pwm.name for pwm in args.pwm_list]
+    args.pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
+
+    return
+
+
+def _add_visualization_options(parser):
+    """set up visualization after interpretation options
+    """
     parser.add_argument(
-        "--visualize", action="store_true",
-        help="visualize results")
+        "--visualize_tasks", nargs="+", default=[],
+        help="label files")
+    parser.add_argument(
+        "--visualize_signals", nargs="+", default=[],
+        help="signal files with corresponding label sets")
+    
+    return
+
+
+def _setup_visualization_options(args):
+    """given parsed args, adjust visualization inputs as needed
+    matches _add_visualization_options
+    """
+    # visualize tasks
+    if args.visualize_tasks is not None:
+        args.visualize_tasks = _parse_files(args.visualize_tasks)
+        args.visualize_task_indices = _get_absolute_label_indices(
+            args.model_info, args.visualize_tasks, list_of_lists=True)
+
+    # visualize signals
+    if args.visualize_signals is not None:
+        args.visualize_signals = _parse_files(args.visualize_signals)
 
     return
 
@@ -457,14 +496,13 @@ def add_scanmotifs_parser(subparsers):
     group_input = cmd_argparser.add_argument_group(
     	"Input files and folders")
     _add_interpretation_inputs(group_input)
-    group_input.add_argument(
-        "--filter_tasks", nargs="+", default=[], type=int,
-        help="tasks to filter on")
     
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
     _add_interpretation_options(group_interpret)
+    _add_visualization_options(group_interpret)
+    
 
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
@@ -498,18 +536,12 @@ def add_dmim_parser(subparsers):
     group_input = cmd_argparser.add_argument_group(
     	"Input files and folders")
     _add_interpretation_inputs(group_input)
-    group_input.add_argument(
-        "--filter_tasks", nargs="+", default=[], type=int,
-        help="tasks to filter on")
         
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
     _add_interpretation_options(group_interpret)
-    # TODO need this or no
-    group_interpret.add_argument(
-        "--predict_tasks", nargs="+", default=None, type=int,
-        help="tasks to get prediction metrics on")
+    _add_visualization_options(group_interpret)
 
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
@@ -755,24 +787,103 @@ def _setup_logs(args):
     return
 
 
+def _is_integer(val):
+    """helper function for parsing
+    """
+    try:
+        int(val)
+        return True
+    except ValueError:
+        return False
+
+    
+def _parse_files(dataset_key_strings):
+    """given an arg string, parse out into a dict
+    assumes a format of: key=file1,file2,..;param1=val,param2=val,...
+    """
+    key_dict = {}
+    for dataset_key_string in dataset_key_strings:
+        # first split on ";" then on "="
+        key_and_params = dataset_key_string.split(";")
+        
+        # set up key and key items (filenames or indices)
+        key_string = key_and_params[0]
+        key_and_items = key_string.split("=")
+        key = key_and_items[0]
+        if len(key_and_items) == 1:
+            key_items = []
+        else:
+            item_string = key_and_items[1]
+            key_items = [
+                int(val) if _is_integer(val) else val
+                for val in item_string.split(",")]
+            
+        # set up params
+        if len(key_and_params) == 1:
+            params = {}
+        else:
+            param_string = key_and_params[1]
+            params = dict(
+                [param.split("=")
+                 for param in param_string.split(",")])
+            
+        # combine
+        key_dict[key] = (key_items, params)
+    
+    return key_dict
+
+
+def _get_absolute_label_indices(model_info, key_dict, list_of_lists=False):
+    """given a key dict and model, get the absolute indices
+    """
+    absolute_task_indices = []
+    absolute_task_indices_subsetted = []
+    
+    start_idx = 0
+    for key in model_info["label_keys"]:
+        # track how many indices in this key
+        with h5py.File(model_info["train_files"][0], "r") as hf:
+            num_tasks = hf[key].shape[1]
+        if key in key_dict.keys():
+            # and create absolute indices and append
+            if len(key_dict[key][0]) > 0:
+                key_indices = [start_idx + idx for idx in key_dict[key][0]]
+            else:
+                key_indices = [start_idx + idx for idx in xrange(num_tasks)]
+            absolute_task_indices += key_indices
+            absolute_task_indices_subsetted.append(key_indices)
+
+        # and then adjust start idx
+        start_idx += num_tasks
+
+    if list_of_lists:
+        return absolute_task_indices_subsetted
+    else:
+        return absolute_task_indices
+
+
+def _setup_annotations(args):
+    """load annotation files
+    """
+    # annotations
+    with open(args.annotations, "r") as fp:
+        annotations = json.load(fp)
+    args.annotations = annotations
+    
+    return
+
+
 def _setup_inputs(args):
     """for specific inputs, if they exist, read in
     from json
     """
-    # TODO annotations
-    
     # model info
     if args.model_info is not None:
         with open(args.model_info, "r") as fp:
             model_info = json.load(fp)
         args.model_info = model_info
-
-    # motifs
-    if args.pwm_file is not None:
-        pass
-        
-    return args
-
+    
+    return
 
 
 def main():
@@ -788,11 +899,11 @@ def main():
     subcommand = args.subcommand_name
 
     if subcommand == "preprocess":
-        args.annotations = args.annotations[args.cluster]
+        _setup_annotations(args)
         from tronn.preprocess_cmd import run
         run(args)
     elif subcommand == "preprocess_variants":
-        args.annotations = args.annotations[args.cluster]
+        _setup_annotations(args)
         from tronn.preprocess_variants_cmd import run
         run(args)
     elif subcommand == 'train':
@@ -807,15 +918,16 @@ def main():
         from tronn.predict_cmd import run
         run(args)
     elif subcommand == "scanmotifs":
+        _setup_interpretation_options(args)
+        _setup_visualization_options(args)
         from tronn.scanmotifs_cmd import run
         run(args)
-    elif subcommand == "ism": # this checks dependencies
-    	from tronn.run_ism import run
-    	run(args)
     elif subcommand == "dmim":
+        _setup_interpretation_options(args)
         from tronn.dmim_cmd import run
         run(args)
     elif subcommand == "dream":
+        _setup_interpretation_options(args)
         from tronn.dream_cmd import run
         run(args)
     elif subcommand == "analyzevariants":

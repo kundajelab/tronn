@@ -1,0 +1,5 @@
+{
+    "univ_dhs":"/scratch/PI/akundaje/dskim89/dannk/annotations/reg2map_honeybadger2_dnase_p10_regions_all.bed.gz",
+    "ref_fasta":"/scratch/PI/akundaje/dskim89/dannk/annotations/hg19.genome.fa",
+    "chrom_sizes":"/scratch/PI/akundaje/dskim89/dannk/annotations/hg19.chrom.sizes"
+}

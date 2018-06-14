@@ -16,9 +16,6 @@ from tronn.graphs import ModelManager
 from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns
 
-from tronn.interpretation.motifs import PWM
-from tronn.interpretation.motifs import read_pwm_file
-
 from tronn.interpretation.clustering import generate_simple_metaclusters
 from tronn.interpretation.clustering import refine_clusters
 from tronn.interpretation.clustering import visualize_clustering_by_key
@@ -42,6 +39,8 @@ def run(args):
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
     logger.info("Found {} chrom files".format(len(data_files)))
+
+    quit()
     
     # motif annotations
     pwm_list = read_pwm_file(args.pwm_file)
