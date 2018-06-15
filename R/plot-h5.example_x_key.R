@@ -7,22 +7,43 @@
 library(rhdf5)
 library(gplots)
 library(RColorBrewer)
+library(reshape2)
 
 # args
 args <- commandArgs(trailingOnly=TRUE)
 h5_file <- args[1]
-dataset_key <- args[2] # TODO - set up for append?
-cluster_key <- args[3]
-cluster_col <- as.numeric(args[4]) # MAKE SURE YOU USE 1-START NOT 0-START
-remove_final_cluster <- as.numeric(args[5]) # 1 for yes, 0 for no
+cluster_key <- args[2]
+cluster_col <- as.numeric(args[3]) + 1 # MAKE SURE YOU USE 0-START (from python)
+remove_final_cluster <- as.numeric(args[4]) # 1 for yes, 0 for no
+normalize <- args[5]
+cluster_columns <- as.numeric(args[6])
+dataset_key <- args[7]
+
+# whether to cluster the columns
+if (cluster_columns == 1) {
+    print("clustering the columns")
+    cluster_columns <- TRUE
+} else {
+    print("not clustering the columns")
+    cluster_columns <- FALSE
+}
+
+# TODO add in color choice option
 
 # read in data
 data <- h5read(h5_file, dataset_key, read.attributes=TRUE)
-rownames(data) <- attr(data, "pwm_names")
+#rownames(data) <- attr(data, "pwm_names") # TODO fix this
 clusters <- h5read(h5_file, cluster_key)
 
 # transpose (fastest changing axis is opposite order in R vs python)
 data <- t(data)
+if (length(args) > 7) {
+    indices <- as.numeric(args[8:length(args)]) # which indices to grab, 0-START
+    indices <- indices + 1
+    print(indices)
+    data <- data[,indices]
+}
+print(dim(data))
 clusters <- t(clusters)
 
 # get correct column, and sort by column order
@@ -38,12 +59,25 @@ if (remove_final_cluster == 1) {
 }
 
 # normalize
-rowmax <- apply(data, 1, function(x) max(x))
-data_norm <- data / rowmax
-data_norm[is.na(data_norm)] <- 0
+if (normalize == 1) {
+    rowmax <- apply(data, 1, function(x) max(x))
+    data_norm <- data / rowmax
+    data_norm[is.na(data_norm)] <- 0
+} else {
+    data_norm <- data
+}
+
+# colors
+color_granularity <- 50
+data_melted <- melt(data_norm)
+my_breaks <- seq(
+    quantile(data_melted$value, 0.01),
+    quantile(data_melted$value, 0.90),
+    length.out=color_granularity)
+
 
 # draw ordered sample
-plottable_nrow <- 2000 # important - useRaster in heatmap2!
+plottable_nrow <- 1500 #2000 # important - useRaster in heatmap!
 if (nrow(data_norm) > plottable_nrow) {
     skip_int <- as.integer(nrow(data_norm) / plottable_nrow)
     ordered_sample_indices <- seq(1, nrow(data_norm), skip_int)
@@ -74,7 +108,7 @@ pdf(heatmap_file, height=18, width=10)
 heatmap.2(
     as.matrix(data_ordered),
     Rowv=FALSE,
-    Colv=TRUE,
+    Colv=cluster_columns,
     dendrogram="none",
     trace="none",
     density.info="none",
@@ -94,6 +128,7 @@ heatmap.2(
     lwid=mylwid,
     lhei=mylhei,
     col=my_palette,
+    #breaks=my_breaks,
     useRaster=TRUE)
 dev.off()
 

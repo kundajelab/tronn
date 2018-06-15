@@ -161,3 +161,56 @@ def plot_weights(
         highlight=highlight)
     plt.savefig(fig_name)
     plt.close()
+
+
+
+def visualize_clustered_h5_dataset_full(
+        h5_file,
+        cluster_key,
+        dataset_key,
+        cluster_col=0,
+        remove_final_cluster=True,
+        normalize=False,
+        indices=[]):
+    """wrapper on nice heatmap2 plotting 
+    """
+    r_cmd = (
+        "plot-h5.example_x_key.R {} {} {} {} {} {} {}").format(
+            h5_file,
+            cluster_key,
+            cluster_col,
+            1 if remove_final_cluster else 0,
+            1 if normalize else 0,
+            dataset_key,
+            " ".join(indices))
+    print r_cmd
+    #os.system(r_cmd)
+    
+    return None
+
+
+def visualize_clustered_h5_dataset_full(
+        h5_file,
+        cluster_key,
+        dataset_key,
+        cluster_col=0,
+        remove_final_cluster=True,
+        normalize=False,
+        indices=[]):
+    """wrapper on nice heatmap2 plotting 
+    """
+    r_cmd = (
+        "plot-h5.example_x_key.R {} {} {} {} {} {} {}").format(
+            h5_file,
+            cluster_key,
+            cluster_col,
+            1 if remove_final_cluster else 0,
+            1 if normalize else 0,
+            dataset_key,
+            " ".join(str(val) for val in indices))
+    print r_cmd
+    #os.system(r_cmd)
+    
+    return None
+
+

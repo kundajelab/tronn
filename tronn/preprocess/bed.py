@@ -244,10 +244,11 @@ def bin_regions_sharded(
                             stop))
                 mark += stride
                 total_bins_in_file += 1
-            if total_bins_in_file >= max_size:
-                # reset and go into new file
-                idx += 1
-                total_bins_in_file = 0
+                
+                if total_bins_in_file >= max_size:
+                    # reset and go into new file
+                    idx += 1
+                    total_bins_in_file = 0
 
     return None
 

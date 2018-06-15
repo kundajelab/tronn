@@ -18,10 +18,12 @@ from tronn.nets.nets import net_fns
 
 from tronn.interpretation.clustering import generate_simple_metaclusters
 from tronn.interpretation.clustering import refine_clusters
-from tronn.interpretation.clustering import visualize_clustering_by_key
+#from tronn.interpretation.clustering import visualize_clustering_by_key
 
 from tronn.interpretation.clustering import aggregate_pwm_results
 from tronn.interpretation.clustering import get_manifold_centers
+
+from tronn.visualization import visualize_clustered_h5_dataset_full
 
 
 def run(args):
@@ -40,23 +42,15 @@ def run(args):
     data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
     logger.info("Found {} chrom files".format(len(data_files)))
 
-    quit()
-    
-    # motif annotations
-    pwm_list = read_pwm_file(args.pwm_file)
-    pwm_names = [pwm.name for pwm in pwm_list]
-    pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
-    logger.info("{} motifs used".format(len(pwm_list)))
-
     # set up dataloader
     dataloader = H5DataLoader(data_files)
     input_fn = dataloader.build_input_fn(
         args.batch_size,
         label_keys=args.model_info["label_keys"],
         filter_tasks=[
-            args.inference_tasks,
-            args.filter_tasks],
-        singleton_filter_tasks=args.inference_tasks)
+            args.inference_task_indices,
+            args.filter_task_indices],
+        singleton_filter_tasks=args.inference_task_indices)
 
     # set up model
     model_manager = ModelManager(
@@ -70,8 +64,8 @@ def run(args):
         net_fns[args.inference_fn],
         inference_params={
             "backprop": args.backprop,
-            "importance_task_indices": args.inference_tasks,
-            "pwms": pwm_list},
+            "importance_task_indices": args.inference_task_indices,
+            "pwms": args.pwm_list},
         checkpoint=args.model_info["checkpoint"],
         yield_single_examples=True)
 
@@ -97,7 +91,7 @@ def run(args):
         logging.info("running clustering - louvain (Phenograph)")
         dataset_keys = [
             "pwm-scores.taskidx-{}".format(i)
-            for i in args.inference_tasks]
+            for i in args.inference_task_indices]
 
         # clustering: do this using all information (across all tasks)
         metacluster_key = "metaclusters"
@@ -114,35 +108,64 @@ def run(args):
             #    refined_metacluster_key,
             #    null_cluster_present=False)
             if visualize:
+
+                print args.inference_tasks
+                
+                print args.visualize_tasks
+                print args.visualize_task_indices
+                print args.visualize_signals
+                
                 # TODO separate all this code out into functions!!!
                 
-                # first global - ALL indices
-                # then for each label set (with given indices)
+                # for each label set (with given indices)
                 # do the following:
-
-                # easiest input method:
-                # TODO make sure consistent with preprocessing syntax
-                # --inference_tasks key;indices=indices key;indices=indices key
-                # --signals key=key;indices=indices;label_key=labels
-                
-                # in advance need to have:
-                # label sets = list of lists
-                # signal sets = list of (keys, indices) (where each elem matches label elem)
                 
                 # (1)
                 # look at examples x key of interest (all same R script):
                 # key: pwm scores (each task idx)
+                for i in xrange(len(dataset_keys)):
+                    visualize_clustered_h5_dataset_full(
+                        results_h5_file,
+                        refined_metacluster_key,
+                        dataset_keys[i],
+                        normalize=True)
+                
                 # key: probs (split by task index set?)
                 # key: labels (split by task index set?)
-                # key: all signals desired (use keys and the indices with the keys)
+                visualize_task_indices = [args.inference_task_indices] + args.visualize_task_indices
 
-                # can actually split out since the subsample is technically deterministic?
-                # that way the script takes the key, absolute task indices, and does the rest
+                for task_indices in visualize_task_indices:
+                    # first probs
+                    visualize_clustered_h5_dataset_full(
+                        results_h5_file,
+                        refined_metacluster_key,
+                        "probs",
+                        normalize=True,
+                        indices=task_indices)
+
+                    # then the label set
+                    visualize_clustered_h5_dataset_full(
+                        results_h5_file,
+                        refined_metacluster_key,
+                        "labels",
+                        normalize=True,
+                        indices=task_indices)
+                
+                # key: all signals desired (use keys and the indices with the keys)
+                for signal_key in args.visualize_signals:
+                    signal_indices = args.visualize_signals[signal_key][0]
+                    visualize_clustered_h5_dataset_full(
+                        results_h5_file,
+                        refined_metacluster_key,
+                        signal_key,
+                        normalize=True,
+                        indices=signal_indices)
                 
                 # (2)
                 # look at aggregate for each cluster, per
                 # key: pwm scores (motif x task)
-
+                
+                
                 # (3)
                 # look at aggregate, comparing probs to labels/signal
                 # key: probs + labels (1 plot) (split by task index set?)
@@ -152,6 +175,12 @@ def run(args):
                 # key: probs + signals (1 plot) (split by task index set?)
                 # script needs to take key (probs), absolute task indices (probs), signal key, signal indices
                 # need to match absolute indices with signal key....
+
+                # (5)
+                # can also do a correlation between clusters and specific label sets?
+                # ie for a cluster, what is the average (or summed) signal?
+                
+                quit()
                 
                 # first look at the motif score results (clustered)
                 # set up to be able to do an append?

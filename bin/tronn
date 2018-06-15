@@ -20,9 +20,6 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(
         description='TRONN: Transcriptional Regulation Optimized Neural Nets')
-    parser.add_argument( # TODO eventually remove this, set up as an annotations json?
-        "--cluster", default="kundaje",
-        help="what cluster you're on (get annotations)")
     subparsers = parser.add_subparsers(dest='subcommand_name')
 
     # command for preprocessing data
@@ -216,6 +213,9 @@ def add_preprocess_variants_parser(subparsers):
     return
 
 
+# TODO add a cvfold selection method
+
+
 def add_train_parser(subparsers):
     """Add argument parser for training
     """
@@ -314,7 +314,6 @@ def add_evaluate_parser(subparsers):
         "Input files and folders")
     # TODO add an option for different eval set?
     # but better to force user to pre-define test set
-    #add_hdf5_data_options(group_input)
     group_input.add_argument(
         "--model_info", required=True,
         help="json with training info")
@@ -799,12 +798,12 @@ def _is_integer(val):
     
 def _parse_files(dataset_key_strings):
     """given an arg string, parse out into a dict
-    assumes a format of: key=file1,file2,..;param1=val,param2=val,...
+    assumes a format of: key=file1,file2,..::param1=val,param2=val,...
     """
     key_dict = {}
     for dataset_key_string in dataset_key_strings:
-        # first split on ";" then on "="
-        key_and_params = dataset_key_string.split(";")
+        # first split on "::" then on "="
+        key_and_params = dataset_key_string.split("::")
         
         # set up key and key items (filenames or indices)
         key_string = key_and_params[0]
@@ -873,7 +872,7 @@ def _setup_annotations(args):
     return
 
 
-def _setup_inputs(args):
+def _setup_model(args):
     """for specific inputs, if they exist, read in
     from json
     """
@@ -893,7 +892,6 @@ def main():
     args = parse_args()
     os.system("mkdir -p {}".format(args.out_dir))
     _setup_logs(args)
-    _setup_inputs(args)
 
     # get subcommand run function and run
     subcommand = args.subcommand_name
@@ -912,25 +910,31 @@ def main():
         from tronn.train_cmd import run
         run(args)
     elif subcommand == "evaluate":
+        _setup_model(args)
         from tronn.evaluate_cmd import run
         run(args)
     elif subcommand == "predict":
+        _setup_model(args)
         from tronn.predict_cmd import run
         run(args)
     elif subcommand == "scanmotifs":
+        _setup_model(args)
         _setup_interpretation_options(args)
         _setup_visualization_options(args)
         from tronn.scanmotifs_cmd import run
         run(args)
     elif subcommand == "dmim":
+        _setup_model(args)
         _setup_interpretation_options(args)
         from tronn.dmim_cmd import run
         run(args)
     elif subcommand == "dream":
+        _setup_model(args)
         _setup_interpretation_options(args)
         from tronn.dream_cmd import run
         run(args)
     elif subcommand == "analyzevariants":
+        _setup_model(args)
         from tronn.analyzevariants_cmd import run
         run(args)
     elif subcommand == "baseline":
