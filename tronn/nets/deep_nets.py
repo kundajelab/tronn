@@ -183,6 +183,9 @@ def mlp_module_v2(
         # save out embeddings here
         #make_embeddings_variable(net)
 
+        # last shared layer is here - save out
+        last_hidden_layer = net
+
         # then generate split FC layers (if any). If none, continue to logits
         task_specific_outputs = []
         for i in xrange(num_tasks):
@@ -219,7 +222,7 @@ def mlp_module_v2(
         keep_prob=1.0-logit_dropout,
         is_training=is_training)
 
-    return logits
+    return logits, last_hidden_layer
 
 
 def temporal_pred_module(
@@ -472,7 +475,7 @@ def basset(inputs, params):
                 is_training=is_training)
         else:
             # TODO - here, expose the hidden layer so we can save it to cluster on it
-            logits = mlp_module_v2(
+            logits, last_hidden_layer = mlp_module_v2(
                 net, 
                 num_tasks = int(labels.get_shape()[-1]), 
                 fc_dim = params['fc_dim'], 
@@ -487,6 +490,7 @@ def basset(inputs, params):
 
     # store outputs
     outputs["logits"] = logits # store logits
+    outputs["final_hidden"] = last_hidden_layer
     
     return outputs, params
 

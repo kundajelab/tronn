@@ -4,6 +4,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import os
+
 import numpy as np
 
 # h/t Avanti Shrikumar - importance score visualization code
@@ -171,41 +173,18 @@ def visualize_clustered_h5_dataset_full(
         cluster_col=0,
         remove_final_cluster=True,
         normalize=False,
+        cluster_columns=False,
         indices=[]):
     """wrapper on nice heatmap2 plotting 
     """
     r_cmd = (
-        "plot-h5.example_x_key.R {} {} {} {} {} {} {}").format(
+        "plot-h5.example_x_key.R {0} {1} {2} {3} {4} {5} {6} {7}").format(
             h5_file,
             cluster_key,
             cluster_col,
             1 if remove_final_cluster else 0,
             1 if normalize else 0,
-            dataset_key,
-            " ".join(indices))
-    print r_cmd
-    #os.system(r_cmd)
-    
-    return None
-
-
-def visualize_clustered_h5_dataset_full(
-        h5_file,
-        cluster_key,
-        dataset_key,
-        cluster_col=0,
-        remove_final_cluster=True,
-        normalize=False,
-        indices=[]):
-    """wrapper on nice heatmap2 plotting 
-    """
-    r_cmd = (
-        "plot-h5.example_x_key.R {} {} {} {} {} {} {}").format(
-            h5_file,
-            cluster_key,
-            cluster_col,
-            1 if remove_final_cluster else 0,
-            1 if normalize else 0,
+            1 if cluster_columns else 0,
             dataset_key,
             " ".join(str(val) for val in indices))
     print r_cmd
@@ -213,4 +192,82 @@ def visualize_clustered_h5_dataset_full(
     
     return None
 
+
+def visualize_aggregated_h5_datasets(
+        h5_file,
+        cluster_key,
+        dataset_keys,
+        index_sets,
+        cluster_col=0,
+        remove_final_cluster=True,
+        normalize=False):
+    """wrapper on nice heatmap2 plotting
+    """
+    dataset_and_indices = zip(dataset_keys, index_sets)
+    data_strings = [
+        "{}={}".format(
+            key,
+            ",".join(str(val)for val in vals))
+        for key, vals in dataset_and_indices]
+    
+    r_cmd = (
+        "plot-h5.keys_x_task.R {0} {1} {2} {3} {4}").format(
+            h5_file,
+            cluster_key,
+            cluster_col,
+            1 if remove_final_cluster else 0,
+            " ".join(data_strings))
+    print r_cmd
+    #os.system(r_cmd)
+    
+    return None
+
+
+def visualize_datasets_by_cluster_map(
+        h5_file,
+        cluster_key,
+        dataset_key,
+        cluster_col=0,
+        remove_final_cluster=True,
+        cluster_rows=True,
+        normalize=False,
+        indices=[]):
+    """wrapper on heatmap2 plotting
+    produces a heatmap of aggregated vals per cluster
+    """
+    r_cmd = (
+        "plot-h5.cluster_x_key.R {0} {1} {2} {3} {4} {5} {6} {7}").format(
+            h5_file,
+            cluster_key,
+            cluster_col,
+            1 if remove_final_cluster else 0,
+            1 if normalize else 0,
+            1 if cluster_rows else 0,
+            dataset_key,
+            " ".join(str(val) for val in indices))
+    print r_cmd
+    #os.system(r_cmd)
+
+    return None
+
+
+def visualize_datasets_by_cluster(
+        h5_file,
+        dataset_key,
+        cluster_dim=0):
+    """prduces a plot per cluster when given
+    an aggreeated dataset where the cluster 
+    is one of the dimensions
+
+    this is specifically for the pwm x task
+    """
+    r_cmd= (
+        "plot-h5.key_x_task.per_cluster.R {0} {1} {2}").format(
+            h5_file,
+            dataset_key,
+            cluster_dim)
+    print r_cmd
+    #os.system(r_cmd)
+    
+    return None
 

@@ -18,12 +18,13 @@ from tronn.nets.nets import net_fns
 
 from tronn.interpretation.clustering import generate_simple_metaclusters
 from tronn.interpretation.clustering import refine_clusters
-#from tronn.interpretation.clustering import visualize_clustering_by_key
-
 from tronn.interpretation.clustering import aggregate_pwm_results
 from tronn.interpretation.clustering import get_manifold_centers
 
 from tronn.visualization import visualize_clustered_h5_dataset_full
+from tronn.visualization import visualize_aggregated_h5_datasets
+from tronn.visualization import visualize_datasets_by_cluster_map
+from tronn.visualization import visualize_datasets_by_cluster
 
 
 def run(args):
@@ -83,7 +84,7 @@ def run(args):
             for dataset_key in hf.keys():
                 if "pwm-scores" in dataset_key:
                     hf[dataset_key].attrs["pwm_names"] = [
-                        pwm.name for pwm in pwm_list]
+                        pwm.name for pwm in args.pwm_list]
                         
     # now run clustering
     if args.cluster:
@@ -95,114 +96,125 @@ def run(args):
 
         # clustering: do this using all information (across all tasks)
         metacluster_key = "metaclusters"
+        #cluster_keys = ["final_hidden"]
+        cluster_keys = dataset_keys
         if metacluster_key not in h5py.File(results_h5_file, "r").keys():
-            generate_simple_metaclusters(results_h5_file, dataset_keys, metacluster_key)
+            generate_simple_metaclusters(results_h5_file, cluster_keys, metacluster_key)
 
         # refine
         refined_metacluster_key = "metaclusters-refined"
-        if True:
-        #if refined_metacluster_key not in h5py.File(results_h5_file, "r").keys():
-            #refine_clusters(
-            #    results_h5_file,
-            #    metacluster_key,
-            #    refined_metacluster_key,
-            #    null_cluster_present=False)
-            if visualize:
+        if refined_metacluster_key not in h5py.File(results_h5_file, "r").keys():
+            refine_clusters(
+                results_h5_file,
+                metacluster_key,
+                refined_metacluster_key,
+                null_cluster_present=False)
 
-                print args.inference_tasks
-                
-                print args.visualize_tasks
-                print args.visualize_task_indices
-                print args.visualize_signals
-                
-                # TODO separate all this code out into functions!!!
-                
-                # for each label set (with given indices)
-                # do the following:
-                
-                # (1)
-                # look at examples x key of interest (all same R script):
-                # key: pwm scores (each task idx)
-                for i in xrange(len(dataset_keys)):
-                    visualize_clustered_h5_dataset_full(
+        # visualize in R
+        if visualize:
+
+            print args.inference_tasks
+            print args.visualize_tasks
+            print args.visualize_task_indices
+            print args.visualize_signals
+
+            visualize_task_indices = [args.inference_task_indices] + args.visualize_task_indices
+            
+            # for each label set (with given indices)
+            # do the following:
+
+            # (1)
+            # look at examples x key of interest (all same R script):
+            # key: pwm scores (each task idx)
+            for i in xrange(len(dataset_keys)):
+                visualize_clustered_h5_dataset_full(
+                    results_h5_file,
+                    refined_metacluster_key,
+                    dataset_keys[i],
+                    normalize=True,
+                    cluster_columns=True)
+
+            for task_indices in visualize_task_indices:
+                # first probs
+                visualize_clustered_h5_dataset_full(
+                    results_h5_file,
+                    refined_metacluster_key,
+                    "probs",
+                    indices=task_indices)
+
+                # then the label set
+                visualize_clustered_h5_dataset_full(
+                    results_h5_file,
+                    refined_metacluster_key,
+                    "labels",
+                    indices=task_indices)
+
+            # (2)
+            # key: all signals desired (use keys and the indices with the keys)
+            for signal_key in args.visualize_signals:
+                signal_indices = args.visualize_signals[signal_key][0]
+                visualize_clustered_h5_dataset_full(
+                    results_h5_file,
+                    refined_metacluster_key,
+                    signal_key,
+                    indices=signal_indices)
+
+            # (3)
+            # look at aggregate, comparing probs to labels/signal
+            for task_indices in visualize_task_indices:
+                visualize_aggregated_h5_datasets(
+                    results_h5_file,
+                    refined_metacluster_key,
+                    ["probs", "labels"],
+                    [task_indices, task_indices])
+            
+            # (4)
+            # key: probs + signals (1 plot) (split by task index set?)
+            # need to have {cluster, (prob/label), idx}
+            # script needs to take key (probs), absolute task indices (probs), signal key, signal indices
+            # need to match absolute indices with signal key....
+            for key in args.visualize_signals:
+                label_key = args.visualize_signals[key][1].get("label_key", None)
+                if label_key is None:
+                    dataset_keys = ["probs", key]
+                else:
+                    dataset_keys = ["probs", label_key, key]
+                key_indices = args.visualize_signals[key][0]
+                key_indices = [key_indices for i in xrange(len(dataset_keys))]
+                visualize_aggregated_h5_datasets(
+                    results_h5_file,
+                    refined_metacluster_key,
+                    dataset_keys,
+                    key_indices)
+            
+            # (5)
+            # can also do a correlation between clusters and specific label sets?
+            # ie for a cluster, what is the average (or summed) signal?
+            # need to have {cluster, label}
+            for task_indices in visualize_task_indices:
+                for dataset_key in ["probs", "labels"]:
+                    visualize_datasets_by_cluster_map(
                         results_h5_file,
                         refined_metacluster_key,
-                        dataset_keys[i],
-                        normalize=True)
-                
-                # key: probs (split by task index set?)
-                # key: labels (split by task index set?)
-                visualize_task_indices = [args.inference_task_indices] + args.visualize_task_indices
-
-                for task_indices in visualize_task_indices:
-                    # first probs
-                    visualize_clustered_h5_dataset_full(
-                        results_h5_file,
-                        refined_metacluster_key,
-                        "probs",
-                        normalize=True,
+                        dataset_key,
                         indices=task_indices)
 
-                    # then the label set
-                    visualize_clustered_h5_dataset_full(
-                        results_h5_file,
-                        refined_metacluster_key,
-                        "labels",
-                        normalize=True,
-                        indices=task_indices)
-                
-                # key: all signals desired (use keys and the indices with the keys)
-                for signal_key in args.visualize_signals:
-                    signal_indices = args.visualize_signals[signal_key][0]
-                    visualize_clustered_h5_dataset_full(
-                        results_h5_file,
-                        refined_metacluster_key,
-                        signal_key,
-                        normalize=True,
-                        indices=signal_indices)
-                
-                # (2)
-                # look at aggregate for each cluster, per
-                # key: pwm scores (motif x task)
-                
-                
-                # (3)
-                # look at aggregate, comparing probs to labels/signal
-                # key: probs + labels (1 plot) (split by task index set?)
-                # script needs to take key (probs, labels), absolute task indices (probs, labels)
+            for key in args.visualize_signals:
+                visualize_datasets_by_cluster_map(
+                    results_h5_file,
+                    refined_metacluster_key,
+                    key,
+                    indices=args.visualize_signals[key][0])
 
-                # (4)
-                # key: probs + signals (1 plot) (split by task index set?)
-                # script needs to take key (probs), absolute task indices (probs), signal key, signal indices
-                # need to match absolute indices with signal key....
-
-                # (5)
-                # can also do a correlation between clusters and specific label sets?
-                # ie for a cluster, what is the average (or summed) signal?
-                
-                quit()
-                
-                # first look at the motif score results (clustered)
-                # set up to be able to do an append?
-                # key: pwm scores
-                for i in xrange(len(dataset_keys)):
-                    visualize_clustering_by_key(
-                        results_h5_file,
-                        dataset_keys[i],
-                        refined_metacluster_key, 0,
-                        remove_final_cluster=1)
-
-
-                # finally, if there is a given signal set want to compare that
-                # to predictions (need to figure out how to match)
-
-
-        quit()
+            # TODO need to adjust the output name
                 
         # get the manifold descriptions out per cluster
         manifold_key = "motifspace-centers"
         manifold_h5_file = "{0}/{1}.manifold.h5".format(
             args.tmp_dir, args.prefix)
+        dataset_keys = [
+            "pwm-scores.taskidx-{}".format(i)
+            for i in args.inference_task_indices]
         if not os.path.isfile(manifold_h5_file):
             get_manifold_centers(
                 results_h5_file,
@@ -212,9 +224,21 @@ def run(args):
                 pwm_list,
                 pwm_dict)
 
-        # get the overall subset of pwms with some significance in some cluster
-        aggregate_pwm_results(results_h5_file, dataset_keys, manifold_h5_file)
+        # get the overall subset of pwms with some significance 
+        agg_key = "pwm-scores.tasks_x_pwm"
+        if False:
+            aggregate_pwm_results(results_h5_file, dataset_keys, agg_key, manifold_h5_file)
 
+        # HERE plot out the pwm x task plots
+        # look at aggregate for each cluster,
+        # need to have {cluster, task, motif}
+        # key: pwm-scores.summed? check dmim for code (motif x task)
+        visualize_datasets_by_cluster(results_h5_file, "pwm-scores.tasks_x_pwm")
+        
+        # get the same subset of pwms per cluster
+
+        # and visualize this
+        
         
     # TODO consider optional correlation matrix
 

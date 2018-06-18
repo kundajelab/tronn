@@ -6,8 +6,57 @@
 
 library(rhdf5)
 library(gplots)
-library(RColorBrewer)
 library(reshape2)
+library(RColorBrewer)
+
+# helper functions
+make_heatmap <- function(
+    data,
+    out_pdf_file,
+    cluster_columns) {
+    
+    # color palette
+    my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
+    my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
+
+    # grid
+    mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
+    mylwid = c(2,6,2)
+    mylhei = c(0.5,12,1.5)
+
+    # plot
+    pdf(out_pdf_file, height=18, width=10)
+    heatmap.2(
+        as.matrix(data),
+        Rowv=FALSE,
+        Colv=cluster_columns,
+        dendrogram="none",
+        trace="none",
+        density.info="none",
+        labRow="",
+        labCol="",
+        cexCol=0.5,
+        keysize=0.1,
+        key.title=NA,
+        key.xlab=NA,
+        key.par=list(pin=c(4,0.1),
+            mar=c(9.1,0,2.1,0),
+            mgp=c(3,2,0),
+            cex.axis=2.0,
+            font.axis=2),
+        margins=c(3,0),
+        lmat=mylmat,
+        lwid=mylwid,
+        lhei=mylhei,
+        col=my_palette,
+        useRaster=TRUE)
+    dev.off()
+
+}
+
+# =========================================
+# START CODE
+# =========================================
 
 # args
 args <- commandArgs(trailingOnly=TRUE)
@@ -88,47 +137,11 @@ if (nrow(data_norm) > plottable_nrow) {
 
 print(dim(data_ordered))
 
-# color palette
-my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
-my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
-
-# grid
-mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
-mylwid = c(2,6,2)
-mylhei = c(0.5,12,1.5)
-
-# plot
+# make heatmap
 heatmap_file <- paste(
     sub(".h5", "", h5_file),
     dataset_key,
     paste(cluster_key, cluster_col-1, sep="-"), # to match 0-START from python
     "pdf", sep=".")
 print(heatmap_file)
-pdf(heatmap_file, height=18, width=10)
-heatmap.2(
-    as.matrix(data_ordered),
-    Rowv=FALSE,
-    Colv=cluster_columns,
-    dendrogram="none",
-    trace="none",
-    density.info="none",
-    labRow="",
-    labCol="",
-    cexCol=0.5,
-    keysize=0.1,
-    key.title=NA,
-    key.xlab=NA,
-    key.par=list(pin=c(4,0.1),
-        mar=c(9.1,0,2.1,0),
-        mgp=c(3,2,0),
-        cex.axis=2.0,
-        font.axis=2),
-    margins=c(3,0),
-    lmat=mylmat,
-    lwid=mylwid,
-    lhei=mylhei,
-    col=my_palette,
-    #breaks=my_breaks,
-    useRaster=TRUE)
-dev.off()
-
+make_heatmap(data_ordered, heatmap_file, cluster_columns)

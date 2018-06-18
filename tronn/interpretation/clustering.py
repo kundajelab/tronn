@@ -574,12 +574,20 @@ def get_manifold_centers(
     return None
 
 
-def aggregate_pwm_results(results_h5_file, dataset_keys, manifold_h5_file):
-    """genearte a master pwm file
+def aggregate_pwm_results(
+        results_h5_file,
+        dataset_keys,
+        agg_key,
+        manifold_h5_file):
+    """creates a task x pwm file
     """
+    # get the master pwm vector from manifold file
     with h5py.File(manifold_h5_file, "r") as hf:
         master_pwm_vector = hf["master_pwm_vector"][:]
-    
+
+    print dataset_keys
+        
+    # extract those motif scores
     with h5py.File(results_h5_file, "a") as hf:
         num_motifs = hf[dataset_keys[0]].shape[1]
         tasks_x_pwm = np.zeros((len(dataset_keys), num_motifs))
@@ -589,14 +597,48 @@ def aggregate_pwm_results(results_h5_file, dataset_keys, manifold_h5_file):
             tasks_x_pwm[task_i,:] = np.sum(hf[dataset_keys[task_i]][:], axis=0)
             
         # if needed, filter for master pwm vector
-        if True:
-            tasks_x_pwm = tasks_x_pwm[:,master_pwm_vector > 0]
-            pwm_names = pwm_names[master_pwm_vector > 0]            
-
+        tasks_x_pwm = tasks_x_pwm[:,master_pwm_vector > 0]
+        pwm_names = pwm_names[master_pwm_vector > 0]            
             
         # and save out
-        #del hf["pwm-scores.tasks_x_pwm"]
-        hf.create_dataset("pwm-scores.tasks_x_pwm", data=tasks_x_pwm)
-        hf["pwm-scores.tasks_x_pwm"].attrs["pwm_names"] = pwm_names
+        hf.create_dataset(agg_key, data=tasks_x_pwm)
+        hf[agg_key].attrs["pwm_names"] = pwm_names
         
     return None
+
+
+
+def aggregate_pwm_results_per_cluster(
+        results_h5_file,
+        dataset_keys,
+        agg_key,
+        manifold_h5_file):
+    """creates a task x pwm file
+    """
+    # get the master pwm vector from manifold file
+    with h5py.File(manifold_h5_file, "r") as hf:
+        master_pwm_vector = hf["master_pwm_vector"][:]
+
+    print dataset_keys
+        
+    # extract those motif scores
+    with h5py.File(results_h5_file, "a") as hf:
+        num_motifs = hf[dataset_keys[0]].shape[1]
+        tasks_x_pwm = np.zeros((len(dataset_keys), num_motifs))
+        pwm_names = hf[dataset_keys[0]].attrs["pwm_names"]
+        
+        for task_i in xrange(len(dataset_keys)):
+            tasks_x_pwm[task_i,:] = np.sum(hf[dataset_keys[task_i]][:], axis=0)
+            
+        # if needed, filter for master pwm vector
+        tasks_x_pwm = tasks_x_pwm[:,master_pwm_vector > 0]
+        pwm_names = pwm_names[master_pwm_vector > 0]            
+            
+        # and save out
+        hf.create_dataset(agg_key, data=tasks_x_pwm)
+        hf[agg_key].attrs["pwm_names"] = pwm_names
+        
+    return None
+
+
+
