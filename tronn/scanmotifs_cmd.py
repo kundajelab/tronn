@@ -21,10 +21,14 @@ from tronn.interpretation.clustering import refine_clusters
 from tronn.interpretation.clustering import aggregate_pwm_results
 from tronn.interpretation.clustering import get_manifold_centers
 
+from tronn.interpretation.clustering import aggregate_pwm_results
+from tronn.interpretation.clustering import aggregate_pwm_results_per_cluster
+
 from tronn.visualization import visualize_clustered_h5_dataset_full
 from tronn.visualization import visualize_aggregated_h5_datasets
 from tronn.visualization import visualize_datasets_by_cluster_map
-from tronn.visualization import visualize_datasets_by_cluster
+from tronn.visualization import visualize_h5_dataset
+from tronn.visualization import visualize_h5_dataset_by_cluster
 
 
 def run(args):
@@ -224,24 +228,27 @@ def run(args):
                 pwm_list,
                 pwm_dict)
 
-        # get the overall subset of pwms with some significance 
-        agg_key = "pwm-scores.tasks_x_pwm"
-        if False:
-            aggregate_pwm_results(results_h5_file, dataset_keys, agg_key, manifold_h5_file)
+        # get the overall subset of pwms with some significance
+        global_agg_key = "pwm-scores.tasks_x_pwm.global"
+        aggregate_pwm_results(
+            results_h5_file,
+            dataset_keys,
+            global_agg_key,
+            manifold_h5_file)
 
-        # HERE plot out the pwm x task plots
-        # look at aggregate for each cluster,
-        # need to have {cluster, task, motif}
-        # key: pwm-scores.summed? check dmim for code (motif x task)
-        visualize_datasets_by_cluster(results_h5_file, "pwm-scores.tasks_x_pwm")
+        visualize_h5_dataset(results_h5_file, global_agg_key)
         
-        # get the same subset of pwms per cluster
-
-        # and visualize this
+        agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
+        aggregate_pwm_results_per_cluster(
+            results_h5_file,
+            refined_metacluster_key,
+            dataset_keys,
+            agg_key,
+            manifold_h5_file)
         
+        visualize_h5_dataset_by_cluster(results_h5_file, agg_key)
         
-    # TODO consider optional correlation matrix
-
+    # TODO consider optional correlation matrix?
 
     return None
 

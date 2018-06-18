@@ -585,8 +585,6 @@ def aggregate_pwm_results(
     with h5py.File(manifold_h5_file, "r") as hf:
         master_pwm_vector = hf["master_pwm_vector"][:]
 
-    print dataset_keys
-        
     # extract those motif scores
     with h5py.File(results_h5_file, "a") as hf:
         num_motifs = hf[dataset_keys[0]].shape[1]
@@ -594,13 +592,28 @@ def aggregate_pwm_results(
         pwm_names = hf[dataset_keys[0]].attrs["pwm_names"]
         
         for task_i in xrange(len(dataset_keys)):
-            tasks_x_pwm[task_i,:] = np.sum(hf[dataset_keys[task_i]][:], axis=0)
+
+            # get data
+            data = hf[dataset_keys[task_i]][:]
+            
+            # row normalize and remove zeroes
+            max_vals = np.max(data, axis=1, keepdims=True)
+            data_norm = np.divide(
+                data,
+                max_vals,
+                out=np.zeros_like(data),
+                where=max_vals!=0)
+            data_norm = data_norm[np.max(data_norm, axis=1)>0]
+
+            # sum
+            tasks_x_pwm[task_i,:] = np.sum(data_norm, axis=0)
             
         # if needed, filter for master pwm vector
         tasks_x_pwm = tasks_x_pwm[:,master_pwm_vector > 0]
-        pwm_names = pwm_names[master_pwm_vector > 0]            
+        pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
+        del hf[agg_key]
         hf.create_dataset(agg_key, data=tasks_x_pwm)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         
@@ -610,32 +623,62 @@ def aggregate_pwm_results(
 
 def aggregate_pwm_results_per_cluster(
         results_h5_file,
+        cluster_key,
         dataset_keys,
         agg_key,
-        manifold_h5_file):
+        manifold_h5_file,
+        cluster_col=0,
+        remove_final_cluster=True):
     """creates a task x pwm file
     """
     # get the master pwm vector from manifold file
     with h5py.File(manifold_h5_file, "r") as hf:
         master_pwm_vector = hf["master_pwm_vector"][:]
-
-    print dataset_keys
         
-    # extract those motif scores
+    # extract those motif scores at a cluster level
     with h5py.File(results_h5_file, "a") as hf:
         num_motifs = hf[dataset_keys[0]].shape[1]
-        tasks_x_pwm = np.zeros((len(dataset_keys), num_motifs))
         pwm_names = hf[dataset_keys[0]].attrs["pwm_names"]
-        
-        for task_i in xrange(len(dataset_keys)):
-            tasks_x_pwm[task_i,:] = np.sum(hf[dataset_keys[task_i]][:], axis=0)
+
+        # cluster ids
+        clusters = hf[cluster_key][:,cluster_col]
+        cluster_ids = sorted(list(set(clusters.tolist())))
+        if remove_final_cluster:
+            cluster_ids = cluster_ids[0:-1]
+
+        # agg results dataset
+        agg_data = np.zeros((
+            len(cluster_ids),
+            len(dataset_keys),
+            num_motifs))
             
+        for cluster_idx in xrange(len(cluster_ids)):
+            cluster_id = cluster_ids[cluster_idx]
+            
+            for dataset_idx in xrange(len(dataset_keys)):
+
+                # get data
+                data = hf[dataset_keys[dataset_idx]][:]
+            
+                # row normalize and remove zeroes
+                max_vals = np.max(data, axis=1, keepdims=True)
+                data_norm = np.divide(
+                    data,
+                    max_vals,
+                    out=np.zeros_like(data),
+                    where=max_vals!=0)
+                
+                # sum
+                agg_data[cluster_idx, dataset_idx,:] = np.sum(
+                    data_norm[clusters==cluster_id], axis=0)
+                
         # if needed, filter for master pwm vector
-        tasks_x_pwm = tasks_x_pwm[:,master_pwm_vector > 0]
-        pwm_names = pwm_names[master_pwm_vector > 0]            
+        agg_data = agg_data[:,:,master_pwm_vector > 0]
+        pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        hf.create_dataset(agg_key, data=tasks_x_pwm)
+        del hf[agg_key]
+        hf.create_dataset(agg_key, data=agg_data)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         
     return None

@@ -251,10 +251,9 @@ def visualize_datasets_by_cluster_map(
     return None
 
 
-def visualize_datasets_by_cluster(
+def visualize_h5_dataset(
         h5_file,
-        dataset_key,
-        cluster_dim=0):
+        dataset_key):
     """prduces a plot per cluster when given
     an aggreeated dataset where the cluster 
     is one of the dimensions
@@ -262,10 +261,28 @@ def visualize_datasets_by_cluster(
     this is specifically for the pwm x task
     """
     r_cmd= (
-        "plot-h5.key_x_task.per_cluster.R {0} {1} {2}").format(
+        "plot-h5.dataset.R {0} {1}").format(
             h5_file,
-            dataset_key,
-            cluster_dim)
+            dataset_key)
+    print r_cmd
+    #os.system(r_cmd)
+    
+    return None
+
+
+def visualize_h5_dataset_by_cluster(
+        h5_file,
+        dataset_key):
+    """prduces a plot per cluster when given
+    an aggreeated dataset where the cluster 
+    is one of the dimensions
+
+    this is specifically for the pwm x task
+    """
+    r_cmd= (
+        "plot-h5.key_x_task.R {0} {1}").format(
+            h5_file,
+            dataset_key)
     print r_cmd
     #os.system(r_cmd)
     

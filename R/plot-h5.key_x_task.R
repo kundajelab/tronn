@@ -112,7 +112,7 @@ for (i in 1:num_clusters) {
     plot_file <- paste(
         sub(".h5", "", h5_file),
         key,
-        ".cluster-", i, ".pdf", sep="")        
+        ".cluster-", i-1, ".pdf", sep="")        
     print(plot_file)
     make_heatmap(data, plot_file)
     
