@@ -110,6 +110,21 @@ def run(args):
                 hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
 
     generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)
+
+    # and visualize
+
+    # (1)
+    # delta in prediction scores
+    # visualize dataset per motif... {N, task}?
+    # visualize delta scores {motif, task}
+
+    # (2)
+    # adjacency results - {task, pwm, pwm} for each timepoint
+
+
+    # (3) other things go to cytoscape
+
+    
     "plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)
 
     quit()

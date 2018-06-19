@@ -23,13 +23,21 @@ from tronn.nets.sequence_nets import pad_examples
 def setup_h5_files(data_dir):
     """quick helper function to go into h5 directory and organize h5 files
     """
-    positives_files = sorted(glob.glob("{}/*.h5".format(data_dir)))
-    positives_files = [filename for filename in positives_files if "negative" not in filename]
-    negatives_files = sorted(glob.glob("{}/*training-negatives*.h5".format(data_dir)))
-    h5_files = zip(positives_files, negatives_files)
-    logging.info('Finding data: found {} chromosomes'.format(len(h5_files)))
-    
-    return h5_files
+    chroms = ["chr{}".format(i) for i in xrange(1,22)] + ["chrX", "chrY"]
+
+    # save into a chromosome dict
+    data_dict = {}
+    for chrom in chroms:
+        positives_files = sorted(glob.glob("{}/*{}[.]*.h5".format(data_dir, chrom)))
+        positives_files = [filename for filename in positives_files if "negative" not in filename]
+        training_negatives_files = sorted(glob.glob("{}/*training-negatives*{}[.]*.h5".format(data_dir, chrom)))
+        global_negatives_files = sorted(glob.glob("{}/*genomewide-negatives*{}[.]*.h5".format(data_dir, chrom)))
+        data_dict[chrom] = (
+            positives_files,
+            training_negatives_files,
+            global_negatives_files)
+        
+    return data_dict
 
 
 class DataLoader(object):

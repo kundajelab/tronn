@@ -2,15 +2,11 @@
 
 # description: given a key, aggregate per cluster per task
 # NOTE: rhdf5 transposes axes!
-#h5ls(h5_file)
 
 library(rhdf5)
 library(gplots)
 library(reshape2)
 library(RColorBrewer)
-
-# helper functions
-se <- function(x) sd(x) / sqrt(length(x))
 
 # helper functions
 make_heatmap <- function(
@@ -36,9 +32,8 @@ make_heatmap <- function(
         dendrogram="none",
         trace="none",
         density.info="none",
-        labRow="",
-        labCol="",
-        cexCol=0.5,
+        cexCol=1.25,
+        cexRow=1.25,
         keysize=0.1,
         key.title=NA,
         key.xlab=NA,
@@ -112,6 +107,13 @@ for (cluster_idx in 1:length(cluster_ids)) {
     }
     
 }
+
+# add row and colnames
+print(head(all_data))
+rownames(all_data) <- cluster_ids
+colnames(all_data) <- paste("idx", indices, sep="-")
+
+print(head(all_data))
 
 # make heatmap
 heatmap_file <- paste(
