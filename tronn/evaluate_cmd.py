@@ -35,26 +35,22 @@ def run(args):
     """
     logging.info("Evaluating trained model...")
     os.system("mkdir -p {}".format(args.out_dir))
-
-    # set up model info
-    with open(args.model_info, "r") as fp:
-        model_info = json.load(fp)
-
+    
     # set up dataloader
-    dataloader = H5DataLoader(model_info["test_files"])
+    dataloader = H5DataLoader(args.model_info["test_files"])
     test_input_fn = dataloader.build_input_fn(
-        args.batch_size, label_keys=model_info["label_keys"])
+        args.batch_size, label_keys=args.model_info["label_keys"])
 
     # set up model
     model_manager = ModelManager(
-        net_fns[model_info["name"]],
-        model_info["params"])
+        net_fns[args.model_info["name"]],
+        args.model_info["params"])
 
     # evaluate
     predictor = model_manager.predict(
         test_input_fn,
         args.out_dir,
-        checkpoint=model_info["checkpoint"])
+        checkpoint=args.model_info["checkpoint"])
 
     # run eval and save to h5
     eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)

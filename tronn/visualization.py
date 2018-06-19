@@ -188,7 +188,7 @@ def visualize_clustered_h5_dataset_full(
             dataset_key,
             " ".join(str(val) for val in indices))
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
     
     return None
 
@@ -218,7 +218,7 @@ def visualize_aggregated_h5_datasets(
             1 if remove_final_cluster else 0,
             " ".join(data_strings))
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
     
     return None
 
@@ -246,7 +246,7 @@ def visualize_datasets_by_cluster_map(
             dataset_key,
             " ".join(str(val) for val in indices))
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
 
     return None
 
@@ -265,7 +265,7 @@ def visualize_h5_dataset(
             h5_file,
             dataset_key)
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
     
     return None
 
@@ -284,7 +284,7 @@ def visualize_h5_dataset_by_cluster(
             h5_file,
             dataset_key)
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
     
     return None
 

@@ -890,6 +890,7 @@ def main():
     """
     # parse args and set up
     args = parse_args()
+    args.out_dir = os.path.abspath(args.out_dir)
     os.system("mkdir -p {}".format(args.out_dir))
     _setup_logs(args)
 

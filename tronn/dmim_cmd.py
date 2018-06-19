@@ -38,40 +38,31 @@ def run(args):
     """
     # setup
     logger = logging.getLogger(__name__)
-    logger.info("Running grammar scan")
+    logger.info("Running dmim scan")
     if args.tmp_dir is not None:
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
         args.tmp_dir = args.out_dir
-
-    # set up model info
-    model_info = args.model_info
         
     # data files
     data_files = glob.glob('{}/*.h5'.format(args.data_dir))
     data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
     logging.info("Found {} chrom files".format(len(data_files)))
 
-    # pull in motif annotation
-    pwm_list = read_pwm_file(args.pwm_file)
-    pwm_names = [pwm.name for pwm in pwm_list]
-    pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
-    logger.info("{} motifs used".format(len(pwm_list)))
-
     # set up dataloader
     dataloader = H5DataLoader(data_files)
     input_fn = dataloader.build_input_fn(
         args.batch_size,
-        label_keys=model_info["label_keys"],
+        label_keys=args.model_info["label_keys"],
         filter_tasks=[
-            args.inference_tasks,
-            args.filter_tasks],
-        singleton_filter_tasks=args.inference_tasks)
+            args.inference_task_indices,
+            args.filter_task_indices],
+        singleton_filter_tasks=args.inference_task_indices)
 
     # set up model
     model_manager = ModelManager(
-        net_fns[model_info["name"]],
-        model_info["params"])
+        net_fns[args.model_info["name"]],
+        args.model_info["params"])
 
     # set up inference generator
     inference_generator = model_manager.infer(
@@ -79,13 +70,13 @@ def run(args):
         args.out_dir,
         net_fns[args.inference_fn],
         inference_params={
-            "model_fn": net_fns[model_info["name"]],
+            "model_fn": net_fns[args.model_info["name"]],
             "backprop": args.backprop,
             "importances_fn": args.backprop, # TODO fix this
-            "importance_task_indices": args.inference_tasks,
-            "pwms": pwm_list,
+            "importance_task_indices": args.inference_task_indices,
+            "pwms": args.pwm_list,
             "manifold": args.manifold_file},
-        checkpoint=model_info["checkpoint"],
+        checkpoint=args.model_info["checkpoint"],
         yield_single_examples=True)
 
     # run inference and save out
@@ -106,7 +97,7 @@ def run(args):
                 
             # attach to delta logits and mutated scores
             hf["delta_logits"].attrs["pwm_mut_names"] = pwm_names
-            for task_idx in args.inference_tasks:
+            for task_idx in args.inference_task_indices:
                 hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
 
     generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)

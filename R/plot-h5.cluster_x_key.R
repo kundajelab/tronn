@@ -116,9 +116,23 @@ colnames(all_data) <- paste("idx", indices, sep="-")
 print(head(all_data))
 
 # make heatmap
+if (!is.na(indices)) {
+    indices_string <- paste(
+        "indices_",
+        indices[1],
+        "-",
+        indices[length(indices)], sep="")
+    key_string <- paste(
+        key,
+        indices_string,
+        sep=".")
+} else {
+    key_string <- key
+}
+
 heatmap_file <- paste(
     sub(".h5", "", h5_file),
-    key,
+    key_string,
     "by_cluster",
     "pdf", sep=".")
 print(heatmap_file)

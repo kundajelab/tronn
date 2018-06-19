@@ -138,9 +138,23 @@ if (nrow(data_norm) > plottable_nrow) {
 print(dim(data_ordered))
 
 # make heatmap
+if (!is.na(indices)) {
+    indices_string <- paste(
+        "indices_",
+        indices[1],
+        "-",
+        indices[length(indices)], sep="")
+    key_string <- paste(
+        dataset_key,
+        indices_string,
+        sep=".")
+} else {
+    key_string <- dataset_key
+}
+
 heatmap_file <- paste(
     sub(".h5", "", h5_file),
-    dataset_key,
+    key_string,
     paste(cluster_key, cluster_col-1, sep="-"), # to match 0-START from python
     "pdf", sep=".")
 print(heatmap_file)
