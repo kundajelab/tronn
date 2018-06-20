@@ -172,21 +172,25 @@ def visualize_clustered_h5_dataset_full(
         dataset_key,
         cluster_col=0,
         remove_final_cluster=True,
-        normalize=False,
+        row_normalize=False,
+        signal_normalize=False,
         cluster_columns=False,
+        use_raster=True,
         indices=[]):
     """wrapper on nice heatmap2 plotting 
     """
     r_cmd = (
-        "plot-h5.example_x_key.R {0} {1} {2} {3} {4} {5} {6} {7}").format(
+        "plot-h5.example_x_key.R {0} {1} {2} {3} {4} {5} {6} {7} {8} {9}").format(
             h5_file,
             cluster_key,
             cluster_col,
             1 if remove_final_cluster else 0,
-            1 if normalize else 0,
+            1 if row_normalize else 0,
+            1 if signal_normalize else 0,
             1 if cluster_columns else 0,
+            1 if use_raster else 0,
             dataset_key,
-            " ".join(str(val) for val in indices))
+            ",".join(str(val) for val in indices))
     print r_cmd
     os.system(r_cmd)
     
@@ -244,7 +248,7 @@ def visualize_datasets_by_cluster_map(
             1 if normalize else 0,
             1 if cluster_rows else 0,
             dataset_key,
-            " ".join(str(val) for val in indices))
+            ",".join(str(val) for val in indices))
     print r_cmd
     os.system(r_cmd)
 
@@ -286,5 +290,120 @@ def visualize_h5_dataset_by_cluster(
     print r_cmd
     os.system(r_cmd)
     
+    return None
+
+
+
+
+def visualize_clustering_results(
+        h5_file,
+        cluster_key,
+        inference_task_indices,
+        visualize_task_indices,
+        visualize_signals,
+        cluster_col=0,
+        onehot_cluster_key=None):
+    """visualize the results
+    """
+    dataset_keys = [
+        "pwm-scores.taskidx-{}".format(i)
+        for i in inference_task_indices]
+    visualize_task_indices = [inference_task_indices] + visualize_task_indices
+    num_vis_sets = len(visualize_task_indices)
+
+    # (1) visualize example x key
+    # do this for inference tasks and visualize tasks
+    # set up keys, indices, etc for visualizing full example space
+    keys = list(dataset_keys)
+    keys += ["probs" for i in xrange(num_vis_sets)]
+    keys += ["labels" for i in xrange(num_vis_sets)]
+    
+    indices = [[] for i in xrange(len(dataset_keys))]
+    indices += [visualize_task_indices[i] for i in xrange(num_vis_sets)] * 2
+
+    row_normalizations = [True for i in xrange(len(dataset_keys))]
+    row_normalizations += [False for i in xrange(num_vis_sets)] * 2
+
+    signal_normalizations = [False for i in xrange(len(dataset_keys))]
+    signal_normalizations += [False for i in xrange(num_vis_sets)] * 2
+
+    # add in signals
+    for key in visualize_signals.keys():
+        keys.append(key)
+        indices.append(visualize_signals[key][0])
+        row_normalizations.append(False)
+        signal_normalizations.append(True)
+        
+    for i in xrange(len(keys)):
+
+        if "pwm-score" in keys[i]:
+            use_raster = True
+            cluster_columns = True
+        else:
+            use_raster = False
+            cluster_columns = False
+        
+        visualize_clustered_h5_dataset_full(
+            h5_file,
+            cluster_key,
+            keys[i],
+            cluster_col=cluster_col, # must always be single column
+            remove_final_cluster=True,
+            row_normalize=row_normalizations[i],
+            signal_normalize=signal_normalizations[i],
+            cluster_columns=cluster_columns,
+            use_raster=use_raster,
+            indices=indices[i])
+
+    # here adjust cluster key after generating example graphs
+    if onehot_cluster_key is not None:
+        cluster_key = onehot_cluster_key
+        cluster_col = -1
+        
+    # (2) visualize (per cluster) aggregated x keys (multiple)
+    # set up keys
+    keys = [["probs", "labels"] for i in xrange(num_vis_sets)]
+    indices = [[visualize_task_indices[i], visualize_task_indices[i]]
+               for i in xrange(num_vis_sets)]
+
+    # add in signals
+    for key in visualize_signals.keys():
+        label_key = visualize_signals[key][1].get("label_key", None)
+        if label_key is None:
+            dataset_keys = ["probs", key]
+        else:
+            dataset_keys = ["probs", label_key, key]
+        key_indices = visualize_signals[key][0]
+        key_indices = [key_indices for i in xrange(len(dataset_keys))]
+
+        keys.append(dataset_keys)
+        indices.append(key_indices)
+    
+    for i in xrange(len(keys)):
+        visualize_aggregated_h5_datasets(
+            h5_file,
+            cluster_key,
+            keys[i],
+            indices[i],
+            cluster_col=cluster_col)
+
+    # (3) set up keys for cluster map
+    keys = ["probs" for i in xrange(num_vis_sets)]
+    keys += ["labels" for i in xrange(num_vis_sets)]
+    
+    indices = [visualize_task_indices[i] for i in xrange(num_vis_sets)] * 2
+    
+    for key in visualize_signals.keys():
+        keys.append(key)
+        indices.append(visualize_signals[key][0])
+
+    for i in xrange(len(keys)):
+        visualize_datasets_by_cluster_map(
+            h5_file,
+            cluster_key,
+            keys[i],
+            indices=indices[i],
+            cluster_col=cluster_col)
+
     return None
 

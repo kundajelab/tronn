@@ -30,7 +30,9 @@ from tronn.visualization import visualize_datasets_by_cluster_map
 from tronn.visualization import visualize_h5_dataset
 from tronn.visualization import visualize_h5_dataset_by_cluster
 
+from tronn.visualization import visualize_clustering_results
 
+# TODO adjust this to be able to use onehot cluster datasets
 def _visualize_results(
         h5_file,
         cluster_key,
@@ -221,6 +223,15 @@ def run(args):
             #print args.visualize_signals
 
             # TODO need to adjust the output name
+            visualize_clustering_results(
+                results_h5_file,
+                refined_metacluster_key,
+                args.inference_task_indices,
+                args.visualize_task_indices,
+                args.visualize_signals)
+
+            quit()
+            
             _visualize_results(
                 results_h5_file,
                 refined_metacluster_key,

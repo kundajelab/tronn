@@ -100,20 +100,26 @@ def run(args):
             for task_idx in args.inference_task_indices:
                 hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
 
+    # collect into grammars (ie, the results for each cluster)
+    # and also output gml files (for cytoscape)
     generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)
 
-    # and visualize
+    # and visualize:
 
+    # (0) reviz the clusters (as per the code in scanmotifs)
+    # use the onehot? also check the overlapping cluster info?
+    
     # (1)
-    # delta in prediction scores
-    # visualize dataset per motif... {N, task}?
-    # visualize delta scores {motif, task}
+    # delta in prediction scores {mut motif, task}
+    # set up like scanmotifs, can choose which label sets and tasks (x)
+    # for each motif
+
 
     # (2)
     # adjacency results - {task, pwm, pwm} for each timepoint
 
+    
 
-    # (3) other things go to cytoscape
 
     
     "plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)

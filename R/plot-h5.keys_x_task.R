@@ -10,9 +10,6 @@ library(reshape2)
 library(RColorBrewer)
 
 # helper functions
-se <- function(x) sd(x) / sqrt(length(x))
-
-# helper functions
 make_heatmap <- function(
     data,
     out_pdf_file,
@@ -24,11 +21,11 @@ make_heatmap <- function(
 
     # grid
     mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
-    mylwid = c(2,6,2)
-    mylhei = c(0.5,12,1.5)
+    mylwid = c(0.25,1.5,0.5)
+    mylhei = c(0.25,4,0.75)
 
     # plot
-    pdf(out_pdf_file, height=18, width=10)
+    pdf(out_pdf_file, height=7, width=3, family="ArialMT")
     heatmap.2(
         as.matrix(data),
         Rowv=FALSE,
@@ -36,23 +33,34 @@ make_heatmap <- function(
         dendrogram="none",
         trace="none",
         density.info="none",
-        labRow="",
+
+        colsep=1:ncol(data),
+        rowsep=1:nrow(data),
+        sepcolor="black",
+        sepwidth=c(0.01,0.01),
+        
         labCol="",
-        cexCol=0.5,
+        cexRow=1.0,
+        
         keysize=0.1,
         key.title=NA,
         key.xlab=NA,
         key.par=list(pin=c(4,0.1),
-            mar=c(9.1,0,2.1,0),
-            mgp=c(3,2,0),
-            cex.axis=2.0,
+            mar=c(3.1,1,3.1,1),
+            mgp=c(3,1,0),
+            cex.axis=1.0,
             font.axis=2),
-        margins=c(3,0),
+        key.xtickfun=function() {
+            breaks <- pretty(parent.frame()$breaks)
+            breaks <- breaks[c(1,length(breaks))]
+            list(at = parent.frame()$scale01(breaks),
+                 labels = breaks)},
+        
+        margins=c(1,0),
         lmat=mylmat,
         lwid=mylwid,
         lhei=mylhei,
-        col=my_palette,
-        useRaster=FALSE)
+        col=my_palette)
     dev.off()
 
 }
@@ -117,13 +125,17 @@ for (cluster_idx in 1:length(cluster_ids)) {
         if (key_idx == 1) {
             all_data <- data
             key_string <- key
+            data_names <- c(key)
         } else {
             all_data <- rbind(all_data, data)
             key_string <- paste(key_string, key, sep="-")
+            data_names <- c(data_names, key)
         }
 
     }
-    print(dim(all_data))
+
+    # add row names
+    rownames(all_data) <- data_names
     
     # make heatmap
     heatmap_file <- paste(

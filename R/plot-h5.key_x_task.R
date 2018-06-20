@@ -42,7 +42,7 @@ make_heatmap <- function(
         density.info="none",
         colsep=1:ncol(data),
         rowsep=1:nrow(data),
-        sepclor="black",
+        sepcolor="black",
         sepwidth=c(0.01,0.01),
         cexCol=1.25,
         keysize=0.1,
