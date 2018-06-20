@@ -101,14 +101,21 @@ for (cluster_idx in 1:length(cluster_ids)) {
             indices <- as.numeric(unlist(
                 strsplit(key_and_indices[2], ",", fixed=TRUE))) + 1
         } else {
-            indices <- NA
+            indices <- c()
         }
        
         # extract from h5 file
         data <- h5read(h5_file, key, read.attributes=TRUE)
         data <- t(data)
-        if (!is.na(indices)) {
+        if (length(indices) > 0) {
             data <- data[,indices]
+            indices_string <- paste(
+                "_indices_",
+                indices[1]-1,
+                "-",
+                indices[length(indices)]-1, sep="")
+        } else {
+            indices_string <- ""
         }
         data <- data[clusters==cluster_ids[cluster_idx],]
 
@@ -124,11 +131,12 @@ for (cluster_idx in 1:length(cluster_ids)) {
         # append
         if (key_idx == 1) {
             all_data <- data
-            key_string <- key
+            key_string <- paste(key, indices_string, sep="")
             data_names <- c(key)
         } else {
             all_data <- rbind(all_data, data)
-            key_string <- paste(key_string, key, sep="-")
+            key_tmp <- paste(key, indices_string, sep="")
+            key_string <- paste(key_string, key_tmp, sep="-")
             data_names <- c(data_names, key)
         }
 
@@ -138,6 +146,8 @@ for (cluster_idx in 1:length(cluster_ids)) {
     rownames(all_data) <- data_names
     
     # make heatmap
+    
+
     heatmap_file <- paste(
         sub(".h5", "", h5_file),
         key_string,

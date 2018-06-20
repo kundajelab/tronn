@@ -302,7 +302,7 @@ def visualize_clustering_results(
         visualize_task_indices,
         visualize_signals,
         cluster_col=0,
-        onehot_cluster_key=None):
+        soft_cluster_key=None):
     """visualize the results
     """
     dataset_keys = [
@@ -356,8 +356,8 @@ def visualize_clustering_results(
             indices=indices[i])
 
     # here adjust cluster key after generating example graphs
-    if onehot_cluster_key is not None:
-        cluster_key = onehot_cluster_key
+    if soft_cluster_key is not None:
+        cluster_key = soft_cluster_key
         cluster_col = -1
         
     # (2) visualize (per cluster) aggregated x keys (multiple)

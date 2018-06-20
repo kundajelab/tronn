@@ -16,21 +16,7 @@ from tronn.nets.nets import net_fns
 from tronn.interpretation.motifs import read_pwm_file
 from tronn.interpretation.grammars import generate_grammars_from_dmim
 
-
-def visualize_scores(
-        h5_file,
-        dataset_key):
-    """Visualize clustering. Note that the R script is downsampling
-    to make things visible.
-    """
-    # do this in R
-    plot_example_x_pwm = (
-        "plot.example_x_pwm_mut.from_h5.R {0} {1}").format(
-            h5_file, dataset_key)
-    print plot_example_x_pwm
-    os.system(plot_example_x_pwm)
-    
-    return None
+from tronn.visualization import visualize_clustering_results
 
 
 def run(args):
@@ -104,6 +90,16 @@ def run(args):
     # and also output gml files (for cytoscape)
     generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)
 
+    visualize = True
+    if visualize:
+        visualize_clustering_results(
+            results_h5_file,
+            "manifold.onehot",
+            args.inference_task_indices,
+            args.visualize_task_indices,
+            args.visualize_signals,
+            soft_cluster_key="manifold_clusters")
+        
     # and visualize:
 
     # (0) reviz the clusters (as per the code in scanmotifs)

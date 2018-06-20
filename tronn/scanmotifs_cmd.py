@@ -32,104 +32,6 @@ from tronn.visualization import visualize_h5_dataset_by_cluster
 
 from tronn.visualization import visualize_clustering_results
 
-# TODO adjust this to be able to use onehot cluster datasets
-def _visualize_results(
-        h5_file,
-        cluster_key,
-        inference_task_indices,
-        visualize_task_indices,
-        visualize_signals):
-    """visualize the results
-    """
-    dataset_keys = [
-        "pwm-scores.taskidx-{}".format(i)
-        for i in inference_task_indices]
-    visualize_task_indices = [inference_task_indices] + visualize_task_indices
-
-    # (1)
-    # look at examples x key of interest (all same R script):
-    for i in xrange(len(dataset_keys)):
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            cluster_key,
-            dataset_keys[i],
-            normalize=True,
-            cluster_columns=True)
-
-    for task_indices in visualize_task_indices:
-        # first probs
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            cluster_key,
-            "probs",
-            indices=task_indices)
-
-        # then the label set
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            cluster_key,
-            "labels",
-            indices=task_indices)
-
-    # (2)
-    # key: all signals desired (use keys and the indices with the keys)
-    for signal_key in visualize_signals:
-        signal_indices = visualize_signals[signal_key][0]
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            cluster_key,
-            signal_key,
-            indices=signal_indices)
-
-    # (3)
-    # look at aggregate, comparing probs to labels/signal
-    for task_indices in visualize_task_indices:
-        visualize_aggregated_h5_datasets(
-            h5_file,
-            cluster_key,
-            ["probs", "labels"],
-            [task_indices, task_indices])
-
-    # (4)
-    # key: probs + signals (1 plot) (split by task index set?)
-    # need to have {cluster, (prob/label), idx}
-    # script needs to take key (probs), absolute task indices (probs), signal key, signal indices
-    # need to match absolute indices with signal key....
-    for key in visualize_signals:
-        label_key = visualize_signals[key][1].get("label_key", None)
-        if label_key is None:
-            dataset_keys = ["probs", key]
-        else:
-            dataset_keys = ["probs", label_key, key]
-        key_indices = visualize_signals[key][0]
-        key_indices = [key_indices for i in xrange(len(dataset_keys))]
-        visualize_aggregated_h5_datasets(
-            h5_file,
-            cluster_key,
-            dataset_keys,
-            key_indices)
-
-    # (5)
-    # can also do a correlation between clusters and specific label sets?
-    # ie for a cluster, what is the average (or summed) signal?
-    # need to have {cluster, label}
-    for task_indices in visualize_task_indices:
-        for dataset_key in ["probs", "labels"]:
-            visualize_datasets_by_cluster_map(
-                h5_file,
-                cluster_key,
-                dataset_key,
-                indices=task_indices)
-
-    for key in visualize_signals:
-        visualize_datasets_by_cluster_map(
-            h5_file,
-            cluster_key,
-            key,
-            indices=visualize_signals[key][0])
-
-    return None
-
 
 def run(args):
     """Scan motifs from a PWM file
@@ -216,23 +118,7 @@ def run(args):
 
         # visualize in R
         if visualize:
-
-            #print args.inference_tasks
-            #print args.visualize_tasks
-            #print args.visualize_task_indices
-            #print args.visualize_signals
-
-            # TODO need to adjust the output name
             visualize_clustering_results(
-                results_h5_file,
-                refined_metacluster_key,
-                args.inference_task_indices,
-                args.visualize_task_indices,
-                args.visualize_signals)
-
-            quit()
-            
-            _visualize_results(
                 results_h5_file,
                 refined_metacluster_key,
                 args.inference_task_indices,

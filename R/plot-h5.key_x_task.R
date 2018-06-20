@@ -8,10 +8,6 @@ library(gplots)
 library(ggplot2)
 library(reshape)
 library(RColorBrewer)
-#library(scales)
-
-# helper functions
-se <- function(x) sd(x) / sqrt(length(x))
 
 # helper functions
 make_heatmap <- function(
@@ -24,12 +20,8 @@ make_heatmap <- function(
     
     # grid
     mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
-    mylwid = c(0.25,1.5,0.50)
-    mylhei = c(0.25,4,0.5)
-
-    #mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
-    #mylwid = c(2,6,2)
-    #mylhei = c(0.5,12,1.5)
+    mylwid = c(0.25,1.5,0.5)
+    mylhei = c(0.25,4,0.75)
     
     # plot
     pdf(out_pdf_file, height=7, width=3, family="ArialMT")
@@ -49,10 +41,16 @@ make_heatmap <- function(
         key.title=NA,
         key.xlab=NA,
         key.par=list(pin=c(4,0.1),
-            mar=c(2.1,0,2.1,0),
+            mar=c(3.1,1,3.1,1),
             mgp=c(3,1,0),
             cex.axis=1.0,
             font.axis=2),
+        key.xtickfun=function() {
+            breaks <- pretty(parent.frame()$breaks)
+            breaks <- breaks[c(1,length(breaks))]
+            list(at = parent.frame()$scale01(breaks),
+                 labels = breaks)},
+        
         srtCol=45,
         margins=c(1,0),
         lmat=mylmat,
@@ -110,7 +108,7 @@ for (i in 1:num_clusters) {
     data <- data[ordering,]
 
     plot_file <- paste(
-        sub(".h5", "", h5_file),
+        sub("h5", "", h5_file),
         key,
         ".cluster-", i-1, ".pdf", sep="")        
     print(plot_file)
