@@ -614,14 +614,14 @@ def aggregate_pwm_results(
         pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        #del hf[agg_key]
+        del hf[agg_key]
         hf.create_dataset(agg_key, data=tasks_x_pwm)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         
     return None
 
 
-
+# TODO can use this for dmim too - rename?
 def aggregate_pwm_results_per_cluster(
         results_h5_file,
         cluster_key,
@@ -629,8 +629,9 @@ def aggregate_pwm_results_per_cluster(
         agg_key,
         manifold_h5_file,
         cluster_col=0,
-        remove_final_cluster=True):
-    """creates a task x pwm file
+        remove_final_cluster=True,
+        soft_clustering=False):
+    """creates a task x pwm dataset
     """
     # get the master pwm vector from manifold file
     with h5py.File(manifold_h5_file, "r") as hf:
@@ -642,8 +643,14 @@ def aggregate_pwm_results_per_cluster(
         pwm_names = hf[dataset_keys[0]].attrs["pwm_names"]
 
         # cluster ids
-        clusters = hf[cluster_key][:,cluster_col]
-        cluster_ids = sorted(list(set(clusters.tolist())))
+        if not soft_clustering:
+            clusters = hf[cluster_key][:,cluster_col]
+            cluster_ids = sorted(list(set(clusters.tolist())))
+        else:
+            clusters = hf[cluster_key][:]
+            cluster_ids = range(hf[cluster_key].shape[1])
+
+        # remove final id
         if remove_final_cluster:
             cluster_ids = cluster_ids[0:-1]
 
@@ -670,15 +677,19 @@ def aggregate_pwm_results_per_cluster(
                     where=max_vals!=0)
                 
                 # sum
-                agg_data[cluster_idx, dataset_idx,:] = np.sum(
-                    data_norm[clusters==cluster_id], axis=0)
+                if not soft_clustering:
+                    agg_data[cluster_idx, dataset_idx,:] = np.sum(
+                        data_norm[clusters==cluster_id], axis=0)
+                else:
+                    agg_data[cluster_idx, dataset_idx,:] = np.sum(
+                        data_norm[clusters[:,cluster_id] >= 1], axis=0)
                 
         # if needed, filter for master pwm vector
         agg_data = agg_data[:,:,master_pwm_vector > 0]
         pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        #del hf[agg_key]
+        del hf[agg_key]
         hf.create_dataset(agg_key, data=agg_data)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         

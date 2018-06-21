@@ -119,6 +119,7 @@ clusters <- h5read(h5_file, cluster_key)
 
 # transpose (fastest changing axis is opposite order in R vs python)
 data <- t(data)
+print(dim(data))
 if (length(args) > 9) {
     indices <- as.numeric(unlist(strsplit(args[10], ",", fixed=TRUE))) + 1
     data <- data[,indices]
@@ -126,13 +127,16 @@ if (length(args) > 9) {
     indices <- c()
 }
 
-print(dim(data))
-clusters <- t(clusters)
+
+if (length(dim(clusters)) > 1) {
+    clusters <- t(clusters)
+    clusters <- clusters[,cluster_col]
+}
 
 # get correct column, and sort by column order
-clusters <- clusters[,cluster_col]
 data <- data[order(clusters),]
 clusters <- clusters[order(clusters)]
+print(table(clusters))
 
 # remove final cluster if desired
 if (remove_final_cluster == 1) {

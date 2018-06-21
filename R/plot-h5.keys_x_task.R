@@ -79,11 +79,20 @@ data_strings <- args[5:length(args)]
 
 # read in clusters
 clusters <- h5read(h5_file, cluster_key)
-clusters <- t(clusters)
-clusters <- clusters[,cluster_col]
-cluster_ids <- unique(clusters)
-cluster_ids <- cluster_ids[order(cluster_ids)]
+if (length(dim(clusters)) > 1 & cluster_col > 0) {
+    clusters <- t(clusters)
+    clusters <- clusters[,cluster_col]
+    cluster_ids <- unique(clusters)
+} else if ( length(dim(clusters)) > 1 ) {
+    clusters <- t(clusters)
+    cluster_ids <- 1:ncol(clusters)
+} else {
+    cluster_ids <- unique(clusters)
+}
+
+# remove final cluster
 if (remove_final_cluster == 1) {
+    cluster_ids <- cluster_ids[order(cluster_ids)]
     cluster_ids <- cluster_ids[1:(length(cluster_ids)-1)]
 }
 
@@ -117,8 +126,12 @@ for (cluster_idx in 1:length(cluster_ids)) {
         } else {
             indices_string <- ""
         }
-        data <- data[clusters==cluster_ids[cluster_idx],]
-
+        if (cluster_col > 0) {
+            data <- data[clusters==cluster_ids[cluster_idx],]
+        } else {
+            data <- data[clusters[,cluster_idx] >= 1,]
+        }
+        
         # TODO may need to normalize the scales
         rowmax <- apply(data, 1, function(x) max(x))
         data_norm <- data / rowmax
@@ -146,8 +159,6 @@ for (cluster_idx in 1:length(cluster_ids)) {
     rownames(all_data) <- data_names
     
     # make heatmap
-    
-
     heatmap_file <- paste(
         sub(".h5", "", h5_file),
         key_string,

@@ -21,10 +21,10 @@ make_heatmap <- function(
     # grid
     mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
     mylwid = c(0.25,1.5,0.50)
-    mylhei = c(0.25,4,0.5)
+    mylhei = c(0.25,4,0.75)
 
     # plot
-    pdf(out_pdf_file, height=18, width=10)
+    pdf(out_pdf_file, height=7, width=3, family="ArialMT")
     heatmap.2(
         as.matrix(data),
         Rowv=FALSE,
@@ -42,10 +42,16 @@ make_heatmap <- function(
         key.title=NA,
         key.xlab=NA,
         key.par=list(pin=c(4,0.1),
-            mar=c(2.1,0,2.1,0),
+            mar=c(3.1,0,3.1,0),
             mgp=c(3,1,0),
             cex.axis=1.0,
             font.axis=2),
+        key.xtickfun=function() {
+            breaks <- pretty(parent.frame()$breaks)
+            breaks <- breaks[c(1,length(breaks))]
+            list(at = parent.frame()$scale01(breaks),
+                 labels = breaks)},
+        
         margins=c(1,0),
         lmat=mylmat,
         lwid=mylwid,

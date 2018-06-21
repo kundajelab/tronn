@@ -79,32 +79,31 @@ cluster_rows <- as.numeric(args[6])
 key <- args[7]
 
 # read in clusters
-
-# TODO consider easiest way to deal with onehot encoded clustering
 clusters <- h5read(h5_file, cluster_key)
-clusters <- t(clusters)
-
-if (cluster_col > 0) {
-    # use single column
-    
+if (length(dim(clusters)) > 1 & cluster_col > 0) {
+    clusters <- t(clusters)
     clusters <- clusters[,cluster_col]
     cluster_ids <- unique(clusters)
-    cluster_ids <- cluster_ids[order(cluster_ids)]
-    if (remove_final_cluster == 1) {
-        cluster_ids <- cluster_ids[1:(length(cluster_ids)-1)]
-    }
-
+} else if ( length(dim(clusters)) > 1 ) {
+    clusters <- t(clusters)
+    cluster_ids <- 1:ncol(clusters)
 } else {
-    # use multiple columns
-    cluster_ids <- seq(1, ncol(clusters))
+    cluster_ids <- unique(clusters)
 }
 
+# remove final cluster
+if (remove_final_cluster == 1) {
+    cluster_ids <- cluster_ids[1:(length(cluster_ids)-1)]
+}
+
+# get indices
 if (length(args) > 7) {
     indices <- as.numeric(unlist(strsplit(args[8], ",", fixed=TRUE))) + 1
 } else {
     indices <- c()
 }
 
+# read data
 data <- h5read(h5_file, key, read.attributes=TRUE)
 data <- t(data)
 if (length(indices) > 0) {
@@ -119,7 +118,7 @@ for (cluster_idx in 1:length(cluster_ids)) {
     if (cluster_col > 0) {
         cluster_data <- data[clusters==cluster_ids[cluster_idx],]
     } else {
-        cluster_data <- data[clusters[cluster_idx] >= 1,]
+        cluster_data <- data[clusters[,cluster_idx] >= 1,]
     }
     
     # aggregate

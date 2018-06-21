@@ -927,6 +927,7 @@ def main():
     elif subcommand == "dmim":
         _setup_model(args)
         _setup_interpretation_options(args)
+        _setup_visualization_options(args)
         from tronn.dmim_cmd import run
         run(args)
     elif subcommand == "dream":

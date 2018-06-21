@@ -1063,11 +1063,14 @@ def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cuto
     return None
 
 
-def generate_grammars_from_dmim_new(
-        results_h5_file,
-        inference_tasks,
+def aggreagate_dmim_results(
+        h5_file,
+        cluster_key,
+        inference_task_indices,
         pwm_list,
-        cutoff=0.05):
+        cutoff=0.05,
+        other_task_indices=[],
+        soft_clustering=True):
     """given the h5 file results, extract the grammar results
 
     What is happening here???
@@ -1076,7 +1079,13 @@ def generate_grammars_from_dmim_new(
     for these results, just need the delta in logits/probs (across all tasks)
     and then also the adjacency results
     
-    everything else does not need to be touched?
+    Returns:
+    {cluster, M, tasks} with pwm vectors {cluster, M} - delta logits
+    {cluster, M, M} with same pwm vectors as above - adjacency results
+
+    # do this for various task index sets
+
+    everything else does not need to be touched.
     
 
     
@@ -1088,7 +1097,7 @@ def generate_grammars_from_dmim_new(
     dmim_prefix = "dmim-scores"
     pwm_prefix = "pwm-scores"
 
-    # prep by keeping hclust for pwms
+    # prep by keeping hclust for pwms (for reducing similar pwms)
     cor_filt_mat, distances = correlate_pwms(
         pwm_list,
         cor_thresh=0.3,
@@ -1096,63 +1105,47 @@ def generate_grammars_from_dmim_new(
         num_threads=24)
     hclust = linkage(squareform(1 - distances), method="ward")
     
-    # extract clusters
+    # extract clusters and master pwm vector
     with h5py.File(results_h5_file, "r") as hf:
-        num_clusters = hf["manifold_clusters"].shape[1]
-        cluster_by_example = range(num_clusters)
-        #cluster_by_example = list(set(hf["manifold_clusters.onehot"][:].tolist()))
-        #num_clusters = len(cluster_by_example)
+
+        # cluster ids
+        if not soft_clustering:
+            clusters = hf[cluster_key][:,cluster_col]
+            cluster_ids = sorted(list(set(clusters.tolist())))
+        else:
+            clusters = hf[cluster_key][:]
+            cluster_ids = range(hf[cluster_key].shape[1])
+
+        # master pwm vector
         master_pwm_vector = hf["master_pwm_vector"][:]
 
-    # set up output arrays
-    # TODO clean this up!
-    # this is this way because of the non-onehot set up of the clusters....
-    # maybe just set up the R viz script to deal with this?
-    dmim_results = np.zeros((
+    # set up output arrays {cluster, task, mut motif, response motif} and {cluster, motif}
+    delta_logits_by_cluster = np.zeros((
+        num_clusters,
+        np.sum(master_pwm_vector > 0),
+        len(task_indices))) # {cluster, tasks, M} collect across all
+    dmim_results_by_cluster = np.zeros((
         num_clusters,
         len(inference_tasks),
         np.sum(master_pwm_vector > 0),
-        len(pwm_list)))
-
-    pwm_results = np.zeros((
-        num_clusters,
-        len(inference_tasks),
-        np.sum(master_pwm_vector > 0)))
-
-    label_results = np.zeros((
-        num_clusters,
-        len(inference_tasks)))
-    
-    prob_results = np.zeros((
-        num_clusters,
-        len(inference_tasks)))
-    
-    logit_results = np.zeros((
-        num_clusters,
-        len(inference_tasks)))
-
-    delta_prob_results = np.zeros((
-        num_clusters,
-        len(inference_tasks),
-        np.sum(master_pwm_vector > 0)))
-
-    # TODO keep track of individual pwm vectors for each cluster.
-    cluster_pwms_results = np.zeros((
+        len(pwm_list))) # {cluster, task, response motifs}
+    cluster_pwm_vectors = np.zeros((
         num_clusters,
         np.sum(master_pwm_vector >0)))
     
     # for each cluster, for each task, extract subset
-    for cluster_i in xrange(num_clusters):
-        cluster = cluster_by_example[cluster_i]
-        print cluster
+    for cluster_idx in xrange(len(cluster_ids)):
+        cluster_id = cluster_ids[cluster_idx]
+
+        # first extract the inference task set (that has adjacency matrix)
+        
+        
+        # then extract the other task index sets (that don't have importance scores)
+        
         with h5py.File(results_h5_file, "r") as hf:
             #in_cluster = hf["manifold_clusters.onehot"][:] == cluster
             in_cluster = hf["manifold_clusters"][:,cluster_i] == 1
             delta_logits = hf["delta_logits"][:][in_cluster] # {N, logit, mut}
-            labels = hf["labels"][:][in_cluster][:,inference_tasks]
-            logits = hf["logits"][:][in_cluster][:,inference_tasks] # {N, logit}
-            probs = hf["probs"][:][in_cluster][:,inference_tasks]
-            metadata = hf["example_metadata"][:][in_cluster]
 
         # save out the metadata as a bed file
         metadata_file = "{0}.cluster-{1}.metadata.txt".format(dmim_prefix, cluster)
@@ -1232,46 +1225,12 @@ def generate_grammars_from_dmim_new(
             # TODO - for each motif, get the best global hit position
             # and save out a bed file centered on the motif position.
             
-            
-        # save out labels, logits, and delta logit results
-        label_results[cluster_i,:] = np.mean(labels, axis=0)
-        prob_results[cluster_i,:] = np.mean(probs, axis=0)
-        logit_results[cluster_i,:] = np.mean(logits, axis=0)
-            #delta_prob_results[cluster_i,:,:] = np.mean(
-            #    expit(np.expand_dims(logits, axis=2) + delta_logits), axis=0)
-
-            # TODO - ideally only average per mutation on regions that have that motif
-            # in orig pwm scores
-        #delta_prob_results[cluster_i,:,:] = np.mean(delta_logits, axis=0)
-
-        # save out cluster pwms
-        # TODO - do this using a max matrix across pwm scores
-        #with h5py.File(results_h5_file, "r") as hf:
-        #    in_cluster = hf["manifold_clusters"][:,cluster_i] == 1
-        #    global_prefix = "{}.taskidx-{}".format(pwm_prefix, len(inference_tasks))
-        #    print global_prefix
-        #    cluster_pwms = hf[global_prefix][:][in_cluster]
-        #cluster_pwms_results[cluster_i,:] = reduce_pwms(
-        #    pwm_global_scores, hclust, pwm_list, std_thresh=1)[master_pwm_vector > 0]
-        #cluster_pwms_results[cluster_i,:] = reduce_pwms(
-        #    cluster_pwms, hclust, pwm_list, std_thresh=1)[master_pwm_vector > 0]
-
         # get best pwms
         nonzero_means = np.hstack((cluster_pwms, -cluster_pwms))
         mean_val = np.mean(nonzero_means)
         std_val = np.std(nonzero_means)
         sig_pwms = (cluster_pwms > (mean_val + (std_val * 2))).astype(int)
-        
-        #scores = np.sum(cluster_pwms, axis=0).tolist()
-        #test = dict(zip([pwm.name for pwm in pwm_list], cluster_pwms))
-        #for key in test.keys():
-        #    if "TEAD" in key:
-        #        print key, test[key]
-        #    elif "CEBP" in key:
-        #        print key, test[key]
-        #    elif "RELA" in key:
-        #        print key, test[key]
-        #print test
+
         #sig_pwms = sd_cutoff(cluster_pwms, std_thresh=2)
         indices = np.where(sig_pwms > 0)[0].tolist()
         pwm_names = [pwm_list[k].name for k in indices]
@@ -1338,26 +1297,6 @@ def generate_grammars_from_dmim_new(
             del hf[dataset_key]
         hf.create_dataset(dataset_key, data=pwm_results[:,:,ordered_indices])
         hf[dataset_key].attrs["pwm_names"] = pwm_names
-
-    # save out labels and logits
-    dataset_key = "{}.labels".format(dmim_prefix)
-    with h5py.File(results_h5_file, "a") as hf:
-        if hf.get(dataset_key) is not None:
-            del hf[dataset_key]
-        hf.create_dataset(dataset_key, data=label_results)
-
-    dataset_key = "{}.probs".format(dmim_prefix)
-    with h5py.File(results_h5_file, "a") as hf:
-        if hf.get(dataset_key) is not None:
-            del hf[dataset_key]
-        hf.create_dataset(dataset_key, data=prob_results)
-
-    dataset_key = "{}.logits".format(dmim_prefix)
-    with h5py.File(results_h5_file, "a") as hf:
-        if hf.get(dataset_key) is not None:
-            del hf[dataset_key]
-        hf.create_dataset(dataset_key, data=logit_results)
-
 
     # save out delta logits
     # subtract from logits and then convert to probs?

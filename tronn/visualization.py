@@ -284,7 +284,7 @@ def visualize_h5_dataset_by_cluster(
     this is specifically for the pwm x task
     """
     r_cmd= (
-        "plot-h5.key_x_task.R {0} {1}").format(
+        "plot-h5.key_x_task.R {0} {1} pwm_names").format(
             h5_file,
             dataset_key)
     print r_cmd
@@ -302,7 +302,8 @@ def visualize_clustering_results(
         visualize_task_indices,
         visualize_signals,
         cluster_col=0,
-        soft_cluster_key=None):
+        soft_cluster_key=None,
+        remove_final_cluster=True):
     """visualize the results
     """
     dataset_keys = [
@@ -348,7 +349,7 @@ def visualize_clustering_results(
             cluster_key,
             keys[i],
             cluster_col=cluster_col, # must always be single column
-            remove_final_cluster=True,
+            remove_final_cluster=remove_final_cluster,
             row_normalize=row_normalizations[i],
             signal_normalize=signal_normalizations[i],
             cluster_columns=cluster_columns,
@@ -385,8 +386,9 @@ def visualize_clustering_results(
             cluster_key,
             keys[i],
             indices[i],
-            cluster_col=cluster_col)
-
+            cluster_col=cluster_col,
+            remove_final_cluster=remove_final_cluster)
+    
     # (3) set up keys for cluster map
     keys = ["probs" for i in xrange(num_vis_sets)]
     keys += ["labels" for i in xrange(num_vis_sets)]
@@ -403,7 +405,8 @@ def visualize_clustering_results(
             cluster_key,
             keys[i],
             indices=indices[i],
-            cluster_col=cluster_col)
-
+            cluster_col=cluster_col,
+            remove_final_cluster=remove_final_cluster)
+        
     return None
 

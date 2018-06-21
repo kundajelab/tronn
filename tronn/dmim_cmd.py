@@ -15,7 +15,13 @@ from tronn.nets.nets import net_fns
 
 from tronn.interpretation.motifs import read_pwm_file
 from tronn.interpretation.grammars import generate_grammars_from_dmim
+from tronn.interpretation.grammars import aggregate_dmim_results
 
+from tronn.interpretation.clustering import aggregate_pwm_results
+from tronn.interpretation.clustering import aggregate_pwm_results_per_cluster
+
+from tronn.visualization import visualize_h5_dataset
+from tronn.visualization import visualize_h5_dataset_by_cluster
 from tronn.visualization import visualize_clustering_results
 
 
@@ -86,39 +92,65 @@ def run(args):
             for task_idx in args.inference_task_indices:
                 hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
 
-    # collect into grammars (ie, the results for each cluster)
-    # and also output gml files (for cytoscape)
-    generate_grammars_from_dmim(results_h5_file, args.inference_tasks, pwm_list)
+            # pwm names
+            for dataset_key in hf.keys():
+                if "pwm-scores" in dataset_key:
+                    hf[dataset_key].attrs["pwm_names"] = [
+                        pwm.name for pwm in args.pwm_list]
 
-    visualize = True
+        # aggregate the pwm cluster results
+        dataset_keys = [
+            "pwm-scores.taskidx-{}".format(i)
+            for i in args.inference_task_indices]
+        global_agg_key = "pwm-scores.tasks_x_pwm.global"
+
+        aggregate_pwm_results(
+            results_h5_file,
+            dataset_keys,
+            global_agg_key,
+            args.manifold_file)
+
+        # TODO need to maintain cluster numbering
+        agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
+        aggregate_pwm_results_per_cluster(
+            results_h5_file,
+            "manifold_clusters",
+            dataset_keys,
+            agg_key,
+            args.manifold_file,
+            soft_clustering=True)
+        
+    visualize = False
     if visualize:
         visualize_clustering_results(
             results_h5_file,
-            "manifold.onehot",
+            "manifold_clusters.onehot",
             args.inference_task_indices,
             args.visualize_task_indices,
             args.visualize_signals,
-            soft_cluster_key="manifold_clusters")
+            soft_cluster_key="manifold_clusters",
+            remove_final_cluster=False)
+        global_agg_key = "pwm-scores.tasks_x_pwm.global"
+        agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
+        visualize_h5_dataset(results_h5_file, global_agg_key)        
+        visualize_h5_dataset_by_cluster(results_h5_file, agg_key)
+
+                
+    # collect into grammars (ie, the results for each cluster)
+    # and also output gml files (for cytoscape)
+    generate_grammars_from_dmim(results_h5_file, args.inference_tasks, args.pwm_list)
+
+    visualize = True
+    if visualize:
+        pass
+        # collect the delta in prediction scores with sig motifs {mut, motif, task}
+        # need to be able to choose indices
         
-    # and visualize:
-
-    # (0) reviz the clusters (as per the code in scanmotifs)
-    # use the onehot? also check the overlapping cluster info?
-    
-    # (1)
-    # delta in prediction scores {mut motif, task}
-    # set up like scanmotifs, can choose which label sets and tasks (x)
-    # for each motif
-
-
-    # (2)
-    # adjacency results - {task, pwm, pwm} for each timepoint
+        # (2)
+        # adjacency results - {task, pwm, pwm} for specific indices (all indices in list)
 
     
-
-
-    
-    "plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)
+    #"plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)
 
     quit()
     # with this vector, generate a reduced heatmap
