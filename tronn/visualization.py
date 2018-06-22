@@ -410,3 +410,59 @@ def visualize_clustering_results(
         
     return None
 
+
+def visualize_agg_pwm_results(
+        h5_file,
+        pwm_scores_key,
+        master_pwm_vector_key,
+        pwm_names_attribute):
+    """
+    """
+    r_cmd = (
+        "plot-h5.cluster_x_aggkey.R {} {} {} {}").format(
+            h5_file,
+            pwm_scores_key,
+            master_pwm_vector_key,
+            pwm_names_attribute)
+    print r_cmd
+    #os.system(r_cmd)
+
+    return None
+
+
+def visualize_agg_delta_logit_results(
+        h5_file,
+        delta_logits_key,
+        motif_filter_key,
+        task_indices,
+        mut_pwm_names_attribute):
+    """
+    """
+    r_cmd = (
+        "plot-h5.cluster_x_deltalogits.R {} {} {} {} {}").format(
+            h5_file,
+            delta_logits_key,
+            motif_filter_key,
+            mut_pwm_names_attribute,
+            ",".join(str(val) for val in task_indices))
+    print r_cmd
+    #os.system(r_cmd)
+    
+    return None
+
+
+def visualize_agg_dmim_adjacency_results(
+        h5_file,
+        dmim_adjacency_key,
+        mut_pwm_names_attribute):
+    """
+    """
+    r_cmd = (
+        "plot-h5.cluster-task-pwm_x_pwm.R {} {} {}").format(
+            h5_file,
+            dmim_adjacency_key,
+            mut_pwm_names_attribute)
+    print r_cmd
+    #os.system(r_cmd)
+
+    return None

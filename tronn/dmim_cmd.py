@@ -24,6 +24,43 @@ from tronn.visualization import visualize_h5_dataset
 from tronn.visualization import visualize_h5_dataset_by_cluster
 from tronn.visualization import visualize_clustering_results
 
+from tronn.visualization import visualize_agg_pwm_results
+from tronn.visualization import visualize_agg_delta_logit_results
+from tronn.visualization import visualize_agg_dmim_adjacency_results
+
+def _visualize_mut_results(
+        h5_file,
+        pwm_scores_key,
+        delta_logits_key,
+        dmim_adjacency_key,
+        visualize_task_indices,
+        pwm_names_attribute,
+        mut_pwm_names_attribute,
+        master_pwm_vector_key="master_pwm_vector",
+        motif_filter_key="mut_pwm_vectors.agg"):
+    """visualize out results
+    """
+    # (1) visualize all the cluster results (which are filtered for motif presence)
+    visualize_agg_pwm_results(h5_file, pwm_scores_key, pwm_names_attribute, master_pwm_vector_key)
+        
+    # visualize delta logits (in groups) (delta_logits)
+    for idx_set in visualize_task_indices:
+        visualize_agg_delta_logit_results(
+            h5_file,
+            delta_logits_key,
+            motif_filter_key,
+            idx_set,
+            mut_pwm_names_attribute)
+
+    # adjacency results - {task, pwm, pwm} for specific indices (all indices in list)
+    # dmim-scores.mut_only
+    visualize_agg_dmim_adjacency_results(
+        h5_file,
+        dmim_adjacency_key,
+        mut_pwm_names_attribute)
+    
+    return None
+
 
 def run(args):
     """run delta motif interaction mutagenesis (DMIM)
@@ -134,35 +171,28 @@ def run(args):
         agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
         visualize_h5_dataset(results_h5_file, global_agg_key)        
         visualize_h5_dataset_by_cluster(results_h5_file, agg_key)
-
                 
-    # collect into grammars (ie, the results for each cluster)
-    # and also output gml files (for cytoscape)
-    generate_grammars_from_dmim(results_h5_file, args.inference_tasks, args.pwm_list)
+    # aggregate results
+    dmim_keys = ["dmim-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
+    pwm_score_keys = ["pwm-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
+    if False:
+        aggregate_dmim_results(
+            results_h5_file,
+            "manifold_clusters",
+            args.inference_task_indices,
+            dmim_keys,
+            pwm_score_keys,
+            args.pwm_list)
 
     visualize = True
     if visualize:
-        pass
-        # collect the delta in prediction scores with sig motifs {mut, motif, task}
-        # need to be able to choose indices
-        
-        # (2)
-        # adjacency results - {task, pwm, pwm} for specific indices (all indices in list)
-
-    
-    #"plot.pwm_x_pwm.mut3.from_h5.R {} dmim-scores.merged.master".format(results_h5_file)
-
-    quit()
-    # with this vector, generate a reduced heatmap
-    # and then threshold and make a directed graph
-    if True:
-        from tronn.interpretation.grammars import generate_networks
-        generate_networks(
+        _visualize_mut_results(
             results_h5_file,
-            dmim_motifs_key,
-            args.inference_tasks,
-            pwm_list,
-            pwm_dict)
-    
+            "pwm-scores.agg",
+            "delta_logits.agg",
+            "dmim-scores.agg.mut_only",
+            [args.inference_task_indices],
+            "pwm_names",
+            "mut_pwm_names")
     
     return None
