@@ -69,12 +69,14 @@ make_heatmap <- function(
 args <- commandArgs(trailingOnly=TRUE)
 h5_file <- args[1]
 dataset_key <- args[2]
-row_attr_key <- args[3]
+filter_vector_key <- args[3]
+row_attr_key <- args[4]
 
 # TODO add in task indices (to make output names better)
 
 # read in data
 data <- h5read(h5_file, dataset_key, read.attributes=TRUE)
+filter_vectors <- h5read(h5_file, filter_vector_key)
 print(dim(data))
 
 # make plot for each cluster
@@ -86,6 +88,12 @@ for (cluster_idx in 1:num_clusters) {
         cluster_data <- data[,,task_idx,cluster_idx]
         rownames(cluster_data) <- attr(data, row_attr_key)
         colnames(cluster_data) <- attr(data, row_attr_key)
+
+        # filter
+        filter_vector <- filter_vectors[,cluster_idx]
+        cluster_data <- cluster_data[filter_vector > 0, filter_vector > 0]
+
+        if (is.null(dim(cluster_data))) { next }
         
         heatmap_file <- paste(
             sub("h5", "", h5_file),
@@ -96,6 +104,6 @@ for (cluster_idx in 1:num_clusters) {
             task_idx-1,
             ".pdf", sep="")
         print(heatmap_file)
-        #make_heatmap(cluster_data, heatmap_file)
+        make_heatmap(cluster_data, heatmap_file)
     }
 }

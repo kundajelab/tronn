@@ -454,13 +454,15 @@ def visualize_agg_delta_logit_results(
 def visualize_agg_dmim_adjacency_results(
         h5_file,
         dmim_adjacency_key,
+        filter_vector_key,
         mut_pwm_names_attribute):
     """
     """
     r_cmd = (
-        "plot-h5.cluster-task-pwm_x_pwm.R {} {} {}").format(
+        "plot-h5.cluster-task-pwm_x_pwm.R {} {} {} {}").format(
             h5_file,
             dmim_adjacency_key,
+            filter_vector_key,
             mut_pwm_names_attribute)
     print r_cmd
     #os.system(r_cmd)

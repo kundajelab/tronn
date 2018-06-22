@@ -57,6 +57,7 @@ def _visualize_mut_results(
     visualize_agg_dmim_adjacency_results(
         h5_file,
         dmim_adjacency_key,
+        motif_filter_key,
         mut_pwm_names_attribute)
     
     return None
