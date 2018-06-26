@@ -123,12 +123,15 @@ def run(args):
 
             # save master pwm vector
             with h5py.File(args.manifold_file, "r") as manifold:
+                #del hf["master_pwm_vector"]
                 hf.create_dataset("master_pwm_vector", data=manifold["master_pwm_vector"][:])
+                mut_indices = np.where(manifold["master_pwm_vector"][:] > 0)[0]
+                pwm_mut_names = [args.pwm_list[i].name for i in mut_indices]
                 
             # attach to delta logits and mutated scores
-            hf["delta_logits"].attrs["pwm_mut_names"] = pwm_names
+            hf["delta_logits"].attrs["pwm_mut_names"] = pwm_mut_names
             for task_idx in args.inference_task_indices:
-                hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_names
+                hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_mut_names
 
             # pwm names
             for dataset_key in hf.keys():
@@ -158,7 +161,7 @@ def run(args):
             args.manifold_file,
             soft_clustering=True)
         
-    visualize = False
+    visualize = True
     if visualize:
         visualize_clustering_results(
             results_h5_file,
@@ -172,11 +175,11 @@ def run(args):
         agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
         visualize_h5_dataset(results_h5_file, global_agg_key)        
         visualize_h5_dataset_by_cluster(results_h5_file, agg_key)
-                
+
     # aggregate results
     dmim_keys = ["dmim-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
     pwm_score_keys = ["pwm-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
-    if False:
+    if True:
         aggregate_dmim_results(
             results_h5_file,
             "manifold_clusters",
@@ -186,13 +189,14 @@ def run(args):
             args.pwm_list)
 
     visualize = True
+    visualize_task_indices = [args.inference_task_indices] + args.visualize_task_indices
     if visualize:
         _visualize_mut_results(
             results_h5_file,
             "pwm-scores.agg",
             "delta_logits.agg",
             "dmim-scores.agg.mut_only",
-            [args.inference_task_indices],
+            visualize_task_indices,
             "pwm_names",
             "mut_pwm_names")
     

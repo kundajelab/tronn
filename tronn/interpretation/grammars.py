@@ -1071,7 +1071,7 @@ def generate_grammars_from_dmim(results_h5_file, inference_tasks, pwm_list, cuto
 
 
 
-def _make_bed(array, array_txt, array_bed):
+def make_bed(array, array_txt, array_bed):
     """make bed from an array file
     """
     # save out the metadata as a bed file
@@ -1196,7 +1196,7 @@ def aggregate_dmim_results(
         cluster_prefix = "{0}.cluster-{1}".format(prefix, cluster_id)
         metadata_file = "{}.metadata.txt".format(cluster_prefix)
         metadata_bed = "{}.bed".format(cluster_prefix)
-        _make_bed(metadata, metadata_file, metadata_bed)
+        make_bed(metadata, metadata_file, metadata_bed)
         
         # collect from tasks with dmim prefix and pwm prefix
         for task_j in xrange(len(inference_task_indices)):

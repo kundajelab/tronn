@@ -425,7 +425,7 @@ def visualize_agg_pwm_results(
             master_pwm_vector_key,
             pwm_names_attribute)
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
 
     return None
 
@@ -446,7 +446,7 @@ def visualize_agg_delta_logit_results(
             mut_pwm_names_attribute,
             ",".join(str(val) for val in task_indices))
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
     
     return None
 
@@ -465,6 +465,6 @@ def visualize_agg_dmim_adjacency_results(
             filter_vector_key,
             mut_pwm_names_attribute)
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
 
     return None

@@ -872,6 +872,15 @@ def _setup_annotations(args):
     return
 
 
+def _setup_preprocess(args):
+    """load preprocess files
+    """
+    args.labels = _parse_files(args.labels)
+    args.signals = _parse_files(args.signals)
+
+    return None
+
+
 def _setup_model(args):
     """for specific inputs, if they exist, read in
     from json
@@ -899,10 +908,12 @@ def main():
 
     if subcommand == "preprocess":
         _setup_annotations(args)
+        _setup_preprocess(args)
         from tronn.preprocess_cmd import run
         run(args)
     elif subcommand == "preprocess_variants":
         _setup_annotations(args)
+        _setup_preprocess(args)
         from tronn.preprocess_variants_cmd import run
         run(args)
     elif subcommand == 'train':

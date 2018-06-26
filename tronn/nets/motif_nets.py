@@ -135,7 +135,7 @@ def pwm_convolve(features, labels, config, is_training=False):
                     pwm_list,
                     get_fan_in(features),
                     unit_vector=True,
-                    length_norm=False),
+                    length_norm=True), # check this
                 biases_initializer=None,
                 trainable=False):
             # pwm cross correlation

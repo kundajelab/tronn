@@ -32,6 +32,33 @@ from tronn.visualization import visualize_h5_dataset_by_cluster
 
 from tronn.visualization import visualize_clustering_results
 
+from tronn.interpretation.grammars import make_bed
+
+
+def _get_cluster_bed(h5_file, cluster_key, metadata_key, soft_clustering=False):
+    """
+    """
+    prefix = h5_file.split(".h5")[0]
+    
+    with h5py.File(h5_file, "r") as hf:
+        clusters = hf[cluster_key][:,0]
+        cluster_ids = sorted(list(set(clusters.tolist())))
+
+
+    for cluster_idx in xrange(len(cluster_ids)):
+        cluster_id = cluster_ids[cluster_idx]
+        in_cluster = clusters == cluster_id
+    
+        with h5py.File(h5_file, "r") as hf:
+            metadata = hf["example_metadata"][:][in_cluster]
+        cluster_prefix = "{0}.cluster-{1}".format(prefix, cluster_id)
+        metadata_file = "{}.metadata.txt".format(cluster_prefix)
+        metadata_bed = "{}.bed".format(cluster_prefix)
+        make_bed(metadata, metadata_file, metadata_bed)
+
+    
+    return None
+
 
 def run(args):
     """Scan motifs from a PWM file
@@ -124,7 +151,13 @@ def run(args):
                 args.inference_task_indices,
                 args.visualize_task_indices,
                 args.visualize_signals)
-                
+
+        _get_cluster_bed(
+            results_h5_file,
+            refined_metacluster_key,
+            "example_metadata",
+            soft_clustering=False)
+
         # get the manifold descriptions out per cluster
         # TODO also set up new cluster definitions, and re-visualize?
         manifold_key = "motifspace-centers"

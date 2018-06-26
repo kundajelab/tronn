@@ -52,10 +52,10 @@ def run(args):
     os.system("mkdir -p {}".format(args.tmp_dir))
 
     # parse labels and signals
-    labels = parse_files(args.labels)
-    signals = parse_files(args.signals)
-    total_labels = [len(labels[key][0]) for key in labels.keys()]
-    total_signals = [len(signals[key][0]) for key in signals.keys()]
+    #labels = parse_files(args.labels)
+    #signals = parse_files(args.signals)
+    total_labels = [len(args.labels[key][0]) for key in args.labels.keys()]
+    total_signals = [len(args.signals[key][0]) for key in args.signals.keys()]
     logging.info("Using {} label files".format(total_labels))
     logging.info("Using {} signal files".format(total_signals))
     
@@ -63,9 +63,9 @@ def run(args):
     if args.master_bed_file is None:
         master_file_labels = []
         if len(args.master_label_keys) == 0:
-            args.master_label_keys = labels.keys()
+            args.master_label_keys = args.labels.keys()
         for key in args.master_label_keys:
-            master_file_labels += labels[key][0]
+            master_file_labels += args.labels[key][0]
         master_regions_bed = '{0}/{1}.master.bed.gz'.format(
             args.out_dir, args.prefix)
         if not os.path.isfile(master_regions_bed):
@@ -78,8 +78,8 @@ def run(args):
         master_regions_bed,
         args.annotations["ref_fasta"],
         args.annotations["chrom_sizes"],
-        labels,
-        signals,
+        args.labels,
+        args.signals,
         args.prefix,
         args.out_dir,
         superset_bed_file=args.annotations["univ_dhs"],

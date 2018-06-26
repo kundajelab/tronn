@@ -308,16 +308,16 @@ def delta_logits(inputs, params):
     outputs = dict(inputs)
     
     # params
-    importance_task_indices = params["importance_task_indices"]
+    #importance_task_indices = params["importance_task_indices"]
     logits_to_features = params.get("logits_to_features", True)
     
     # just get the importance related logits
-    logits = [tf.expand_dims(tensor, axis=1)
-              for tensor in tf.unstack(logits, axis=1)]
-    importance_logits = []
-    for task_idx in importance_task_indices:
-        importance_logits.append(logits[task_idx])
-    logits = tf.concat(importance_logits, axis=1)
+    #logits = [tf.expand_dims(tensor, axis=1)
+    #          for tensor in tf.unstack(logits, axis=1)]
+    #importance_logits = []
+    #for task_idx in importance_task_indices:
+    #    importance_logits.append(logits[task_idx])
+    #logits = tf.concat(importance_logits, axis=1)
 
     # set up delta from normal
     logits = tf.subtract(logits[1:], tf.expand_dims(logits[0,:], axis=0))

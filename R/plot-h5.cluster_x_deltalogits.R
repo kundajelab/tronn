@@ -95,10 +95,22 @@ for (cluster_idx in 1:num_clusters) {
     if (is.null(dim(cluster_data))){
         next
     }
+
+    if (length(indices) > 0) {
+        cluster_data <- cluster_data[,indices]
+        key_string <- paste(
+            dataset_key,
+            "_indices_",
+            indices[1],
+            "-",
+            indices[length(indices)], sep="")
+    } else {
+        key_string <- dataset_key
+    }
     
     heatmap_file <- paste(
         sub("h5", "", h5_file),
-        dataset_key,
+        key_string,
         ".cluster-",
         cluster_idx-1,
         ".pdf", sep="")

@@ -100,14 +100,14 @@ def pwm_simple_initializer(
             padded_weights = np.divide(padded_weights, np.sqrt(np.sum(np.square(padded_weights))))
             
         if length_norm:
-            num_nonzero_basepairs = np.sum((np.sum(padded_weights, axis=0) != 0)) # is this right?
+            nonzero_fraction = pwm.weights.shape[1] / float(padded_weights.shape[1])
+            #print nonzero_fraction
+            padded_weights = np.multiply(padded_weights, nonzero_fraction)
+            #num_nonzero_basepairs = np.sum((np.sum(padded_weights, axis=0) != 0)) # is this right?
             #print num_nonzero_basepairs
-            padded_weights = np.divide(padded_weights, num_nonzero_basepairs)
-
+            #padded_weights = np.divide(padded_weights, num_nonzero_basepairs)
             # also need to normalize so that max score is 1 on flat sequence?
-
             # different normalization - normalize so that total info is approx 1, normalized to max base pair?
-            
             
         # This bit is used for vector projection - mostly keep FALSE
         if squared:
@@ -116,7 +116,7 @@ def pwm_simple_initializer(
         # use this if just want hits in specific directions
         if binarize:
             pass
-            
+
         weights_list.append(padded_weights)
 
     # stack into weights tensor and assign to subset

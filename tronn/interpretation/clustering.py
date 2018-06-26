@@ -549,6 +549,7 @@ def get_manifold_centers(
                     pwm_vector)
 
                 # if there are no significant pwms, do not save out
+                # TODO but somehow need to filter this out?
                 if np.sum(pwm_vector) == 0:
                     continue
                 
@@ -614,7 +615,7 @@ def aggregate_pwm_results(
         pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        del hf[agg_key]
+        #del hf[agg_key]
         hf.create_dataset(agg_key, data=tasks_x_pwm)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         
@@ -689,7 +690,7 @@ def aggregate_pwm_results_per_cluster(
         pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        del hf[agg_key]
+        #del hf[agg_key]
         hf.create_dataset(agg_key, data=agg_data)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         
