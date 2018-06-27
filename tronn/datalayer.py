@@ -84,6 +84,7 @@ class DataLoader(object):
                     {"labels_key": "labels",
                      "filter_tasks": filter_tasks[i],
                      "name": "label_filter_{}".format(i)}))
+                print filter_tasks[i]
         if len(singleton_filter_tasks) != 0:
             transform_stack.append((
                 filter_singleton_labels,

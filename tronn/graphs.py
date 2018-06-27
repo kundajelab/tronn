@@ -34,6 +34,8 @@ from tronn.learn.learning import RestoreHook
 from tronn.interpretation.interpret import visualize_region
 from tronn.interpretation.dreaming import dream_one_sequence
 
+from tronn.visualization import visualize_debug
+
 
 class TronnEstimator(tf.estimator.Estimator):
     """Extended estimator to have extra capabilities"""
@@ -663,9 +665,13 @@ class ModelManager(object):
 
     
     @staticmethod
-    def infer_and_save_to_h5(generator, h5_file, sample_size):
+    def infer_and_save_to_h5(generator, h5_file, sample_size, debug=False):
         """wrapper routine to run inference and save the results out
         """
+        if debug:
+            viz_dir = "{}/viz.debug".format(os.path.dirname(h5_file))
+            os.system("mkdir -p {}".format(viz_dir))
+        
         # generate first set of outputs to know shapes
         print "starting inference"
         first_example = generator.next()
@@ -686,8 +692,6 @@ class ModelManager(object):
 
             # now run
             total_examples = 1
-            #total_visualized = 0
-            #passed_cutoff = 0 # debug
             try:
                 for i in xrange(1, sample_size):
                     if total_examples % 1000 == 0:
@@ -696,6 +700,16 @@ class ModelManager(object):
                     example = generator.next()
                     h5_handler.store_example(example)
                     total_examples += 1
+
+                    if debug:
+                        # here, generate useful graphs
+                        # (2) pwm scores, raw or not (pwm x pos with pwm vector)
+                        # (3) dmim - dmim vector?
+                        import ipdb
+                        ipdb.set_trace()
+                        
+                        prefix = "{}/{}".format(viz_dir, os.path.basename(h5_file).split(".h5")[0])
+                        visualize_debug(example, prefix)
 
             except StopIteration:
                 print "Done reading data"

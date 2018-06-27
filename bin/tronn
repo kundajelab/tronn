@@ -428,7 +428,11 @@ def _add_interpretation_options(parser):
     parser.add_argument(
         "--sample_size", default=100000, type=int,
         help="total regions (post filtering) to return")
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="visualize outputs to help debug. NOTE: use small sample size!")
 
+    
     return
 
 

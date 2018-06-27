@@ -112,7 +112,7 @@ def sequence_to_importance_scores(inputs, params):
             
             (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
             (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # try 9 and 2/9?
             (normalize_to_weights, {"weight_key": "probs"}), 
             (clip_edges, {"left_clip": 400, "right_clip": 600}),
             (filter_by_importance, {"cutoff": 10, "positive_only": True}), 

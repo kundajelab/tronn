@@ -165,6 +165,44 @@ def plot_weights(
     plt.close()
 
 
+def _plot_pwm_x_pos_matrix(pwm_x_pos, agg_vector):
+    """take given arrays, save out to matrix, plot in R
+    """
+    # extract and save out to tmp file
+
+
+    # then plot in R
+
+    
+    return
+
+
+    
+
+def visualize_debug(example_dict, prefix):
+    """given an example dict, parse it for useful keys and plot
+    if they exist
+    """
+    region_string = example_dict["example_metadata"][0].strip("\x00").split(";")[0].split("=")[1].replace(":", "-")
+    region_prefix = "{}.{}".format(prefix, region_string)
+    
+    for key in example_dict.keys():
+
+        # visualize importances
+        if "importances" in key:
+            plot_name = "{}.{}.pdf".format(region_prefix, key)
+            print plot_name
+            plot_weights(np.squeeze(example_dict[key]), plot_name)
+
+        # visualize pwm scores
+        if "pwm-scores" in key:
+            pass
+            
+
+    return None
+    
+
+    
 
 def visualize_clustered_h5_dataset_full(
         h5_file,

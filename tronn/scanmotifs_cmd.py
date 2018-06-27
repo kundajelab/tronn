@@ -110,8 +110,9 @@ def run(args):
         model_manager.infer_and_save_to_h5(
             inference_generator,
             results_h5_file,
-            args.sample_size)
-
+            args.sample_size,
+            debug=args.debug)
+        
         # add in PWM names to the datasets
         with h5py.File(results_h5_file, "a") as hf:
             for dataset_key in hf.keys():
@@ -120,7 +121,7 @@ def run(args):
                         pwm.name for pwm in args.pwm_list]
                         
     # now run clustering
-    if args.cluster:
+    if args.cluster and not args.debug:
         visualize = True # TODO adjust later
         logging.info("running clustering - louvain (Phenograph)")
         dataset_keys = [
