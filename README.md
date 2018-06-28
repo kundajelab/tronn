@@ -25,6 +25,8 @@ Then, install tronn.
 python setup.py develop
 ```
 
+Finally, install Phenograph (from python2 compatible package)
+
 
 ---
 ### Quick start
