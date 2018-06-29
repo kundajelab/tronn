@@ -12,7 +12,7 @@ import logging
 import argparse
 import pkg_resources
 
-from tronn.interpretation.motifs import read_pwm_file
+from tronn.interpretation.pwms import read_pwm_file
 
 
 def parse_args():
