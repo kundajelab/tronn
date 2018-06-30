@@ -804,6 +804,9 @@ def _parse_files(dataset_key_strings):
     """given an arg string, parse out into a dict
     assumes a format of: key=file1,file2,..::param1=val,param2=val,...
     """
+    if dataset_key_strings is None:
+        return {}
+
     key_dict = {}
     for dataset_key_string in dataset_key_strings:
         # first split on "::" then on "="
