@@ -100,13 +100,14 @@ def pwm_convolve_jaccardlike(features, labels, config, is_training=False):
     return final_score, labels, config
 
 
-def pwm_convolve(features, labels, config, is_training=False):
+def pwm_convolve(inputs, params):
     """Convolve with PWMs and normalize with vector projection:
 
       projection = a dot b / | b |
     """
-    pwm_list = config.get("pwms")
-    reuse = config.get("reuse_pwm_layer", False)
+    features = inputs["features"]
+    pwm_list = params.get("pwms")
+    reuse = params.get("reuse_pwm_layer", False)
     # TODO options for running (1) FWD, (2) REV, (3) COMB
     
     assert pwm_list is not None
@@ -120,7 +121,7 @@ def pwm_convolve(features, labels, config, is_training=False):
         if pwm.weights.shape[1] > max_size:
             max_size = pwm.weights.shape[1]
     #logging.info("Filter size: {}".format(max_size))
-    config["filter_width"] = max_size
+    params["filter_width"] = max_size
             
     # make the convolution net for dot product, normal filters
     # here, the pwms are already normalized to unit vectors for vector projection
@@ -142,22 +143,24 @@ def pwm_convolve(features, labels, config, is_training=False):
             features = slim.conv2d(
                 features, num_filters, conv1_filter_size)
         
-    return features, labels, config
+    return features, params
 
 
-def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
+def pwm_convolve_inputxgrad(inputs, params):
     """Convolve both pos and negative scores with PWMs. Prevents getting scores
     when the negative correlation is stronger.
     """
     # do positive sequence. ignore negative scores. only keep positive results
     #with tf.variable_scope("pos_seq_pwm"):
-    pos_seq_scores, _, _ = pwm_convolve(tf.nn.relu(features), labels, config, is_training=is_training)
+    features = inputs["features"]
+    
+    pos_seq_scores, _ = pwm_convolve({"features": tf.nn.relu(features)}, params)
     pos_seq_scores = tf.nn.relu(pos_seq_scores)
         
     # do negative sequence. ignore positive scores. only keep positive (ie negative) results
     #with tf.variable_scope("neg_seq_pwm"):
-    config.update({"reuse_pwm_layer": True})
-    neg_seq_scores, _, _ = pwm_convolve(tf.nn.relu(-features), labels, config, is_training=is_training)
+    params.update({"reuse_pwm_layer": True})
+    neg_seq_scores, _, = pwm_convolve({"features": tf.nn.relu(-features)}, params)
     neg_seq_scores = tf.nn.relu(neg_seq_scores)
         
     # and then take max (best score, whether pos or neg) do not use abs; and keep sign
@@ -173,7 +176,7 @@ def pwm_convolve_inputxgrad(features, labels, config, is_training=False):
 
     features = tf.add(pos_scores_masked, neg_scores_masked)
     
-    return features, labels, config
+    return features, params
 
 
 def pwm_motif_max(features, labels, config, is_training=False):
@@ -200,11 +203,13 @@ def pwm_motif_max(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def get_bp_overlap(features, labels, config, is_training=False):
+def get_bp_overlap(inputs, params):
     """Re-weight by num of importance-weighted base pairs that are nonzero
     """
+    features = inputs["features"]
+    
     features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
-    max_size = config.get("filter_width")
+    max_size = params.get("filter_width")
     assert max_size is not None
     nonzero_bp_fraction_per_window = tf.reduce_sum(
         slim.avg_pool2d(
@@ -214,7 +219,7 @@ def get_bp_overlap(features, labels, config, is_training=False):
     #    features,
     #    nonzero_bp_fraction_per_window)
     
-    return nonzero_bp_fraction_per_window, labels, config
+    return nonzero_bp_fraction_per_window, params
 
 
 def pwm_match_filtered_convolve(inputs, params):
@@ -228,7 +233,6 @@ def pwm_match_filtered_convolve(inputs, params):
     # features
     features = inputs["features"]
     raw_sequence = inputs[params["raw-sequence-clipped-key"]]
-    labels = inputs["labels"]
     is_training = params.get("is_training", False)
     outputs = dict(inputs)
     
@@ -241,12 +245,12 @@ def pwm_match_filtered_convolve(inputs, params):
         #else:
         #    print "WARNING DID NOT DELETE RAW SEQUENCE"
     
-    pwm_binarized_feature_scores, _, _ = pwm_convolve_inputxgrad(
-        binarized_features, labels, params, is_training=is_training) # {N, 1, pos, M}
+    pwm_binarized_feature_scores, _ = pwm_convolve_inputxgrad(
+        {"features": binarized_features}, params) # {N, 1, pos, M}
 
     # adjust the raw scores and save out
     if params.get("raw-pwm-scores-key") is not None:
-        raw_bp_overlap, _, _ = get_bp_overlap(binarized_features, labels, params)
+        raw_bp_overlap, _ = get_bp_overlap({"features": binarized_features}, params)
         raw_scores = tf.multiply(
             pwm_binarized_feature_scores,
             raw_bp_overlap)
@@ -263,8 +267,8 @@ def pwm_match_filtered_convolve(inputs, params):
     
     # run on impt weighted features
     #with tf.variable_scope("impt_weighted"):
-    pwm_impt_weighted_scores, _, _ = pwm_convolve_inputxgrad(
-        features, labels, params, is_training=is_training)
+    pwm_impt_weighted_scores, _ = pwm_convolve_inputxgrad(
+        {"features": features}, params)
     
     # and filter through mask
     filt_features = tf.multiply(
@@ -272,7 +276,7 @@ def pwm_match_filtered_convolve(inputs, params):
         pwm_impt_weighted_scores)
 
     # at this stage also need to perform the weighting by bp presence
-    impt_bp_overlap, _, _ = get_bp_overlap(features, labels, params)
+    impt_bp_overlap, _ = get_bp_overlap({"features": features}, params)
     features = tf.multiply(
         filt_features,
         impt_bp_overlap)

@@ -14,6 +14,7 @@ import numpy as np
 import tensorflow as tf
 
 from tronn.preprocess.fasta import bed_to_sequence_iterator
+from tronn.preprocess.fasta import sequence_string_to_onehot_converter
 from tronn.preprocess.fasta import batch_string_to_onehot
 
 from tronn.nets.filter_nets import filter_by_labels
@@ -179,14 +180,15 @@ class DataLoader(object):
 class H5DataLoader(DataLoader):
     """build a dataloader from h5"""
 
-    def __init__(self, h5_files, **kwargs):
+    def __init__(self, h5_files, fasta=None, **kwargs):
         """initialize with data files
         """
         super(H5DataLoader, self).__init__(**kwargs)
         self.h5_files = h5_files
+        self.fasta = fasta
         self.num_examples = self.get_num_examples(h5_files)
         self.num_examples_per_file = self.get_num_examples_per_file(h5_files)
-
+        
         
     @staticmethod
     def get_num_examples(h5_files, test_key="example_metadata"):
@@ -341,14 +343,16 @@ class H5DataLoader(DataLoader):
             os.path.basename(h5_file), max_batches))
 
         # set up on-the-fly onehot encoder
-        #if fasta is not None:
-        #    converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
+        if fasta is not None:
+            converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
         
         # determine the Tout
         tensor_dtypes = []
         for key in keys:
             if isinstance(h5_handle[key][0], basestring):
                 tensor_dtypes.append(tf.string)
+            elif "features" in key:
+                tensor_dtypes.append(tf.int64)
             else:
                 tensor_dtypes.append(tf.float32)
 
@@ -370,11 +374,11 @@ class H5DataLoader(DataLoader):
                 features_key=features_key,
                 label_keys=label_keys)
 
-            # TODO here's where to do the on the fly onehot encoding (in batch format)
-            #slice_array["features"] = batch_string_to_onehot(
-            #    slice_array["example_metadata"],
-            #    converter_in,
-            #    converter_out)
+            slice_array["features"] = batch_string_to_onehot(
+                slice_array["example_metadata"],
+                converter_in,
+                converter_out)
+
             
             slice_list = []
             for key in keys:
@@ -395,12 +399,32 @@ class H5DataLoader(DataLoader):
                 inputs[i].set_shape([batch_size, len(task_indices)])
             elif "metadata" in keys[i]:
                 inputs[i].set_shape([batch_size, 1])
+            elif "features" in keys[i]:
+                inputs[i].set_shape([batch_size, 1000])
+                
             else:
                 inputs[i].set_shape([batch_size] + list(h5_handle[keys[i]].shape[1:]))
 
         # make dict
         inputs = dict(zip(keys, inputs))
-                
+
+        # adjust features - onehot encoding
+        def onehot_sequence(sequence):
+            """adjust to onehot
+            """
+            sequence = tf.one_hot(sequence, 5, axis=-1) # {1000, 5}
+            sequence = tf.expand_dims(sequence, axis=0) # {1, 1000, 5}
+            sequence = tf.gather(sequence, [0, 1, 2, 4], axis=2)
+            
+            return sequence
+
+        features = tf.map_fn(
+            onehot_sequence,
+            inputs["features"],
+            dtype=tf.float32)
+        
+        inputs["features"] = features
+
         return inputs
 
 
@@ -558,7 +582,8 @@ class H5DataLoader(DataLoader):
             # use a thread for each hdf5 file to put together in parallel
             example_slices_list = [
                 H5DataLoader.h5_to_tensors(
-                    h5_file, batch_size, task_indices, label_keys=label_keys, shuffle=True)
+                    h5_file, batch_size, task_indices,
+                    fasta=self.fasta, label_keys=label_keys, shuffle=True)
                 for h5_file in self.h5_files]
             min_after_dequeue = 10000
             capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
@@ -701,7 +726,7 @@ class BedDataLoader(DataLoader):
 
         # iterator: produces sequence and example metadata
         iterator = bed_to_sequence_iterator(self.bed_file, self.fasta_file)
-        def example_generator():
+        def example_generator(batch_id):
             return iterator.next()
         tensor_dtypes = [tf.string, tf.float32]
         keys = ["example_metadata", "features"]
@@ -716,11 +741,12 @@ class BedDataLoader(DataLoader):
         # set shapes
         for i in xrange(len(inputs)):
             if "metadata" in keys[i]:
-                inputs[i].set_shape([batch_size, 1])
+                inputs[i].set_shape([1, 1])
             else:
-                inputs[i].set_shape([batch_size, 1, 1000, 4])
+                inputs[i].set_shape([1, 1, 1000, 4])
         
         inputs = dict(zip(keys, inputs))
+        print inputs
         
         # batch
         inputs = tf.train.batch(

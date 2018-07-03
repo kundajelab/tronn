@@ -233,6 +233,9 @@ def add_train_parser(subparsers):
         "--data_dir", required=True,
         help="h5 file directory")
     group_input.add_argument(
+        "--fasta", required=True,
+        help="fasta file")
+    group_input.add_argument(
         "--label_keys", nargs="+", default=[],
         help="which datasets to load as labels")
     group_input.add_argument(

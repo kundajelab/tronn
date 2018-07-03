@@ -172,6 +172,25 @@ def sequence_string_to_onehot_converter(fasta):
     return pipe_in, pipe_out
 
 
+def _map_to_int(sequence):
+    """test
+    """
+    integer_type = np.int8 if sys.version_info[0] == 2 else np.int32
+        
+    sequence_length = len(sequence)
+    sequence_npy = np.fromstring(sequence, dtype=integer_type)
+
+    # one hot encode
+    #print sequence
+    integer_array = LabelEncoder().fit(
+        np.array(('ACGTN',)).view(integer_type)).transform(
+            sequence_npy.view(integer_type)).reshape(1, sequence_length)
+    #print integer_array
+    #quit()
+    
+    return integer_array
+
+
 def batch_string_to_onehot(array, pipe_in, pipe_out):
     """given a string array, convert each to onehot
     """
@@ -182,17 +201,22 @@ def batch_string_to_onehot(array, pipe_in, pipe_out):
         metadata_dict = dict([
             val.split("=") 
             for val in array[i][0].strip().split(";")])
-        feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
-        feature_interval += "\n"
-
-        # pipe in and get out onehot
-        pipe_in.stdin.write(feature_interval)
-        pipe_in.stdin.flush()
-        onehot = onehot_encode(pipe_out.stdout.readline())
-        onehot_batch.append(onehot)
-
-    onehot_batch = np.stack(onehot_batch, axis=0)
-        
+        try:
+            feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
+            feature_interval += "\n"
+            # pipe in and get out onehot
+            pipe_in.stdin.write(feature_interval)
+            pipe_in.stdin.flush()
+            sequence = pipe_out.stdout.readline().strip().split('\t')[1].upper()
+        except:
+            # TODO fix this so that the information is in the metadata
+            sequence = "".join(["N" for i in xrange(1000)])
+            
+        #sequence = one_hot_encode(sequence)#.astype(np.float32)
+        sequence = _map_to_int(sequence)
+        onehot_batch.append(sequence)
+    onehot_batch = np.concatenate(onehot_batch, axis=0)
+    
     return onehot_batch
 
 
@@ -209,21 +233,21 @@ def bed_to_sequence_iterator(bed_file, fasta, batch_size=1):
     # return inidividuals (batch in another function? or use six)
     with gzip.open(bed_file) as bed_fp:
         for line in bed_fp:
-            print line.strip()
             fields = line.strip().split()
             
             # set up interval and get from fasta
             interval = "{}\t{}\t{}\n".format(fields[0], fields[1], fields[2])
             p.stdin.write(interval)
             p.stdin.flush()
-            sequence = getfasta_p.stdout.readline().split('\t')[1].upper()
-            sequence = one_hot_encode(sequence)
+            sequence = getfasta_p.stdout.readline().strip().split('\t')[1].upper()
+            sequence = one_hot_encode(sequence).astype(np.float32)
             
             # also set up example metadata coming out if no name
             if len(fields) > 3:
                 example_metadata = fields[3]
             else:
                 example_metadata = "{}:{}-{}".format(fields[0], fields[1], fields[2])
+            example_metadata = np.array(example_metadata).reshape((1,1))
             
             # yield
             yield example_metadata, sequence

@@ -77,7 +77,7 @@ def run(args):
         data_files = glob.glob('{}/*.h5'.format(args.data_dir))
         data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
         logger.info("Found {} chrom files".format(len(data_files)))
-        dataloader = H5DataLoader(data_files)
+        dataloader = H5DataLoader(data_files, fasta=args.fasta)
     elif args.bed_input is not None:
         # TODO this requires a FASTA file
         dataloader = BedDataLoader(args.bed_input, args.fasta)
@@ -102,6 +102,7 @@ def run(args):
         args.out_dir,
         net_fns[args.inference_fn],
         inference_params={
+            "use_filtering": False if args.bed_input is not None else True,
             "backprop": args.backprop,
             "importance_task_indices": args.inference_task_indices,
             "pwms": args.pwm_list},
