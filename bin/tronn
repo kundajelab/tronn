@@ -391,8 +391,14 @@ def _add_interpretation_inputs(parser):
     """set up interpretation inputs
     """
     parser.add_argument(
-        "--data_dir", required=True,
+        "--data_dir",
         help="h5 data directory for inference")
+    parser.add_argument(
+        "--bed_input",
+        help="BED file of regions for analysis")
+    parser.add_argument(
+        "--fasta",
+        help="FASTA file to interpret BED regions")
     parser.add_argument(
         '--batch_size', default=64, type=int,
         help='batch size')

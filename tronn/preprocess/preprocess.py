@@ -58,7 +58,97 @@ def setup_h5_dataset(
         ".narrrowPeak")[0].split(".bed")[0]
     
     # bin the master bed file
-    # TODO move this out?
+    if not binned:
+        print "deprecated"
+        quit()
+        #bin_file = "{}/{}.bin-{}.stride-{}.bed.gz".format(
+        #    tmp_dir, prefix, bin_size, stride)
+        #if not os.path.isfile(bin_file):
+        #    bin_regions(master_bed_file, bin_file, bin_size, stride, method="naive")
+    else:
+        bin_file = master_bed_file
+            
+    # generate the one hot sequence encoding
+    # TODO in the lite version, drop this
+    #bin_ext_file = "{}.len-{}.bed.gz".format(
+    #    bin_file.split(".bed")[0], final_length)
+    #fasta_sequences_file = "{}.fa".format(
+    #    bin_ext_file.split(".bed")[0])
+    #if not os.path.isfile(h5_file):
+    #    generate_one_hot_sequences(
+    #        bin_file,
+    #        bin_ext_file,
+    #        fasta_sequences_file,
+    #        h5_file,
+    #        onehot_features_key,
+    #        bin_size,
+    #        final_length,
+    #        ref_fasta,
+    #        reverse_complemented)
+        
+    # extract out the active center again
+    #bin_active_center_file = "{}.active.bed.gz".format(
+    #    bin_ext_file.split(".bed")[0])
+    #fasta_sequences_file = "{}.gz".format(fasta_sequences_file)
+    #extract_active_centers(bin_active_center_file, fasta_sequences_file)
+    
+    # generate BED annotations on the active center
+    for key in label_sets.keys():
+        label_files = label_sets[key][0]
+        label_params = label_sets[key][1]
+        method = label_params.get("method", "half_peak")
+        generate_labels(
+            bin_file, #bin_active_center_file,
+            label_files,
+            key,
+            h5_file,
+            method=method,
+            chromsizes=chromsizes,
+            tmp_dir=tmp_dir)
+
+    # generate bigwig annotations on the active center
+    for key in signal_sets.keys():
+        signal_files = signal_sets[key][0]
+        signal_params = signal_sets[key][1]
+        generate_signal_vals(
+            bin_file, #bin_active_center_file,
+            signal_files,
+            key,
+            h5_file,
+            tmp_dir=tmp_dir)
+
+    # TODO matrix annotations? ie using DESeq2 normalized matrix here?
+
+    # TODO and then clean up the tmp dir (for now debug so dont do it)
+    
+    return h5_file
+
+
+def setup_h5_dataset_old(
+        master_bed_file,
+        ref_fasta,
+        chromsizes,
+        h5_file,
+        label_sets,
+        signal_sets,
+        bin_size,
+        stride,
+        final_length,
+        reverse_complemented,
+        onehot_features_key,
+        tmp_dir,
+        binned=True):
+    """given a region file, set up dataset
+    conventionally, this is 1 chromosome
+    """
+    # make sure tmp dir exists
+    os.system("mkdir -p {}".format(tmp_dir))
+    
+    # set up prefix
+    prefix = os.path.basename(master_bed_file).split(
+        ".narrrowPeak")[0].split(".bed")[0]
+    
+    # bin the master bed file
     if not binned:
         bin_file = "{}/{}.bin-{}.stride-{}.bed.gz".format(
             tmp_dir, prefix, bin_size, stride)
@@ -68,6 +158,7 @@ def setup_h5_dataset(
         bin_file = master_bed_file
             
     # generate the one hot sequence encoding
+    # TODO in the lite version, drop this
     bin_ext_file = "{}.len-{}.bed.gz".format(
         bin_file.split(".bed")[0], final_length)
     fasta_sequences_file = "{}.fa".format(
@@ -376,12 +467,12 @@ def generate_h5_datasets(
     bin_dir = "{}/bin-{}.stride-{}".format(tmp_dir, bin_size, stride)
     os.system("mkdir -p {}".format(bin_dir))
     bin_regions_parallel(
-        chrom_files, bin_dir, bin_size=bin_size, stride=stride, parallel=parallel)
+        chrom_files, bin_dir, chromsizes, bin_size=bin_size, stride=stride, parallel=parallel)
     
     # grab all of these and process in parallel
     h5_dir = "{}/h5".format(work_dir)
     os.system("mkdir -p {}".format(h5_dir))
-    chrom_bed_files = glob.glob("{}/*.bed.gz".format(bin_dir))
+    chrom_bed_files = glob.glob("{}/*.filt.bed.gz".format(bin_dir))
     #chrom_bed_files = glob.glob("{}/*chrY*.bed.gz".format(chrom_dir))
     logging.info("Found {} bed files".format(chrom_bed_files))
     h5_queue = setup_multiprocessing_queue()

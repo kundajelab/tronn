@@ -14,6 +14,7 @@ from collections import Counter
 from tronn.graphs import ModelManager
 
 from tronn.datalayer import H5DataLoader
+from tronn.datalayer import BedDataLoader
 from tronn.nets.nets import net_fns
 
 from tronn.interpretation.clustering import generate_simple_metaclusters
@@ -72,19 +73,23 @@ def run(args):
         args.tmp_dir = args.out_dir
         
     # data files
-    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
-    data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
-    logger.info("Found {} chrom files".format(len(data_files)))
+    if args.data_dir is not None:
+        data_files = glob.glob('{}/*.h5'.format(args.data_dir))
+        data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
+        logger.info("Found {} chrom files".format(len(data_files)))
+        dataloader = H5DataLoader(data_files)
+    elif args.bed_input is not None:
+        # TODO this requires a FASTA file
+        dataloader = BedDataLoader(args.bed_input, args.fasta)
 
-    # set up dataloader
-    dataloader = H5DataLoader(data_files)
+    # get input fn
     input_fn = dataloader.build_input_fn(
         args.batch_size,
-        label_keys=args.model_info["label_keys"],
-        filter_tasks=[
-            args.inference_task_indices,
-            args.filter_task_indices],
-        singleton_filter_tasks=args.inference_task_indices)
+        label_keys=args.model_info["label_keys"])
+        #filter_tasks=[
+            #args.inference_task_indices,
+            #args.filter_task_indices],
+        #singleton_filter_tasks=args.inference_task_indices)
 
     # set up model
     model_manager = ModelManager(

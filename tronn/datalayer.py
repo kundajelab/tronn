@@ -2,6 +2,7 @@
 """
 
 import os
+import gzip
 import glob
 import h5py
 import math
@@ -11,6 +12,8 @@ import abc
 
 import numpy as np
 import tensorflow as tf
+
+from tronn.preprocess.fasta import bed_to_sequence_iterator
 
 from tronn.nets.filter_nets import filter_by_labels
 from tronn.nets.filter_nets import filter_singleton_labels
@@ -203,7 +206,13 @@ class H5DataLoader(DataLoader):
             with h5py.File(h5_file, "r") as hf:
                 num_examples_per_file.append(hf[test_key].shape[0])
         return num_examples_per_file
-    
+
+    @staticmethod
+    def get_num_tasks(h5_files, test_key="labels"):
+        """get number of labels
+        """
+        with h5py.File(h5_files[0], "r") as hf:
+            return hf[test_key].shape[1]
     
     def get_dataset_metrics(self):
         """Get class imbalances, num of outputs, etc
@@ -290,6 +299,7 @@ class H5DataLoader(DataLoader):
             h5_file,
             batch_size,
             task_indices=[],
+            fasta=None,
             keys=None,
             skip_keys=["label_metadata"],
             features_key="features", # TODO do we need this?
@@ -327,6 +337,10 @@ class H5DataLoader(DataLoader):
         batch_id = batch_id_producer.dequeue()
         logging.debug("loading {0} with max batches {1}".format(
             os.path.basename(h5_file), max_batches))
+
+        # set up on-the-fly onehot encoder
+        #if fasta is not None:
+            #converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
         
         # determine the Tout
         tensor_dtypes = []
@@ -353,9 +367,17 @@ class H5DataLoader(DataLoader):
                 task_indices=task_indices,
                 features_key=features_key,
                 label_keys=label_keys)
+
+            # TODO here's where to do the on the fly onehot encoding (in batch format)
+            #slice_array["features"] = batch_string_to_onehot(
+            #    slice_array["features.string"],
+            #    converter_in,
+            #    converter_out)
+            
             slice_list = []
             for key in keys:
                 slice_list.append(slice_array[key])
+                
             return slice_list
             
         # py_func
@@ -650,10 +672,60 @@ class BedDataLoader(DataLoader):
     def __init__(self, bed_file, fasta_file):
         self.bed_file = bed_file
         self.fasta_file = fasta_file
-
-
-    def load_raw_data(self, batch_size):
-        """load raw data
-        """
+        # TODO - bin regions here?
         
-        return None
+
+    def build_raw_dataflow(
+            self,
+            batch_size,
+            task_indices=[],
+            features_key="features",
+            label_keys=["labels"],
+            metadata_key="example_metadata",
+            shuffle=True,
+            shuffle_seed=1337,
+            num_epochs=1):
+        """
+        """
+        # set up batch id producer (the value itself is unused - drives queue)
+        num_regions = 0
+        with gzip.open(self.bed_file, "r") as fp:
+            for line in fp:
+                num_regions += 1
+        batch_id_queue = tf.train.range_input_producer(
+            num_regions, shuffle=False, seed=0, num_epochs=num_epochs)
+        batch_id = batch_id_queue.dequeue()
+        logging.info("num_regions: {}".format(num_regions))
+
+        # iterator: produces sequence and example metadata
+        iterator = bed_to_sequence_iterator(self.bed_file, self.fasta_file)
+        def example_generator():
+            return iterator.next()
+        tensor_dtypes = [tf.string, tf.float32]
+        keys = ["example_metadata", "features"]
+        
+        # py_func
+        inputs = tf.py_func(
+            func=example_generator,
+            inp=[batch_id],
+            Tout=tensor_dtypes,
+            stateful=False, name='py_func_batch_id_to_examples')
+
+        # set shapes
+        for i in xrange(len(inputs)):
+            if "metadata" in keys[i]:
+                inputs[i].set_shape([batch_size, 1])
+            else:
+                inputs[i].set_shape([batch_size, 1, 1000, 4])
+        
+        inputs = dict(zip(keys, inputs))
+        
+        # batch
+        inputs = tf.train.batch(
+            inputs,
+            batch_size,
+            capacity=1000,
+            enqueue_many=True,
+            name='batcher')
+        
+        return inputs

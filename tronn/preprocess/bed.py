@@ -123,6 +123,7 @@ def bin_regions(
         out_file,
         bin_size,
         stride,
+        chrom_sizes_bed,
         method='naive'):
     """Bin regions based on bin size and stride
 
@@ -169,7 +170,9 @@ def bin_regions(
                         "{0}\t{1}\t{2}\t"
                         "{3}"
                         "region={0}:{4}-{5};"
-                        "active={0}:{1}-{2}\n").format(
+                        "active={0}:{1}-{2};"
+                        "features={0}:{6}-{7}"
+                        "\n").format(
                             chrom, 
                             mark, 
                             mark + bin_size,
@@ -177,6 +180,16 @@ def bin_regions(
                             start,
                             stop))
                     mark += stride
+
+    # and then check chrom boundaries - throw away bins that fall outside the boundaries
+    chrom_bed_files = glob.glob("{}*.bed.gz".format(out_prefix))
+    for bed_file in chrom_bed_files:
+        filt_bed_file = "{}.filt.bed.gz".format(bed_file.split(".bed")[0])
+        overlap_check = (
+            "bedtools intersect -u -f 1.0 -a {0} -b {1} | gzip -c > {2}").format(
+                bed_file, chrom_sizes_bed, filt_bed_file)
+        print overlap_check
+        os.system(overlap_check)
 
     return None
 
@@ -186,6 +199,8 @@ def bin_regions_sharded(
         out_prefix,
         bin_size,
         stride,
+        final_length,
+        chromsizes,
         method='naive',
         max_size=100000): # max size: total num of bins allowed in one file
     """Bin regions based on bin size and stride
@@ -202,7 +217,8 @@ def bin_regions_sharded(
     """
     logging.info("binning regions for {}...".format(in_file))
     assert os.path.splitext(in_file)[1] == '.gz'
-
+    extend_len = (final_length - bin_size) / 2
+    
     total_bins_in_file = 0
     idx = 0
     # Open input and output files and bin regions
@@ -235,13 +251,17 @@ def bin_regions_sharded(
                         "{0}\t{1}\t{2}\t"
                         "{3}"
                         "region={0}:{4}-{5};"
-                        "active={0}:{1}-{2}\n").format(
+                        "active={0}:{1}-{2};"
+                        "features={0}:{6}-{7}"
+                        "\n").format(
                             chrom, 
                             mark, 
                             mark + bin_size,
                             metadata,
                             start,
-                            stop))
+                            stop,
+                            mark - extend_len,
+                            mark + bin_size + extend_len))
                 mark += stride
                 total_bins_in_file += 1
                 
@@ -250,14 +270,32 @@ def bin_regions_sharded(
                     idx += 1
                     total_bins_in_file = 0
 
+    # and then check chrom boundaries - throw away bins that fall outside the boundaries
+    chrom_bed_files = glob.glob("{}[.]*.bed.gz".format(out_prefix))
+    for bed_file in chrom_bed_files:
+        filt_bed_file = "{}.filt.bed.gz".format(bed_file.split(".bed")[0])
+        overlap_check = (
+            "bedtools slop -i {0} -g {1} -b {2} | "
+            "awk -F '\t' '{{ print $1\"\t\"$2+{2}\"\t\"$3-{2}\"\t\"$4 }}' | "
+            "gzip -c > {3}").format(
+                bed_file,
+                chromsizes,
+                extend_len,
+                filt_bed_file)
+        print overlap_check
+        os.system(overlap_check)
+    
     return None
+
 
 
 def bin_regions_parallel(
         bed_files,
         out_dir,
+        chromsizes,
         bin_size=200,
         stride=50,
+        final_length=1000,
         parallel=12):
     """bin in parallel
     """
@@ -270,6 +308,8 @@ def bin_regions_parallel(
             "{}/{}".format(out_dir, prefix),
             bin_size,
             stride,
+            final_length,
+            chromsizes,
             "naive"]
         split_queue.put([bin_regions_sharded, split_args])
 
@@ -329,7 +369,7 @@ def generate_labels(
     # for each label bed file
     for i in xrange(len(label_bed_files)):
         label_bed_file = label_bed_files[i]
-        assert label_bed_file.endswith(".gz")
+        assert label_bed_file.endswith(".gz"), "{} is not gzipped".format(label_bed_file)
         out_tmp_file = "{}/{}.intersect.bed.gz".format(
             tmp_dir,
             os.path.basename(label_bed_file).split(".narrowPeak")[0].split(".bed.gz")[0])

@@ -438,7 +438,7 @@ def basset(inputs, params):
     #logits_key = params["logits_key"]
     #labels_key = params["labels_key"]
     features = inputs["features"]
-    labels = inputs["labels"]
+    labels = inputs["labels"] # TODO - need to factor this out so that just num tasks exists (put into model info)
     is_training = params.get("is_training", False)
     
     # get params

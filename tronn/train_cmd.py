@@ -55,6 +55,7 @@ def run(args):
         "checkpoint": best_checkpoint,
         "label_keys": args.label_keys,
         "tasks": args.tasks,
+        "num_tasks": train_dataloader.get_num_tasks(train_files),
         "train_files": train_files,
         "valid_files": valid_files,
         "test_files": test_files}

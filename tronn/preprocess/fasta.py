@@ -18,6 +18,8 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from tronn.util.parallelize import setup_multiprocessing_queue
 from tronn.util.parallelize import run_in_parallel
 
+from subprocess import Popen, PIPE, STDOUT
+
 
 def one_hot_encode(sequence):
     """One hot encode sequence from string to numpy array
@@ -158,3 +160,71 @@ def generate_one_hot_sequences(
     os.system('gzip {}'.format(fasta_sequences))
 
     return None
+
+
+def sequence_string_to_onehot_converter(fasta):
+    """sets up the pipe to convert a sequence string to onehot
+    """
+    pipe_in = subprocess.Popen(["cat", "-"], stdout=PIPE, stdin=PIPE, stderr=STDOUT) # feed by in_pipe.write(interval), in_pipe.flush()
+    get_fasta_cmd = "bedtools getfasta -tab -fi {} -bed stdin".format(fasta)
+    pipe_out = subprocess.Popen(get_fasta_cmd.split(), stdin=pipe_in.stdout, stdout=PIPE)
+    
+    return pipe_in, pipe_out
+
+
+def batch_string_to_onehot(array, pipe_in, pipe_out):
+    """given a string array, convert each to onehot
+    """
+    onehot_batch = []
+    for i in xrange(array.shape[0]):
+
+        pipe_in.stdin.write(array[i][0])
+        pipe_in.stdin.flush()
+        onehot = pipe_out.stdout.readline()
+        onehot_batch.append(onehot)
+
+    onehot_batch = np.stack(onehot_batch, axis=0)
+        
+    return onehot_batch
+
+
+
+def bed_to_sequence_iterator(bed_file, fasta, batch_size=1):
+    """bed file to batches of sequences
+    """
+    # set up pipe
+    p = subprocess.Popen(["cat", "-"], stdout=PIPE, stdin=PIPE, stderr=STDOUT)
+    get_fasta_cmd = "bedtools getfasta -tab -fi {} -bed stdin".format(fasta)
+    print get_fasta_cmd.split()
+    getfasta_p = subprocess.Popen(get_fasta_cmd.split(), stdin=p.stdout, stdout=PIPE)
+    
+    # return inidividuals (batch in another function? or use six)
+    with gzip.open(bed_file) as bed_fp:
+        for line in bed_fp:
+            print line.strip()
+            fields = line.strip().split()
+            
+            # set up interval and get from fasta
+            interval = "{}\t{}\t{}\n".format(fields[0], fields[1], fields[2])
+            p.stdin.write(interval)
+            p.stdin.flush()
+            sequence = getfasta_p.stdout.readline().split('\t')[1].upper()
+            sequence = one_hot_encode(sequence)
+            
+            # also set up example metadata coming out if no name
+            if len(fields) > 3:
+                example_metadata = fields[3]
+            else:
+                example_metadata = "{}:{}-{}".format(fields[0], fields[1], fields[2])
+            
+            # yield
+            yield example_metadata, sequence
+            
+    p.stdin.close()
+            
+    return
+
+
+#iterator = bed_to_sequences("test.bed.gz", "/mnt/data/annotations/by_release/hg19.GRCh37/hg19.genome.fa")
+#print iterator.next()
+#print iterator.next()
