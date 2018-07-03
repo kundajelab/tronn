@@ -6,16 +6,37 @@ import numpy as np
 import pandas as pd
 
 
-def h5_dataset_to_text_file(h5_file, key, text_file, col_keep_indices, colnames):
-    """Grab a dataset out of h5 (2D max) and save out to a text file
-    """
-    with h5py.File(h5_file, "r") as hf:
-        dataset = hf[key][:][:,np.array(col_keep_indices)]
-        
-        # set up dataframe and save out
-        dataset_df = pd.DataFrame(dataset, index=hf["example_metadata"][:][:,0], columns=colnames)
-        dataset_df.to_csv(text_file, sep='\t')
+def get_absolute_label_indices(label_keys, key_dict, test_h5_file, list_of_lists=False):
+    """given a key dict and model, get the absolute indices
 
-    return None
+    label_keys: the full ordered set used in training
+    key_dict: the ones you actually want to grab back
+    h5_file: a representative h5 file with all the label keys
+
+    """
+    absolute_task_indices = []
+    absolute_task_indices_subsetted = []
+    
+    start_idx = 0
+    for key in label_keys:
+        # track how many indices in this key
+        with h5py.File(test_h5_file, "r") as hf:
+            num_tasks = hf[key].shape[1]
+        if key in key_dict.keys():
+            # and create absolute indices and append
+            if len(key_dict[key][0]) > 0:
+                key_indices = [start_idx + idx for idx in key_dict[key][0]]
+            else:
+                key_indices = [start_idx + idx for idx in xrange(num_tasks)]
+            absolute_task_indices += key_indices
+            absolute_task_indices_subsetted.append(key_indices)
+
+        # and then adjust start idx
+        start_idx += num_tasks
+
+    if list_of_lists:
+        return absolute_task_indices_subsetted
+    else:
+        return absolute_task_indices
 
 

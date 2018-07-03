@@ -177,10 +177,18 @@ def batch_string_to_onehot(array, pipe_in, pipe_out):
     """
     onehot_batch = []
     for i in xrange(array.shape[0]):
+        
+        # get the feature
+        metadata_dict = dict([
+            val.split("=") 
+            for val in array[i][0].strip().split(";")])
+        feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
+        feature_interval += "\n"
 
-        pipe_in.stdin.write(array[i][0])
+        # pipe in and get out onehot
+        pipe_in.stdin.write(feature_interval)
         pipe_in.stdin.flush()
-        onehot = pipe_out.stdout.readline()
+        onehot = onehot_encode(pipe_out.stdout.readline())
         onehot_batch.append(onehot)
 
     onehot_batch = np.stack(onehot_batch, axis=0)

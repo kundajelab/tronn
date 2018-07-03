@@ -28,6 +28,9 @@ def run(args):
     train_dataloader = H5DataLoader(train_files)
     train_input_fn = train_dataloader.build_input_fn(
         args.batch_size, label_keys=args.label_keys)
+    args.model["num_tasks"] = H5DataLoader.get_num_tasks(
+        train_files, args.label_keys, args.label_key_dict)
+    print args.model["num_tasks"]
     validation_dataloader = H5DataLoader(valid_files)
     validation_input_fn = validation_dataloader.build_input_fn(
         args.batch_size, label_keys=args.label_keys)
@@ -55,7 +58,6 @@ def run(args):
         "checkpoint": best_checkpoint,
         "label_keys": args.label_keys,
         "tasks": args.tasks,
-        "num_tasks": train_dataloader.get_num_tasks(train_files),
         "train_files": train_files,
         "valid_files": valid_files,
         "test_files": test_files}

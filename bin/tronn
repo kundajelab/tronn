@@ -12,6 +12,7 @@ import logging
 import argparse
 import pkg_resources
 
+from tronn.util.h5_utils import get_absolute_label_indices
 from tronn.interpretation.pwms import read_pwm_file
 
 
@@ -85,6 +86,8 @@ def add_model_params(args):
         else:
             model_config[model_arg] = True
     args.model = model_config
+
+    args.label_key_dict = _parse_files(args.label_keys)
 
     return 
 
@@ -448,13 +451,17 @@ def _setup_interpretation_options(args):
     """
     # inference tasks
     args.inference_tasks = _parse_files(args.inference_tasks)
-    args.inference_task_indices = _get_absolute_label_indices(
-        args.model_info, args.inference_tasks)
+    args.inference_task_indices = get_absolute_label_indices(
+        args.model_info["label_keys"], 
+        args.inference_tasks, 
+        args.model_info["train_files"][0])
 
     # filter tasks
     args.filter_tasks = _parse_files(args.filter_tasks)
-    args.filter_task_indices = _get_absolute_label_indices(
-        args.model_info, args.filter_tasks)
+    args.filter_task_indices = get_absolute_label_indices(
+        args.model_info["label_keys"], 
+        args.filter_tasks,
+        args.model_info["train_files"][0])
 
     # pwm file
     args.pwm_list = read_pwm_file(args.pwm_file)
@@ -484,8 +491,11 @@ def _setup_visualization_options(args):
     # visualize tasks
     if args.visualize_tasks is not None:
         args.visualize_tasks = _parse_files(args.visualize_tasks)
-        args.visualize_task_indices = _get_absolute_label_indices(
-            args.model_info, args.visualize_tasks, list_of_lists=True)
+        args.visualize_task_indices = get_absolute_label_indices(
+            args.model_info["label_keys"], 
+            args.visualize_tasks, 
+            args.model_info["train_files"][0],
+            list_of_lists=True)
 
     # visualize signals
     if args.visualize_signals is not None:
@@ -843,35 +853,6 @@ def _parse_files(dataset_key_strings):
         key_dict[key] = (key_items, params)
     
     return key_dict
-
-
-def _get_absolute_label_indices(model_info, key_dict, list_of_lists=False):
-    """given a key dict and model, get the absolute indices
-    """
-    absolute_task_indices = []
-    absolute_task_indices_subsetted = []
-    
-    start_idx = 0
-    for key in model_info["label_keys"]:
-        # track how many indices in this key
-        with h5py.File(model_info["train_files"][0], "r") as hf:
-            num_tasks = hf[key].shape[1]
-        if key in key_dict.keys():
-            # and create absolute indices and append
-            if len(key_dict[key][0]) > 0:
-                key_indices = [start_idx + idx for idx in key_dict[key][0]]
-            else:
-                key_indices = [start_idx + idx for idx in xrange(num_tasks)]
-            absolute_task_indices += key_indices
-            absolute_task_indices_subsetted.append(key_indices)
-
-        # and then adjust start idx
-        start_idx += num_tasks
-
-    if list_of_lists:
-        return absolute_task_indices_subsetted
-    else:
-        return absolute_task_indices
 
 
 def _setup_annotations(args):

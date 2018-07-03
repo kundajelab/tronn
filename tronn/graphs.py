@@ -749,6 +749,10 @@ class ModelManager(object):
                     print total_examples
 
                 example = generator.next()
+
+                import ipdb
+                ipdb.set_trace()
+
                 h5_handler.store_example(example)
                 total_examples += 1
 

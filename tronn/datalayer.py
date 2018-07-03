@@ -14,6 +14,7 @@ import numpy as np
 import tensorflow as tf
 
 from tronn.preprocess.fasta import bed_to_sequence_iterator
+from tronn.preprocess.fasta import batch_string_to_onehot
 
 from tronn.nets.filter_nets import filter_by_labels
 from tronn.nets.filter_nets import filter_singleton_labels
@@ -22,6 +23,7 @@ from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 from tronn.nets.sequence_nets import generate_scaled_inputs
 from tronn.nets.sequence_nets import pad_examples
 
+from tronn.util.h5_utils import get_absolute_label_indices
 
 def setup_h5_files(data_dir):
     """quick helper function to go into h5 directory and organize h5 files
@@ -208,11 +210,11 @@ class H5DataLoader(DataLoader):
         return num_examples_per_file
 
     @staticmethod
-    def get_num_tasks(h5_files, test_key="labels"):
+    def get_num_tasks(h5_files, label_keys, label_keys_dict):
         """get number of labels
         """
-        with h5py.File(h5_files[0], "r") as hf:
-            return hf[test_key].shape[1]
+        return len(get_absolute_label_indices(label_keys, label_keys_dict, h5_files[0]))
+
     
     def get_dataset_metrics(self):
         """Get class imbalances, num of outputs, etc
@@ -340,7 +342,7 @@ class H5DataLoader(DataLoader):
 
         # set up on-the-fly onehot encoder
         #if fasta is not None:
-            #converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
+        #    converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
         
         # determine the Tout
         tensor_dtypes = []
@@ -370,7 +372,7 @@ class H5DataLoader(DataLoader):
 
             # TODO here's where to do the on the fly onehot encoding (in batch format)
             #slice_array["features"] = batch_string_to_onehot(
-            #    slice_array["features.string"],
+            #    slice_array["example_metadata"],
             #    converter_in,
             #    converter_out)
             

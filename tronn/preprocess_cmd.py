@@ -31,9 +31,6 @@ def run(args):
     total_signals = [len(args.signals[key][0]) for key in args.signals.keys()]
     logging.info("Using {} label files".format(total_labels))
     logging.info("Using {} signal files".format(total_signals))
-
-    import ipdb
-    ipdb.set_trace()
     
     # generate master bed file if one is not given
     if args.master_bed_file is None:

@@ -438,10 +438,11 @@ def basset(inputs, params):
     #logits_key = params["logits_key"]
     #labels_key = params["labels_key"]
     features = inputs["features"]
-    labels = inputs["labels"] # TODO - need to factor this out so that just num tasks exists (put into model info)
+    #labels = inputs["labels"] # TODO - need to factor this out so that just num tasks exists (put into model info)
     is_training = params.get("is_training", False)
     
     # get params
+    num_tasks = params["num_tasks"]
     params['width_factor'] = params.get('width_factor', 1) # extra config to widen model (NOT deepen)
     params["recurrent"] = params.get("recurrent", False)
     params['temporal'] = params.get('temporal', False)
@@ -470,14 +471,14 @@ def basset(inputs, params):
         if params['temporal']:
             logits = temporal_pred_module(
                 net,
-                int(labels.get_shape()[-1]),
+                num_tasks,
                 share_logistic_weights=True,
                 is_training=is_training)
         else:
             # TODO - here, expose the hidden layer so we can save it to cluster on it
             logits, last_hidden_layer = mlp_module_v2(
                 net, 
-                num_tasks = int(labels.get_shape()[-1]), 
+                num_tasks = num_tasks, #int(labels.get_shape()[-1]), 
                 fc_dim = params['fc_dim'], 
                 fc_layers = params['fc_layers'],
                 dropout=params['drop'],
