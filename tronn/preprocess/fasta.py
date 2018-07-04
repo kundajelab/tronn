@@ -164,10 +164,25 @@ def generate_one_hot_sequences(
 
 def sequence_string_to_onehot_converter(fasta):
     """sets up the pipe to convert a sequence string to onehot
+    NOTE: you must unbuffer things to make sure they flow through the pipe!
+
     """
-    pipe_in = subprocess.Popen(["cat", "-"], stdout=PIPE, stdin=PIPE, stderr=STDOUT) # feed by in_pipe.write(interval), in_pipe.flush()
+    pipe_in = subprocess.Popen(["cat", "-u", "-"], stdout=PIPE, stdin=PIPE, stderr=STDOUT) # feed by in_pipe.write(interval), in_pipe.flush()
+    
     get_fasta_cmd = "bedtools getfasta -tab -fi {} -bed stdin".format(fasta)
-    pipe_out = subprocess.Popen(get_fasta_cmd.split(), stdin=pipe_in.stdout, stdout=PIPE)
+    get_fasta = subprocess.Popen(get_fasta_cmd.split(), stdin=pipe_in.stdout, stdout=PIPE)
+
+    #to_upper_cmd = ["tr", "'[:lower:]'", "'[:upper:]'"]
+    to_upper_cmd = ['awk', '{print toupper($0); system("")}']
+    #to_upper_cmd = ["awk", '{print $0; system("")}']
+    to_upper = subprocess.Popen(to_upper_cmd, stdin=get_fasta.stdout, stdout=PIPE)
+    
+    sed_cmd = ['sed', "-u", 's/A/0/g; s/C/1/g; s/G/2/g; s/T/3/g; s/N/4/g']
+    pipe_out = subprocess.Popen(sed_cmd, stdin=to_upper.stdout, stdout=PIPE)
+
+    #unbuffer_cmd = ["awk", '{print $0; system("")}']
+    #pipe_out = subprocess.Popen(unbuffer_cmd, stdin=sed.stdout, stdout=PIPE)
+
     
     return pipe_in, pipe_out
 
@@ -201,22 +216,28 @@ def batch_string_to_onehot(array, pipe_in, pipe_out):
         metadata_dict = dict([
             val.split("=") 
             for val in array[i][0].strip().split(";")])
-        try:
-            feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
-            feature_interval += "\n"
-            # pipe in and get out onehot
-            pipe_in.stdin.write(feature_interval)
-            pipe_in.stdin.flush()
-            sequence = pipe_out.stdout.readline().strip().split('\t')[1].upper()
-        except:
-            # TODO fix this so that the information is in the metadata
-            sequence = "".join(["N" for i in xrange(1000)])
+        #try:
+        feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
+        feature_interval += "\n"
+        # pipe in and get out onehot
+        pipe_in.stdin.write(feature_interval)
+        pipe_in.stdin.flush()
+
+        # check
+        sequence = pipe_out.stdout.readline().strip().split('\t')[1] #.upper().split("")
+        print sequence
+        quit()
+        #except:
+        # TODO fix this so that the information is in the metadata
+            #sequence = "".join(["N" for i in xrange(1000)])
+            #sequence = ["N" for i in xrange(1000)]
             
         #sequence = one_hot_encode(sequence)#.astype(np.float32)
-        sequence = _map_to_int(sequence)
+        #sequence = _map_to_int(sequence)
+        sequence = np.expand_dims(np.array(sequence), axis=0)
         onehot_batch.append(sequence)
     onehot_batch = np.concatenate(onehot_batch, axis=0)
-    
+
     return onehot_batch
 
 

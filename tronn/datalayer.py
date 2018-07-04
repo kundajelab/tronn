@@ -352,7 +352,7 @@ class H5DataLoader(DataLoader):
             if isinstance(h5_handle[key][0], basestring):
                 tensor_dtypes.append(tf.string)
             elif "features" in key:
-                tensor_dtypes.append(tf.int64)
+                tensor_dtypes.append(tf.string)
             else:
                 tensor_dtypes.append(tf.float32)
 
@@ -378,6 +378,12 @@ class H5DataLoader(DataLoader):
                 slice_array["example_metadata"],
                 converter_in,
                 converter_out)
+            print slice_array["features"]
+            
+            #batch_string_to_onehot(
+            #    slice_array["example_metadata"],
+            #    converter_in,
+             #   converter_out)
 
             
             slice_list = []
@@ -400,16 +406,79 @@ class H5DataLoader(DataLoader):
             elif "metadata" in keys[i]:
                 inputs[i].set_shape([batch_size, 1])
             elif "features" in keys[i]:
-                inputs[i].set_shape([batch_size, 1000])
-                
+                inputs[i].set_shape([batch_size, 1000]) # TODO fix
             else:
                 inputs[i].set_shape([batch_size] + list(h5_handle[keys[i]].shape[1:]))
 
         # make dict
         inputs = dict(zip(keys, inputs))
 
+        def _bp_char_to_int(bp):
+            """
+            """
+            def change_A(): return tf.constant(0, dtype=tf.int32)
+            def change_C(): return tf.constant(1, dtype=tf.int32)
+            def change_G(): return tf.constant(2, dtype=tf.int32)
+            def change_T(): return tf.constant(3, dtype=tf.int32)
+            def change_N(): return tf.constant(-1, dtype=tf.int32)
+
+            index = tf.case(
+                {tf.equal(bp, "A"): change_A,
+                 tf.equal(bp, "C"): change_C,
+                 tf.equal(bp, "G"): change_G,
+                 tf.equal(bp, "T"): change_T},
+                default=change_N,
+                exclusive=True)
+
+            return index
+        
+        def _map_to_int_old(sequence):
+            """
+            """
+            features = tf.map_fn(
+                _bp_char_to_int,
+                sequence,
+                dtype=tf.int32)
+            
+            return features
+
+
+        def _map_to_int(sequence):
+            """
+            """
+            seq_len = sequence.get_shape().as_list()[0]
+            features = tf.zeros((seq_len, 4)) # {1000,4}
+            one_row_zeros = tf.zeros((seq_len))
+            A_vals = tf.stack((
+                tf.cast(tf.equal(sequence, "A"), tf.float32),
+                one_row_zeros,
+                one_row_zeros,
+                one_row_zeros), axis=1)
+            C_vals = tf.stack((
+                one_row_zeros,
+                tf.cast(tf.equal(sequence, "C"), tf.float32),
+                one_row_zeros,
+                one_row_zeros), axis=1)
+            G_vals = tf.stack((
+                one_row_zeros,
+                one_row_zeros,
+                tf.cast(tf.equal(sequence, "G"), tf.float32),
+                one_row_zeros), axis=1)
+            T_vals = tf.stack((
+                one_row_zeros,
+                one_row_zeros,
+                one_row_zeros,
+                tf.cast(tf.equal(sequence, "T"), tf.float32)), axis=1)
+
+            features = tf.add(features, A_vals)
+            features = tf.add(features, C_vals)
+            features = tf.add(features, G_vals)
+            features = tf.add(features, T_vals)
+            
+            return features
+        
         # adjust features - onehot encoding
-        def onehot_sequence(sequence):
+        def _onehot_sequence(sequence):
             """adjust to onehot
             """
             sequence = tf.one_hot(sequence, 5, axis=-1) # {1000, 5}
@@ -417,14 +486,30 @@ class H5DataLoader(DataLoader):
             sequence = tf.gather(sequence, [0, 1, 2, 4], axis=2)
             
             return sequence
+        
+        def string_to_onehot(sequences):
+            """
+            """
+            indices = tf.map_fn(
+                _map_to_int,
+                sequences,
+                dtype=tf.int32)
 
+            features = tf.map_fn(
+                _onehot_sequence,
+                indices,
+                dtype=tf.float32)
+            
+            return features
+        
         features = tf.map_fn(
-            onehot_sequence,
+            _map_to_int,
             inputs["features"],
             dtype=tf.float32)
         
-        inputs["features"] = features
-
+        inputs["features"] = tf.expand_dims(features, axis=1)
+        #inputs["features"] = string_to_onehot(inputs["features"])
+        
         return inputs
 
 
