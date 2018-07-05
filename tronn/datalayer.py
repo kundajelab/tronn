@@ -352,7 +352,7 @@ class H5DataLoader(DataLoader):
             if isinstance(h5_handle[key][0], basestring):
                 tensor_dtypes.append(tf.string)
             elif "features" in key:
-                tensor_dtypes.append(tf.string)
+                tensor_dtypes.append(tf.int32)
             else:
                 tensor_dtypes.append(tf.float32)
 
@@ -378,13 +378,13 @@ class H5DataLoader(DataLoader):
                 slice_array["example_metadata"],
                 converter_in,
                 converter_out)
-            print slice_array["features"]
+            #print slice_array["features"]
             
             #batch_string_to_onehot(
             #    slice_array["example_metadata"],
             #    converter_in,
-             #   converter_out)
-
+            #    converter_out)
+            
             
             slice_list = []
             for key in keys:
@@ -503,11 +503,11 @@ class H5DataLoader(DataLoader):
             return features
         
         features = tf.map_fn(
-            _map_to_int,
+            _onehot_sequence,
             inputs["features"],
             dtype=tf.float32)
         
-        inputs["features"] = tf.expand_dims(features, axis=1)
+        inputs["features"] = features #tf.expand_dims(features, axis=1)
         #inputs["features"] = string_to_onehot(inputs["features"])
         
         return inputs

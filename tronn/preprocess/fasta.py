@@ -173,7 +173,7 @@ def sequence_string_to_onehot_converter(fasta):
     get_fasta = subprocess.Popen(get_fasta_cmd.split(), stdin=pipe_in.stdout, stdout=PIPE)
 
     #to_upper_cmd = ["tr", "'[:lower:]'", "'[:upper:]'"]
-    to_upper_cmd = ['awk', '{print toupper($0); system("")}']
+    to_upper_cmd = ['awk', '{print toupper($2); system("")}']
     #to_upper_cmd = ["awk", '{print $0; system("")}']
     to_upper = subprocess.Popen(to_upper_cmd, stdin=get_fasta.stdout, stdout=PIPE)
     
@@ -209,34 +209,81 @@ def _map_to_int(sequence):
 def batch_string_to_onehot(array, pipe_in, pipe_out):
     """given a string array, convert each to onehot
     """
-    onehot_batch = []
+    onehot_batch = np.zeros((array.shape[0], 1000), dtype=np.int32)
+    
     for i in xrange(array.shape[0]):
         
         # get the feature
         metadata_dict = dict([
             val.split("=") 
             for val in array[i][0].strip().split(";")])
-        #try:
-        feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
-        feature_interval += "\n"
-        # pipe in and get out onehot
-        pipe_in.stdin.write(feature_interval)
-        pipe_in.stdin.flush()
+        try:
+            feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
+            feature_interval += "\n"
+            # pipe in and get out onehot
+            pipe_in.stdin.write(feature_interval)
+            pipe_in.stdin.flush()
 
-        # check
-        sequence = pipe_out.stdout.readline().strip().split('\t')[1] #.upper().split("")
-        print sequence
-        quit()
-        #except:
-        # TODO fix this so that the information is in the metadata
-            #sequence = "".join(["N" for i in xrange(1000)])
+            # check
+            sequence = pipe_out.stdout.readline()[0].strip() #.upper().split("")
+            sequence = np.fromstring(sequence, dtype=int, sep="") # THIS IS CRUCIAL
+            #sequence = np.array(list(sequence)).astype(np.int32)
+            #print sequence
+            #quit()
+        except:
+            # TODO fix this so that the information is in the metadata
+            sequence = np.array([4 for j in xrange(1000)])
+            #sequence = "".join(["4" for i in xrange(1000)])
             #sequence = ["N" for i in xrange(1000)]
-            
+
+        #sequence = np.array(list(sequence)).astype(np.int32)
         #sequence = one_hot_encode(sequence)#.astype(np.float32)
         #sequence = _map_to_int(sequence)
-        sequence = np.expand_dims(np.array(sequence), axis=0)
-        onehot_batch.append(sequence)
-    onehot_batch = np.concatenate(onehot_batch, axis=0)
+        #sequence = np.expand_dims(np.array(sequence), axis=0)
+        #sequence = np.expand_dims(sequence, axis=0)
+        onehot_batch[i,:] = sequence
+        #onehot_batch.append(sequence)
+    #onehot_batch = np.concatenate(onehot_batch, axis=0)
+    #print onehot_batch
+    #print onehot_batch.shape
+    #quit()
+
+    return onehot_batch
+
+
+def batch_string_to_onehot_old(array, pipe_in, pipe_out):
+    """given a string array, convert each to onehot
+    """
+    onehot_batch = np.zeros((array.shape[0], 1000), dtype=np.int32)
+    
+    for i in xrange(array.shape[0]):
+        
+        # get the feature
+        metadata_dict = dict([
+            val.split("=") 
+            for val in array[i][0].strip().split(";")])
+
+        # write to pipe
+        try:
+            feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
+            feature_interval += "\n"
+            # pipe in and get out onehot
+            pipe_in.stdin.write(feature_interval)
+        except:
+            pass
+
+    pipe_in.stdin.flush()
+    
+    for i in xrange(array.shape[0]):
+        try:
+            sequence = pipe_out.stdout.readline().strip().split('\t')[1] #.upper().split("")
+            #sequence = np.array(list(sequence)).astype(np.int32)
+        except:
+            # TODO fix this so that the information is in the metadata
+            pass
+            #sequence = np.array([4 for j in xrange(1000)]).astype(np.int32)
+
+        #onehot_batch[i,:] = sequence
 
     return onehot_batch
 
