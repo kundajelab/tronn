@@ -165,57 +165,36 @@ def generate_one_hot_sequences(
 def sequence_string_to_onehot_converter(fasta):
     """sets up the pipe to convert a sequence string to onehot
     NOTE: you must unbuffer things to make sure they flow through the pipe!
-
     """
-    pipe_in = subprocess.Popen(["cat", "-u", "-"], stdout=PIPE, stdin=PIPE, stderr=STDOUT) # feed by in_pipe.write(interval), in_pipe.flush()
-    
+    # set up input pipe. feed using: pipe_in.write(interval), pipe_in.flush()
+    pipe_in = subprocess.Popen(["cat", "-u", "-"], stdout=PIPE, stdin=PIPE, stderr=STDOUT)
+
+    # get fasta sequence
     get_fasta_cmd = "bedtools getfasta -tab -fi {} -bed stdin".format(fasta)
     get_fasta = subprocess.Popen(get_fasta_cmd.split(), stdin=pipe_in.stdout, stdout=PIPE)
 
-    #to_upper_cmd = ["tr", "'[:lower:]'", "'[:upper:]'"]
+    # convert to upper with AWK
     to_upper_cmd = ['awk', '{print toupper($2); system("")}']
-    #to_upper_cmd = ["awk", '{print $0; system("")}']
     to_upper = subprocess.Popen(to_upper_cmd, stdin=get_fasta.stdout, stdout=PIPE)
-    
+
+    # replace ACGTN with 01234
     sed_cmd = ['sed', "-u", 's/A/0/g; s/C/1/g; s/G/2/g; s/T/3/g; s/N/4/g']
     pipe_out = subprocess.Popen(sed_cmd, stdin=to_upper.stdout, stdout=PIPE)
-
-    #unbuffer_cmd = ["awk", '{print $0; system("")}']
-    #pipe_out = subprocess.Popen(unbuffer_cmd, stdin=sed.stdout, stdout=PIPE)
-
     
     return pipe_in, pipe_out
 
 
-def _map_to_int(sequence):
-    """test
-    """
-    integer_type = np.int8 if sys.version_info[0] == 2 else np.int32
-        
-    sequence_length = len(sequence)
-    sequence_npy = np.fromstring(sequence, dtype=integer_type)
-
-    # one hot encode
-    #print sequence
-    integer_array = LabelEncoder().fit(
-        np.array(('ACGTN',)).view(integer_type)).transform(
-            sequence_npy.view(integer_type)).reshape(1, sequence_length)
-    #print integer_array
-    #quit()
-    
-    return integer_array
-
-
-def batch_string_to_onehot(array, pipe_in, pipe_out):
+def batch_string_to_onehot(array, pipe_in, pipe_out, batch_array):
     """given a string array, convert each to onehot
     """
-    onehot_batch = np.zeros((array.shape[0], 1000), dtype=np.int32)
+    #batch_array = np.zeros((array.shape[0], 1000), dtype=np.uint8)
     
     for i in xrange(array.shape[0]):
-        
-        # get the feature
+
+        # TODO when featurizing, separate out interval - can save time here
+        # get the feature from metadata - is this slow?
         metadata_dict = dict([
-            val.split("=") 
+            val.split("=")
             for val in array[i][0].strip().split(";")])
         try:
             feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
@@ -225,90 +204,39 @@ def batch_string_to_onehot(array, pipe_in, pipe_out):
             pipe_in.stdin.flush()
 
             # check
-            sequence = pipe_out.stdout.readline()[0].strip() #.upper().split("")
-            sequence = np.fromstring(sequence, dtype=int, sep="") # THIS IS CRUCIAL
-            #sequence = np.array(list(sequence)).astype(np.int32)
-            #print sequence
-            #quit()
+            sequence = pipe_out.stdout.readline()[0].strip()
+            sequence = np.fromstring(sequence, dtype=np.uint8, sep="") # THIS IS CRUCIAL
         except:
-            # TODO fix this so that the information is in the metadata
-            sequence = np.array([4 for j in xrange(1000)])
-            #sequence = "".join(["4" for i in xrange(1000)])
-            #sequence = ["N" for i in xrange(1000)]
+            # TODO fix this so that the information is in the metadata?
+            sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)
+            
+        batch_array[i,:] = sequence
 
-        #sequence = np.array(list(sequence)).astype(np.int32)
-        #sequence = one_hot_encode(sequence)#.astype(np.float32)
-        #sequence = _map_to_int(sequence)
-        #sequence = np.expand_dims(np.array(sequence), axis=0)
-        #sequence = np.expand_dims(sequence, axis=0)
-        onehot_batch[i,:] = sequence
-        #onehot_batch.append(sequence)
-    #onehot_batch = np.concatenate(onehot_batch, axis=0)
-    #print onehot_batch
-    #print onehot_batch.shape
-    #quit()
-
-    return onehot_batch
-
-
-def batch_string_to_onehot_old(array, pipe_in, pipe_out):
-    """given a string array, convert each to onehot
-    """
-    onehot_batch = np.zeros((array.shape[0], 1000), dtype=np.int32)
-    
-    for i in xrange(array.shape[0]):
-        
-        # get the feature
-        metadata_dict = dict([
-            val.split("=") 
-            for val in array[i][0].strip().split(";")])
-
-        # write to pipe
-        try:
-            feature_interval = metadata_dict["features"].replace(":", "\t").replace("-", "\t")
-            feature_interval += "\n"
-            # pipe in and get out onehot
-            pipe_in.stdin.write(feature_interval)
-        except:
-            pass
-
-    pipe_in.stdin.flush()
-    
-    for i in xrange(array.shape[0]):
-        try:
-            sequence = pipe_out.stdout.readline().strip().split('\t')[1] #.upper().split("")
-            #sequence = np.array(list(sequence)).astype(np.int32)
-        except:
-            # TODO fix this so that the information is in the metadata
-            pass
-            #sequence = np.array([4 for j in xrange(1000)]).astype(np.int32)
-
-        #onehot_batch[i,:] = sequence
-
-    return onehot_batch
-
+    return batch_array
 
 
 def bed_to_sequence_iterator(bed_file, fasta, batch_size=1):
     """bed file to batches of sequences
     """
-    # set up pipe
-    p = subprocess.Popen(["cat", "-"], stdout=PIPE, stdin=PIPE, stderr=STDOUT)
-    get_fasta_cmd = "bedtools getfasta -tab -fi {} -bed stdin".format(fasta)
-    print get_fasta_cmd.split()
-    getfasta_p = subprocess.Popen(get_fasta_cmd.split(), stdin=p.stdout, stdout=PIPE)
+    # set up converter
+    converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
     
     # return inidividuals (batch in another function? or use six)
     with gzip.open(bed_file) as bed_fp:
         for line in bed_fp:
             fields = line.strip().split()
+
+            try:
+                # set up interval and get from fasta
+                interval = "{}\t{}\t{}\n".format(fields[0], fields[1], fields[2])
+                converter_in.stdin.write(interval)
+                converter_in.stdin.flush()
             
-            # set up interval and get from fasta
-            interval = "{}\t{}\t{}\n".format(fields[0], fields[1], fields[2])
-            p.stdin.write(interval)
-            p.stdin.flush()
-            sequence = getfasta_p.stdout.readline().strip().split('\t')[1].upper()
-            sequence = one_hot_encode(sequence).astype(np.float32)
+                # check
+                sequence = pipe_out.stdout.readline()[0].strip()
+                sequence = np.fromstring(sequence, dtype=np.uint8, sep="") # THIS IS CRUCIAL
+            except:
+                sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)
             
             # also set up example metadata coming out if no name
             if len(fields) > 3:
@@ -323,8 +251,3 @@ def bed_to_sequence_iterator(bed_file, fasta, batch_size=1):
     p.stdin.close()
             
     return
-
-
-#iterator = bed_to_sequences("test.bed.gz", "/mnt/data/annotations/by_release/hg19.GRCh37/hg19.genome.fa")
-#print iterator.next()
-#print iterator.next()

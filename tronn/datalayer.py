@@ -173,8 +173,16 @@ class DataLoader(object):
             return inputs, None
         
         return dataflow_fn
-    
-    
+
+    @staticmethod
+    def encode_onehot_sequence(sequence):
+        """adjust to onehot, given indices tensor
+        """
+        sequence = tf.one_hot(sequence, 5, axis=-1) # {seq_len, 5}
+        sequence = tf.expand_dims(sequence, axis=0) # {1, seq_len, 5}
+        sequence = tf.gather(sequence, [0, 1, 2, 4], axis=2) # {1, seq_len, 4]
+        
+        return sequence
     
 
 class H5DataLoader(DataLoader):
@@ -343,8 +351,8 @@ class H5DataLoader(DataLoader):
             os.path.basename(h5_file), max_batches))
 
         # set up on-the-fly onehot encoder
-        if fasta is not None:
-            converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
+        assert fasta is not None
+        converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
         
         # determine the Tout
         tensor_dtypes = []
@@ -352,13 +360,17 @@ class H5DataLoader(DataLoader):
             if isinstance(h5_handle[key][0], basestring):
                 tensor_dtypes.append(tf.string)
             elif "features" in key:
-                tensor_dtypes.append(tf.int32)
+                tensor_dtypes.append(tf.uint8)
             else:
                 tensor_dtypes.append(tf.float32)
 
         # labels get set up in the file so need to append to get them out
         keys.append("labels")
         tensor_dtypes.append(tf.float32)
+
+        # set up tmp numpy array so that it's not re-created for every batch
+        # TODO adjust seq length
+        onehot_batch_array = np.zeros((batch_size, 1000), dtype=np.uint8)
         
         # function to get examples based on batch_id (for py_func)
         def batch_id_to_examples(batch_id):
@@ -374,17 +386,12 @@ class H5DataLoader(DataLoader):
                 features_key=features_key,
                 label_keys=label_keys)
 
+            # onehot encode on the fly
             slice_array["features"] = batch_string_to_onehot(
                 slice_array["example_metadata"],
                 converter_in,
-                converter_out)
-            #print slice_array["features"]
-            
-            #batch_string_to_onehot(
-            #    slice_array["example_metadata"],
-            #    converter_in,
-            #    converter_out)
-            
+                converter_out,
+                onehot_batch_array)
             
             slice_list = []
             for key in keys:
@@ -413,102 +420,11 @@ class H5DataLoader(DataLoader):
         # make dict
         inputs = dict(zip(keys, inputs))
 
-        def _bp_char_to_int(bp):
-            """
-            """
-            def change_A(): return tf.constant(0, dtype=tf.int32)
-            def change_C(): return tf.constant(1, dtype=tf.int32)
-            def change_G(): return tf.constant(2, dtype=tf.int32)
-            def change_T(): return tf.constant(3, dtype=tf.int32)
-            def change_N(): return tf.constant(-1, dtype=tf.int32)
-
-            index = tf.case(
-                {tf.equal(bp, "A"): change_A,
-                 tf.equal(bp, "C"): change_C,
-                 tf.equal(bp, "G"): change_G,
-                 tf.equal(bp, "T"): change_T},
-                default=change_N,
-                exclusive=True)
-
-            return index
-        
-        def _map_to_int_old(sequence):
-            """
-            """
-            features = tf.map_fn(
-                _bp_char_to_int,
-                sequence,
-                dtype=tf.int32)
-            
-            return features
-
-
-        def _map_to_int(sequence):
-            """
-            """
-            seq_len = sequence.get_shape().as_list()[0]
-            features = tf.zeros((seq_len, 4)) # {1000,4}
-            one_row_zeros = tf.zeros((seq_len))
-            A_vals = tf.stack((
-                tf.cast(tf.equal(sequence, "A"), tf.float32),
-                one_row_zeros,
-                one_row_zeros,
-                one_row_zeros), axis=1)
-            C_vals = tf.stack((
-                one_row_zeros,
-                tf.cast(tf.equal(sequence, "C"), tf.float32),
-                one_row_zeros,
-                one_row_zeros), axis=1)
-            G_vals = tf.stack((
-                one_row_zeros,
-                one_row_zeros,
-                tf.cast(tf.equal(sequence, "G"), tf.float32),
-                one_row_zeros), axis=1)
-            T_vals = tf.stack((
-                one_row_zeros,
-                one_row_zeros,
-                one_row_zeros,
-                tf.cast(tf.equal(sequence, "T"), tf.float32)), axis=1)
-
-            features = tf.add(features, A_vals)
-            features = tf.add(features, C_vals)
-            features = tf.add(features, G_vals)
-            features = tf.add(features, T_vals)
-            
-            return features
-        
-        # adjust features - onehot encoding
-        def _onehot_sequence(sequence):
-            """adjust to onehot
-            """
-            sequence = tf.one_hot(sequence, 5, axis=-1) # {1000, 5}
-            sequence = tf.expand_dims(sequence, axis=0) # {1, 1000, 5}
-            sequence = tf.gather(sequence, [0, 1, 2, 4], axis=2)
-            
-            return sequence
-        
-        def string_to_onehot(sequences):
-            """
-            """
-            indices = tf.map_fn(
-                _map_to_int,
-                sequences,
-                dtype=tf.int32)
-
-            features = tf.map_fn(
-                _onehot_sequence,
-                indices,
-                dtype=tf.float32)
-            
-            return features
-        
-        features = tf.map_fn(
-            _onehot_sequence,
+        # onehot encode the batch
+        inputs["features"] = tf.map_fn(
+            DataLoader.encode_onehot_sequence,
             inputs["features"],
             dtype=tf.float32)
-        
-        inputs["features"] = features #tf.expand_dims(features, axis=1)
-        #inputs["features"] = string_to_onehot(inputs["features"])
         
         return inputs
 
@@ -813,7 +729,7 @@ class BedDataLoader(DataLoader):
         iterator = bed_to_sequence_iterator(self.bed_file, self.fasta_file)
         def example_generator(batch_id):
             return iterator.next()
-        tensor_dtypes = [tf.string, tf.float32]
+        tensor_dtypes = [tf.string, tf.uint8]
         keys = ["example_metadata", "features"]
         
         # py_func
@@ -829,9 +745,9 @@ class BedDataLoader(DataLoader):
                 inputs[i].set_shape([1, 1])
             else:
                 inputs[i].set_shape([1, 1, 1000, 4])
-        
+
+        # set as dict
         inputs = dict(zip(keys, inputs))
-        print inputs
         
         # batch
         inputs = tf.train.batch(
@@ -840,5 +756,11 @@ class BedDataLoader(DataLoader):
             capacity=1000,
             enqueue_many=True,
             name='batcher')
+
+        # convert to onehot
+        inputs["features"] = tf.map_fn(
+            DataLoader.encode_onehot_sequence,
+            inputs["features"],
+            dtype=tf.float32)
         
         return inputs
