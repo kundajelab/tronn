@@ -15,7 +15,10 @@ import subprocess
 import numpy as np
 import pandas as pd
 
+from tronn.preprocess.metadata import save_metadata
+
 from tronn.preprocess.fasta import generate_one_hot_sequences
+
 
 from tronn.preprocess.bed import generate_master_regions
 from tronn.preprocess.bed import bin_regions
@@ -34,7 +37,7 @@ from tronn.util.parallelize import run_in_parallel
 
 
 def setup_h5_dataset(
-        master_bed_file,
+        bin_file,
         ref_fasta,
         chromsizes,
         h5_file,
@@ -56,41 +59,9 @@ def setup_h5_dataset(
     # set up prefix
     prefix = os.path.basename(master_bed_file).split(
         ".narrrowPeak")[0].split(".bed")[0]
-    
-    # bin the master bed file
-    if not binned:
-        print "deprecated"
-        quit()
-        #bin_file = "{}/{}.bin-{}.stride-{}.bed.gz".format(
-        #    tmp_dir, prefix, bin_size, stride)
-        #if not os.path.isfile(bin_file):
-        #    bin_regions(master_bed_file, bin_file, bin_size, stride, method="naive")
-    else:
-        bin_file = master_bed_file
-            
-    # generate the one hot sequence encoding
-    # TODO in the lite version, drop this
-    #bin_ext_file = "{}.len-{}.bed.gz".format(
-    #    bin_file.split(".bed")[0], final_length)
-    #fasta_sequences_file = "{}.fa".format(
-    #    bin_ext_file.split(".bed")[0])
-    #if not os.path.isfile(h5_file):
-    #    generate_one_hot_sequences(
-    #        bin_file,
-    #        bin_ext_file,
-    #        fasta_sequences_file,
-    #        h5_file,
-    #        onehot_features_key,
-    #        bin_size,
-    #        final_length,
-    #        ref_fasta,
-    #        reverse_complemented)
-        
-    # extract out the active center again
-    #bin_active_center_file = "{}.active.bed.gz".format(
-    #    bin_ext_file.split(".bed")[0])
-    #fasta_sequences_file = "{}.gz".format(fasta_sequences_file)
-    #extract_active_centers(bin_active_center_file, fasta_sequences_file)
+
+    # save in the metadata
+    save_metadata(bin_file, h5_file, key="example_metadata")
     
     # generate BED annotations on the active center
     for key in label_sets.keys():
