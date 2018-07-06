@@ -180,7 +180,7 @@ class DataLoader(object):
         """
         sequence = tf.one_hot(sequence, 5, axis=-1) # {seq_len, 5}
         sequence = tf.expand_dims(sequence, axis=0) # {1, seq_len, 5}
-        sequence = tf.gather(sequence, [0, 1, 2, 4], axis=2) # {1, seq_len, 4]
+        sequence = tf.gather(sequence, [0, 1, 2, 3], axis=2) # {1, seq_len, 4]
         
         return sequence
     

@@ -179,7 +179,11 @@ def sequence_string_to_onehot_converter(fasta):
 
     # replace ACGTN with 01234
     sed_cmd = ['sed', "-u", 's/A/0/g; s/C/1/g; s/G/2/g; s/T/3/g; s/N/4/g']
-    pipe_out = subprocess.Popen(sed_cmd, stdin=to_upper.stdout, stdout=PIPE)
+    replace = subprocess.Popen(sed_cmd, stdin=to_upper.stdout, stdout=PIPE)
+
+    # separate all by commas
+    split_w_commas_cmd = ["sed", "-u", 's/./,&/g; s/,//']
+    pipe_out = subprocess.Popen(split_w_commas_cmd, stdin=replace.stdout, stdout=PIPE)
     
     return pipe_in, pipe_out
 
@@ -204,8 +208,8 @@ def batch_string_to_onehot(array, pipe_in, pipe_out, batch_array):
             pipe_in.stdin.flush()
 
             # check
-            sequence = pipe_out.stdout.readline()[0].strip()
-            sequence = np.fromstring(sequence, dtype=np.uint8, sep="") # THIS IS CRUCIAL
+            sequence = pipe_out.stdout.readline().strip()
+            sequence = np.fromstring(sequence, dtype=np.uint8, sep=",") # THIS IS CRUCIAL
         except:
             # TODO fix this so that the information is in the metadata?
             sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)

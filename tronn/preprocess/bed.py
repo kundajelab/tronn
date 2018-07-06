@@ -277,7 +277,7 @@ def bin_regions_sharded(
         overlap_check = (
             "bedtools slop -i {0} -g {1} -b {2} | "
             "awk -F '\t' '{{ print $1\"\t\"$2+{2}\"\t\"$3-{2}\"\t\"$4 }}' | "
-            "awk -F '\ ' '{{ if ($3-$2=={3}) {{ print }} }}' | "
+            "awk -F '\t' '{{ if ($3-$2=={3}) {{ print }} }}' | "
             "gzip -c > {4}").format(
                 bed_file,
                 chromsizes,

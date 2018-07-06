@@ -57,7 +57,7 @@ def setup_h5_dataset(
     os.system("mkdir -p {}".format(tmp_dir))
     
     # set up prefix
-    prefix = os.path.basename(master_bed_file).split(
+    prefix = os.path.basename(bin_file).split(
         ".narrrowPeak")[0].split(".bed")[0]
 
     # save in the metadata
