@@ -46,7 +46,7 @@ make_heatmap <- function(
     mylhei = c(0.5,12,1.5)
 
     # plot
-    pdf(out_pdf_file, height=18, width=10)
+    pdf(out_pdf_file, height=18, width=18)
     heatmap.2(
         as.matrix(data),
         Rowv=FALSE,
@@ -114,7 +114,11 @@ if (cluster_columns == 1) {
 
 # read in data
 data <- h5read(h5_file, dataset_key, read.attributes=TRUE)
-#rownames(data) <- attr(data, "pwm_names") # TODO fix this
+if (grepl("pwm", dataset_key)) {
+    rownames(data) <- attr(data, "pwm_names")
+    rownames(data) <- gsub("HCLUST-", "", rownames(data))
+    rownames(data) <- gsub("[.]UNK.*", "", rownames(data))
+}
 clusters <- h5read(h5_file, cluster_key)
 
 # transpose (fastest changing axis is opposite order in R vs python)
@@ -174,10 +178,15 @@ if (nrow(data_norm) > plottable_nrow) {
 print(dim(data_ordered))
 
 # add column names
-if (length(indices) > 0) {
-    colnames(data_ordered) <- paste("idx", indices-1, sep="-")
+if (grepl("pwm", dataset_key)) {
+    print("pwm")
+    #rownames(data) <- attr(data, "pwm_names")
 } else {
-    colnames(data_ordered) <- paste("idx", 1:ncol(data_ordered)-1, sep="-")
+    if (length(indices) > 0) {
+        colnames(data_ordered) <- paste("idx", indices-1, sep="-")
+    } else {
+        colnames(data_ordered) <- paste("idx", 1:ncol(data_ordered)-1, sep="-")
+    }
 }
 
 # make heatmap

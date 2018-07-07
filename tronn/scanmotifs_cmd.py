@@ -157,7 +157,8 @@ def run(args):
                 refined_metacluster_key,
                 args.inference_task_indices,
                 args.visualize_task_indices,
-                args.visualize_signals)
+                args.visualize_signals,
+                remove_final_cluster=False if args.bed_input else True)
 
         _get_cluster_bed(
             results_h5_file,

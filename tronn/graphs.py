@@ -70,6 +70,8 @@ class TronnEstimator(tf.estimator.Estimator):
                 print "session created"
                 while not mon_sess.should_stop():
                     preds_evaluated = mon_sess.run(predictions)
+                    #for key in preds_evaluated.keys():
+                    #    print key, preds_evaluated[key].shape
                     print "run session"
                     if not yield_single_examples:
                         yield preds_evaluated

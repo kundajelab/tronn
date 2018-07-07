@@ -219,39 +219,73 @@ def batch_string_to_onehot(array, pipe_in, pipe_out, batch_array):
     return batch_array
 
 
-def bed_to_sequence_iterator(bed_file, fasta, batch_size=1):
+
+def _interval_generator(
+        interval_string,
+        bin_size,
+        stride,
+        final_length):
+    """helper function to go through an 
+    interval and split up into bins
+    """
+    fields = interval_string.strip().split()
+    chrom = fields[0]
+    start = int(fields[1])
+    stop = int(fields[2])
+
+    extend_len = (final_length - bin_size) / 2
+    
+    mark = start
+    while mark < stop:
+        interval_start = mark - extend_len
+        interval_stop = mark + bin_size + extend_len
+
+        if interval_start < 0:
+            continue
+        
+        bin_interval = "{}\t{}\t{}\n".format(chrom, interval_start, interval_stop)
+        mark += stride
+        yield bin_interval
+
+
+def bed_to_sequence_iterator(
+        bed_file,
+        fasta,
+        bin_size=200,
+        stride=50,
+        final_length=1000,
+        batch_size=1):
     """bed file to batches of sequences
     """
     # set up converter
     converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
     
-    # return inidividuals (batch in another function? or use six)
+    # go through bed file and get sequences
     with gzip.open(bed_file) as bed_fp:
         for line in bed_fp:
-            fields = line.strip().split()
+            line_fields = line.strip().split()
+            intervals = _interval_generator(line, bin_size, stride, final_length)
 
-            try:
-                # set up interval and get from fasta
-                interval = "{}\t{}\t{}\n".format(fields[0], fields[1], fields[2])
+            for interval in intervals:
+
                 converter_in.stdin.write(interval)
                 converter_in.stdin.flush()
+                sequence = converter_out.stdout.readline().strip()
+                sequence = np.fromstring(sequence, dtype=np.uint8, sep=",") # THIS IS CRUCIAL
+                sequence = np.expand_dims(sequence, axis=0)
+                
+                # also set up example metadata coming out if no name
+                fields = interval.strip().split()
+                interval_metadata = "interval={}:{}-{}".format(fields[0], fields[1], fields[2])
+                
+                if len(line_fields) > 3:
+                    example_metadata = "{};{}".format(line_fields[3], interval_metadata)
+                else:
+                    example_metadata = interval_metadata
+                example_metadata = np.array(example_metadata).reshape((1,1))
             
-                # check
-                sequence = pipe_out.stdout.readline()[0].strip()
-                sequence = np.fromstring(sequence, dtype=np.uint8, sep="") # THIS IS CRUCIAL
-            except:
-                sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)
+                # yield
+                yield example_metadata, sequence
             
-            # also set up example metadata coming out if no name
-            if len(fields) > 3:
-                example_metadata = fields[3]
-            else:
-                example_metadata = "{}:{}-{}".format(fields[0], fields[1], fields[2])
-            example_metadata = np.array(example_metadata).reshape((1,1))
-            
-            # yield
-            yield example_metadata, sequence
-            
-    p.stdin.close()
-            
-    return
+    converter_in.stdout.close()
+

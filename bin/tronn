@@ -323,6 +323,9 @@ def add_evaluate_parser(subparsers):
     group_input.add_argument(
         "--model_info", required=True,
         help="json with training info")
+    group_input.add_argument(
+        "--fasta", required=True,
+        help="fasta file for one hot encoding sequence")
     
     # group for parameters
     group_params = argparser_test.add_argument_group(

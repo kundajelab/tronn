@@ -359,14 +359,17 @@ class H5DataLoader(DataLoader):
         for key in keys:
             if isinstance(h5_handle[key][0], basestring):
                 tensor_dtypes.append(tf.string)
-            elif "features" in key:
-                tensor_dtypes.append(tf.uint8)
+            #elif "features" in key:
+            #    tensor_dtypes.append(tf.uint8)
             else:
                 tensor_dtypes.append(tf.float32)
 
         # labels get set up in the file so need to append to get them out
         keys.append("labels")
         tensor_dtypes.append(tf.float32)
+
+        keys.append("features")
+        tensor_dtypes.append(tf.uint8)
 
         # set up tmp numpy array so that it's not re-created for every batch
         # TODO adjust seq length
@@ -392,6 +395,10 @@ class H5DataLoader(DataLoader):
                 converter_in,
                 converter_out,
                 onehot_batch_array)
+
+            # close pipe if done
+            if batch_id == max_batches:
+                converter_in.stdout.close()
             
             slice_list = []
             for key in keys:
@@ -726,7 +733,10 @@ class BedDataLoader(DataLoader):
         logging.info("num_regions: {}".format(num_regions))
 
         # iterator: produces sequence and example metadata
-        iterator = bed_to_sequence_iterator(self.bed_file, self.fasta_file)
+        iterator = bed_to_sequence_iterator(
+            self.bed_file,
+            self.fasta_file,
+            batch_size=batch_size)
         def example_generator(batch_id):
             return iterator.next()
         tensor_dtypes = [tf.string, tf.uint8]
@@ -744,7 +754,7 @@ class BedDataLoader(DataLoader):
             if "metadata" in keys[i]:
                 inputs[i].set_shape([1, 1])
             else:
-                inputs[i].set_shape([1, 1, 1000, 4])
+                inputs[i].set_shape([1, 1000])
 
         # set as dict
         inputs = dict(zip(keys, inputs))
@@ -762,5 +772,6 @@ class BedDataLoader(DataLoader):
             DataLoader.encode_onehot_sequence,
             inputs["features"],
             dtype=tf.float32)
+        print inputs["features"]
         
         return inputs

@@ -17,7 +17,7 @@ Within the environment, install tensorflow according to tensorflow instructions 
 pip install --ignore-installed --upgrade https://storage.googleapis.com/tensorflow/linux/gpu/tensorflow_gpu-1.4.0-cp27-none-linux_x86_64.whl
 ```
 
-Also may require seqtk, bedtools, ucsc_tools
+Also may require seqtk, bedtools/2.26.0+, ucsc_tools
 
 Then, install tronn.
 

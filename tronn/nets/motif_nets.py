@@ -254,7 +254,7 @@ def pwm_match_filtered_convolve(inputs, params):
         raw_scores = tf.multiply(
             pwm_binarized_feature_scores,
             raw_bp_overlap)
-        raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2)) # {N, M}
+        raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2), axis=1) # {N, M}
         outputs[params["raw-pwm-scores-key"]] = raw_scores
 
     # multiply by raw sequence matches

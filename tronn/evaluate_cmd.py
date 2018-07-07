@@ -37,7 +37,7 @@ def run(args):
     os.system("mkdir -p {}".format(args.out_dir))
     
     # set up dataloader
-    dataloader = H5DataLoader(args.model_info["test_files"])
+    dataloader = H5DataLoader(args.model_info["test_files"], fasta=args.fasta)
     test_input_fn = dataloader.build_input_fn(
         args.batch_size, label_keys=args.model_info["label_keys"])
 

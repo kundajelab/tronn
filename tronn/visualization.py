@@ -376,7 +376,7 @@ def visualize_clustering_results(
     for i in xrange(len(keys)):
 
         if "pwm-score" in keys[i]:
-            use_raster = True
+            use_raster = False #True
             cluster_columns = True
         else:
             use_raster = False
