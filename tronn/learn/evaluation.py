@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 
+from tensorflow.contrib.metrics import streaming_pearson_correlation
+
 from sklearn.metrics import auc
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import roc_auc_score
@@ -31,20 +33,39 @@ def get_global_avg_metrics(labels, probabilities):
     return metric_map
 
 
-def get_global_avg_metrics_old(labels, probabilities):
-    """Get global metric values: predictions, mean metric values
-    Note that the inputs must be tensors!
+def _streaming_spearman_correlation(predictions, labels):
     """
-    predictions = tf.cast(tf.greater(probabilities, 0.5), 'float32')
-    metric_map = {'mean_auroc': tf.metrics.auc(labels, probabilities, curve='ROC', name='mean_auroc'),
-                  'mean_auprc': tf.metrics.auc(labels, probabilities, curve='PR', name='mean_auprc'),
-                  'mean_accuracy': tf.metrics.accuracy(labels, predictions, name='mean_accuracy')}
-    metric_value, metric_updates = tf.contrib.metrics.aggregate_metric_map(metric_map)
-    update_ops = metric_updates.values()
-    return metric_value, update_ops
+    """
+    num_tasks = predictions.get_shape().as_list()[1]
+
+    def _rank_order(tensor):
+        """masks the top_k fn
+        """
+        values, indices = tf.nn.top_k(tensor, k=num_tasks, sorted=True) # sort or no
+        
+        return indices
+    
+    prediction_ranks = tf.map_fn(
+        _rank_order,
+        tf.transpose(predictions))
+
+    label_ranks = tf.map_fn(
+        _rank_order,
+        tf.transpose(labels))
+
+    return streaming_pearson_correlation(prediction_ranks, label_ranks)
 
 
-
+def get_regression_metrics(labels, probabilities):
+    """get global metrics
+    """
+    metric_map = {
+        "mse": tf.metrics.mean_squared_error(labels, probabilities)}
+    tf.add_to_collection(
+        "mse",
+        metric_map["mse"][0])
+    
+    return metric_map
 
 
 def get_confusion_matrix(labels, predictions, metric="AUPRC", fdr=0.05):

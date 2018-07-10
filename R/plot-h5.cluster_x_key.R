@@ -122,8 +122,8 @@ for (cluster_idx in 1:length(cluster_ids)) {
     }
     
     # aggregate
-    cluster_data <- colMeans(cluster_data) # consider medians
-    cluster_data <- apply(x, 2, median)
+    #cluster_data <- colMeans(cluster_data) # consider medians
+    cluster_data <- apply(cluster_data, 2, median)
 
     # and append
     if (cluster_idx == 1) {

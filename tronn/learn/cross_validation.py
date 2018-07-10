@@ -81,7 +81,11 @@ def setup_kfold_cv(data_dict, k):
     return kfolds, examples_per_fold
 
 
-def setup_train_valid_test(h5_files, k, valid_folds=[], test_folds=[]):
+def setup_train_valid_test(
+        h5_files, k,
+        valid_folds=[],
+        test_folds=[],
+        regression=False):
     """set up folds
     """
     kfolds, examples_per_fold = setup_kfold_cv(h5_files, k)
@@ -100,22 +104,25 @@ def setup_train_valid_test(h5_files, k, valid_folds=[], test_folds=[]):
     train_files = []
     for i in train_folds:
         train_files += kfolds[i][0]
-        train_files += kfolds[i][1]
+        if not regression:
+            train_files += kfolds[i][1]
 
     # validation: get positives and training negatives
     valid_files = []
     for i in valid_folds:
         valid_files += kfolds[i][0]
-        valid_files += kfolds[i][1]
+        if not regression:
+            valid_files += kfolds[i][1]
 
     # test: get positives and genomewide negatives
     test_files = []
     for i in test_folds:
         test_files += kfolds[i][0]
-        if len(kfolds[i][2]) > 0:
-            test_files += kfolds[i][2]
-        else:
-            test_files += kfolds[i][1]
+        if not regression:
+            if len(kfolds[i][2]) > 0:
+                test_files += kfolds[i][2]
+            else:
+                test_files += kfolds[i][1]
             
     return train_files, valid_files, test_files
 

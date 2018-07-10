@@ -27,7 +27,9 @@ from tronn.util.tf_ops import class_weighted_loss_fn
 from tronn.util.tf_ops import positives_focused_loss_fn
 
 from tronn.outlayer import H5Handler
+
 from tronn.learn.evaluation import get_global_avg_metrics
+from tronn.learn.evaluation import get_regression_metrics
 
 from tronn.learn.learning import RestoreHook
 
@@ -195,7 +197,8 @@ class ModelManager(object):
                 "decay": 0.98,
                 "momentum": 0.0},
             features_key="features",
-            labels_key="labels"):
+            labels_key="labels",
+            regression=False):
         """builds the training dataflow. links up input tensors
         to the model with is_training as True.
         """
@@ -209,7 +212,13 @@ class ModelManager(object):
 
         # add final activation, loss, and train op
         outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
-        loss = self._add_loss(outputs[labels_key], outputs["logits"])
+        if regression:
+            loss = self._add_loss(
+                outputs[labels_key],
+                outputs["logits"],
+                loss_fn=tf.losses.mean_squared_error)
+        else:
+            loss = self._add_loss(outputs[labels_key], outputs["logits"])
 
         # TODO fix the train op so that doesn't rely on slim
         train_op = self._add_train_op(loss, optimizer_fn, optimizer_params)
@@ -222,7 +231,8 @@ class ModelManager(object):
             self,
             inputs,
             features_key="features",
-            labels_key="labels"):
+            labels_key="labels",
+            regression=False):
         """build evaluation dataflow. links up input tensors
         to the model with is_training as False
         """
@@ -237,7 +247,15 @@ class ModelManager(object):
         # add final activation, loss, and metrics
         outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
         loss = self._add_loss(outputs[labels_key], outputs["logits"])
-        metrics = self._add_metrics(outputs[labels_key], outputs["probs"], loss)
+        # TODO - need to adjust for regression
+        if regression:
+            metrics = self._add_metrics(
+                outputs[labels_key],
+                outputs["logits"],
+                loss,
+                metrics_fn=get_regression_metrics)
+        else:
+            metrics = self._add_metrics(outputs[labels_key], outputs["probs"], loss)
 
         return outputs, loss, metrics
 
@@ -293,6 +311,7 @@ class ModelManager(object):
             params=None,
             config=None,
             warm_start=None,
+            regression=False,
             out_dir="."):
         """build a model fn that will work in the Estimator framework
         """
@@ -305,7 +324,12 @@ class ModelManager(object):
                 keep_checkpoint_max=None)
 
         # set up the model function to be called in the run
-        def estimator_model_fn(features, labels, mode, params=None, config=None):
+        def estimator_model_fn(
+                features,
+                labels,
+                mode,
+                params=None,
+                config=None):
             """model fn in the Estimator framework
             """
             # set up the input dict for model fn
@@ -341,11 +365,11 @@ class ModelManager(object):
                         scaffold=scaffold)
             
             elif mode == tf.estimator.ModeKeys.EVAL:
-                outputs, loss, metrics = self.build_evaluation_dataflow(inputs)
+                outputs, loss, metrics = self.build_evaluation_dataflow(inputs, regression=regression)
                 return tf.estimator.EstimatorSpec(mode, loss=loss, eval_metric_ops=metrics)
             
             elif mode == tf.estimator.ModeKeys.TRAIN:
-                outputs, loss, train_op = self.build_training_dataflow(inputs)
+                outputs, loss, train_op = self.build_training_dataflow(inputs, regression=regression)
                 return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
             else:
                 raise Exception, "mode does not exist!"
@@ -368,12 +392,14 @@ class ModelManager(object):
             out_dir,
             config=None,
             steps=None,
-            hooks=[]):
+            hooks=[],
+            regression=False):
         """train an estimator. if steps is None, goes on forever or until input_fn
         runs out.
         """
         # build estimator and train
-        estimator = self.build_estimator(config=config, out_dir=out_dir)
+        estimator = self.build_estimator(
+            config=config, out_dir=out_dir, regression=regression)
         estimator.train(input_fn=input_fn, max_steps=steps, hooks=hooks)
         
         return tf.train.latest_checkpoint(out_dir)
@@ -386,11 +412,13 @@ class ModelManager(object):
             config=None,
             steps=None,
             checkpoint=None,
-            hooks=[]):
+            hooks=[],
+            regression=False):
         """evaluate a trained estimator
         """
         # build evaluation estimator and evaluate
-        estimator = self.build_estimator(config=config, out_dir=out_dir)
+        estimator = self.build_estimator(
+            config=config, out_dir=out_dir, regression=regression)
         eval_metrics = estimator.evaluate(
             input_fn=input_fn,
             steps=steps,
@@ -497,9 +525,14 @@ class ModelManager(object):
             early_stopping_metric="mean_auprc",
             epoch_patience=2,
             warm_start=None,
-            warm_start_params={}):
+            warm_start_params={},
+            regression=False):
         """run full training loop with evaluation for early stopping
         """
+        # adjust for regression
+        if regression:
+            early_stopping_metric = "mse"
+        
         # set up stopping conditions
         stopping_log = "{}/stopping.log".format(out_dir)
         if os.path.isfile(stopping_log):
@@ -537,18 +570,27 @@ class ModelManager(object):
                 train_input_fn,
                 "{}/train".format(out_dir),
                 steps=None, # TODO here calculate steps?
-                hooks=training_hooks)
+                hooks=training_hooks,
+                regression=regression)
             
             # eval
             eval_metrics = self.evaluate(
                 eval_input_fn,
                 "{}/eval".format(out_dir),
                 steps=1000,
-                checkpoint=latest_checkpoint)
+                checkpoint=latest_checkpoint,
+                regression=regression)
 
-            # early stopping and saving best model
-            if best_metric_val is None or ('loss' in early_stopping_metric) != (
-                    eval_metrics[early_stopping_metric] > best_metric_val):
+            # determine if epoch of training was good
+            if best_metric_val is None:
+                is_good_epoch = True
+            elif early_stopping_metric in ["loss", "mse"]:
+                is_good_epoch = eval_metrics[early_stopping_metric] < best_metric_val
+            else:
+                is_good_epoch = eval_metrics[early_stopping_metric] > best_metric_val
+
+            # if good epoch, save out new metrics
+            if is_good_epoch:
                 best_metric_val = eval_metrics[early_stopping_metric]
                 consecutive_bad_epochs = 0
                 best_checkpoint = latest_checkpoint

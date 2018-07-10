@@ -84,13 +84,14 @@ class DataLoader(object):
         if len(filter_tasks) != 0:
             # go through the list to subset more finegrained
             # in a hierarchical way
-            for i in xrange(len(filter_tasks)):
+            # TODO adjust to only have a queue at the END, so that not wasting a lot of queue space
+            for key in filter_tasks.keys(): # TODO consider an ordered dict
+                print key
                 transform_stack.append((
                     filter_by_labels,
-                    {"labels_key": "labels",
-                     "filter_tasks": filter_tasks[i],
-                     "name": "label_filter_{}".format(i)}))
-                print filter_tasks[i]
+                    {"labels_key": key,
+                     "filter_tasks": filter_tasks[key][0],
+                     "name": "label_filter_{}".format(key)}))
         if len(singleton_filter_tasks) != 0:
             transform_stack.append((
                 filter_singleton_labels,
@@ -108,7 +109,6 @@ class DataLoader(object):
 
         # build all together
         with tf.variable_scope("dataloader"):
-        #with tf.variable_scope(""):
             # build raw dataflow
             inputs = self.build_raw_dataflow(
                 batch_size,

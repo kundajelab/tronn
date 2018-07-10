@@ -70,3 +70,36 @@ def generate_signal_vals(
         hf[key].attrs["filenames"] = file_metadata
 
     return None
+
+
+def normalize_signal_vals(positive_h5_files, h5_files, key, new_key):
+    """run some form of normalization to get values between 0 to 1
+    """
+    # take a random set of positive h5 files to get signal range
+    signal_vals = []
+    for h5_file in positive_h5_files:
+        with h5py.File(h5_file, "r") as hf:
+            signal_vals.append(hf[key][:].flatten())
+    signal_vals = np.concatenate(signal_vals)
+
+    # asinh
+    signal_vals = np.arcsinh(signal_vals)
+    
+    # rescale according to 0.01 - 0.98 percentiles
+    min_val = np.percentile(signal_vals, 1)
+    max_val = np.percentile(signal_vals, 90)
+    
+    # then for each h5 file, adjust to have values between 0 to 1
+    for h5_file in h5_files:
+        with h5py.File(h5_file, "a") as hf:
+            signal_vals = hf[key][:]
+            # asinh
+            signal_vals = np.arcsinh(signal_vals)
+            signal_vals = (signal_vals - min_val) / max_val
+            
+            signal_vals[signal_vals < 0.] = 0
+            signal_vals[signal_vals > 1.] = max_val
+            
+            hf.create_dataset(new_key, data=signal_vals)
+
+    return None

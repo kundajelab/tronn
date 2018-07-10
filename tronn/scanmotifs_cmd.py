@@ -78,20 +78,25 @@ def run(args):
         data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
         logger.info("Found {} chrom files".format(len(data_files)))
         dataloader = H5DataLoader(data_files, fasta=args.fasta)
+
+        # get input fn
+        input_fn = dataloader.build_input_fn(
+            args.batch_size,
+            label_keys=args.model_info["label_keys"],
+            filter_tasks=args.filter_tasks,
+            singleton_filter_tasks=args.inference_task_indices)
+        
     elif args.bed_input is not None:
-        # TODO this requires a FASTA file
+        # requires a FASTA file
         dataloader = BedDataLoader(args.bed_input, args.fasta)
 
-    # get input fn
-    input_fn = dataloader.build_input_fn(
-        args.batch_size,
-        label_keys=args.model_info["label_keys"])
-        #filter_tasks=[
-            #args.inference_task_indices,
-            #args.filter_task_indices],
-        #singleton_filter_tasks=args.inference_task_indices)
+        # get input fn
+        input_fn = dataloader.build_input_fn(
+            args.batch_size,
+            label_keys=args.model_info["label_keys"])
 
     # set up model
+    args.model_info["params"]["is_regression"] = False # TODO fix this 
     model_manager = ModelManager(
         net_fns[args.model_info["name"]],
         args.model_info["params"])

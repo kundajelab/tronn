@@ -532,6 +532,8 @@ def get_manifold_centers(
                 weighted_raw_scores = np.multiply(
                     raw_scores,
                     np.expand_dims(mean_ratio_scores_in_cluster, axis=0))
+                weighted_raw_scores[np.logical_not(np.isfinite(weighted_raw_scores))] = 0
+                
                 similarity_threshold, threshold_filter = get_threshold_on_dot_product(
                     mean_weighted_scores_in_cluster,
                     weighted_raw_scores,

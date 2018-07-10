@@ -12,8 +12,8 @@ import logging
 import argparse
 import pkg_resources
 
-from tronn.util.h5_utils import get_absolute_label_indices
-from tronn.interpretation.pwms import read_pwm_file
+from tronn.util.h5_utils import get_absolute_label_indices # better way to handle this?
+from tronn.interpretation.pwms import read_pwm_file # TODO move this?
 
 
 def parse_args():
@@ -87,6 +87,7 @@ def add_model_params(args):
             model_config[model_arg] = True
     args.model = model_config
 
+    # label key dict - for the ordering?
     args.label_key_dict = _parse_files(args.label_keys)
 
     return 
@@ -282,6 +283,9 @@ def add_train_parser(subparsers):
     group_params.add_argument(
         '--finetune_tasks', nargs="+", default=[],
         help="tasks to finetune")
+    group_params.add_argument(
+        "--regression", action="store_true",
+        help="run regression instead of classification")
 
     # group for output files
     group_output = argparser_train.add_argument_group(
@@ -464,10 +468,14 @@ def _setup_interpretation_options(args):
 
     # filter tasks
     args.filter_tasks = _parse_files(args.filter_tasks)
-    args.filter_task_indices = get_absolute_label_indices(
-        args.model_info["label_keys"], 
-        args.filter_tasks,
-        args.model_info["train_files"][0])
+    all_filter_task_indices = []
+    for key in args.filter_tasks.keys():
+        filter_task_indices = get_absolute_label_indices(
+            args.model_info["label_keys"],
+            {key: args.filter_tasks[key]},
+            args.model_info["train_files"][0])
+        all_filter_task_indices.append(filter_task_indices)
+    args.filter_task_indices = all_filter_task_indices
 
     # pwm file
     args.pwm_list = read_pwm_file(args.pwm_file)

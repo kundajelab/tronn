@@ -28,6 +28,7 @@ from tronn.preprocess.bed import generate_labels
 from tronn.preprocess.bed import extract_active_centers
 
 from tronn.preprocess.bigwig import generate_signal_vals
+from tronn.preprocess.bigwig import normalize_signal_vals
 
 from tronn.preprocess.variants import generate_new_fasta
 from tronn.preprocess.variants import generate_bed_file_from_variant_file
@@ -403,7 +404,8 @@ def generate_h5_datasets(
         reverse_complemented=False,
         genome_wide=False,
         parallel=24,
-        tmp_dir="."):
+        tmp_dir=".",
+        normalize_signals=False):
     """generate a full h5 dataset
     """
     # first select negatives
@@ -439,17 +441,18 @@ def generate_h5_datasets(
     os.system("mkdir -p {}".format(bin_dir))
     bin_regions_parallel(
         chrom_files, bin_dir, chromsizes, bin_size=bin_size, stride=stride, parallel=parallel)
-    
+
     # grab all of these and process in parallel
     h5_dir = "{}/h5".format(work_dir)
     os.system("mkdir -p {}".format(h5_dir))
     chrom_bed_files = glob.glob("{}/*.filt.bed.gz".format(bin_dir))
-    #chrom_bed_files = glob.glob("{}/*chrY*.bed.gz".format(chrom_dir))
     logging.info("Found {} bed files".format(chrom_bed_files))
     h5_queue = setup_multiprocessing_queue()
     for bed_file in chrom_bed_files:
         prefix = os.path.basename(bed_file).split(".bed")[0].split(".narrowPeak")[0]
         h5_file = "{}/{}.h5".format(h5_dir, prefix)
+        if os.path.isfile(h5_file):
+            continue
         parallel_tmp_dir = "{}/{}_tmp".format(tmp_dir, prefix)
         process_args = [
             bed_file,
@@ -465,9 +468,18 @@ def generate_h5_datasets(
             "features",
             parallel_tmp_dir]
         h5_queue.put([setup_h5_dataset, process_args])
-    
+
     # run the queue
     run_in_parallel(h5_queue, parallel=parallel, wait=True)
+
+    # and finally normalize the signals if desired
+    if normalize_signals:
+        h5_dir = "{}/h5".format(work_dir)
+        h5_files = glob.glob("{}/*h5".format(h5_dir))
+        positive_h5_files = [h5_file for h5_file in h5_files if "negative" not in h5_file]
+        for key in signal_files.keys():
+            print key
+            normalize_signal_vals(positive_h5_files, h5_files, key, "{}.NORM".format(key))
 
     return None
 

@@ -22,7 +22,7 @@ def run(args):
     # set up dataset
     h5_files = setup_h5_files(args.data_dir)
     train_files, valid_files, test_files = setup_train_valid_test(
-        h5_files, 10) # TODO provide folds as param
+        h5_files, 10, regression=args.regression) # TODO provide folds as param
     
     # set up dataloader and buid the input functions needed to serve tensor batches
     train_dataloader = H5DataLoader(train_files, fasta=args.fasta)
@@ -47,8 +47,9 @@ def run(args):
         args.out_dir,
         warm_start=args.transfer_model_checkpoint,
         warm_start_params={
-            "skip":["logit"],
-            "scope_change": ["", "basset/"]}) # <- this is for larger model - adjust this
+            "skip":["logit"]},
+            #"scope_change": ["", "basset/"]},
+        regression=args.regression) # <- this is for larger model - adjust this
     
     # save out training info into a json
     # need: model, model checkpoint (best), label sets.

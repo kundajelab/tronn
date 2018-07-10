@@ -71,6 +71,8 @@ def filter_and_rebatch(inputs, params):
 def filter_by_labels(inputs, params):
     """Given specific filter tasks, only push through examples 
     if they are positive in these tasks
+
+    NOTE: this is ANY not ALL
     """
     # assertions
     assert params.get("labels_key") is not None

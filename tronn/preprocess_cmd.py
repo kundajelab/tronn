@@ -59,7 +59,8 @@ def run(args):
         reverse_complemented=args.rc,
         genome_wide=args.genomewide,
         parallel=args.parallel,
-        tmp_dir=args.tmp_dir)  
+        tmp_dir=args.tmp_dir,
+        normalize_signals=True)  
 
     end = time.time()
     print "Execution time: {}".format(end - start)
