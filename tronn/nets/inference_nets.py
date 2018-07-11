@@ -113,7 +113,53 @@ def sequence_to_importance_scores(inputs, params):
             (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
             (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
             (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # try 9 and 2/9?
+            (normalize_to_weights, {"weight_key": "probs"}),
+            (clip_edges, {"left_clip": 400, "right_clip": 600}),
+            (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
+        ]
+    else:
+        inference_stack = [
+            (multitask_importances, {"relu": False}),
+            (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
             (normalize_to_weights, {"weight_key": "probs"}), 
+            (clip_edges, {"left_clip": 400, "right_clip": 600}),
+        ]
+        
+    # build inference stack
+    outputs, params = build_inference_stack(
+        inputs, params, inference_stack)
+
+    # unstack
+    if unstack:
+        params["name"] = "importances"
+        outputs, params = unstack_tasks(outputs, params)
+        
+    return outputs, params
+
+
+def sequence_to_importance_scores_from_regression(inputs, params):
+    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
+    """
+    # params
+    params["is_training"] = False
+    unstack = params.get("unstack_importances", True)
+    use_filtering = params.get("use_filtering", True)
+    
+    # set up importance logits
+    inputs["importance_logits"] = inputs["logits"]
+
+    # set up inference stack
+    if use_filtering:
+        inference_stack = [
+            (multitask_importances, {"relu": False}),
+            #(threshold_shufflenull, {"pval_thresh": 0.05}),
+
+            # TODO how would you filter things from regression?
+            #(filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
+            (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+            (normalize_to_weights, {"weight_key": "logits"}),
             (clip_edges, {"left_clip": 400, "right_clip": 600}),
             (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
         ]
@@ -182,6 +228,54 @@ def sequence_to_motif_scores(inputs, params):
         outputs, params = unstack_tasks(outputs, params)
 
     return outputs, params
+
+
+def sequence_to_motif_scores_from_regression(inputs, params):
+    """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
+    """
+    # params
+    params["is_training"] = False
+    #params["unstack_importances"] = False # normally, adjust for debugging
+    params["unstack_importances"] = True # normally, adjust for debugging
+    params["raw-sequence-key"] = "raw-sequence"
+    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
+    params["raw-pwm-scores-key"] = "raw-pwm-scores"
+    
+    # params
+    use_importances = params.get("use_importances", True)
+    count_thresh = params.get("count_thresh", 1)
+    unstack = params.get("unstack_pwm_scores", True)
+    
+    if params.get("raw-sequence-key") is not None:
+        inputs[params["raw-sequence-key"]] = inputs["features"]
+    if params.get("raw-sequence-clipped-key") is not None:
+        inputs[params["raw-sequence-clipped-key"]] = inputs["features"]
+    
+    # if using NN, convert features to importance scores first
+    if use_importances:
+        inputs, params = sequence_to_importance_scores_from_regression(inputs, params)
+        count_thresh = 2 # there's time info, so can filter across tasks
+        
+    # set up inference stack
+    inference_stack = [
+        (pwm_match_filtered_convolve, {}),
+        (multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
+        (pwm_position_squeeze, {"squeeze_type": "sum"}),
+        (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
+    ]
+
+    # build inference stack
+    outputs, params = build_inference_stack(
+        inputs, params, inference_stack)
+
+    # unstack
+    if unstack:
+        params["name"] = "pwm-scores"
+        outputs, params = unstack_tasks(outputs, params)
+
+    return outputs, params
+
+
 
 
 def sequence_to_dmim(inputs, params):

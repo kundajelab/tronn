@@ -124,7 +124,8 @@ for (cluster_idx in 1:length(cluster_ids)) {
     # aggregate
     #cluster_data <- colMeans(cluster_data) # consider medians
     cluster_data <- apply(cluster_data, 2, median)
-
+    #print(cluster_data)
+    
     # and append
     if (cluster_idx == 1) {
         all_data <- cluster_data
@@ -139,7 +140,7 @@ rownames(all_data) <- cluster_ids
 if (length(indices) > 0) {
     colnames(all_data) <- paste("idx", indices-1, sep="-")
 } else {
-    colnames(all_data) <- paste("idx", 1:ncol(all_data)-1, sep="-")
+    colnames(all_data) <- paste("idx", 1:ncol(all_data), sep="-")
 }
 
 # make heatmap

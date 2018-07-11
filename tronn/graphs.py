@@ -223,7 +223,7 @@ class ModelManager(object):
         # TODO fix the train op so that doesn't rely on slim
         train_op = self._add_train_op(loss, optimizer_fn, optimizer_params)
         #train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
-
+        
         return outputs, loss, train_op
 
 
@@ -690,13 +690,6 @@ class ModelManager(object):
     def _add_metrics(self, labels, probs, loss, metrics_fn=get_global_avg_metrics):
         """set up metrics function with summaries etc
         """
-        if False:
-            # set up metrics and values
-            metric_values, metric_updates = metrics_fn(
-                labels, probs)
-            for update in metric_updates: tf.add_to_collection(
-                tf.GraphKeys.UPDATE_OPS, update)
-
         metric_map = metrics_fn(labels, probs)
 
         return metric_map

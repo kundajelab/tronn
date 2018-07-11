@@ -56,6 +56,8 @@ def run(args):
     eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)
     if not os.path.isfile(eval_h5_file):
         model_manager.infer_and_save_to_h5(predictor, eval_h5_file, 1000)
+
+    # TODO set up different functions for classification vs regression
         
     # extract arrays
     with h5py.File(eval_h5_file, "r") as hf:

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 
+# TODO try to deprecate this?
 def get_absolute_label_indices(label_keys, key_dict, test_h5_file, list_of_lists=False):
     """given a key dict and model, get the absolute indices
 
@@ -21,7 +22,7 @@ def get_absolute_label_indices(label_keys, key_dict, test_h5_file, list_of_lists
     for key in label_keys:
         # track how many indices in this key
         with h5py.File(test_h5_file, "r") as hf:
-            num_tasks = hf[key].shape[1]
+            num_tasks = hf[key].shape[1] # basically just need this number
         if key in key_dict.keys():
             # and create absolute indices and append
             if len(key_dict[key][0]) > 0:

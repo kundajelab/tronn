@@ -17,6 +17,7 @@ from sklearn.metrics import roc_curve
 from tronn.util.tf_utils import setup_tensorflow_session
 from tronn.util.tf_utils import close_tensorflow_session
 
+
 def get_global_avg_metrics(labels, probabilities):
     """Get global metric values: predictions, mean metric values
     Note that the inputs must be tensors!
@@ -25,34 +26,49 @@ def get_global_avg_metrics(labels, probabilities):
     metric_map = {'mean_auroc': tf.metrics.auc(labels, probabilities, curve='ROC', name='mean_auroc'),
                   'mean_auprc': tf.metrics.auc(labels, probabilities, curve='PR', name='mean_auprc'),
                   'mean_accuracy': tf.metrics.accuracy(labels, predictions, name='mean_accuracy')}
-    #metric_value, metric_updates = tf.contrib.metrics.aggregate_metric_map(metric_map)
     tf.add_to_collection(
         "auprc",
         metric_map["mean_auprc"][0])
-    #update_ops = metric_updates.values()
+    
     return metric_map
 
 
 def _streaming_spearman_correlation(predictions, labels):
     """
     """
-    num_tasks = predictions.get_shape().as_list()[1]
-
+    batch_size = predictions.get_shape().as_list()[0]
+    
     def _rank_order(tensor):
         """masks the top_k fn
         """
-        values, indices = tf.nn.top_k(tensor, k=num_tasks, sorted=True) # sort or no
+        # indices is sorted in descending order
+        _, indices = tf.nn.top_k(tensor, k=batch_size, sorted=True)
+
+        # one more top_k to get the rank vector
+        _, rank_vals = tf.nn.top_k(indices, k=batch_size, sorted=True)
+        rank_vals = tf.cast(rank_vals, tf.float32)
         
-        return indices
-    
+        return rank_vals
+
     prediction_ranks = tf.map_fn(
         _rank_order,
         tf.transpose(predictions))
-
+    prediction_ranks = tf.transpose(prediction_ranks)
+    
     label_ranks = tf.map_fn(
         _rank_order,
         tf.transpose(labels))
+    label_ranks = tf.transpose(label_ranks)
 
+    # TODO consider how to deal with update ops
+    def _streaming_pearson(inputs):
+        """wrapper
+        """
+        predictions = inputs[0]
+        labels = inputs[0]
+        
+        return None
+    
     return streaming_pearson_correlation(prediction_ranks, label_ranks)
 
 
@@ -60,7 +76,8 @@ def get_regression_metrics(labels, probabilities):
     """get global metrics
     """
     metric_map = {
-        "mse": tf.metrics.mean_squared_error(labels, probabilities)}
+        "mse": tf.metrics.mean_squared_error(labels, probabilities),
+        "spearman_cor": _streaming_spearman_correlation(probabilities, labels)}
     tf.add_to_collection(
         "mse",
         metric_map["mse"][0])

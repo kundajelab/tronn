@@ -408,69 +408,70 @@ def generate_h5_datasets(
         normalize_signals=False):
     """generate a full h5 dataset
     """
-    # first select negatives
-    training_negatives_bed_file, genomewide_negatives_bed_file = setup_negatives(
-        positives_bed_file,
-        superset_bed_file,
-        chromsizes,
-        bin_size=bin_size,
-        stride=stride,
-        genome_wide=genome_wide,
-        tmp_dir=tmp_dir)
-
-    # collect the bed files
-    if genome_wide:
-        all_bed_files = [
+    if False:
+        # first select negatives
+        training_negatives_bed_file, genomewide_negatives_bed_file = setup_negatives(
             positives_bed_file,
-            training_negatives_bed_file,
-            genomewide_negatives_bed_file]
-    else:
-        all_bed_files = [
-            positives_bed_file,
-            training_negatives_bed_file]
-
-    # split to chromosomes
-    chrom_dir = "{}/by_chrom".format(tmp_dir)
-    os.system("mkdir -p {}".format(chrom_dir))
-    split_bed_to_chrom_bed_parallel(
-        all_bed_files, chrom_dir, parallel=parallel)
-
-    # split to equally sized bin groups
-    chrom_files = glob.glob("{}/*.bed.gz".format(chrom_dir))
-    bin_dir = "{}/bin-{}.stride-{}".format(tmp_dir, bin_size, stride)
-    os.system("mkdir -p {}".format(bin_dir))
-    bin_regions_parallel(
-        chrom_files, bin_dir, chromsizes, bin_size=bin_size, stride=stride, parallel=parallel)
-
-    # grab all of these and process in parallel
-    h5_dir = "{}/h5".format(work_dir)
-    os.system("mkdir -p {}".format(h5_dir))
-    chrom_bed_files = glob.glob("{}/*.filt.bed.gz".format(bin_dir))
-    logging.info("Found {} bed files".format(chrom_bed_files))
-    h5_queue = setup_multiprocessing_queue()
-    for bed_file in chrom_bed_files:
-        prefix = os.path.basename(bed_file).split(".bed")[0].split(".narrowPeak")[0]
-        h5_file = "{}/{}.h5".format(h5_dir, prefix)
-        if os.path.isfile(h5_file):
-            continue
-        parallel_tmp_dir = "{}/{}_tmp".format(tmp_dir, prefix)
-        process_args = [
-            bed_file,
-            ref_fasta,
+            superset_bed_file,
             chromsizes,
-            h5_file,
-            label_files,
-            signal_files,
-            bin_size,
-            stride,
-            final_length,
-            reverse_complemented,
-            "features",
-            parallel_tmp_dir]
-        h5_queue.put([setup_h5_dataset, process_args])
+            bin_size=bin_size,
+            stride=stride,
+            genome_wide=genome_wide,
+            tmp_dir=tmp_dir)
 
-    # run the queue
-    run_in_parallel(h5_queue, parallel=parallel, wait=True)
+        # collect the bed files
+        if genome_wide:
+            all_bed_files = [
+                positives_bed_file,
+                training_negatives_bed_file,
+                genomewide_negatives_bed_file]
+        else:
+            all_bed_files = [
+                positives_bed_file,
+                training_negatives_bed_file]
+
+        # split to chromosomes
+        chrom_dir = "{}/by_chrom".format(tmp_dir)
+        os.system("mkdir -p {}".format(chrom_dir))
+        split_bed_to_chrom_bed_parallel(
+            all_bed_files, chrom_dir, parallel=parallel)
+
+        # split to equally sized bin groups
+        chrom_files = glob.glob("{}/*.bed.gz".format(chrom_dir))
+        bin_dir = "{}/bin-{}.stride-{}".format(tmp_dir, bin_size, stride)
+        os.system("mkdir -p {}".format(bin_dir))
+        bin_regions_parallel(
+            chrom_files, bin_dir, chromsizes, bin_size=bin_size, stride=stride, parallel=parallel)
+
+        # grab all of these and process in parallel
+        h5_dir = "{}/h5".format(work_dir)
+        os.system("mkdir -p {}".format(h5_dir))
+        chrom_bed_files = glob.glob("{}/*.filt.bed.gz".format(bin_dir))
+        logging.info("Found {} bed files".format(chrom_bed_files))
+        h5_queue = setup_multiprocessing_queue()
+        for bed_file in chrom_bed_files:
+            prefix = os.path.basename(bed_file).split(".bed")[0].split(".narrowPeak")[0]
+            h5_file = "{}/{}.h5".format(h5_dir, prefix)
+            if os.path.isfile(h5_file):
+                continue
+            parallel_tmp_dir = "{}/{}_tmp".format(tmp_dir, prefix)
+            process_args = [
+                bed_file,
+                ref_fasta,
+                chromsizes,
+                h5_file,
+                label_files,2
+                signal_files,
+                bin_size,
+                stride,
+                final_length,
+                reverse_complemented,
+                "features",
+                parallel_tmp_dir]
+            h5_queue.put([setup_h5_dataset, process_args])
+
+        # run the queue
+        run_in_parallel(h5_queue, parallel=parallel, wait=True)
 
     # and finally normalize the signals if desired
     if normalize_signals:
