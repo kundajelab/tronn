@@ -244,7 +244,12 @@ def save_plotting_data(labels, probs, out_file, curve="auprc"):
         plotting_df = pd.DataFrame(
             data=np.stack([recall, precision], axis=1),
             columns=["x", "y"])
+    elif curve == "correlation":
+        plotting_df = pd.DataFrame(
+            data=np.stack([labels.flatten(), probs.flatten()], axis=1),
+            columns=["x", "y"])
     else:
+        # TODO save out labels and probs
         print "Unknown curve type!"
         return
         

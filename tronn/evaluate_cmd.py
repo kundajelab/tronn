@@ -24,10 +24,32 @@ from tronn.learn.evaluation import make_recall_at_fdr
 from tronn.learn.evaluation import run_and_plot_metrics
 from tronn.learn.evaluation import plot_all
 
+from scipy.stats import spearmanr
+from scipy.stats import pearsonr
+
 from sklearn.metrics import auc
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import r2_score
+
+
+def spearman_only_r(labels, probs):
+    """spearman rank correlation wrapper
+    """
+    results = spearmanr(labels, probs)
+    
+    return results[0]
+
+
+def pearson_only_r(labels, probs):
+    """pearson correlation wrapper
+    """
+    results = pearsonr(labels, probs)
+    
+    return results[0]
+
 
 
 def run(args):
@@ -57,30 +79,40 @@ def run(args):
     if not os.path.isfile(eval_h5_file):
         model_manager.infer_and_save_to_h5(predictor, eval_h5_file, 1000)
 
-    # TODO set up different functions for classification vs regression
-        
     # extract arrays
     with h5py.File(eval_h5_file, "r") as hf:
         labels = hf["labels"][:]
         predictions = hf["logits"][:]
         probs = hf["probs"][:]
     assert labels.shape[1] == probs.shape[1]
-    
-    # setup metrics functions and plot file folders
-    precision_thresholds = [0.5, 0.75, 0.9, 0.95]
-    metrics_functions = [roc_auc_score, auprc] + [
-        make_recall_at_fdr(fdr)
-        for fdr in precision_thresholds]
-    metrics_functions_names = ["AUROC", "AUPRC"] + [
-        "recall_at_{}_fdr".format(
-            str(int(round(100.*(1. - fdr)))))
-        for fdr in precision_thresholds]
 
-    # setup plotting functions
-    plot_fn_names = ["auroc", "auprc"]
-    plot_param_sets = {
-        "auroc": "AUROC FPR TPR",
-        "auprc": "AUPRC Recall Precision"}
+    # TODO set up different functions for classification vs regression?
+    if args.regression:
+        metrics_functions = [mean_squared_error, r2_score, spearman_only_r, pearson_only_r]
+        metrics_functions_names = ["MSE", "R2", "SPEARMANR", "PEARSONR"]
+        probs = predictions # change probs to the predictions
+        
+        # setup plotting functions
+        plot_fn_names = ["correlation"]
+        plot_param_sets = {
+            "correlation": "Correlation Predicted Actual"}
+        
+    else:
+        # setup metrics functions and plot file folders
+        precision_thresholds = [0.5, 0.75, 0.9, 0.95]
+        metrics_functions = [roc_auc_score, auprc] + [
+            make_recall_at_fdr(fdr)
+            for fdr in precision_thresholds]
+        metrics_functions_names = ["AUROC", "AUPRC"] + [
+            "recall_at_{}_fdr".format(
+                str(int(round(100.*(1. - fdr)))))
+            for fdr in precision_thresholds]
+
+        # setup plotting functions
+        plot_fn_names = ["auroc", "auprc"]
+        plot_param_sets = {
+            "auroc": "AUROC FPR TPR",
+            "auprc": "AUPRC Recall Precision"}
 
     # set up arrays to keep results
     metrics_array = np.zeros(

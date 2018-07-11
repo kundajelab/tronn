@@ -335,6 +335,9 @@ def add_evaluate_parser(subparsers):
     group_params = argparser_test.add_argument_group(
         "Parameters")
     group_params.add_argument(
+    	"--regression", action="store_true",
+    	help="evaluate regression")
+    group_params.add_argument(
     	"--num_evals", default=512000, type=int,
     	help="Number of steps to run for prediction")
     group_params.add_argument(
