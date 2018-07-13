@@ -2,50 +2,76 @@
 as in input preprocessing
 """
 
+import numpy as np
 import tensorflow as tf
 
 from tronn.nets.filter_nets import rebatch
 
+from tronn.util.utils import DataKeys
 
-def pad_examples(data, params):
-    """pad when examples are offset from other data
+
+
+def _check_is_onehot_sequence(tensor):
+    """assertion whether tensor is shaped like 
+    onehot sequence
     """
-    ignore_keys = params.get("ignore", [])
-    assert ignore_keys is not None
-    assert params.get("batch_size") is not None
+    tensor_shape = tensor.get_shape().as_list()
+    assert len(tensor_shape) == 4
+    assert tensor_shape[3] == 4
+    
+    return None
+
+
+# TODO move this out of sequence nets to filter nets?
+def _build_pad_fn(num_shuffles):
+    """internal build fn to build a padding fn 
+    """
+    def pad_fn(tensor):
+        tensors = [tensor]
+        for shuffle_idx in xrange(num_shuffles):
+            tensors.append(tensor)
+        tensors = tf.stack(tensors, axis=0)
+        return tensors
+
+    return pad_fn
+
+
+def pad_data(inputs, params):
+    """pad examples when a data key was adjusted
+    """
+    # assertions
+    assert params.get("num_shuffles") is not None
     
     # params
-    batch_size = params.get("batch_size")
+    num_shuffles = params["num_shuffles"]
+    ignore = params["ignore"]
     
-    # calculate the offsets
-    full_size = data[ignore_keys[0]].get_shape().as_list()[0]
-    offset_factor = full_size / float(batch_size)
-    assert offset_factor.is_integer()
-    offset_factor = int(offset_factor)
+    # build the pad fn
+    pad_fn = _build_pad_fn(num_shuffles)
 
-    # now pad all
-    for key in data.keys():
-        if key in ignore_keys:
+    # run map fn on all inputs except ignore set
+    outputs = {}
+    for key in inputs.keys():
+        if key in ignore:
+            outputs[key] = inputs[key]
             continue
 
-        # now with the key, split, pad and concat
-        transformed_features = []
-        features = [tf.expand_dims(tensor, axis=0)
-                    for tensor in tf.unstack(data[key], axis=0)]
-        for example_idx in xrange(batch_size):
-            transformed_features.append(
-                tf.concat(
-                    [features[example_idx]
-                     for i in xrange(offset_factor)], axis=0))
-        data[key] = tf.concat(transformed_features, axis=0)
+        output = tf.map_fn(
+            pad_fn,
+            inputs[key])
+        outputs[key] = tf.reshape(
+            output,
+            [-1]+inputs[key].get_shape().as_list()[1:])
 
     # backcheck work
-    for key in data.keys():
-        assert data[key].get_shape().as_list()[0] == full_size
-        
-    return data, params
+    final_batch_size = inputs[params["ignore"][0]].get_shape().as_list()[0]
+    for key in outputs.keys():
+        assert outputs[key].get_shape().as_list()[0] == final_batch_size
+    
+    return outputs, params
 
 
+# TODO deprecate this
 def unpad_examples(inputs, params):
     """unpad the examples to remove the offset
     """
@@ -74,25 +100,15 @@ def unpad_examples(inputs, params):
     return outputs, params
 
 
-def dinucleotide_shuffle(data, params):
+def dinucleotide_shuffle(sequence):
     """shuffle input by dinucleotides
     """
-    features_key = params.get("features_key", "features")
-    
-    # assertions
-    assert data.get(features_key) is not None
-    assert len(data.get(features_key).get_shape()) == 4
-    assert data.get(features_key).get_shape().as_list()[3] == 4
-
-    # pull features: {1, 1, seq_len, 4}
-    features = inputs.get(features_key)
-
-    # adjust to {seq_len, 4}
-    features = tf.squeeze(features)
-    num_bp = features.get_shape().as_list()[1]
+    # get features and seq_len
+    features = tf.squeeze(sequence, axis=0) # {seqlen, 4}
+    seq_len = features.get_shape().as_list()[0]
 
     # set up indices (range) and shuffle
-    positions = tf.range(num_bp, delta=2)
+    positions = tf.range(seq_len, delta=2)
     shuffled_first_positions = tf.random_shuffle(positions)
     shuffled_second_positions = tf.add(shuffled_first_positions, [1])
 
@@ -102,75 +118,88 @@ def dinucleotide_shuffle(data, params):
 
     # interleave by concatenating on second axis, and then reshaping
     pairs = tf.concat([first_bps, second_bps], axis=1)
-    features = tf.reshape(pairs, [num_bp, -1])
-
-    # and readjust back
-    data[features_key] = tf.expand_dims(
-        tf.expand_dims(features, axis=0), axis=0)
+    features = tf.reshape(pairs, [seq_len, -1])
     
-    return data, params
+    # and readjust back
+    shuffled_sequence = tf.expand_dims(features, axis=0)
+    
+    return shuffled_sequence
 
 
-def generate_dinucleotide_shuffles(data, params):
+def _build_dinucleotide_shuffle_fn(num_shuffles):
+    """internal build fn to give to map_fn
+    """
+    def shuffle_fn(sequence):
+        sequences = [sequence]
+        for shuffle_idx in xrange(num_shuffles):
+            sequences.append(dinucleotide_shuffle(sequence))
+        sequences = tf.stack(sequences, axis=0)
+
+        return sequences
+    
+    return shuffle_fn
+
+
+def generate_dinucleotide_shuffles(inputs, params):
     """generate multiple shuffle sequences and rebatch
     """
-    features_key = params.get("features_key", "features")
-
     # assertions
-    assert data.get(features_key) is not None
-    assert len(data.get(features_key).get_shape()) == 4
-    assert data.get(features_key).get_shape().as_list()[1] == 1
-    assert data.get(features_key).get_shape().as_list()[3] == 4
-    assert params.get("batch_size") is not None
+    assert inputs.get(DataKeys.FEATURES) is not None
+    _check_is_onehot_sequence(inputs[DataKeys.FEATURES])
 
+    # data
+    features = inputs[DataKeys.FEATURES]
+    outputs = dict(inputs)
+    
     # params
-    batch_size = params.get("batch_size")
     num_shuffles = params.get("num_shuffles", 7)
+    params["num_shuffles"] = num_shuffles
+    batch_size = features.get_shape().as_list()[0]
     assert batch_size % (num_shuffles + 1) == 0
+
+    # build the dinuc shuffle fn
+    shuffle_fn = _build_dinucleotide_shuffle_fn(num_shuffles)
+
+    # call map_fn
+    features_w_shuffles = tf.map_fn(
+        shuffle_fn,
+        features)
+    outputs[DataKeys.FEATURES] = tf.reshape(
+        features_w_shuffles,
+        [-1]+features.get_shape().as_list()[1:])
     
-    # separate out features, shuffle, and append all together
-    features = data.get(features_key)
-    features = [tf.expand_dims(tensor, axis=0)
-                for tensor in tf.unstack(features, axis=0)]
-    transformed_features = []
-    for example_idx in xrange(batch_size):
-        features_w_shuffles = [features[example_idx]]
-        for shuffle_idx in xrange(num_shuffles):
-            shuffled_features, _ = dinucleotide_shuffle(
-                {"features": features[example_idx]}, {"feature_key": "features"})
-            features_w_shuffles.append(shuffled_features)
-        features_w_shuffles = tf.concat(features_w_shuffles, axis=0)
-        transformed_features.append(features_w_shuffles)
-    data[features_key] = tf.concat(transformed_features, axis=0)
-    
-    # do the same for all others in inputs
-    data, _ = pad_examples(data, {"ignore": features_key})
+    print outputs[DataKeys.FEATURES]
+
+    # and then pad everything else
+    outputs, _ = pad_data(
+        outputs,
+        {"num_shuffles": num_shuffles,
+         "ignore": [DataKeys.FEATURES]})
 
     # rebatch
-    data, params = rebatch(data, {"name": "rebatch_dinuc"})
+    outputs, _ = rebatch(outputs, {"name": "rebatch_dinuc", "batch_size": batch_size})
 
-    return data, params
+    return outputs, params
 
 
-def generate_scaled_inputs(data, params):
+# TODO clean this up
+def generate_scaled_inputs(inputs, params):
     """generate scaled inputs (mostly for integrated gradients)
     """
-    features_key = params.get("features_key", "features")
-
     # assertions
-    assert data.get(features_key) is not None
-    assert len(data.get(features_key).get_shape()) == 4
-    assert data.get(features_key).get_shape().as_list()[1] == 1
-    assert data.get(features_key).get_shape().as_list()[3] == 4
-    assert params.get("batch_size") is not None
+    assert inputs.get(DataKeys.FEATURES) is not None
+    _check_is_onehot_sequence(inputs[DataKeys.FEATURES])
 
+    # features
+    features = inputs[DataKeys.FEATURES]
+    outputs = dict(inputs)
+    
     # params
-    batch_size = params.get("batch_size")
+    batch_size = features.get_shape().as_list()[0]
     steps = params.get("num_scaled_inputs", 8)
     assert batch_size % num_scaled_inputs == 0
     
     # separate out features, scale, and append all together
-    features = data.get(features_key)
     features = [tf.expand_dims(tensor, axis=0)
                 for tensor in tf.unstack(features, axis=0)]
     transformed_features = []
@@ -180,13 +209,14 @@ def generate_scaled_inputs(data, params):
              for i in xrange(1, steps+1)],
             axis=0)
         transformed_features.append(scaled_features)
-    data[features_key] = tf.concat(transformed_features, axis=0)
+        
+    outputs[DataKeys.FEATURESx] = tf.concat(transformed_features, axis=0)
     
     # do the same for all others in inputs
-    data, _ = pad_examples(data, {"ignore": features_key})
+    outputs, _ = pad_data(outputs, {"ignore": [DataKeys.FEATURES]})
 
     # rebatch
-    data, params = rebatch(data, {"name": "rebatch_dinuc"})
+    outputs, _ = rebatch(data, {"name": "rebatch_scaled_inputs"})
     
     return data, params
 
@@ -206,7 +236,7 @@ def _make_basepair_array(features, basepair_string="N"):
     
     return basepair_array
 
-
+# TODO keep for backwards compatibility, but generally push through string
 def onehot_to_string(inputs, params):
     """convert onehot back into a string
     """
@@ -244,7 +274,7 @@ def onehot_to_string(inputs, params):
     return outputs, params
 
 
-
+# TODO move this?
 def get_variance_importance(inputs, params):
     """read off the importance score at the specific variant position? is this important to read off?
     """
@@ -261,3 +291,58 @@ def get_variance_importance(inputs, params):
     outputs["snp_importance_scores"] = importance_at_snp_pos
     
     return None
+
+
+
+def remove_shuffles(inputs, params):
+    """calculate offsets, gather the indices, and separate out
+    """
+    assert params.get("num_shuffles") is not None
+
+    # params
+    num_shuffles = params["num_shuffles"]
+    keep_shuffles = params.get("keep_shuffles", True)
+    keep_shuffle_keys = params.get("keep_shuffle_keys", [])
+    full_batch_size = inputs[inputs.keys()[0]].get_shape().as_list()[0]
+    
+    # get indices
+    indices = range(full_batch_size)
+    example_indices = np.where(np.mod(indices, [num_shuffles+1]) == 0)[0]
+    shuffle_indices = np.where(np.mod(indices, [num_shuffles+1]) != 0)[0]
+    batch_size = len(example_indices)
+    
+    # go through keys
+    outputs = {}
+    for key in inputs.keys():
+
+        # gather examples and save out
+        example_batch = tf.gather(inputs[key], example_indices)
+        outputs[key] = example_batch
+
+        # gather shuffles and keep if desired
+        if key in keep_shuffle_keys:
+            shuffle_batch = tf.gather(inputs[key], shuffle_indices)
+            shuffle_batch = tf.reshape(
+                shuffle_batch,
+                [batch_size, -1] + inputs[key].get_shape().as_list()[1:])
+            outputs["{}.{}".format(DataKeys.SHUFFLE_PREFIX, key)] = shuffle_batch
+
+    # rebatch back up
+    outputs, _ = rebatch(outputs, {"name": "remove_shuffles_rebatch", "batch_size": full_batch_size})
+    
+    return outputs, params
+
+
+
+def clear_shuffles(inputs, params):
+    """clear out anything from shuffles
+    """
+    outputs = {}
+    for key in inputs.keys():
+
+        if key.startswith(DataKeys.SHUFFLE_PREFIX):
+            continue
+
+        outputs[key] = inputs[key]
+
+    return outputs, params

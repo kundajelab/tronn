@@ -22,7 +22,7 @@ from tronn.nets.filter_nets import filter_singleton_labels
 
 from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 from tronn.nets.sequence_nets import generate_scaled_inputs
-from tronn.nets.sequence_nets import pad_examples
+from tronn.nets.sequence_nets import pad_data
 
 from tronn.util.h5_utils import get_absolute_label_indices
 
@@ -98,6 +98,7 @@ class DataLoader(object):
                 {"labels_key": "labels",
                  "filter_tasks": singleton_filter_tasks,
                  "name": "singleton_label_filter"}))
+        # NOTE: these need to be here because they need to go through the model.
         if num_dinuc_shuffles > 0:
             transform_stack.append((
                 generate_dinucleotide_shuffles,
@@ -166,7 +167,8 @@ class DataLoader(object):
             inputs["features"] = tmp_features
             
             # note that everything else needs to be padded
-            inputs, _ = pad_examples(
+            quit()
+            inputs, _ = pad_data(
                 inputs,
                 {"ignore": ["features"], "batch_size": batch_size})
 

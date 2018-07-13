@@ -4,11 +4,25 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
+from tronn.nets.sequence_nets import generate_scaled_inputs
 from tronn.nets.sequence_nets import unpad_examples
 
 from tronn.nets.filter_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
-from tronn.nets.filter_nets import remove_shuffles
+
+from tronn.nets.sequence_nets import remove_shuffles
+from tronn.nets.sequence_nets import clear_shuffles
+
+from tronn.nets.threshold_nets import threshold_shufflenull
+
+from tronn.nets.normalization_nets import normalize_to_weights
+
+from tronn.nets.threshold_nets import clip_edges
+
+
+
+from tronn.util.utils import DataKeys
 
 
 def input_x_grad(inputs, params):
@@ -31,10 +45,15 @@ def input_x_grad(inputs, params):
     # pull features and send all others to output
     features = inputs.get("features")
     outputs = dict(inputs)
+
+    print features
+
     
     # params
     anchor = params.get("anchor")
     use_relu = params.get("relu", False)
+
+    print anchor
     
     # gradients
     if params.get("grad_ys") is None:
@@ -42,6 +61,9 @@ def input_x_grad(inputs, params):
     else:
         [feature_grad] = tf.gradients(anchor, [features], grad_ys=params["grad_ys"])
 
+
+    print feature_grad
+        
     # input x grad
     features = tf.multiply(features, feature_grad, 'input_x_grad')
 
@@ -180,6 +202,7 @@ def deeplift(features, labels, config, is_training=False):
     return features, labels, config
 
 
+# TODO deprecate
 def multitask_importances(inputs, params):
     """Set up importances coming from multiple tasks
     """
@@ -191,6 +214,9 @@ def multitask_importances(inputs, params):
     # pull features and send the rest through
     features = inputs["features"]
     outputs = dict(inputs)
+
+    # TODO call model fn again here, and explicitly grab the logits
+
     
     # params
     anchors = inputs.get("importance_logits")
@@ -248,6 +274,322 @@ def multitask_importances(inputs, params):
     return outputs, params
 
 
+# ABOVE IS OLD
+
+
+
+class FeatureImportanceExtractor(object):
+    """Follows a kind of tf Hooks framework - do things before, during, after model run"""
+    
+    def __init__(
+            self,
+            model_fn,
+            inputs,
+            params,
+            feature_type="sequence",
+            keep_shuffles=True):
+        """initialize object
+        """
+        self.model_fn = model_fn
+        self.inputs = inputs
+        self.params = params
+        self.keep_shuffles = keep_shuffles
+        self.feature_type = feature_type
+        
+        
+    def preprocess(self):
+        """assertions and any feature preprocessing
+        """
+        # run some generic assertions that apply to all here
+        assert self.inputs.get(DataKeys.FEATURES) is not None
+
+        # generate shuffles if sequence
+        if self.feature_type == "sequence":
+            # add assert for is sequence
+            self.inputs, self.params = generate_dinucleotide_shuffles(
+                self.inputs, self.params)
+            print self.inputs[DataKeys.FEATURES]
+
+            
+    def run_model_and_get_anchors(self, layer_key):
+        """run the model fn with preprocessed inputs
+        """
+        with tf.variable_scope("", reuse=True):
+            self.model_outputs, self.params = self.model_fn(self.inputs, self.params)
+
+        # gather anchors
+        self.inputs[DataKeys.IMPORTANCE_ANCHORS] = tf.gather(
+            self.model_outputs[layer_key],
+            self.params["importance_task_indices"],
+            axis=1)
+
+        
+    def get_singletask_feature_importances(inputs, params):
+        """implement in child class
+        """
+        raise NotImplementedError, "implement in derived class!"
+
+    
+    @classmethod
+    def get_multitask_feature_importances(cls, inputs, params):
+        """gets feature importances from multiple tasks
+        can be called standalone (in an inference stack for example)
+        """
+        outputs = dict(inputs)
+        # transpose anchors for  (num_tasks, batch_size)
+        #anchors_transposed = tf.transpose(inputs[DataKeys.IMPORTANCE_ANCHORS])
+
+        # NOTE: cannot use map_fn here, breaks the connection to the gradients
+        importances = []
+        for task_idx in xrange(anchors.get_shape().as_list()[1]):
+            inputs_anchor = anchors[:,task_idx]
+            inputs.update({"anchor": inputs_anchor})
+            results, _ = cls.get_singletask_feature_importances(inputs, params)
+            importances.append(results[DataKeys.FEATURES])
+        importances = tf.concat(importances, axis=1)
+
+        # save out
+        outputs[DataKeys.FEATURES] = importances
+
+        return outputs, params
+        
+        
+    def postprocess(self, keep_shuffle_keys=[DataKeys.FEATURES, DataKeys.LOGITS]):
+        """post processing 
+        """
+        from tronn.nets.inference_nets import build_inference_stack
+        
+        if self.feature_type == "sequence":
+
+            # put multitask into axis 1
+            #self.outputs[DataKeys.FEATURES] = tf.squeeze(self.outputs[DataKeys.FEATURES], axis=2)
+            
+            # update params
+            self.params.update(
+                {"keep_shuffles": self.keep_shuffles,
+                 "keep_shuffle_keys": keep_shuffle_keys})
+
+            # postprocess stack
+            inference_stack = [
+                (remove_shuffles, {}),
+                (threshold_shufflenull, {"pval_thresh": 0.05}),
+                (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+                (normalize_to_weights, {"weight_key": "logits"}),
+                (clip_edges, {"left_clip": 420, "right_clip": 580}),
+                (filter_by_importance, {"cutoff": 10, "positive_only": True}),
+                (clear_shuffles, {})
+            ]
+
+            # build the postproces stack
+            self.outputs, self.params = build_inference_stack(
+                self.outputs, self.params, inference_stack)
+            
+        return self.outputs, self.params
+    
+
+    def extract(self, layer_key=DataKeys.LOGITS):
+        """put all the pieces together
+        """
+        self.preprocess()
+        self.run_model_and_get_anchors(layer_key)
+        self.outputs, _ = self.get_multitask_feature_importances(self.inputs, self.params)
+        results, params = self.postprocess()
+        
+        return results, params
+
+        
+class InputxGrad(FeatureImportanceExtractor):
+    """Runs input x grad"""
+
+    @staticmethod
+    def get_singletask_feature_importances(inputs, params):
+
+        # inputs
+        features = inputs[DataKeys.FEATURES]
+        anchor = inputs["anchor"]
+        outputs = dict(inputs)
+        
+        # gradients
+        [feature_gradients] = tf.gradients(anchor, [features])
+        # [feature_grad] = tf.gradients(anchor, [features], grad_ys=params["grad_ys"])
+            
+        # input x grad
+        results = tf.multiply(features, feature_gradients, 'input_x_grad')
+
+        outputs[DataKeys.FEATURES] = results
+        outputs["gradients"] = feature_gradients
+
+        return outputs, params
+
+    
+class IntegratedGradients(InputxGrad):
+    """Run integrated gradients"""
+
+    def preprocess(self):
+        # call super (generate shuffles etc)
+        super(IntegratedGradients, self).preprocess()
+        
+        # and then make steps here
+        self.inputs, self.params = generate_scaled_inputs(self.inputs, self.params)
+
+
+    def postprocess(self):
+        # remove steps here
+        self.params.update(
+                {"keep_shuffles": self.keep_shuffles,
+                 "keep_shuffle_keys": keep_shuffle_keys})
+
+        shuffle_params = {"num_shuffles": self.params["num_scaled_inputs"],
+                          "keep_shuffles": False,
+                          "keep_shuffle_keys": []}
+        self.outputs, _ = remove_shuffles(self.outputs, shuffle_params)
+        
+        # and then call super
+        self.outputs, self.params = super(IntegratedGradients, self).postprocess()
+
+        return self.outputs, self.params
+
+
+class DeepLift(FeatureImportanceExtractor):
+    """deep lift for sequence"""
+
+
+    @classmethod
+    def get_diff_from_ref(features, shuffle_num=7):
+        """Get the diff from reference, but maintain batch
+        only remove shuffles at the end of the process. For deeplift
+        """
+        batch_size = features.get_shape().as_list()[0]
+        assert batch_size % (shuffle_num + 1) == 0
+
+        example_num = batch_size / (shuffle_num + 1)
+
+        # unstack to get diff from ref
+        features = [tf.expand_dims(example, axis=0)
+                    for example in tf.unstack(features, axis=0)]
+        for i in xrange(example_num):
+            idx = (shuffle_num + 1) * (i)
+            actual = features[idx]
+            references = features[idx+1:idx+shuffle_num+1]
+            diff = tf.subtract(actual, tf.reduce_mean(references, axis=0))
+            features[idx] = diff
+
+        # restack
+        features = tf.concat(features, axis=0)
+
+        return features
+
+    @classmethod
+    def build_deeplift_multiplier(cls, x, y, multiplier=None, shuffle_num=7):
+        """Takes input and activations to pass down
+        """
+        # TODO figure out how to use sets for name matching
+        linear_names = set(["Conv", "conv", "fc"])
+        nonlinear_names = set(["Relu", "relu"])
+
+        if "Relu" in y.name:
+            # rescale rule
+            delta_y = cls.get_diff_from_ref(y, shuffle_num=shuffle_num)
+            delta_x = cls.get_diff_from_ref(x, shuffle_num=shuffle_num)
+            multiplier = tf.divide(
+                delta_y, delta_x)
+        elif "Conv" in y.name or "fc" in y.name:
+            # linear rule
+            [weights] = tf.gradients(y, x, grad_ys=multiplier)
+            #delta_x = get_diff_from_ref(x, shuffle_num=shuffle_num)
+            #multiplier = tf.multiply(
+            #    weights, delta_x)
+            multiplier = weights
+        else:
+            # TODO implement reveal cancel rule?
+            print y.name, "not recognized"
+            quit()
+
+        return multiplier
+
+
+    @classmethod
+    def get_singletask_feature_importances(cls, inputs, params):
+        """run deeplift on a single anchor
+        """
+        
+        # inputs
+        features = inputs[DataKeys.FEATURES]
+        anchor = inputs["anchor"]
+        outputs = dict(inputs)
+        activations = tf.get_collection("DEEPLIFT_ACTIVATIONS")
+        activations = [features] + activations
+
+        # go backwards through the variables
+        activations.reverse()
+        for i in xrange(len(activations)):
+            current_activation = activations[i]
+
+            if i == 0:
+                previous_activation = tf.identity(
+                    anchor, name="fc.anchor")
+                multiplier = None
+            else:
+                previous_activation = activations[i-1]
+
+            # function here to build multiplier and pass down
+            multiplier = cls.build_deeplift_multiplier(
+                current_activation,
+                previous_activation,
+                multiplier=multiplier,
+                shuffle_num=shuffle_num)
+            
+        outputs[DataKeys.FEATURES] = multiplier
+        
+        return outputs, params
+
+    
+
+def get_task_importances(inputs, params):
+    """per desired task, get the importance scores
+    
+    methods:
+    input x grad
+    integrated gradients
+    deeplift
+    saturation mutagenesis
+
+    """
+    assert inputs.get(DataKeys.FEATURES) is not None
+    assert params.get("importance_task_indices") is not None
+    
+    backprop = params["backprop"]
+    
+    # all this should be is a wrapper
+    if backprop == "input_x_grad":
+        extractor = InputxGrad(params["model_fn"], inputs, params)
+    elif backprop == "integrated_gradients":
+        extractor = IntegratedGradients(params["model_fn"], inputs, params)
+    elif backprop == "deeplift":
+        extractor = DeepLift(params["model_fn"], inputs, params)
+    elif backprop == "saturation_mutagenesis":
+        pass
+    else:
+        # TODO switch to exception
+        print "method does not exist/not yet implemented"
+        quit()
+    
+    outputs, params = extractor.extract()
+
+    return outputs, params
+
+
+
+
+# OLD CODE BELOW?
+
+
+
+
+
+
+
+# TODO is this deprecated?
 def multitask_global_importance(features, labels, config, is_training=False):
     """Also get global importance. does a check to see that the feature is at least
     observed twice (count_thresh)
@@ -303,6 +645,7 @@ def multitask_global_importance(features, labels, config, is_training=False):
     return features, labels, config
 
 
+# KEEP BELOW HERE
 
 def filter_singles(inputs, params):
     """Filter out singlets to remove noise

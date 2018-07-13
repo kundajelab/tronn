@@ -7,6 +7,9 @@ from tronn.nets.importance_nets import multitask_importances
 from tronn.nets.importance_nets import filter_by_importance
 from tronn.nets.importance_nets import filter_singles_twotailed
 
+# TESTING
+from tronn.nets.importance_nets import get_task_importances
+
 from tronn.nets.normalization_nets import normalize_w_probability_weights
 from tronn.nets.normalization_nets import normalize_to_weights
 from tronn.nets.normalization_nets import normalize_to_delta_logits
@@ -44,6 +47,7 @@ from tronn.nets.manifold_nets import filter_by_manifold_distance
 from tronn.nets.manifold_nets import filter_by_sig_pwm_presence
 
 from tronn.nets.sequence_nets import onehot_to_string
+from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 
 from tronn.nets.variant_nets import get_variant_importance_scores
 from tronn.nets.variant_nets import blank_variant_sequence
@@ -66,6 +70,7 @@ def build_inference_stack(inputs, params, inference_stack):
     return outputs, master_params
 
 
+# tODO make internal (_unstack_tasks)
 def unstack_tasks(inputs, params):
     """Unstack by task
     """
@@ -111,6 +116,9 @@ def sequence_to_importance_scores(inputs, params):
             #(threshold_shufflenull, {"pval_thresh": 0.05}),
             
             (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
+
+            # could filter first, and THEN generate all the shuffles and run through model?
+            
             (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
             (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # try 9 and 2/9?
             (normalize_to_weights, {"weight_key": "probs"}),
@@ -152,16 +160,9 @@ def sequence_to_importance_scores_from_regression(inputs, params):
     # set up inference stack
     if use_filtering:
         inference_stack = [
-            (multitask_importances, {"relu": False}),
-            #(threshold_shufflenull, {"pval_thresh": 0.05}),
-
-            # TODO how would you filter things from regression?
-            #(filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
-            (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-            (normalize_to_weights, {"weight_key": "logits"}),
-            (clip_edges, {"left_clip": 400, "right_clip": 600}),
-            (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
+            # TODO figure out equivalent of this in regression
+            #(filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead            
+            (get_task_importances, {}),
         ]
     else:
         inference_stack = [
@@ -175,7 +176,7 @@ def sequence_to_importance_scores_from_regression(inputs, params):
     # build inference stack
     outputs, params = build_inference_stack(
         inputs, params, inference_stack)
-
+    
     # unstack
     if unstack:
         params["name"] = "importances"

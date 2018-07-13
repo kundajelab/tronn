@@ -107,6 +107,8 @@ def run(args):
         args.out_dir,
         net_fns[args.inference_fn],
         inference_params={
+            "model_fn": net_fns[args.model_info["name"]],
+            "num_tasks": args.model_info["params"]["num_tasks"],
             "use_filtering": False if args.bed_input is not None else True,
             "backprop": args.backprop,
             "importance_task_indices": args.inference_task_indices,

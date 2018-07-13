@@ -6,8 +6,83 @@ import tensorflow.contrib.slim as slim
 
 from tronn.nets.filter_nets import rebatch
 
+from tronn.util.utils import DataKeys
 
-def threshold_shufflenull(features, labels, config, is_training=False):
+
+def _get_threshold_on_null_distribution(tensor, pval_thresh):
+    """get null distribution
+    """
+    # melt the tensor
+    tensor_melted = tf.reshape(tensor, [-1])
+
+    # get absolute value (two sided threshold)
+    tensor_melted = tf.abs(tensor_melted)
+    
+    # get the val which will be threshold
+    k_val = tf.multiply(
+        pval_thresh,
+        tensor_melted.get_shape().as_list()[0])
+    k_val = tf.cast(k_val, tf.int32)
+    
+    # get threshold
+    top_k_vals, top_k_indices = tf.nn.top_k(tensor_melted, k=k_val)
+    threshold_val = top_k_vals[-1]
+
+    return threshold_val
+
+
+def _build_null_distribution_threshold_fn(pval_thresh):
+    """build fn to give to map_fn
+    """
+    def threshold_fn(tensor):
+        return _get_threshold_on_null_distribution(tensor, pval_thresh)
+
+    return threshold_fn
+
+
+def threshold_shufflenull(inputs, params):
+    """build distribution from the shuffles to get threshold
+    # note that this is for sequence (or things that have a sequential order)
+    """
+    shuffle_key = "{}.{}".format(DataKeys.SHUFFLE_PREFIX, DataKeys.FEATURES)
+    assert inputs.get(shuffle_key) is not None
+    assert inputs.get(DataKeys.FEATURES) is not None
+
+    # adjust the shuffle key so that when running map_fn
+    # you get a threshold for each example for each task
+    shuffles = tf.transpose(inputs[shuffle_key], perm=[0,2,1,3,4])
+    shuffles = tf.concat(tf.unstack(shuffles, axis=0), axis=0)
+    shuffles = tf.reduce_sum(shuffles, axis=3)
+    
+    # features
+    features = inputs[DataKeys.FEATURES]
+    outputs = dict(inputs)
+    
+    # params
+    pval_thresh = params.get("pval_thresh", 0.05)
+    threshold_fn = _build_null_distribution_threshold_fn(pval_thresh)
+
+    # get thresholds for each example, for each task
+    thresholds = tf.map_fn(
+        threshold_fn,
+        shuffles)
+    
+    # and apply
+    feature_shape = features.get_shape().as_list()
+    thresholds = tf.reshape(
+        thresholds,
+        feature_shape[0:2] + [1 for i in xrange(len(feature_shape[2:]))])
+    
+    pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
+    pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
+    pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
+    outputs[DataKeys.FEATURES] = tf.multiply(features, pass_thresh)
+    
+    return outputs, params
+
+
+
+def threshold_shufflenull_old(features, labels, config, is_training=False):
     """Pick out the distribution from the shuffled vals to get threshold
     """
     assert is_training == False

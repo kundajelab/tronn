@@ -11,7 +11,7 @@ import tensorflow as tf
 #from tronn.util.initializers import pwm_simple_initializer
 #from tronn.util.tf_utils import get_fan_in
 
-from tronn.nets.sequence_nets import pad_examples
+from tronn.nets.sequence_nets import pad_data
 from tronn.nets.sequence_nets import unpad_examples
 
 from tronn.nets.filter_nets import rebatch
@@ -261,8 +261,9 @@ def generate_mutation_batch(inputs, params):
     outputs["features"] = tf.concat(features_w_mutated, axis=0)
     outputs["pos"] = tf.stack(positions, axis=0)
     params["ignore"] = ["features", "pos"]
-    outputs, params = pad_examples(outputs, params)
-
+    outputs, params = pad_data(outputs, params)
+    quit()
+    
     # and delete the used features
     del outputs[params["positional-pwm-scores-key"]]
     
@@ -333,7 +334,8 @@ def delta_logits(inputs, params):
         outputs["features"] = logits_adj
 
         params["ignore"] = ["features"]
-        outputs, params = pad_examples(outputs, params)
+        outputs, params = pad_data(outputs, params)
+        quit()
 
         params["name"] = "extract_delta_logits"
         outputs, params = rebatch(outputs, params)

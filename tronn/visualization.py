@@ -230,7 +230,7 @@ def visualize_clustered_h5_dataset_full(
             dataset_key,
             ",".join(str(val) for val in indices))
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
     
     return None
 
