@@ -167,8 +167,6 @@ def generate_dinucleotide_shuffles(inputs, params):
     outputs[DataKeys.FEATURES] = tf.reshape(
         features_w_shuffles,
         [-1]+features.get_shape().as_list()[1:])
-    
-    print outputs[DataKeys.FEATURES]
 
     # and then pad everything else
     outputs, _ = pad_data(
@@ -325,7 +323,7 @@ def remove_shuffles(inputs, params):
             shuffle_batch = tf.reshape(
                 shuffle_batch,
                 [batch_size, -1] + inputs[key].get_shape().as_list()[1:])
-            outputs["{}.{}".format(DataKeys.SHUFFLE_PREFIX, key)] = shuffle_batch
+            outputs["{}.{}".format(key, DataKeys.SHUFFLE_SUFFIX)] = shuffle_batch
 
     # rebatch back up
     outputs, _ = rebatch(outputs, {"name": "remove_shuffles_rebatch", "batch_size": full_batch_size})
@@ -340,7 +338,7 @@ def clear_shuffles(inputs, params):
     outputs = {}
     for key in inputs.keys():
 
-        if key.startswith(DataKeys.SHUFFLE_PREFIX):
+        if DataKeys.SHUFFLE_SUFFIX in key:
             continue
 
         outputs[key] = inputs[key]

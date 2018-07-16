@@ -6,98 +6,13 @@ import logging
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+from tronn.nets.threshold_nets import build_null_distribution_threshold_fn
+
 from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
+from tronn.util.utils import DataKeys
 
-def pwm_convolve_jaccardlike(features, labels, config, is_training=False):
-    """Inspired by Av's jaccard-like distance
-    """
-    # jaccard: essentially intersection over union
-    # use the jaccard distance to weight the matches.
-    # ie, score = sum(importances matching pwm) * jaccard distance
-    pwm_list = config.get("pwms")
-    assert pwm_list is not None
-        
-    # get various sizes needed to instantiate motif matrix
-    num_filters = len(pwm_list)
-    logging.info("Total PWMs: {}".format(num_filters))
-    
-    max_size = 0
-    for pwm in pwm_list:
-        if pwm.weights.shape[1] > max_size:
-            max_size = pwm.weights.shape[1]
-    logging.info("Filter size: {}".format(max_size))
-
-    # first, jaccard
-
-    # get |a intersect b| using convolutional net
-    # define |a intersect b| as approx min of convolving bool(a) and b, but with ones
-    # this way you capture the intersect by presence of specific base pairs
-    
-    # convolve pwms with binarized features, [-1, 1]
-    binarized_features = tf.add(
-        tf.cast(tf.greater(features, 0), tf.float32),
-        -tf.cast(tf.less(features, 0), tf.float32))
-    conv1_filter_size = [1, max_size]
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features)),
-            biases_initializer=None,
-            trainable=False):
-        # pwm cross correlation
-        jaccard_intersection = slim.conv2d(
-            binarized_features, num_filters, conv1_filter_size,
-            scope='pwm/conv')
-        jaccard_intersection = tf.abs(jaccard_intersection)
-
-    # and get summed importance in that window
-    summed_feature_impt = tf.reduce_sum(
-        tf.multiply(
-            slim.avg_pool2d(features, [1, max_size], stride=[1,1], padding="VALID"),
-            max_size),
-        axis=3, keep_dims=True)
-    print summed_feature_impt.get_shape()
-
-    # numerator: summed importance * jaccard intersection score.
-    numerator = tf.multiply(summed_feature_impt, jaccard_intersection)
-    print numerator.get_shape()
-    
-    # union: |a| + |b| - |a intersect b|
-    # getting |input| - max pool on binarized features
-    # getting |pwm| - convolve on full sequence
-    summed_feature_presence = tf.reduce_sum(
-        tf.multiply(
-            slim.avg_pool2d(tf.abs(binarized_features), [1, max_size], stride=[1,1], padding="VALID"),
-            max_size),
-        axis=3, keep_dims=True)
-
-    # make another convolution net for the normalization factor, with squared filters
-    ones_input = tf.ones(features.get_shape())
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features), squared=True), # <- this is why you can't merge
-            biases_initializer=None,
-            trainable=False):
-        # normalization factor
-        summed_pwm_squared = slim.conv2d(
-            ones_input, num_filters, conv1_filter_size,
-            scope='nonzero_pwm/conv')
-        summed_pwm_abs = tf.sqrt(summed_pwm_squared)
-
-    # denominator: |input| + |pwm| - intersection
-    denominator = tf.subtract(tf.add(summed_feature_presence, summed_pwm_abs), jaccard_intersection)
-        
-    # divide the two answers.
-    final_score = tf.divide(numerator, denominator)
-    
-    return final_score, labels, config
 
 
 def pwm_convolve(inputs, params):
@@ -105,6 +20,274 @@ def pwm_convolve(inputs, params):
 
       projection = a dot b / | b |
     """
+    # TODO options for running (1) FWD, (2) REV, (3) COMB
+    assert inputs.get(DataKeys.FEATURES) is not None
+    assert params.get("pwms") is not None
+
+    # features
+    features = inputs[DataKeys.FEATURES]
+    outputs = dict(inputs)
+
+    # params
+    pwm_list = params["pwms"]
+    num_filters = len(pwm_list)
+    reuse = params.get("reuse_pwm_layer", False)
+    max_size = 0
+    for pwm in pwm_list:
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+    params["filter_width"] = max_size
+            
+    # make the convolution net for dot product, normal filters
+    # here, the pwms are already normalized to unit vectors for vector projection
+    kernel_size = [1, max_size]
+    with tf.variable_scope("pwm_layer", reuse=reuse):
+        features = tf.layers.conv2d(
+            features,
+            num_filters,
+            kernel_size,
+            padding="valid",
+            activation=None,
+            kernel_initializer=pwm_simple_initializer(
+                kernel_size,
+                pwm_list,
+                get_fan_in(features),
+                unit_vector=True,
+                length_norm=True),
+            use_bias=False,
+            bias_initializer=None,
+            trainable=False,
+            name="conv_pwm") # {N, task, seq_len, num_filters}
+
+    outputs[DataKeys.FEATURES] = features
+        
+    return outputs, params
+
+
+def threshold_pwm_scores(inputs, params):
+    # requires you have scores on the examples AND the shuffles
+    assert inputs.get(DataKeys.ACTIVE_SHUFFLES) is not None
+    assert inputs.get(DataKeys.FEATURES) is not None
+
+    # adjust the shuffle key so that when running map_fn
+    # you get a threshold for each example for each task
+    shuffles = tf.transpose(inputs[DataKeys.ACTIVE_SHUFFLES], perm=[0,2,4,1,3]) # becomes {N, task, M, shuf, pos}
+    shuffles_shape = shuffles.get_shape().as_list()
+    shuffles = tf.reshape(
+        shuffles,
+        [shuffles_shape[0]*shuffles_shape[1]*shuffles_shape[2],
+         shuffles_shape[3]*shuffles_shape[4]])
+    
+    # features
+    features = inputs[DataKeys.FEATURES]
+    outputs = dict(inputs)
+    
+    # params
+    pval_thresh = params.get("pval_thresh", 0.05)
+    threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
+
+    # get thresholds for each example, for each task
+    thresholds = tf.map_fn(
+        threshold_fn,
+        shuffles)
+    
+    # and apply (remember to reshape and transpose back to feature dim ordering)
+    feature_shape = features.get_shape().as_list()
+    thresholds = tf.reshape(thresholds, shuffles_shape[0:3]+[1])
+    thresholds = tf.transpose(thresholds, perm=[0,1,3,2]) # {N, task, pos, M}
+
+    pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
+    pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
+    pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
+    outputs[DataKeys.FEATURES] = pass_thresh
+
+    return outputs, params
+
+
+def pwm_convolve_twotailed(inputs, params):
+    """Convolve both pos and negative scores with PWMs. Prevents getting scores
+    when the negative correlation is stronger.
+    """
+    assert inputs.get(DataKeys.FEATURES) is not None
+
+    # features
+    features = inputs[DataKeys.FEATURES]
+    outputs = dict(inputs)
+    
+    # positive weighted sequence
+    pos_scores = pwm_convolve(
+        {DataKeys.FEATURES: tf.nn.relu(features)},
+        params)[0][DataKeys.FEATURES]
+    pos_scores = tf.nn.relu(pos_scores)
+
+    # negative weighted sequence
+    params.update({"reuse_pwm_layer": True})
+    neg_scores = pwm_convolve(
+        {DataKeys.FEATURES: tf.nn.relu(-features)},
+        params)[0][DataKeys.FEATURES]
+    neg_scores = tf.nn.relu(neg_scores)
+
+    # condition: is positive score higher than neg score
+    is_positive_max = tf.greater_equal(pos_scores, neg_scores)
+
+    # fill in accordingly
+    outputs[DataKeys.FEATURES] = tf.where(is_positive_max, pos_scores, -neg_scores)
+    
+    return outputs, params
+
+
+def get_pwm_scores(inputs, params):
+    """main function to run all
+    """
+    # move inputs to outputs
+    outputs = dict(inputs)
+    
+    # run raw sequence + shuffles through pwm layer
+    outputs[DataKeys.ORIG_SEQ_PWM_SCORES] = pwm_convolve_twotailed(
+        {DataKeys.FEATURES: inputs[DataKeys.ORIG_SEQ_ACTIVE]},
+        params)[0][DataKeys.FEATURES]
+
+    shuffle_shape = inputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF].get_shape().as_list()
+    shuffles_reshaped = tf.reshape(
+        inputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF],
+        [shuffle_shape[0], shuffle_shape[1]*shuffle_shape[2], shuffle_shape[3], shuffle_shape[4]])
+    shuffle_pwm_scores = pwm_convolve_twotailed(
+        {DataKeys.FEATURES: shuffles_reshaped},
+        params)[0][DataKeys.FEATURES]
+    shuffle_shape[3:] = shuffle_pwm_scores.get_shape().as_list()[2:]
+    outputs[DataKeys.ORIG_SEQ_SHUF_PWM_SCORES] = tf.reshape(shuffle_pwm_scores, shuffle_shape)
+
+    # theshold, return the threshold mask (ie, motif hits) and scores that pass threshold
+    outputs[DataKeys.ORIG_SEQ_PWM_HITS] = threshold_pwm_scores(
+        {DataKeys.FEATURES: outputs[DataKeys.ORIG_SEQ_PWM_SCORES],
+         DataKeys.ACTIVE_SHUFFLES: outputs[DataKeys.ORIG_SEQ_SHUF_PWM_SCORES]},
+        {})[0][DataKeys.FEATURES]
+    outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH] = tf.multiply(
+        outputs[DataKeys.ORIG_SEQ_PWM_SCORES],
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS])
+    
+    # run weighted sequence + shuffles through pwm layer
+    # TODO consider weighting by base pair overlap for the importance score set?
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES] = pwm_convolve_twotailed(
+        {DataKeys.FEATURES: inputs[DataKeys.WEIGHTED_SEQ_ACTIVE]},
+        params)[0][DataKeys.FEATURES]
+
+    shuffle_shape = inputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF].get_shape().as_list()
+    shuffles_reshaped = tf.reshape(
+        inputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF],
+        [shuffle_shape[0], shuffle_shape[1]*shuffle_shape[2], shuffle_shape[3], shuffle_shape[4]])
+    shuffle_pwm_scores = pwm_convolve_twotailed(
+        {DataKeys.FEATURES: shuffles_reshaped},
+        params)[0][DataKeys.FEATURES]
+    shuffle_shape[3:] = shuffle_pwm_scores.get_shape().as_list()[2:]
+    outputs[DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES] = tf.reshape(shuffle_pwm_scores, shuffle_shape)
+
+    # theshold, return the threshold mask (ie, motif hits) and scores that pass threshold
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS] = threshold_pwm_scores(
+        {DataKeys.FEATURES: outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES],
+         DataKeys.ACTIVE_SHUFFLES: outputs[DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES]},
+        {})[0][DataKeys.FEATURES]
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS] = tf.multiply(
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS],
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS])
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.multiply(
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES],
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS])
+
+    # delete the pwm shuffles
+    del outputs[DataKeys.ORIG_SEQ_SHUF_PWM_SCORES]
+    del outputs[DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES]
+
+    # and set up main features
+    outputs[DataKeys.FEATURES] = outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
+    
+    return outputs, params
+
+
+
+
+
+# OLD
+
+
+def pwm_match_filtered_convolve(inputs, params):
+    """Run pwm convolve twice, with importance scores and without.
+    Choose max for motif across positions using raw sequence
+    """
+    assert params.get("raw-sequence-clipped-key") is not None
+    assert inputs.get(params["raw-sequence-clipped-key"]) is not None
+    assert params.get("pwms") is not None
+    
+    # features
+    features = inputs["features"]
+    raw_sequence = inputs[params["raw-sequence-clipped-key"]]
+    is_training = params.get("is_training", False)
+    outputs = dict(inputs)
+    
+    # run on raw sequence
+    #if raw_sequence is not None:
+    binarized_features = raw_sequence
+
+    
+    pwm_binarized_feature_scores, _ = pwm_convolve_inputxgrad(
+        {"features": binarized_features}, params) # {N, 1, pos, M}
+
+    # adjust the raw scores and save out
+    if params.get("raw-pwm-scores-key") is not None:
+        raw_bp_overlap, _ = get_bp_overlap({"features": binarized_features}, params) # this does nothing on raw sequence
+        raw_scores = tf.multiply(
+            pwm_binarized_feature_scores,
+            raw_bp_overlap)
+        raw_scores = tf.squeeze(tf.reduce_max(raw_scores, axis=2), axis=1) # {N, M}
+        outputs[params["raw-pwm-scores-key"]] = raw_scores
+
+    # multiply by raw sequence matches
+    pwm_binarized_feature_maxfilt_mask = tf.cast(
+        tf.greater(pwm_binarized_feature_scores, [0]), tf.float32)
+
+    # testing using the actual raw scores?
+    #pwm_binarized_feature_maxfilt_mask = tf.nn.relu(
+    #    pwm_binarized_feature_scores)
+    
+    # run on impt weighted features
+    #with tf.variable_scope("impt_weighted"):
+    pwm_impt_weighted_scores, _ = pwm_convolve_inputxgrad(
+        {"features": features}, params)
+    
+    # and filter through mask
+    filt_features = tf.multiply(
+        pwm_binarized_feature_maxfilt_mask,
+        pwm_impt_weighted_scores)
+
+    # at this stage also need to perform the weighting by bp presence
+    impt_bp_overlap, _ = get_bp_overlap({"features": features}, params)
+    features = tf.multiply(
+        filt_features,
+        impt_bp_overlap)
+
+    outputs["features"] = features
+    
+    # keep for grammars
+    if params.get("positional-pwm-scores-key") is not None:
+        outputs[params["positional-pwm-scores-key"]] = features
+        
+    return outputs, params
+
+
+
+
+
+
+
+
+def pwm_convolve_old(inputs, params):
+    """Convolve with PWMs and normalize with vector projection:
+
+      projection = a dot b / | b |
+    """
+    assert inputs.get(DataKeys.FEATURES) is not None
+    assert params.get("pwms") is not None
+    
     features = inputs["features"]
     pwm_list = params.get("pwms")
     reuse = params.get("reuse_pwm_layer", False)
@@ -155,13 +338,13 @@ def pwm_convolve_inputxgrad(inputs, params):
     features = inputs["features"]
     
     pos_seq_scores, _ = pwm_convolve({"features": tf.nn.relu(features)}, params)
-    pos_seq_scores = tf.nn.relu(pos_seq_scores)
+    pos_seq_scores = tf.nn.relu(pos_seq_scores["features"])
         
     # do negative sequence. ignore positive scores. only keep positive (ie negative) results
     #with tf.variable_scope("neg_seq_pwm"):
     params.update({"reuse_pwm_layer": True})
     neg_seq_scores, _, = pwm_convolve({"features": tf.nn.relu(-features)}, params)
-    neg_seq_scores = tf.nn.relu(neg_seq_scores)
+    neg_seq_scores = tf.nn.relu(neg_seq_scores["features"])
         
     # and then take max (best score, whether pos or neg) do not use abs; and keep sign
     max_seq_scores = tf.reduce_max(tf.stack([pos_seq_scores, neg_seq_scores], axis=0), axis=0) # {N, task, seq_len/pool_width, M}
@@ -719,4 +902,99 @@ def featurize_motifs(features, pwm_list=None, is_training=False):
     motif_tensor = tf.squeeze(tf.reduce_sum(top_k_val, 3)) # 3 is the axis
 
     return motif_tensor
+
+
+
+
+
+
+
+def pwm_convolve_jaccardlike(features, labels, config, is_training=False):
+    """Inspired by Av's jaccard-like distance
+    """
+    # jaccard: essentially intersection over union
+    # use the jaccard distance to weight the matches.
+    # ie, score = sum(importances matching pwm) * jaccard distance
+    pwm_list = config.get("pwms")
+    assert pwm_list is not None
+        
+    # get various sizes needed to instantiate motif matrix
+    num_filters = len(pwm_list)
+    logging.info("Total PWMs: {}".format(num_filters))
+    
+    max_size = 0
+    for pwm in pwm_list:
+        if pwm.weights.shape[1] > max_size:
+            max_size = pwm.weights.shape[1]
+    logging.info("Filter size: {}".format(max_size))
+
+    # first, jaccard
+
+    # get |a intersect b| using convolutional net
+    # define |a intersect b| as approx min of convolving bool(a) and b, but with ones
+    # this way you capture the intersect by presence of specific base pairs
+    
+    # convolve pwms with binarized features, [-1, 1]
+    binarized_features = tf.add(
+        tf.cast(tf.greater(features, 0), tf.float32),
+        -tf.cast(tf.less(features, 0), tf.float32))
+    conv1_filter_size = [1, max_size]
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features)),
+            biases_initializer=None,
+            trainable=False):
+        # pwm cross correlation
+        jaccard_intersection = slim.conv2d(
+            binarized_features, num_filters, conv1_filter_size,
+            scope='pwm/conv')
+        jaccard_intersection = tf.abs(jaccard_intersection)
+
+    # and get summed importance in that window
+    summed_feature_impt = tf.reduce_sum(
+        tf.multiply(
+            slim.avg_pool2d(features, [1, max_size], stride=[1,1], padding="VALID"),
+            max_size),
+        axis=3, keep_dims=True)
+    print summed_feature_impt.get_shape()
+
+    # numerator: summed importance * jaccard intersection score.
+    numerator = tf.multiply(summed_feature_impt, jaccard_intersection)
+    print numerator.get_shape()
+    
+    # union: |a| + |b| - |a intersect b|
+    # getting |input| - max pool on binarized features
+    # getting |pwm| - convolve on full sequence
+    summed_feature_presence = tf.reduce_sum(
+        tf.multiply(
+            slim.avg_pool2d(tf.abs(binarized_features), [1, max_size], stride=[1,1], padding="VALID"),
+            max_size),
+        axis=3, keep_dims=True)
+
+    # make another convolution net for the normalization factor, with squared filters
+    ones_input = tf.ones(features.get_shape())
+    with slim.arg_scope(
+            [slim.conv2d],
+            padding='VALID',
+            activation_fn=None,
+            weights_initializer=pwm_simple_initializer(
+                conv1_filter_size, pwm_list, get_fan_in(features), squared=True), # <- this is why you can't merge
+            biases_initializer=None,
+            trainable=False):
+        # normalization factor
+        summed_pwm_squared = slim.conv2d(
+            ones_input, num_filters, conv1_filter_size,
+            scope='nonzero_pwm/conv')
+        summed_pwm_abs = tf.sqrt(summed_pwm_squared)
+
+    # denominator: |input| + |pwm| - intersection
+    denominator = tf.subtract(tf.add(summed_feature_presence, summed_pwm_abs), jaccard_intersection)
+        
+    # divide the two answers.
+    final_score = tf.divide(numerator, denominator)
+    
+    return final_score, labels, config
 

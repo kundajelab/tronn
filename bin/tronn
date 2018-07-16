@@ -416,7 +416,7 @@ def _add_interpretation_inputs(parser):
         "--fasta",
         help="FASTA file to interpret BED regions")
     parser.add_argument(
-        '--batch_size', default=128, type=int,
+        '--batch_size', default=256, type=int,
         help='batch size')
     parser.add_argument(
         "--model_info", required=True,

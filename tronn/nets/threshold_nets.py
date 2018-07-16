@@ -31,7 +31,7 @@ def _get_threshold_on_null_distribution(tensor, pval_thresh):
     return threshold_val
 
 
-def _build_null_distribution_threshold_fn(pval_thresh):
+def build_null_distribution_threshold_fn(pval_thresh):
     """build fn to give to map_fn
     """
     def threshold_fn(tensor):
@@ -44,15 +44,17 @@ def threshold_shufflenull(inputs, params):
     """build distribution from the shuffles to get threshold
     # note that this is for sequence (or things that have a sequential order)
     """
-    shuffle_key = "{}.{}".format(DataKeys.SHUFFLE_PREFIX, DataKeys.FEATURES)
-    assert inputs.get(shuffle_key) is not None
+    #shuffle_key = "{}.{}".format(DataKeys.FEATURES, DataKeys.SHUFFLE_SUFFIX)
+    assert params.get("shuffle_key") is not None
+    assert inputs.get(params["shuffle_key"]) is not None
     assert inputs.get(DataKeys.FEATURES) is not None
 
     # adjust the shuffle key so that when running map_fn
     # you get a threshold for each example for each task
-    shuffles = tf.transpose(inputs[shuffle_key], perm=[0,2,1,3,4])
+    shuffles = inputs[params["shuffle_key"]]
+    shuffles = tf.transpose(shuffles, perm=[0,2,1,3,4]) # this is sequence specific
     shuffles = tf.concat(tf.unstack(shuffles, axis=0), axis=0)
-    shuffles = tf.reduce_sum(shuffles, axis=3)
+    shuffles = tf.reduce_sum(shuffles, axis=3) # this is sequence specific
     
     # features
     features = inputs[DataKeys.FEATURES]
@@ -60,7 +62,7 @@ def threshold_shufflenull(inputs, params):
     
     # params
     pval_thresh = params.get("pval_thresh", 0.05)
-    threshold_fn = _build_null_distribution_threshold_fn(pval_thresh)
+    threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
 
     # get thresholds for each example, for each task
     thresholds = tf.map_fn(
@@ -68,6 +70,7 @@ def threshold_shufflenull(inputs, params):
         shuffles)
     
     # and apply
+    # note that first two dimensions are batch and task
     feature_shape = features.get_shape().as_list()
     thresholds = tf.reshape(
         thresholds,
@@ -504,21 +507,30 @@ def clip_edges_old(features, labels, config, is_training=False):
 def clip_edges(inputs, params):
     """Grab just the middle base pairs
     """
-    assert inputs.get("features") is not None
+    assert inputs.get(DataKeys.FEATURES) is not None
 
     # get features and pass rest through
-    features = inputs["features"]
+    features = inputs[DataKeys.FEATURES]
     outputs = dict(inputs)
 
     left_clip = params.get("left_clip", 0)
     right_clip = params.get("right_clip", features.get_shape().as_list()[2])
-    outputs["features"] = features[:,:,left_clip:right_clip,:]
+    outputs[DataKeys.FEATURES] = features[:,:,left_clip:right_clip,:]
 
-    # TODO come back to this
-    if params.get("raw-sequence-clipped-key") is not None:
-        outputs[params["raw-sequence-clipped-key"]] = inputs[
-            params["raw-sequence-key"]][:,:,left_clip:right_clip,:]
+    # adjust other seq as necessary
+    if inputs.get(DataKeys.ORIG_SEQ) is not None:
+        outputs[DataKeys.ORIG_SEQ_ACTIVE] = inputs[DataKeys.ORIG_SEQ][:,:,left_clip:right_clip,:]
 
+    if inputs.get(DataKeys.ORIG_SEQ_SHUF) is not None:
+        outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = inputs[DataKeys.ORIG_SEQ_SHUF][:,:,:,left_clip:right_clip,:]
+        
+    if inputs.get(DataKeys.WEIGHTED_SEQ) is not None:
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = inputs[DataKeys.WEIGHTED_SEQ][:,:,left_clip:right_clip,:]
+
+    if inputs.get(DataKeys.WEIGHTED_SEQ_SHUF) is not None:
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = inputs[DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,left_clip:right_clip,:]
+        
+    # fix this?
     if params.get("clip_string") is not None:
         outputs["features.string"] = tf.substr(
             outputs["features.string"],

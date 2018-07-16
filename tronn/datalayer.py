@@ -62,7 +62,7 @@ class DataLoader(object):
     def build_raw_dataflow(self, batch_size, task_indices=[]):
         """build a raw dataflow from the files to tensors
         """
-        pass
+        raise NotImplementedError, "implement in child class!"
 
     
     def build_filtered_dataflow(
@@ -87,6 +87,7 @@ class DataLoader(object):
             # TODO adjust to only have a queue at the END, so that not wasting a lot of queue space
             for key in filter_tasks.keys(): # TODO consider an ordered dict
                 print key
+                print filter_tasks[key][0]
                 transform_stack.append((
                     filter_by_labels,
                     {"labels_key": key,
@@ -98,16 +99,7 @@ class DataLoader(object):
                 {"labels_key": "labels",
                  "filter_tasks": singleton_filter_tasks,
                  "name": "singleton_label_filter"}))
-        # NOTE: these need to be here because they need to go through the model.
-        if num_dinuc_shuffles > 0:
-            transform_stack.append((
-                generate_dinucleotide_shuffles,
-                {"num_shuffles": num_dinuc_shuffles}))
-        if num_scaled_inputs > 0:
-            transform_stack.append((
-                generate_scaled_inputs,
-                {"num_scaled_inputs": num_scaled_inputs}))
-
+            
         # build all together
         with tf.variable_scope("dataloader"):
             # build raw dataflow

@@ -308,15 +308,17 @@ class FeatureImportanceExtractor(object):
             # add assert for is sequence
             self.inputs, self.params = generate_dinucleotide_shuffles(
                 self.inputs, self.params)
-            print self.inputs[DataKeys.FEATURES]
-
+            
+            # also save it for later use
+            self.inputs[DataKeys.ORIG_SEQ] = self.inputs[DataKeys.FEATURES]
+            
             
     def run_model_and_get_anchors(self, layer_key):
         """run the model fn with preprocessed inputs
         """
         with tf.variable_scope("", reuse=True):
             self.model_outputs, self.params = self.model_fn(self.inputs, self.params)
-
+        
         # gather anchors
         self.inputs[DataKeys.IMPORTANCE_ANCHORS] = tf.gather(
             self.model_outputs[layer_key],
@@ -336,6 +338,8 @@ class FeatureImportanceExtractor(object):
         can be called standalone (in an inference stack for example)
         """
         outputs = dict(inputs)
+        
+        anchors = inputs[DataKeys.IMPORTANCE_ANCHORS]
         # transpose anchors for  (num_tasks, batch_size)
         #anchors_transposed = tf.transpose(inputs[DataKeys.IMPORTANCE_ANCHORS])
 
@@ -350,13 +354,28 @@ class FeatureImportanceExtractor(object):
 
         # save out
         outputs[DataKeys.FEATURES] = importances
-
+        outputs[DataKeys.WEIGHTED_SEQ] = importances
+        
         return outputs, params
         
         
-    def postprocess(self, keep_shuffle_keys=[DataKeys.FEATURES, DataKeys.LOGITS]):
+    def postprocess(
+            self,
+            keep_shuffle_keys=[
+                DataKeys.ORIG_SEQ,
+                DataKeys.WEIGHTED_SEQ,
+                DataKeys.LOGITS]):
         """post processing 
         """
+        default_params = {
+            "pval_thresh": 0.01,
+            "filter_window": 7,
+            "filter_window_fract": float(2)/7,
+            "normalize_weight_key": DataKeys.LOGITS,
+            "left_clip": 420,
+            "right_clip": 580,
+            "required_nonzero_bp": 10}
+        
         from tronn.nets.inference_nets import build_inference_stack
         
         if self.feature_type == "sequence":
@@ -372,12 +391,13 @@ class FeatureImportanceExtractor(object):
             # postprocess stack
             inference_stack = [
                 (remove_shuffles, {}),
-                (threshold_shufflenull, {"pval_thresh": 0.05}),
+                (threshold_shufflenull, {"pval_thresh": 0.01, "shuffle_key": DataKeys.WEIGHTED_SEQ_SHUF}),
                 (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-                (normalize_to_weights, {"weight_key": "logits"}),
+                (normalize_to_weights, {"weight_key": DataKeys.LOGITS}),
                 (clip_edges, {"left_clip": 420, "right_clip": 580}),
-                (filter_by_importance, {"cutoff": 10, "positive_only": True}),
-                (clear_shuffles, {})
+                #(clear_shuffles, {}),
+                (filter_by_importance, {"cutoff": 10, "positive_only": True}) # TODO move this out?
+
             ]
 
             # build the postproces stack
@@ -385,6 +405,21 @@ class FeatureImportanceExtractor(object):
                 self.outputs, self.params, inference_stack)
             
         return self.outputs, self.params
+
+
+    def extract_test(self, inputs, params):
+        """put all the pieces together
+        """
+        # TODO maybe move to this
+        layer_key = params.get("layer_key", DataKeys.LOGITS)
+        
+        outputs, params = self.preprocess(inputs, params)
+        outputs, params = self.run_model_and_get_anchors(outputs, params, layer_key)
+        outputs, params = self.get_multitask_feature_importances(outputs, params)
+        outputs, params = self.postprocess(outputs, params)
+        
+        return outputs, params
+
     
 
     def extract(self, layer_key=DataKeys.LOGITS):
@@ -555,9 +590,6 @@ def get_task_importances(inputs, params):
     saturation mutagenesis
 
     """
-    assert inputs.get(DataKeys.FEATURES) is not None
-    assert params.get("importance_task_indices") is not None
-    
     backprop = params["backprop"]
     
     # all this should be is a wrapper
