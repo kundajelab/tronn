@@ -4,11 +4,12 @@
 import logging
 
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
+import tensorflow.contrib.slim as slim # TODO try to factor out slim
 
 from tronn.nets.threshold_nets import build_null_distribution_threshold_fn
 
 from tronn.util.initializers import pwm_simple_initializer
+
 from tronn.util.tf_utils import get_fan_in
 
 from tronn.util.utils import DataKeys
@@ -342,6 +343,20 @@ def get_pwm_scores(inputs, params):
     return outputs, params
 
 
+
+
+
+
+
+
+
+
+
+
+
+# OLD CODE BELOW
+
+
         
 
 def pwm_convolve_old(inputs, params):
@@ -610,6 +625,10 @@ def pwm_match_filtered_convolve(inputs, params):
 
 
 
+
+
+
+
 def pwm_convolve_old(inputs, params):
     """Convolve with PWMs and normalize with vector projection:
 
@@ -836,7 +855,7 @@ def pwm_maxpool(features, labels, config, is_training=False):
 # TODO more correctly, need to set up a check so that a motif across time is only kept if seen at least
 # twice across time too
 
-
+# TODO is this used?
 def pwm_consistency_check(features, labels, config, is_training=False):
     """Try to keep most consistent motifs across tasks. max scores are accounted for later
     """
@@ -874,6 +893,7 @@ def pwm_consistency_check(features, labels, config, is_training=False):
     return features, labels, config
 
 
+# TODO is this used?
 def pwm_positional_max(features, labels, config, is_training=False):
     """Get max at a position
     """
@@ -1000,331 +1020,3 @@ def multitask_global_pwm_scores(inputs, params):
         params["keep_global_pwm_scores"] = None # TODO fix this, this is because there is overwriting
         
     return outputs, params
-
-
-
-
-
-
-
-
-
-
-
-def pwm_convolve_v3(features, labels, config, is_training=False):
-    """Convolve with PWMs and normalize with vector projection:
-
-      projection = a dot b / | b |
-    """
-    pwm_list = config.get("pwms")
-    pool = config.get("pool", False)
-    pool_width = config.get("pool_width", None)
-    assert pwm_list is not None
-    if pool is not None:
-        assert pool_width is not None
-    positional_max = config.get("positional_max", False)
-        
-    # get various sizes needed to instantiate motif matrix
-    num_filters = len(pwm_list)
-    logging.info("Total PWMs: {}".format(num_filters))
-
-    max_size = 0
-    for pwm in pwm_list:
-        if pwm.weights.shape[1] > max_size:
-            max_size = pwm.weights.shape[1]
-    logging.info("Filter size: {}".format(max_size))
-            
-    # make the convolution net for dot product, normal filters
-    conv1_filter_size = [1, max_size]
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features)),
-            biases_initializer=None,
-            trainable=False):
-        # pwm cross correlation
-        pwm_scores = slim.conv2d(
-            features, num_filters, conv1_filter_size,
-            scope='pwm/conv')
-
-    # make another convolution net for the normalization factor, with squared filters
-    nonzero_features = tf.cast(tf.not_equal(features, 0), tf.float32)
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features), squared=True), # <- this is why you can't merge
-            biases_initializer=None,
-            trainable=False):
-        # normalization factor
-        nonzero_squared_vals = slim.conv2d(
-            nonzero_features, num_filters, conv1_filter_size,
-            scope='nonzero_pwm/conv')
-        nonzero_vals = tf.sqrt(nonzero_squared_vals)
-    
-    # and then normalize using the vector projection formulation
-    # todo this is probably screwing with the vectors
-    pseudocount = 0.00000001
-    features = tf.divide(pwm_scores, tf.add(nonzero_vals, pseudocount)) # {N, task, seq_len, M}
-
-    # max pool if requested - loses the negatives? yup
-    # max pool and min pool and then take the larger val?
-    
-    # first, need to convolve with abs scores. that way, you can only keep the top scores.
-    # once you know those, make a mask
-    # then need to reconvolve with the raw scores. then treat with the mask
-    # this gives positive and negative motifs correctly.
-    if pool:
-        # get the max vals, both pos and neg
-        maxpool_pos = slim.max_pool2d(features, [1, pool_width], stride=[1, pool_width]) # {N, task, seq_len/pool_width, M}
-        maxpool_neg = slim.max_pool2d(-features, [1, pool_width], stride=[1, pool_width]) # {N, task, seq_len/pool_width, M}
-        maxpool_abs = tf.reduce_max(tf.abs(tf.stack([maxpool_pos, maxpool_neg], axis=0)), axis=0) # {N, task, seq_len/pool_width, M}
-
-        # get the right values
-        maxpool_pos_masked = tf.multiply(
-            maxpool_pos,
-            tf.cast(tf.greater_equal(maxpool_pos, maxpool_abs), tf.float32))
-        maxpool_neg_masked = tf.multiply(
-            -maxpool_neg,
-            tf.cast(tf.less_equal(-maxpool_neg, -maxpool_abs), tf.float32))
-        features = tf.add(maxpool_pos_masked, maxpool_neg_masked)
-        
-    # only keep max at each position if requested, separately for each task
-    if positional_max:
-        features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)] # list of {N, 1, pos, M}
-        
-        features_pos_max = []
-        for i in xrange(len(features)):
-            task_features = features[i]
-            features_max_vals = tf.reduce_max(tf.abs(task_features), axis=3, keep_dims=True) # {N, 1, pos, 1}
-            features_max_mask = tf.multiply(
-                tf.add(
-                    tf.cast(tf.greater_equal(task_features, features_max_vals), tf.float32),
-                    tf.cast(tf.less_equal(task_features, -features_max_vals), tf.float32)), # add two sided threshold masks
-                tf.cast(tf.not_equal(task_features, 0), tf.float32)) # and then make sure none are zero. {N, 1, pos, motif}
-            
-            task_features = tf.multiply(task_features, features_max_mask)
-            features_pos_max.append(task_features)
-        # restack
-        features = tf.concat(features_pos_max, axis=1) # {N, task, pos, M}
-        
-    return features, labels, config
-
-
-def motif_assignment(features, labels, model_params, is_training=False):
-    """This specifically takes in features and then tries to match to only one motif
-    It does an approximation check to choose how many motifs it believes should be assigned
-    """
-    # get params
-    pwm_list = model_params["pwms"]
-    assert pwm_list is not None
-    pool = model_params.get("pool", False)
-    max_hits = model_params.get("k_val", 4)
-    motif_len = tf.constant(model_params.get("motif_len", 5), tf.float32)
-
-    # approximation: check num important base pairs per example, and divide by motif len 
-    num_motifs = tf.divide(
-        tf.reduce_sum(
-            tf.cast(tf.not_equal(features, 0), tf.float32), 
-            axis=[1,2,3]),
-        motif_len) # {N, 1}
-    num_motifs = tf.minimum(num_motifs, max_hits) # heuristic for now
-    num_motifs_list = tf.unstack(num_motifs)
-
-    # convolve with PWMs
-    pwm_scores = pwm_convolve_v3(features, labels, {"pwms": pwm_list, "pool": pool}) # {N, 1, pos, motif}
-    
-    # max pool - this accounts for hits that are offset because 
-    # the motifs are not aligned to each other
-    #pwm_scores_pooled = slim.max_pool2d(pwm_scores, [1, 10], stride=[1, 10])
-
-    # grab abs val max at each position
-    pwm_scores_max_vals = tf.reduce_max(tf.abs(pwm_scores), axis=3, keep_dims=True) # {N, 1, pos, 1}
-
-    # then only keep the max at each position. multiply by conditional on > 0 to keep clean
-    # TODO - change this thresholding, to keep max val (whether pos or negative)
-    pwm_max_mask = tf.multiply(
-        tf.add(
-            tf.cast(tf.greater_equal(pwm_scores, pwm_scores_max_vals), tf.float32),
-            tf.cast(tf.less_equal(pwm_scores, -pwm_scores_max_vals), tf.float32)), # add two sided threshold masks
-        tf.cast(tf.not_equal(pwm_scores, 0), tf.float32)) # and then make sure none are zero. {N, 1, pos, motif}
-    pwm_scores_max = tf.multiply(pwm_scores, pwm_max_mask)
-
-    # separate into each example
-    pwm_scores_max_list = tf.unstack(pwm_scores_max) # list of {1, pos, motif}
-    print tf.reshape(pwm_scores_max[0], [-1]).shape
-
-    # and then top k - TODO factor out
-    pwm_scores_topk = []
-    for i in xrange(len(num_motifs_list)):
-        top_k_vals, top_k_indices = tf.nn.top_k(tf.reshape(tf.abs(pwm_scores_max_list[i]), [-1]), k=tf.cast(num_motifs_list[i], tf.int32))
-        thresholds = tf.reduce_min(top_k_vals, keep_dims=True)
-        
-        # threshold both pos and neg
-        greaterthan_w_location = tf.cast(tf.greater_equal(pwm_scores_max_list[i], thresholds), tf.float32) # this is a threshold, so a count
-        lessthan_w_location = tf.cast(tf.less_equal(pwm_scores_max_list[i], -thresholds), tf.float32) # this is a threshold, so a count
-        threshold_mask = tf.add(greaterthan_w_location, lessthan_w_location)
-        
-        # and mask
-        top_scores_w_location = tf.multiply(pwm_scores_max_list[i], threshold_mask) # {1, pos, motif}
-        pwm_scores_topk.append(top_scores_w_location)
-
-    # and restack
-    pwm_final_scores = tf.stack(pwm_scores_topk) # {N, 1, pos, motif}
-
-    # and reduce
-    pwm_final_counts = tf.squeeze(tf.reduce_sum(pwm_final_scores, axis=2)) # {N, motif}
-
-    return pwm_final_counts, labels, model_params
-
-
-def multitask_motif_assignment(features, labels, config, is_training=False):
-    """Multitask motif assignment
-    """
-    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
-
-    motif_assignments = []
-    for i in xrange(len(features)):
-        # TODO(dk) give unique PWM names for weights
-        with tf.variable_scope("task_{}".format(i)):
-            task_features, _, _ = motif_assignment(features[i], labels, config)
-            motif_assignments.append(task_features)
-    features = tf.stack(motif_assignments, axis=1)
-
-    return features, labels, config
-
-
-def featurize_motifs(features, pwm_list=None, is_training=False):
-    '''
-    All this model does is convolve with PWMs and get top k pooling to output
-    a example by motif matrix.
-    '''
-    # get various sizes needed to instantiate motif matrix
-    num_filters = len(pwm_list)
-
-    max_size = 0
-    for pwm in pwm_list:
-        if pwm.weights.shape[1] > max_size:
-            max_size = pwm.weights.shape[1]
-
-    # make the convolution net
-    conv1_filter_size = [1, max_size]
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features)),
-            biases_initializer=None,
-            trainable=False):
-        net = slim.conv2d(
-            features, num_filters, conv1_filter_size,
-            scope='conv1/conv')
-
-    # Then get top k values across the correct axis
-    net = tf.transpose(net, perm=[0, 1, 3, 2])
-    top_k_val, top_k_indices = tf.nn.top_k(net, k=3)
-
-    # Do a summation
-    motif_tensor = tf.squeeze(tf.reduce_sum(top_k_val, 3)) # 3 is the axis
-
-    return motif_tensor
-
-
-
-
-
-
-
-def pwm_convolve_jaccardlike(features, labels, config, is_training=False):
-    """Inspired by Av's jaccard-like distance
-    """
-    # jaccard: essentially intersection over union
-    # use the jaccard distance to weight the matches.
-    # ie, score = sum(importances matching pwm) * jaccard distance
-    pwm_list = config.get("pwms")
-    assert pwm_list is not None
-        
-    # get various sizes needed to instantiate motif matrix
-    num_filters = len(pwm_list)
-    logging.info("Total PWMs: {}".format(num_filters))
-    
-    max_size = 0
-    for pwm in pwm_list:
-        if pwm.weights.shape[1] > max_size:
-            max_size = pwm.weights.shape[1]
-    logging.info("Filter size: {}".format(max_size))
-
-    # first, jaccard
-
-    # get |a intersect b| using convolutional net
-    # define |a intersect b| as approx min of convolving bool(a) and b, but with ones
-    # this way you capture the intersect by presence of specific base pairs
-    
-    # convolve pwms with binarized features, [-1, 1]
-    binarized_features = tf.add(
-        tf.cast(tf.greater(features, 0), tf.float32),
-        -tf.cast(tf.less(features, 0), tf.float32))
-    conv1_filter_size = [1, max_size]
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features)),
-            biases_initializer=None,
-            trainable=False):
-        # pwm cross correlation
-        jaccard_intersection = slim.conv2d(
-            binarized_features, num_filters, conv1_filter_size,
-            scope='pwm/conv')
-        jaccard_intersection = tf.abs(jaccard_intersection)
-
-    # and get summed importance in that window
-    summed_feature_impt = tf.reduce_sum(
-        tf.multiply(
-            slim.avg_pool2d(features, [1, max_size], stride=[1,1], padding="VALID"),
-            max_size),
-        axis=3, keep_dims=True)
-    print summed_feature_impt.get_shape()
-
-    # numerator: summed importance * jaccard intersection score.
-    numerator = tf.multiply(summed_feature_impt, jaccard_intersection)
-    print numerator.get_shape()
-    
-    # union: |a| + |b| - |a intersect b|
-    # getting |input| - max pool on binarized features
-    # getting |pwm| - convolve on full sequence
-    summed_feature_presence = tf.reduce_sum(
-        tf.multiply(
-            slim.avg_pool2d(tf.abs(binarized_features), [1, max_size], stride=[1,1], padding="VALID"),
-            max_size),
-        axis=3, keep_dims=True)
-
-    # make another convolution net for the normalization factor, with squared filters
-    ones_input = tf.ones(features.get_shape())
-    with slim.arg_scope(
-            [slim.conv2d],
-            padding='VALID',
-            activation_fn=None,
-            weights_initializer=pwm_simple_initializer(
-                conv1_filter_size, pwm_list, get_fan_in(features), squared=True), # <- this is why you can't merge
-            biases_initializer=None,
-            trainable=False):
-        # normalization factor
-        summed_pwm_squared = slim.conv2d(
-            ones_input, num_filters, conv1_filter_size,
-            scope='nonzero_pwm/conv')
-        summed_pwm_abs = tf.sqrt(summed_pwm_squared)
-
-    # denominator: |input| + |pwm| - intersection
-    denominator = tf.subtract(tf.add(summed_feature_presence, summed_pwm_abs), jaccard_intersection)
-        
-    # divide the two answers.
-    final_score = tf.divide(numerator, denominator)
-    
-    return final_score, labels, config
-

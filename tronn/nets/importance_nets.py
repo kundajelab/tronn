@@ -29,46 +29,45 @@ class FeatureImportanceExtractor(object):
     def __init__(
             self,
             model_fn,
-            inputs,
-            params,
             feature_type="sequence",
             keep_shuffles=True):
         """initialize object
         """
         self.model_fn = model_fn
-        self.inputs = inputs
-        self.params = params
         self.keep_shuffles = keep_shuffles
         self.feature_type = feature_type
         
         
-    def preprocess(self):
+    def preprocess(self, inputs, params):
         """assertions and any feature preprocessing
         """
         # run some generic assertions that apply to all here
-        assert self.inputs.get(DataKeys.FEATURES) is not None
+        assert inputs.get(DataKeys.FEATURES) is not None
 
         # generate shuffles if sequence
         if self.feature_type == "sequence":
-            # add assert for is sequence
-            self.inputs, self.params = generate_dinucleotide_shuffles(
-                self.inputs, self.params)
+            # TODO add assert for is sequence
+            inputs, params = generate_dinucleotide_shuffles(inputs, params)
             
             # also save it for later use
-            self.inputs[DataKeys.ORIG_SEQ] = self.inputs[DataKeys.FEATURES]
+            inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
+
+        return inputs, params
             
             
-    def run_model_and_get_anchors(self, layer_key):
+    def run_model_and_get_anchors(self, inputs, params, layer_key):
         """run the model fn with preprocessed inputs
         """
         with tf.variable_scope("", reuse=True):
-            self.model_outputs, self.params = self.model_fn(self.inputs, self.params)
+            model_outputs, params = self.model_fn(inputs, params)
         
         # gather anchors
-        self.inputs[DataKeys.IMPORTANCE_ANCHORS] = tf.gather(
-            self.model_outputs[layer_key],
-            self.params["importance_task_indices"],
+        inputs[DataKeys.IMPORTANCE_ANCHORS] = tf.gather(
+            model_outputs[layer_key],
+            params["importance_task_indices"],
             axis=1)
+        
+        return inputs, params
 
         
     def get_singletask_feature_importances(inputs, params):
@@ -83,10 +82,7 @@ class FeatureImportanceExtractor(object):
         can be called standalone (in an inference stack for example)
         """
         outputs = dict(inputs)
-        
         anchors = inputs[DataKeys.IMPORTANCE_ANCHORS]
-        # transpose anchors for  (num_tasks, batch_size)
-        #anchors_transposed = tf.transpose(inputs[DataKeys.IMPORTANCE_ANCHORS])
 
         # NOTE: cannot use map_fn here, breaks the connection to the gradients
         importances = []
@@ -106,6 +102,8 @@ class FeatureImportanceExtractor(object):
         
     def postprocess(
             self,
+            inputs,
+            params,
             keep_shuffle_keys=[
                 DataKeys.ORIG_SEQ,
                 DataKeys.WEIGHTED_SEQ,
@@ -146,16 +144,15 @@ class FeatureImportanceExtractor(object):
             ]
 
             # build the postproces stack
-            self.outputs, self.params = build_inference_stack(
-                self.outputs, self.params, inference_stack)
+            outputs, params = build_inference_stack(
+                inputs, params, inference_stack)
             
-        return self.outputs, self.params
+        return outputs, params
 
 
-    def extract_test(self, inputs, params):
+    def extract(self, inputs, params):
         """put all the pieces together
         """
-        # TODO maybe move to this
         layer_key = params.get("layer_key", DataKeys.LOGITS)
         
         outputs, params = self.preprocess(inputs, params)
@@ -167,7 +164,7 @@ class FeatureImportanceExtractor(object):
 
     
 
-    def extract(self, layer_key=DataKeys.LOGITS):
+    def extract_old(self, layer_key=DataKeys.LOGITS):
         """put all the pieces together
         """
         self.preprocess()
@@ -370,11 +367,11 @@ def get_task_importances(inputs, params):
     
     # all this should be is a wrapper
     if backprop == "input_x_grad":
-        extractor = InputxGrad(params["model_fn"], inputs, params)
+        extractor = InputxGrad(params["model_fn"])
     elif backprop == "integrated_gradients":
-        extractor = IntegratedGradients(params["model_fn"], inputs, params)
+        extractor = IntegratedGradients(params["model_fn"])
     elif backprop == "deeplift":
-        extractor = DeepLift(params["model_fn"], inputs, params)
+        extractor = DeepLift(params["model_fn"])
     elif backprop == "saturation_mutagenesis":
         pass
     else:
@@ -382,7 +379,7 @@ def get_task_importances(inputs, params):
         print "method does not exist/not yet implemented"
         quit()
     
-    outputs, params = extractor.extract()
+    outputs, params = extractor.extract(inputs, params)
 
     return outputs, params
 

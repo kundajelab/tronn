@@ -16,6 +16,8 @@ from scipy.spatial.distance import squareform
 
 import phenograph
 
+from tronn.util.utils import DataKeys
+
 
 def cluster_by_task(
         h5_file,
@@ -451,7 +453,8 @@ def get_manifold_centers(
     from tronn.interpretation.motifs import get_individual_pwm_thresholds
     
     raw_scores_key = "raw-pwm-scores"
-
+    raw_scores_key = DataKeys.ORIG_SEQ_PWM_SCORES # TODO consider using the hits instead?
+    
     # prep: set up hclust for pwms
     cor_filt_mat, distances = correlate_pwms(
         pwm_list,

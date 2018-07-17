@@ -26,6 +26,8 @@ from tronn.nets.sequence_nets import pad_data
 
 from tronn.util.h5_utils import get_absolute_label_indices
 
+from tronn.util.utils import DataKeys
+
 def setup_h5_files(data_dir):
     """quick helper function to go into h5 directory and organize h5 files
     """
@@ -237,7 +239,7 @@ class H5DataLoader(DataLoader):
             batch_size,
             task_indices=[],
             keys=None,
-            features_key="features",
+            features_key=DataKeys.FEATURES,
             label_keys=["labels"],
             skip_keys=["label_metadata"]):
         """Get slices from the (open) h5 file back and pad with 
@@ -362,7 +364,7 @@ class H5DataLoader(DataLoader):
         keys.append("labels")
         tensor_dtypes.append(tf.float32)
 
-        keys.append("features")
+        keys.append(DataKeys.FEATURES)
         tensor_dtypes.append(tf.uint8)
 
         # set up tmp numpy array so that it's not re-created for every batch
@@ -384,7 +386,8 @@ class H5DataLoader(DataLoader):
                 label_keys=label_keys)
 
             # onehot encode on the fly
-            slice_array["features"] = batch_string_to_onehot(
+            # TODO keep the string sequence
+            slice_array[DataKeys.FEATURES] = batch_string_to_onehot(
                 slice_array["example_metadata"],
                 converter_in,
                 converter_out,
@@ -422,7 +425,7 @@ class H5DataLoader(DataLoader):
         inputs = dict(zip(keys, inputs))
 
         # onehot encode the batch
-        inputs["features"] = tf.map_fn(
+        inputs[DataKey.FEATURES] = tf.map_fn(
             DataLoader.encode_onehot_sequence,
             inputs["features"],
             dtype=tf.float32)

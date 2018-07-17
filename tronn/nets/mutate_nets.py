@@ -18,6 +18,14 @@ from tronn.nets.filter_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
 
 
+# Mutagenizer
+# preprocess - generate mutation batch
+# this requires finding the strongest motif hit
+# also would like to track bp level gradients - which single bp change would most disrupt the motif/prediction output
+# run model
+# postprocess - feature extraction, get delta logits, dfim, motifscanner
+
+
 
 def mutate_motif(inputs, params):
     """Find max motif positions and mutate
