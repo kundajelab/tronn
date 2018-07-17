@@ -127,7 +127,7 @@ class FeatureImportanceExtractor(object):
             #self.outputs[DataKeys.FEATURES] = tf.squeeze(self.outputs[DataKeys.FEATURES], axis=2)
             
             # update params
-            self.params.update(
+            params.update(
                 {"keep_shuffles": self.keep_shuffles,
                  "keep_shuffle_keys": keep_shuffle_keys})
 
@@ -398,7 +398,7 @@ def filter_singles(inputs, params):
     # binarize features and get fraction in windows
     features_present = tf.cast(tf.not_equal(features, 0), tf.float32)
     feature_counts_in_window = tf.layers.average_pooling2d(
-        features_present, [1, window], stride=[1,1], padding="same")
+        features_present, [1, window], [1,1], padding="same")
 
     # and mask
     feature_mask = tf.cast(tf.greater_equal(feature_counts_in_window, min_features), tf.float32)
@@ -412,7 +412,7 @@ def filter_singles_twotailed(inputs, params):
     """Filter out singlets, removing positive and negative singlets separately
     """
     # get features
-    features = features[DataKeys.FEATURES]
+    features = inputs[DataKeys.FEATURES]
     outputs = dict(inputs)
     
     # split features

@@ -476,6 +476,11 @@ def get_manifold_centers(
         # get raw scores
         raw_scores = hf[raw_scores_key][:]
 
+        # TEMP
+        raw_scores = np.sum(np.squeeze(raw_scores), axis=1)
+        print raw_scores.shape
+        print "REMOVE THIS LATER"
+
         # set up master pwm vector (union of all seen significant motifs)
         master_pwm_vector = np.zeros((raw_scores.shape[1]))
 
@@ -497,8 +502,7 @@ def get_manifold_centers(
             cluster_labels = cluster_ids_by_example == cluster_id
             
             # get the raw scores in this cluster and the mean
-            raw_scores_in_cluster = hf[raw_scores_key][:][
-                np.where(cluster_labels)[0],:]
+            raw_scores_in_cluster = raw_scores[np.where(cluster_labels)[0],:]
             mean_raw_scores_in_cluster = np.mean(raw_scores_in_cluster, axis=0)
 
             for j in xrange(len(dataset_keys)):
@@ -524,7 +528,7 @@ def get_manifold_centers(
                 # get the mean vector
                 #mean_weighted_scores_in_cluster = np.mean(weighted_scores_in_cluster, axis=0)
                 mean_weighted_scores_in_cluster = np.median(weighted_scores_in_cluster, axis=0)
-
+                
                 # get mean ratio
                 mean_ratio_scores_in_cluster = np.divide(
                     mean_weighted_scores_in_cluster,

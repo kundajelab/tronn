@@ -425,7 +425,7 @@ class H5DataLoader(DataLoader):
         inputs = dict(zip(keys, inputs))
 
         # onehot encode the batch
-        inputs[DataKey.FEATURES] = tf.map_fn(
+        inputs[DataKeys.FEATURES] = tf.map_fn(
             DataLoader.encode_onehot_sequence,
             inputs["features"],
             dtype=tf.float32)

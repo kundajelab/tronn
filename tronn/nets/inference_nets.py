@@ -3,7 +3,7 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-from tronn.nets.importance_nets import multitask_importances
+#from tronn.nets.importance_nets import multitask_importances
 from tronn.nets.importance_nets import filter_by_importance
 from tronn.nets.importance_nets import filter_singles_twotailed
 
@@ -44,8 +44,6 @@ from tronn.nets.mutate_nets import motif_dfim
 from tronn.nets.mutate_nets import delta_logits
 from tronn.nets.mutate_nets import filter_mutation_directionality
 from tronn.nets.mutate_nets import blank_motif_sites
-
-from tronn.nets.util_nets import remove_global_task
 
 from tronn.nets.manifold_nets import score_manifold_distances
 from tronn.nets.manifold_nets import filter_by_manifold_distance
