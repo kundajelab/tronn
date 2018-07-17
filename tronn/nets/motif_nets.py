@@ -14,8 +14,337 @@ from tronn.util.tf_utils import get_fan_in
 from tronn.util.utils import DataKeys
 
 
+class MotifScanner(object):
+    """base class, scans sequence"""
+    
+    def __init__(self, features_key=DataKeys.FEATURES, pwms_key="pwms"):
+        self.features_key = features_key
+        self.pwms_key = pwms_key
 
-def pwm_convolve(inputs, params):
+        
+    @staticmethod
+    def pwm_conv2d(inputs, params):
+        """Convolve with PWMs and normalize with vector projection:
+          projection = a dot b / | b |
+        """
+        # TODO options for running (1) FWD, (2) REV, (3) COMB
+        assert inputs.get(DataKeys.FEATURES) is not None
+        assert params.get("pwms") is not None
+        assert params.get("filter_width") is not None
+
+        # features
+        features = inputs[DataKeys.FEATURES]
+        outputs = dict(inputs)
+
+        # params
+        pwm_list = params["pwms"]
+        max_size = params["filter_width"]
+        num_filters = len(pwm_list)
+        reuse = params.get("reuse_pwm_layer", False)
+
+        # make the convolution net for dot product, normal filters
+        # here, the pwms are already normalized to unit vectors for vector projection
+        kernel_size = [1, max_size]
+        with tf.variable_scope("pwm_layer", reuse=reuse):
+            features = tf.layers.conv2d(
+                features,
+                num_filters,
+                kernel_size,
+                padding="valid",
+                activation=None,
+                kernel_initializer=pwm_simple_initializer(
+                    kernel_size,
+                    pwm_list,
+                    get_fan_in(features),
+                    unit_vector=True,
+                    length_norm=True),
+                use_bias=False,
+                bias_initializer=None,
+                trainable=False,
+                name="conv_pwm") # {N, task, seq_len, num_filters}
+
+        outputs[DataKeys.FEATURES] = features
+
+        return outputs, params
+
+    
+    @staticmethod
+    def pwm_convolve_twotailed(inputs, params):
+        """Convolve both pos and negative scores with PWMs. Prevents getting scores
+        when the negative correlation is stronger.
+        """
+        assert inputs.get(DataKeys.FEATURES) is not None
+
+        # features
+        features = inputs[DataKeys.FEATURES]
+        outputs = dict(inputs)
+
+        # positive weighted sequence
+        pos_scores = MotifScanner.pwm_conv2d(
+            {DataKeys.FEATURES: tf.nn.relu(features)},
+            params)[0][DataKeys.FEATURES]
+        pos_scores = tf.nn.relu(pos_scores)
+
+        # negative weighted sequence
+        params.update({"reuse_pwm_layer": True})
+        neg_scores = MotifScanner.pwm_conv2d(
+            {DataKeys.FEATURES: tf.nn.relu(-features)},
+            params)[0][DataKeys.FEATURES]
+        neg_scores = tf.nn.relu(neg_scores)
+
+        # condition: is positive score higher than neg score
+        is_positive_max = tf.greater_equal(pos_scores, neg_scores)
+
+        # fill in accordingly
+        outputs[DataKeys.FEATURES] = tf.where(is_positive_max, pos_scores, -neg_scores)
+
+        return outputs, params
+
+    
+    def preprocess(self, inputs, params):
+        """preprocessing
+        """
+        # assertions
+        assert params.get(self.pwms_key) is not None
+
+        # determine filter width
+        pwm_list = params[self.pwms_key]
+        num_filters = len(pwm_list)
+        max_size = 0
+        for pwm in pwm_list:
+            if pwm.weights.shape[1] > max_size:
+                max_size = pwm.weights.shape[1]
+        params["filter_width"] = max_size
+
+        # adjust features
+        inputs[DataKeys.FEATURES] = inputs[self.features_key]
+
+        return inputs, params
+
+    
+    def convolve_motifs(self, inputs, params):
+        """run convolution
+        """
+        return MotifScanner.pwm_convolve_twotailed(inputs, params)
+
+    
+    def postprocess(self, inputs, params):
+        # things to run after convolving
+
+        # get the global best scores across tasks?
+        #params.update({"append": True, "count_thresh": 1})
+        #outputs, params = multitask_global_pwm_scores(inputs, params)
+        #print outputs[DataKeys.FEATURES]
+
+
+        # relu for just positive scores?
+        outputs, params = pwm_relu(inputs, params)
+        print outputs[DataKeys.FEATURES]
+
+        # TODO - do this outside
+        # squeeze to get summed score across positions
+        #params.update({"squeeze_type": "sum"})
+        #outputs, params = pwm_position_squeeze(outputs, params)
+        #print outputs[DataKeys.FEATURES]
+
+        return outputs, params
+
+
+    def scan(self, inputs, params):
+        """put all the pieces together
+        """
+        # run preprocess
+        inputs, params = self.preprocess(inputs, params)
+        # convolve
+        outputs, params = self.convolve_motifs(inputs, params)
+        # postprocess
+        outputs, params = self.postprocess(outputs, params)
+
+        return outputs, params
+
+
+class ShufflesMotifScanner(MotifScanner):
+    """scans shuffles to get pvals"""
+
+    def preprocess(self, inputs, params):
+        """adjust shuffle dimensions
+        """
+        self.shuffle_shape = inputs[self.features_key].get_shape().as_list()
+        shuffles_reshaped = tf.reshape(
+            inputs[self.features_key],
+            [self.shuffle_shape[0],
+             self.shuffle_shape[1]*self.shuffle_shape[2],
+             self.shuffle_shape[3],
+             self.shuffle_shape[4]])
+        inputs[DataKeys.FEATURES] = shuffles_reshaped
+
+        return inputs, params
+        
+    def postprocess(self, inputs, params):
+        """adjust shuffle dimensions back
+        """
+        pwm_scores = inputs[DataKeys.FEATURES]
+        self.shuffle_shape[3:] = pwm_scores.get_shape().as_list()[2:]
+        inputs[DataKeys.FEATURES] = tf.reshape(pwm_scores, self.shuffle_shape)
+
+        return inputs, params
+
+    
+class MotifScannerWithThresholds(MotifScanner):
+    """add in thresholding"""
+
+    def __init__(
+            self,
+            features_key=DataKeys.FEATURES,
+            shuffles_key=DataKeys.ACTIVE_SHUFFLES,
+            out_scores_key=DataKeys.ORIG_SEQ_PWM_SCORES,
+            out_hits_key=DataKeys.ORIG_SEQ_PWM_HITS,
+            out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+            pval=0.05,
+            **kwargs):
+        """init
+        """
+        self.shuffles_key = shuffles_key
+        self.out_scores_key = out_scores_key
+        self.out_hits_key = out_hits_key
+        self.out_scores_thresh_key = out_scores_thresh_key
+        self.pval = pval
+        super(MotifScannerWithThresholds, self).__init__(
+            features_key=features_key, **kwargs)
+    
+    
+    @staticmethod
+    def threshold(inputs, params):
+        """threshold scores using motif scores from 
+        shuffled sequence (ie null distribution)
+        """
+        # requires you have scores on the examples AND the shuffles
+        assert inputs.get(DataKeys.ACTIVE_SHUFFLES) is not None
+        assert inputs.get(DataKeys.FEATURES) is not None
+
+        # adjust the shuffle key so that when running map_fn
+        # you get a threshold for each example for each task
+        shuffles = tf.transpose(inputs[DataKeys.ACTIVE_SHUFFLES], perm=[0,2,4,1,3]) # becomes {N, task, M, shuf, pos}
+        shuffles_shape = shuffles.get_shape().as_list()
+        shuffles = tf.reshape(
+            shuffles,
+            [shuffles_shape[0]*shuffles_shape[1]*shuffles_shape[2],
+             shuffles_shape[3]*shuffles_shape[4]])
+
+        # features
+        features = inputs[DataKeys.FEATURES]
+        outputs = dict(inputs)
+
+        # params
+        pval_thresh = params.get("pval_thresh", 0.05)
+        threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
+
+        # get thresholds for each example, for each task
+        thresholds = tf.map_fn(
+            threshold_fn,
+            shuffles)
+
+        # and apply (remember to reshape and transpose back to feature dim ordering)
+        feature_shape = features.get_shape().as_list()
+        thresholds = tf.reshape(thresholds, shuffles_shape[0:3]+[1])
+        thresholds = tf.transpose(thresholds, perm=[0,1,3,2]) # {N, task, pos, M}
+
+        pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
+        pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
+        pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
+        outputs[DataKeys.FEATURES] = pass_thresh
+
+        return outputs, params
+
+    
+    def scan(self, inputs, params):
+        """run the shuffle scanner and get the results
+        """
+        # get sequence results
+        outputs = super(MotifScannerWithThresholds, self).scan(inputs, params)[0]
+        
+        # get shuffle results
+        shuffle_scanner = ShufflesMotifScanner(features_key=self.shuffles_key)
+        shuffle_results = shuffle_scanner.scan(inputs, params)[0]
+        outputs[DataKeys.ACTIVE_SHUFFLES] = shuffle_results[DataKeys.FEATURES]
+
+        # get thresholds
+        params.update({"pval": self.pval})
+        outputs[self.out_hits_key] = MotifScannerWithThresholds.threshold(
+            outputs, params)[0][DataKeys.FEATURES]
+        outputs[self.out_scores_thresh_key] = tf.multiply(
+            outputs[self.out_hits_key],
+            outputs[DataKeys.FEATURES])
+
+        # also save out raw scores
+        outputs[self.out_scores_key] = outputs[DataKeys.FEATURES]
+        
+        return outputs, params
+
+
+
+def get_pwm_scores(inputs, params):
+    """scan raw and weighted sequence with shuffles, and threshold
+    using shuffles as null distribution
+    """
+    # note: need to get (1) raw scores, (2) raw hits, (3) thresholded scores
+    
+    # run original sequence
+    scanner = MotifScannerWithThresholds(
+        features_key=DataKeys.ORIG_SEQ_ACTIVE,
+        shuffles_key=DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+        out_scores_key=DataKeys.ORIG_SEQ_PWM_SCORES,
+        out_hits_key=DataKeys.ORIG_SEQ_PWM_HITS,
+        out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH)
+    outputs, params = scanner.scan(inputs, params)
+
+    # run weighted sequence
+    scanner = MotifScannerWithThresholds(
+        features_key=DataKeys.WEIGHTED_SEQ_ACTIVE,
+        shuffles_key=DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+        out_scores_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES,
+        out_hits_key=DataKeys.WEIGHTED_SEQ_PWM_HITS,
+        out_scores_thresh_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH)
+    outputs.update(scanner.scan(inputs, params)[0])
+
+    debug = False
+    if debug:
+        print "results"
+        print outputs[DataKeys.ORIG_SEQ_PWM_HITS]
+        print outputs[DataKeys.ORIG_SEQ_PWM_SCORES] # check this
+        print outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH]
+
+        print outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS]
+        print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
+        print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
+    
+    # mask weighted scores with raw hits
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS] = tf.multiply(
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS],
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS])
+
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES] = tf.multiply(
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES],
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS])
+    
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.multiply(
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH],
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS])
+
+    # TODO mask raw scores with weighted hits?
+
+    # features coming out: weighted pwm scores thresholded
+    outputs[DataKeys.FEATURES] = outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
+
+    # SEPARATE: squeeze
+    # SEPARATE: motif density, max motif density
+    
+    return outputs, params
+
+
+        
+
+def pwm_convolve_old(inputs, params):
     """Convolve with PWMs and normalize with vector projection:
 
       projection = a dot b / | b |
@@ -64,7 +393,7 @@ def pwm_convolve(inputs, params):
     return outputs, params
 
 
-def threshold_pwm_scores(inputs, params):
+def threshold_pwm_scores_old(inputs, params):
     # requires you have scores on the examples AND the shuffles
     assert inputs.get(DataKeys.ACTIVE_SHUFFLES) is not None
     assert inputs.get(DataKeys.FEATURES) is not None
@@ -104,7 +433,7 @@ def threshold_pwm_scores(inputs, params):
     return outputs, params
 
 
-def pwm_convolve_twotailed(inputs, params):
+def pwm_convolve_twotailed_old(inputs, params):
     """Convolve both pos and negative scores with PWMs. Prevents getting scores
     when the negative correlation is stronger.
     """
@@ -136,17 +465,18 @@ def pwm_convolve_twotailed(inputs, params):
     return outputs, params
 
 
-def get_pwm_scores(inputs, params):
+def get_pwm_scores_old(inputs, params):
     """main function to run all
     """
     # move inputs to outputs
     outputs = dict(inputs)
     
-    # run raw sequence + shuffles through pwm layer
+    # run raw sequence through pwm layer
     outputs[DataKeys.ORIG_SEQ_PWM_SCORES] = pwm_convolve_twotailed(
         {DataKeys.FEATURES: inputs[DataKeys.ORIG_SEQ_ACTIVE]},
         params)[0][DataKeys.FEATURES]
 
+    # run raw sequence shuffles through pwm layer
     shuffle_shape = inputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF].get_shape().as_list()
     shuffles_reshaped = tf.reshape(
         inputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF],
@@ -192,7 +522,7 @@ def get_pwm_scores(inputs, params):
         outputs[DataKeys.ORIG_SEQ_PWM_HITS])
     outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.multiply(
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES],
-        outputs[DataKeys.ORIG_SEQ_PWM_HITS])
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS])
 
     # delete the pwm shuffles
     del outputs[DataKeys.ORIG_SEQ_SHUF_PWM_SCORES]

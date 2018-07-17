@@ -16,6 +16,7 @@ class DataKeys(object):
     
     # for feature importance extraction
     IMPORTANCE_ANCHORS = "anchors"
+    IMPORTANCE_GRADIENTS = "gradients"
     WEIGHTED_SEQ = "{}-weighted".format(ORIG_SEQ)
 
     # clipping
@@ -32,16 +33,16 @@ class DataKeys(object):
     
     # pwm transformation keys
     PWM_SCORES_SUFFIX = "pwm-scores"
-    
-    ORIG_SEQ_PWM_SCORES = "{}.{}".format(ORIG_SEQ_ACTIVE, PWM_SCORES_SUFFIX)
-    ORIG_SEQ_PWM_SCORES_THRESH = "{}.{}.thresh".format(ORIG_SEQ_ACTIVE, PWM_SCORES_SUFFIX)
-    ORIG_SEQ_SHUF_PWM_SCORES = "{}.{}".format(ORIG_SEQ_ACTIVE_SHUF, PWM_SCORES_SUFFIX)
+
     ORIG_SEQ_PWM_HITS = "{}.pwm-hits".format(ORIG_SEQ_ACTIVE)
-    
+    ORIG_SEQ_PWM_SCORES = "{}.{}".format(ORIG_SEQ_ACTIVE, PWM_SCORES_SUFFIX)
+    ORIG_SEQ_PWM_SCORES_THRESH = "{}.thresh".format(ORIG_SEQ_PWM_SCORES)
+    ORIG_SEQ_SHUF_PWM_SCORES = "{}.{}".format(ORIG_SEQ_ACTIVE_SHUF, PWM_SCORES_SUFFIX)
+
+    WEIGHTED_SEQ_PWM_HITS = "{}.pwm-hits".format(WEIGHTED_SEQ_ACTIVE)    
     WEIGHTED_SEQ_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE, PWM_SCORES_SUFFIX)
-    WEIGHTED_SEQ_PWM_SCORES_THRESH = "{}.{}.thresh".format(WEIGHTED_SEQ_ACTIVE, PWM_SCORES_SUFFIX)
+    WEIGHTED_SEQ_PWM_SCORES_THRESH = "{}.thresh".format(WEIGHTED_SEQ_PWM_SCORES)
     WEIGHTED_SEQ_SHUF_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE_SHUF, PWM_SCORES_SUFFIX)
-    WEIGHTED_SEQ_PWM_HITS = "{}.pwm-hits".format(WEIGHTED_SEQ_ACTIVE)
 
     # dmim transformation keys
     DMIM_SCORES_PREFIX = "dmim-scores"

@@ -59,7 +59,7 @@ from tronn.nets.variant_nets import blank_variant_sequence
 from tronn.nets.variant_nets import reduce_alleles
 
 
-
+# TODO consider moving this to utils
 def build_inference_stack(inputs, params, inference_stack):
     """Given the inference stack, build the graph
     """
@@ -75,7 +75,7 @@ def build_inference_stack(inputs, params, inference_stack):
     return outputs, master_params
 
 
-# tODO make internal (_unstack_tasks)
+#  TODO consider moving this to utils
 def unstack_tasks(inputs, params):
     """Unstack by task
     """
@@ -103,6 +103,7 @@ def unstack_tasks(inputs, params):
     return outputs, params
 
 
+# TODO reduce this: filter by accuracy, and then call get_importances
 def sequence_to_importance_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
@@ -160,27 +161,29 @@ def sequence_to_importance_scores_from_regression(inputs, params):
     use_filtering = params.get("use_filtering", True)
     
     # set up importance logits
-    inputs["importance_logits"] = inputs["logits"]
+    #inputs["importance_logits"] = inputs["logits"]
 
+    outputs, params = get_task_importances(inputs, params)
+    
     # set up inference stack
-    if use_filtering:
-        inference_stack = [
+    #if use_filtering:
+    #    inference_stack = [
             # TODO figure out equivalent of this in regression
             #(filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead            
-            (get_task_importances, {}),
-        ]
-    else:
-        inference_stack = [
-            (multitask_importances, {"relu": False}),
-            (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-            (normalize_to_weights, {"weight_key": "probs"}), 
-            (clip_edges, {"left_clip": 400, "right_clip": 600}),
-        ]
+    #        (get_task_importances, {}),
+    #    ]
+    #else:
+    #    inference_stack = [
+    #        (multitask_importances, {"relu": False}),
+    #        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
+    #        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+    #        (normalize_to_weights, {"weight_key": "probs"}), 
+    #        (clip_edges, {"left_clip": 400, "right_clip": 600}),
+    #    ]
         
     # build inference stack
-    outputs, params = build_inference_stack(
-        inputs, params, inference_stack)
+    #outputs, params = build_inference_stack(
+    #    inputs, params, inference_stack)
     
     # unstack
     if unstack:
@@ -243,19 +246,20 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     params["is_training"] = False
     #params["unstack_importances"] = False # normally, adjust for debugging
     params["unstack_importances"] = True # normally, adjust for debugging
-    params["raw-sequence-key"] = "raw-sequence"
-    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
-    params["raw-pwm-scores-key"] = "raw-pwm-scores"
+    #params["raw-sequence-key"] = "raw-sequence"
+    #params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
+    #params["raw-pwm-scores-key"] = "raw-pwm-scores"
     
     # params
     use_importances = params.get("use_importances", True)
     count_thresh = params.get("count_thresh", 1)
     unstack = params.get("unstack_pwm_scores", True)
-    
-    if params.get("raw-sequence-key") is not None:
-        inputs[params["raw-sequence-key"]] = inputs["features"]
-    if params.get("raw-sequence-clipped-key") is not None:
-        inputs[params["raw-sequence-clipped-key"]] = inputs["features"]
+
+    # TODO deprecate these
+    #if params.get("raw-sequence-key") is not None:
+    #    inputs[params["raw-sequence-key"]] = inputs["features"]
+    #if params.get("raw-sequence-clipped-key") is not None:
+    #    inputs[params["raw-sequence-clipped-key"]] = inputs["features"]
     
     # if using NN, convert features to importance scores first
     if use_importances:
