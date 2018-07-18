@@ -132,11 +132,12 @@ class FeatureImportanceExtractor(object):
                  "keep_shuffle_keys": keep_shuffle_keys})
 
             # postprocess stack
+            # when to normalize?x
             inference_stack = [
                 (remove_shuffles, {}),
                 (threshold_shufflenull, {"pval_thresh": 0.01, "shuffle_key": DataKeys.WEIGHTED_SEQ_SHUF}),
                 (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-                (normalize_to_weights, {"weight_key": DataKeys.LOGITS}),
+                (normalize_to_weights, {"weight_key": DataKeys.LOGITS}), # do this after clipping weights?
                 (clip_edges, {"left_clip": 420, "right_clip": 580}),
                 #(clear_shuffles, {}),
                 (filter_by_importance, {"cutoff": 10, "positive_only": True}) # TODO move this out?
@@ -353,6 +354,23 @@ class DeepLift(FeatureImportanceExtractor):
         return outputs, params
 
 
+class DeltaFeatureImportanceMapper(InputxGrad):
+    """DFIM - given mutational results, get importance scores 
+    and return the delta results"""
+
+    def preprocess(self, inputs, params):
+        # attach the mutations?
+        pass
+
+    
+    def postprocess(self, inputs, params):
+        # adjust the mutational results
+        # should output the deltas {N, mut_motif, task, pos, 4}
+        pass
+
+    
+    
+    
 def get_task_importances(inputs, params):
     """per desired task, get the importance scores
     

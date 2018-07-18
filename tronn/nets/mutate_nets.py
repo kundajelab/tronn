@@ -17,16 +17,70 @@ from tronn.nets.sequence_nets import unpad_examples
 from tronn.nets.filter_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
 
+# for dmim, stack:
+# (1) manifold filtering
+# (2) feature extraction
+# (3) motif scanning
+# (4) mutagenize - allow starting from here! (use empty net?)
+# (5) feature extraction (dfim)
+# (6) motif scanning (dmim)
+
 
 # Mutagenizer
 # preprocess - generate mutation batch
 # this requires finding the strongest motif hit
 # also would like to track bp level gradients - which single bp change would most disrupt the motif/prediction output
-# run model
-# postprocess - feature extraction, get delta logits, dfim, motifscanner
 
+# use this to mutagenize motifs, positions
+# types: single mutagenesis, multiple mutagenesis, single position, shuffle
+class Mutagenizer(object):
+    """basic in silico mutagenesis"""
 
+    def __init__(self, mutation_type="point"):
+        self.mutation_type = mutation_type
 
+        
+    def preprocess(self, inputs, params):
+        # determine where to mutagenize
+        # base level - search for motif
+        # requires motif score thresh map {N, task, pos, M} and filter_width
+        # base level, returns the pos of greatest M (top k)
+        
+        pass
+
+    @staticmethod
+    def point_mutagenize(inputs, params):
+        pass
+
+    @staticmethod
+    def shuffle_mutagenize(inputs, params):
+        pass
+
+    
+    @classmethod
+    def mutagenize(cls, inputs, params):
+        # instantiate in child class - point mutagenizer or motif mutagenizer
+        # should have a position to mutate, and will mutate there.
+        # should save out under different key
+        pass
+
+    
+    @staticmethod
+    def mutagenize_multiple(inputs, params):
+        # mutagenize multiple spots (ie, call mutagenize multiple times)
+        # this requires checking if there are enough hits
+        # to mutagenize multiple
+        
+        pass
+    
+
+    def postprocess(self, inputs, params):
+        # blank motif site?
+        # depends on the analysis?
+        
+        pass
+
+    
 def mutate_motif(inputs, params):
     """Find max motif positions and mutate
     """

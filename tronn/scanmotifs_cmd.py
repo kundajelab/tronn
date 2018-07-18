@@ -199,13 +199,13 @@ def run(args):
                 global_agg_key,
                 manifold_h5_file)
             
-            # get by cluster
-            aggregate_pwm_results_per_cluster(
-                results_h5_file,
-                refined_metacluster_key,
-                dataset_keys,
-                agg_key,
-                manifold_h5_file)
+        # get by cluster
+        aggregate_pwm_results_per_cluster(
+            results_h5_file,
+            refined_metacluster_key,
+            dataset_keys,
+            agg_key,
+            manifold_h5_file)
             
         if visualize:
             visualize_h5_dataset(results_h5_file, global_agg_key)        

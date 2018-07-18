@@ -1,7 +1,6 @@
 # Description: joins various smaller nets to run analyses after getting predictions
 
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
 #from tronn.nets.importance_nets import multitask_importances
 from tronn.nets.importance_nets import filter_by_importance
@@ -22,12 +21,13 @@ from tronn.nets.threshold_nets import clip_edges
 #from tronn.nets.motif_nets import pwm_positional_max
 from tronn.nets.motif_nets import pwm_position_squeeze
 from tronn.nets.motif_nets import pwm_relu
-from tronn.nets.motif_nets import pwm_match_filtered_convolve
-from tronn.nets.motif_nets import get_pwm_scores
+#from tronn.nets.motif_nets import pwm_match_filtered_convolve
+#from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import multitask_global_pwm_scores
 
 # TESTING
 from tronn.nets.motif_nets import get_pwm_scores
+from tronn.nets.motif_nets import get_motif_densities
 
 
 from tronn.nets.grammar_nets import multitask_score_grammars
@@ -267,10 +267,13 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     # set up inference stack
     inference_stack = [
         (get_pwm_scores, {}),
+        (get_motif_densities, {}),
         #(pwm_match_filtered_convolve, {}),
-        (multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
-        (pwm_position_squeeze, {"squeeze_type": "sum"}),
+        #(multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
+        #(pwm_position_squeeze, {"squeeze_type": "sum"}),
         (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
+
+        # TODO clear shuffles
     ]
 
     # build inference stack

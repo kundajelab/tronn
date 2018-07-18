@@ -551,7 +551,7 @@ def get_manifold_centers(
 
                 # get significant motifs with their thresholds
                 weighted_raw_scores_in_cluster = weighted_raw_scores[np.where(cluster_labels)[0],:]
-                pwm_vector = reduce_pwms(weighted_raw_scores, hclust, pwm_list)
+                pwm_vector = reduce_pwms(weighted_raw_scores, hclust, pwm_list) # TODO consider switching to weighted
                 pwm_thresholds = get_individual_pwm_thresholds(
                     weighted_raw_scores,
                     cluster_labels,
@@ -624,7 +624,7 @@ def aggregate_pwm_results(
         pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        #del hf[agg_key]
+        del hf[agg_key]
         hf.create_dataset(agg_key, data=tasks_x_pwm)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         
@@ -674,10 +674,11 @@ def aggregate_pwm_results_per_cluster(
             cluster_id = cluster_ids[cluster_idx]
             
             for dataset_idx in xrange(len(dataset_keys)):
-
+                
                 # get data
                 data = hf[dataset_keys[dataset_idx]][:]
-            
+
+                # TODO row normalize for now, because not calibrated
                 # row normalize and remove zeroes
                 max_vals = np.max(data, axis=1, keepdims=True)
                 data_norm = np.divide(
@@ -685,21 +686,29 @@ def aggregate_pwm_results_per_cluster(
                     max_vals,
                     out=np.zeros_like(data),
                     where=max_vals!=0)
+                data_norm = data
                 
                 # sum
                 if not soft_clustering:
+                    # actually should do median
                     agg_data[cluster_idx, dataset_idx,:] = np.sum(
                         data_norm[clusters==cluster_id], axis=0)
+                    #agg_data[cluster_idx, dataset_idx,:] = np.median(
+                    #    data_norm[clusters==cluster_id], axis=0)
                 else:
                     agg_data[cluster_idx, dataset_idx,:] = np.sum(
                         data_norm[clusters[:,cluster_id] >= 1], axis=0)
-                
+
+            import ipdb
+            ipdb.set_trace()
+                    
+                    
         # if needed, filter for master pwm vector
         agg_data = agg_data[:,:,master_pwm_vector > 0]
         pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        #del hf[agg_key]
+        del hf[agg_key]
         hf.create_dataset(agg_key, data=agg_data)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         
