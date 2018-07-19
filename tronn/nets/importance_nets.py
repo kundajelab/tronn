@@ -17,6 +17,7 @@ from tronn.nets.sequence_nets import clear_shuffles
 from tronn.nets.threshold_nets import threshold_shufflenull
 
 from tronn.nets.normalization_nets import normalize_to_weights
+from tronn.nets.normalization_nets import normalize_to_weights_w_shuffles
 
 from tronn.nets.threshold_nets import clip_edges
 
@@ -50,6 +51,7 @@ class FeatureImportanceExtractor(object):
             inputs, params = generate_dinucleotide_shuffles(inputs, params)
             
             # also save it for later use
+            # NOTE that this contains shuffles
             inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
 
         return inputs, params
@@ -122,23 +124,21 @@ class FeatureImportanceExtractor(object):
         from tronn.nets.inference_nets import build_inference_stack
         
         if self.feature_type == "sequence":
-
-            # put multitask into axis 1
-            #self.outputs[DataKeys.FEATURES] = tf.squeeze(self.outputs[DataKeys.FEATURES], axis=2)
             
             # update params
             params.update(
                 {"keep_shuffles": self.keep_shuffles,
-                 "keep_shuffle_keys": keep_shuffle_keys})
+                 "keep_shuffle_keys": keep_shuffle_keys,
+                 "process_shuffles": True})
 
             # postprocess stack
-            # when to normalize?x
             inference_stack = [
-                (remove_shuffles, {}),
+                (remove_shuffles, {}), # move shuffles out of the way
                 (threshold_shufflenull, {"pval_thresh": 0.01, "shuffle_key": DataKeys.WEIGHTED_SEQ_SHUF}),
-                (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-                (normalize_to_weights, {"weight_key": DataKeys.LOGITS}), # do this after clipping weights?
+                (filter_singles_twotailed_w_shuffles, {"window": 7, "min_fract": float(2)/7}),
+                (normalize_to_weights_w_shuffles, {"weight_key": DataKeys.LOGITS}), # do this after clipping weights?
                 (clip_edges, {"left_clip": 420, "right_clip": 580}),
+
                 #(clear_shuffles, {}),
                 (filter_by_importance, {"cutoff": 10, "positive_only": True}) # TODO move this out?
 
@@ -147,6 +147,9 @@ class FeatureImportanceExtractor(object):
             # build the postproces stack
             outputs, params = build_inference_stack(
                 inputs, params, inference_stack)
+
+            # save out updates to weighted seq key
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES]
             
         return outputs, params
 
@@ -429,6 +432,8 @@ def filter_singles(inputs, params):
 def filter_singles_twotailed(inputs, params):
     """Filter out singlets, removing positive and negative singlets separately
     """
+    assert inputs.get(DataKeys.FEATURES) is not None
+    
     # get features
     features = inputs[DataKeys.FEATURES]
     outputs = dict(inputs)
@@ -454,9 +459,33 @@ def filter_singles_twotailed(inputs, params):
             tf.float32), axis=1, keepdims=True)
 
     # save desired outputs
-    outputs["features"] = features
+    outputs[DataKeys.FEATURES] = features
     outputs["positive_importance_bp_sum"] = num_positive_features
 
+    return outputs, params
+
+
+def filter_singles_twotailed_w_shuffles(inputs, params):
+    """also filter the singles out of the shuffles
+    """
+    # first run the normal one
+    outputs, _ = filter_singles_twotailed(inputs, params)
+
+    # and then also filter the shuffles
+    shuffles = inputs[DataKeys.WEIGHTED_SEQ_SHUF]
+    shuf_shape = shuffles.get_shape().as_list()
+    shuffles = tf.reshape(
+        shuffles,
+        [shuf_shape[0],
+         shuf_shape[1]*shuf_shape[2],
+         shuf_shape[3],
+         shuf_shape[4]])
+    
+    inputs.update({DataKeys.FEATURES: shuffles})
+    shuffles = filter_singles_twotailed(
+        inputs, params)[0][DataKeys.FEATURES]
+    outputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.reshape(shuffles, shuf_shape)
+    
     return outputs, params
 
 

@@ -44,24 +44,22 @@ def threshold_shufflenull(inputs, params):
     """build distribution from the shuffles to get threshold
     # note that this is for sequence (or things that have a sequential order)
     """
-    #shuffle_key = "{}.{}".format(DataKeys.FEATURES, DataKeys.SHUFFLE_SUFFIX)
-    assert params.get("shuffle_key") is not None
-    assert inputs.get(params["shuffle_key"]) is not None
     assert inputs.get(DataKeys.FEATURES) is not None
-
+    assert params.get("shuffle_key") is not None
+    
+    # features
+    features = inputs[DataKeys.FEATURES]
+    shuffles = inputs[params["shuffle_key"]]
+    outputs = dict(inputs)
+    
     # adjust the shuffle key so that when running map_fn
     # you get a threshold for each example for each task
-    shuffles = inputs[params["shuffle_key"]]
     shuffles = tf.transpose(shuffles, perm=[0,2,1,3,4]) # this is sequence specific
     shuffles = tf.concat(tf.unstack(shuffles, axis=0), axis=0)
     shuffles = tf.reduce_sum(shuffles, axis=3) # this is sequence specific
     
-    # features
-    features = inputs[DataKeys.FEATURES]
-    outputs = dict(inputs)
-    
     # params
-    pval_thresh = params.get("pval_thresh", 0.05)
+    pval_thresh = params.get("pval_thresh", 0.01) # for a seq of 1000bp, 10bp pass by chance
     threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
 
     # get thresholds for each example, for each task
@@ -80,6 +78,15 @@ def threshold_shufflenull(inputs, params):
     pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
     pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
     outputs[DataKeys.FEATURES] = tf.multiply(features, pass_thresh)
+
+    # also apply to the shuffles (used for pwm scoring)
+    if params.get("process_shuffles", False):
+        thresholds = tf.expand_dims(thresholds, axis=1)
+        shuffles = inputs[params["shuffle_key"]]
+        pass_positive_thresh = tf.cast(tf.greater(shuffles, thresholds), tf.float32)
+        pass_negative_thresh = tf.cast(tf.less(shuffles, -thresholds), tf.float32)
+        pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
+        outputs[params["shuffle_key"]] = tf.multiply(shuffles, pass_thresh)
     
     return outputs, params
 
@@ -516,7 +523,7 @@ def clip_edges(inputs, params):
     left_clip = params.get("left_clip", 0)
     right_clip = params.get("right_clip", features.get_shape().as_list()[2])
     outputs[DataKeys.FEATURES] = features[:,:,left_clip:right_clip,:]
-
+    
     # adjust other seq as necessary
     if inputs.get(DataKeys.ORIG_SEQ) is not None:
         outputs[DataKeys.ORIG_SEQ_ACTIVE] = inputs[DataKeys.ORIG_SEQ][:,:,left_clip:right_clip,:]

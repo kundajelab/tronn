@@ -9,7 +9,6 @@ from tronn.nets.importance_nets import filter_singles_twotailed
 # TESTING
 from tronn.nets.importance_nets import get_task_importances
 
-from tronn.nets.normalization_nets import normalize_w_probability_weights
 from tronn.nets.normalization_nets import normalize_to_weights
 from tronn.nets.normalization_nets import normalize_to_delta_logits
 
@@ -56,6 +55,7 @@ from tronn.nets.variant_nets import get_variant_importance_scores
 from tronn.nets.variant_nets import blank_variant_sequence
 from tronn.nets.variant_nets import reduce_alleles
 
+from tronn.util.utils import DataKeys
 
 # TODO consider moving this to utils
 def build_inference_stack(inputs, params, inference_stack):
@@ -279,7 +279,7 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     # build inference stack
     outputs, params = build_inference_stack(
         inputs, params, inference_stack)
-
+    
     # unstack
     if unstack:
         params["name"] = "pwm-scores"

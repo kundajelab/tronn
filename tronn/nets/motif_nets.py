@@ -72,7 +72,7 @@ class MotifScanner(object):
         when the negative correlation is stronger.
         """
         assert inputs.get(DataKeys.FEATURES) is not None
-
+        
         # features
         features = inputs[DataKeys.FEATURES]
         outputs = dict(inputs)
@@ -92,10 +92,10 @@ class MotifScanner(object):
 
         # condition: is positive score higher than neg score
         is_positive_max = tf.greater_equal(pos_scores, neg_scores)
-
+        
         # fill in accordingly: returns both positive and negative values
         outputs[DataKeys.FEATURES] = tf.where(is_positive_max, pos_scores, -neg_scores)
-
+        
         return outputs, params
 
     
@@ -164,6 +164,8 @@ class ShufflesMotifScanner(MotifScanner):
              self.shuffle_shape[1]*self.shuffle_shape[2],
              self.shuffle_shape[3],
              self.shuffle_shape[4]])
+
+        # adjust features
         inputs[DataKeys.FEATURES] = shuffles_reshaped
 
         return inputs, params
@@ -255,8 +257,11 @@ class MotifScannerWithThresholds(MotifScanner):
     def scan(self, inputs, params):
         """run the shuffle scanner and get the results
         """
+        # TODO i don't think this correctly handled the scan...
         # get sequence results
         outputs = super(MotifScannerWithThresholds, self).scan(inputs, params)[0]
+        #test
+        print outputs[DataKeys.FEATURES]
         
         # get shuffle results, only keep positive values in active shuffles
         shuffle_scanner = ShufflesMotifScanner(features_key=self.shuffles_key)
@@ -272,6 +277,7 @@ class MotifScannerWithThresholds(MotifScanner):
             outputs[DataKeys.FEATURES])
 
         # get twosided if required
+        # TODO remerge back in? does not influence outcome
         if self.two_sided_thresh:
             # set shuffles to negative scores, and flip features
             outputs[DataKeys.ACTIVE_SHUFFLES] = tf.nn.relu(-shuffle_results[DataKeys.FEATURES])
@@ -339,6 +345,12 @@ def get_pwm_scores(inputs, params):
         out_hits_key=DataKeys.ORIG_SEQ_PWM_HITS,
         out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH)
     outputs, params = scanner.scan(inputs, params)
+    print outputs.keys()
+
+    print outputs[DataKeys.ORIG_SEQ_PWM_SCORES]
+    print outputs[DataKeys.ORIG_SEQ_PWM_HITS]
+    print outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH]
+    print ""
     
     # run weighted sequence
     # if onesided (default), then will only return positive scores
@@ -348,8 +360,25 @@ def get_pwm_scores(inputs, params):
         out_scores_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES,
         out_hits_key=DataKeys.WEIGHTED_SEQ_PWM_HITS,
         out_scores_thresh_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH)
-    outputs.update(scanner.scan(inputs, params)[0])
+    outputs.update(scanner.scan(inputs, params)[0]) # is this overwriting things?
 
+    print outputs[DataKeys.ORIG_SEQ_PWM_SCORES]
+    print outputs[DataKeys.ORIG_SEQ_PWM_HITS]
+    print outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH]
+    print ""
+
+    print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
+    print outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS]
+    print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
+    print ""
+    
+    print outputs[DataKeys.FEATURES]
+    
+    print outputs.keys()
+    #quit()
+    
+    # TODO check if anything being overwritten?
+    
     debug = False
     if debug:
         print "results"
@@ -360,6 +389,9 @@ def get_pwm_scores(inputs, params):
         print outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS]
         print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
         print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
+
+    print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
+    print outputs[DataKeys.ORIG_SEQ_PWM_HITS]
     
     # mask weighted scores with raw hits
     outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS] = tf.multiply(
@@ -374,6 +406,8 @@ def get_pwm_scores(inputs, params):
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH],
         outputs[DataKeys.ORIG_SEQ_PWM_HITS])
 
+    print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
+    
     # TODO mask raw scores with weighted hits?
     
     
@@ -389,7 +423,7 @@ def get_pwm_scores(inputs, params):
     
     # features coming out: the summed weighted scores
     outputs[DataKeys.FEATURES] = outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] # {N, task, M}
-
+    
     return outputs, params
 
 

@@ -624,7 +624,7 @@ def aggregate_pwm_results(
         pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        del hf[agg_key]
+        #del hf[agg_key]
         hf.create_dataset(agg_key, data=tasks_x_pwm)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         
@@ -701,14 +701,13 @@ def aggregate_pwm_results_per_cluster(
 
             import ipdb
             ipdb.set_trace()
-                    
-                    
+            
         # if needed, filter for master pwm vector
         agg_data = agg_data[:,:,master_pwm_vector > 0]
         pwm_names = pwm_names[master_pwm_vector > 0]
             
         # and save out
-        del hf[agg_key]
+        #del hf[agg_key]
         hf.create_dataset(agg_key, data=agg_data)
         hf[agg_key].attrs["pwm_names"] = pwm_names
         

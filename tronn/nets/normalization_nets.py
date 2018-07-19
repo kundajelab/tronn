@@ -3,118 +3,7 @@
 
 import tensorflow as tf
 
-
-def normalize_w_probability_weights_old(features, labels, config, is_training=False):
-    """Normalize features on a per example basis. Requires a weights vector,
-    normally the probabilities at the final point of the output
-    (ie, think of if you had a total weight
-    of 1, how should it be spread, and then weight that by the final
-    probability value)
-
-    Rationale (for clarifying my thoughts to myself): there are usually more
-    positive than negative base pairs, with input_x_grad. This means that
-    probs better than logits for normalization. This also means that there
-    is usually a positive gap between sum(pos bp) and sum (neg bp). So normalize
-    that gap to the prob val.
-
-    Possible failure modes:
-    1) sum(features) < 0. Strong negative features. (Though do we care, these are negatives)
-    2) sum(features) very close to 0. will make features explode, mostly problem
-    if strong prob score towards 1.
-
-    """
-    assert is_training == False
-
-    probs = config["outputs"].get("probs", None)
-    assert probs is not None
-
-    # split out by task
-    probs = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(probs, axis=1)]
-    
-    # use probs as a confidence measure. further from 0.5 the stronger - so increase the importance weights accordingly.
-    # for the timepoints, key is to explain the dominant prediction, so multiply by neg for negative scores.
-    # for global, use abs value.
-    # something w probs + values?
-    #probs = [tf.subtract(tensor, 0.5) for tensor in probs] # 0.5 is technically not confident
-    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
-
-    # normalize
-    # for normalization, just use total sum of importance scores to be 1
-    # this makes probs just a confidence measure.
-    normalized_features = []
-    for i in xrange(len(features)):
-        weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2, 3], keep_dims=True)
-        #weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2], keep_dims=True)
-        task_features = tf.multiply(
-            tf.divide(features[i], weight_sums), # TODO add some weight to make sure doesnt explode?
-            #probs[i])
-            tf.reshape(probs[i], weight_sums.get_shape()))
-        normalized_features.append(task_features)
-
-    # and concat back into a block
-    features = tf.concat(normalized_features, axis=1)
-
-    return features, labels, config
-
-
-def normalize_w_probability_weights(inputs, params):
-    """Normalize features on a per example basis. Requires a weights vector,
-    normally the probabilities at the final point of the output
-    (ie, think of if you had a total weight
-    of 1, how should it be spread, and then weight that by the final
-    probability value)
-
-    Rationale (for clarifying my thoughts to myself): there are usually more
-    positive than negative base pairs, with input_x_grad. This means that
-    probs better than logits for normalization. This also means that there
-    is usually a positive gap between sum(pos bp) and sum (neg bp). So normalize
-    that gap to the prob val.
-
-    Possible failure modes:
-    1) sum(features) < 0. Strong negative features. (Though do we care, these are negatives)
-    2) sum(features) very close to 0. will make features explode, mostly problem
-    if strong prob score towards 1.
-
-    """
-    assert inputs.get("probs") is not None # TODO check this normalization!!
-    assert inputs.get("features") is not None
-    
-    # get features and pass rest through
-    features = inputs["features"]
-    probs = inputs["probs"]
-    outputs = dict(inputs)
-    
-    # split out by task
-    probs = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(probs, axis=1)]
-    
-    # use probs as a confidence measure. further from 0.5 the stronger - so increase the importance weights accordingly.
-    # for the timepoints, key is to explain the dominant prediction, so multiply by neg for negative scores.
-    # for global, use abs value.
-    # something w probs + values?
-    #probs = [tf.subtract(tensor, 0.5) for tensor in probs] # 0.5 is technically not confident
-    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
-
-    # normalize
-    # for normalization, just use total sum of importance scores to be 1
-    # this makes probs just a confidence measure.
-    normalized_features = []
-    for i in xrange(len(features)):
-        weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2, 3], keepdims=True)
-        #weight_sums = tf.reduce_sum(tf.abs(features[i]), axis=[1, 2], keep_dims=True)
-        task_features = tf.multiply(
-            tf.divide(features[i], weight_sums), # TODO add some weight to make sure doesnt explode?
-            #probs[i])
-            tf.reshape(probs[i], weight_sums.get_shape()))
-        normalized_features.append(task_features)
-
-    # and concat back into a block
-    features = tf.concat(normalized_features, axis=1)
-
-    outputs["features"] = features
-    
-    return outputs, params
-
-
+from tronn.util.utils import DataKeys
 
 def normalize_to_weights(inputs, params):
     """Normalize features on a per example basis. Requires a weights vector,
@@ -161,6 +50,39 @@ def normalize_to_weights(inputs, params):
     return outputs, params
 
 
+def normalize_to_weights_w_shuffles(inputs, params):
+    """normalize to weights for both the features and the shuffles
+    """
+    # first the features
+    outputs = normalize_to_weights(inputs, params)[0]
+
+    # then the shuffles
+    shuffles = inputs[DataKeys.WEIGHTED_SEQ_SHUF]
+    shuf_shape = shuffles.get_shape().as_list()
+    shuffles = tf.reshape(
+        shuffles,
+        [shuf_shape[0]*shuf_shape[1],
+         shuf_shape[2],
+         shuf_shape[3],
+         shuf_shape[4]])
+
+    shuf_logits_key = "{}.{}".format(DataKeys.LOGITS, DataKeys.SHUFFLE_SUFFIX)
+    shuf_logits = inputs[shuf_logits_key]
+    shuf_logits_shape = shuf_logits.get_shape().as_list()
+    shuf_logits = tf.reshape(
+        shuf_logits,
+        [shuf_logits_shape[0]*shuf_logits_shape[1],
+         shuf_logits_shape[2]])
+    
+    inputs.update({
+        DataKeys.FEATURES: shuffles,
+        shuf_logits_key: shuf_logits})
+    params.update({"weight_key": shuf_logits_key})
+    shuffles = normalize_to_weights(inputs, params)[0][DataKeys.FEATURES]
+    outputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.reshape(shuffles, shuf_shape)
+
+    return outputs, params
+
 
 def normalize_to_delta_logits(inputs, params):
     """Normalize features on a per example basis. Requires a weights vector,
@@ -204,44 +126,6 @@ def normalize_to_delta_logits(inputs, params):
     return outputs, params
 
 
-
-
-def normalize_to_logits(features, labels, config, is_training=False):
-    """Normalize to logits? Most likely not best way to do it
-    """
-    assert is_training == False
-
-    logits = config.get("logits", None)
-    assert logits is not None
-    
-    # split out into tasks to normalize by task probs
-    features = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
-    normalized_features = []
-    for i in xrange(len(features)):
-        weight_sums = tf.reduce_sum(features[i], axis=[1, 2, 3], keep_dims=True) # impt edge case - balanced pos neg
-        task_features = tf.multiply(
-            tf.divide(features[i], tf.abs(weight_sums)), # TODO add some weight to make sure doesnt explode?
-            tf.reshape(tf.abs(logits[i]), weight_sums.get_shape()))
-        normalized_features.append(task_features)
-
-    # and concat back into a block
-    features = tf.concat(normalized_features, axis=1)
-    
-    return features, labels, config
-
-
-def normalize_to_probabilities(features, labels, config, is_training=False):
-    """Normalize features such that total weight
-    is the final probability value (ie, think of if you had a total weight
-    of 1, how should it be spread, and then weight that by the final
-    probability value)
-    """
-    assert is_training == False
-
-    weight_sums = tf.reduce_sum(features, axis=[1, 2, 3], keep_dims=True)
-    features = tf.divide(features, weight_sums)
-    
-    return features, labels, config
 
 
 def zscore(features, labels, config, is_training=False):
