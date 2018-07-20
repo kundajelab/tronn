@@ -18,8 +18,6 @@ from collections import Counter
 from tronn.interpretation.motifs import PWM
 from tronn.interpretation.motifs import read_pwm_file
 
-from tronn.interpretation.clustering import sd_cutoff
-
 import phenograph
 
 import networkx as nx

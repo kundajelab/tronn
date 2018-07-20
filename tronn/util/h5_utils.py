@@ -12,6 +12,7 @@ class AttrKeys(object):
     """
 
     PWM_NAMES = "pwm_names"
+    CLUSTER_IDS = "cluster_ids"
 
     
 

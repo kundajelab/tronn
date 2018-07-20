@@ -2,6 +2,7 @@
 
 import os
 import h5py
+import logging
 import phenograph
 
 import numpy as np
@@ -10,11 +11,13 @@ import pandas as pd
 from numpy.linalg import norm
 from collections import Counter
 
+# TODO move this to motifs
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
 from scipy.spatial.distance import squareform
 
-from tronn.interpretation.learning import threshold_at_recall
-
+from tronn.stats.distances import score_distances
+from tronn.stats.thresholding import threshold_at_recall
+from tronn.stats.thresholding import threshold_at_fdr
 
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
@@ -261,165 +264,6 @@ def get_correlation_file(
 
     return None
 
-# put into different module
-def generalized_jaccard_similarity(a, b):
-    """Calculates a jaccard on real valued vectors
-    """
-    assert np.all(a >= 0)
-    assert np.all(b >= 0)
-
-    # get min and max
-    min_vals = np.minimum(a, b)
-    max_vals = np.maximum(a, b)
-
-    # divide sum(min) by sum(max)
-    if np.sum(max_vals) != 0:
-        similarity = np.sum(min_vals) / np.sum(max_vals)
-    else:
-        similarity = 0
-        
-    return similarity
-
-
-def get_threshold_on_jaccard_similarity(
-        mean_vector, data, labels, recall_thresh=0.40):
-    """Given a mean vector and a dataset (with labels),
-    get back the threshold on jaccard similarity
-    """
-    assert mean_vector.shape[0] == data.shape[1]
-    assert data.shape[0] == labels.shape[0]
-
-    # set up similarity scores vector
-    scores = np.zeros((data.shape[0]))
-
-    # for each example, get score
-    for example_idx in xrange(data.shape[0]):
-        example_vector = data[example_idx,:]
-        scores[example_idx] = generalized_jaccard_similarity(
-            mean_vector, example_vector)
-        
-    # choose threshold
-    threshold = threshold_at_recall(
-        labels, scores, recall_thresh=recall_thresh)
-    print "Threshold for similarity: {}".format(threshold)
-    threshold_filter = scores >= threshold
-
-    return threshold, threshold_filter
-
-
-def get_threshold_on_dot_product(
-        mean_vector, data, labels, recall_thresh=0.40):
-    """Given a mean vector and a dataset (with labels),
-    get back the threshold on jaccard similarity
-    """
-    assert mean_vector.shape[0] == data.shape[1]
-    assert data.shape[0] == labels.shape[0]
-
-    # set up similarity scores vector
-    scores = np.zeros((data.shape[0]))
-
-    # for each example, get score
-    for example_idx in xrange(data.shape[0]):
-        example_vector = data[example_idx,:]
-        
-        scores[example_idx] = np.dot(
-            mean_vector, example_vector)
-        #scores[example_idx] = np.sum(np.multiply(
-        #    mean_vector, example_vector))
-        
-    # choose threshold
-    threshold = threshold_at_recall(
-        labels, scores, recall_thresh=recall_thresh)
-    print "Threshold for similarity: {}".format(threshold)
-    threshold_filter = scores >= threshold
-
-    return threshold, threshold_filter
-
-
-
-def get_threshold_on_euclidean_distance(
-        mean_vector, data, labels, recall_thresh=0.40):
-    """Given a mean vector and a dataset (with labels),
-    get back the threshold on jaccard similarity
-    """
-    assert mean_vector.shape[0] == data.shape[1]
-    assert data.shape[0] == labels.shape[0]
-
-    # set up similarity scores vector
-    scores = np.zeros((data.shape[0]))
-
-    # for each example, get score
-    for example_idx in xrange(data.shape[0]):
-        example_vector = data[example_idx,:]
-        scores[example_idx] = norm(
-            (example_vector - mean_vector), ord=2)
-        
-    # choose threshold
-    threshold = -threshold_at_recall(
-        labels, -scores, recall_thresh=recall_thresh)
-    print "Threshold for similarity: {}".format(threshold)
-    threshold_filter = scores <= threshold
-
-    return threshold, threshold_filter
-
-
-
-# TODO - eventually try a multiple gaussians threshold
-def sd_cutoff_old(array, col_mask, std_thresh=3, axis=1):
-    """Current heuristic along the motif axis
-    """
-    # row normalize and mask
-    array_norm = np.divide(array, np.max(array, axis=1, keepdims=True))
-    array_means = np.mean(array_norm, axis=0)
-    array_means_masked = np.multiply(col_mask, array_means)
-    nonzero_means = array_means_masked[np.nonzero(array_means_masked)]
-    
-    # across all vals, get a mean and standard dev
-    mean_val = np.mean(nonzero_means)
-    std_val = np.std(nonzero_means)
-
-    # threshold, and multiply with original mask for final mask
-    sd_mask = (array_means > (mean_val + (std_val * std_thresh))).astype(int)
-    final_mask = np.multiply(sd_mask, col_mask)
-    
-    return final_mask
-
-
-def sd_cutoff(array, col_mask=None, std_thresh=2, axis=1):
-    """Current heuristic along the motif axis
-    """
-    # row normalize and mask
-    max_vals = np.max(array, axis=1, keepdims=True)
-    array_norm = np.divide(
-        array,
-        max_vals,
-        out=np.zeros_like(array),
-        where=max_vals!=0)
-    array_means = np.mean(array_norm, axis=0)
-
-    if col_mask is not None:
-        array_means_masked = np.multiply(col_mask, array_means)
-        nonzero_means = array_means_masked[np.nonzero(array_means_masked)]
-    else:
-        array_means_masked = array_means
-        nonzero_means = array_means
-
-    # mirror it to get a full normal centered at zero
-    nonzero_means = np.hstack((nonzero_means, -nonzero_means))
-    
-    # across all vals, get a mean and standard dev
-    mean_val = np.mean(nonzero_means)
-    std_val = np.std(nonzero_means)
-
-    # threshold, and multiply with original mask for final mask
-    #sd_mask = (array_means > (mean_val + (std_val * std_thresh))).astype(int)
-    sd_mask = (array_means > (mean_val + (std_val * std_thresh))).astype(int)
-    if col_mask is not None:
-        final_mask = np.multiply(sd_mask, col_mask)
-    else:
-        final_mask = sd_mask
-    
-    return final_mask
 
 
 def rownorm2d(array):
@@ -434,49 +278,33 @@ def rownorm2d(array):
     
     return array_norm
 
-
+# rename - characterize_clusters_in_manifold
 def get_manifold_metrics(
         h5_file,
-        pwm_list,
         manifold_h5_file,
         features_key=DataKeys.FEATURES,
         cluster_key=DataKeys.CLUST_FILT,
-        null_cluster_present=True,
-        recall_thresh=0.10):
+        recall_thresh=0.25):
     """extract metrics on the pwm manifold
     """
-    from tronn.interpretation.motifs import correlate_pwms
-    from tronn.interpretation.motifs import reduce_pwms
-    from tronn.interpretation.motifs import get_individual_pwm_thresholds
-
-    # TODO move this out. doesn't belong in pure manifold calling
-    # set up hclust on pwms (to know which pwms look like each other)
-    cor_filt_mat, distances = correlate_pwms(
-        pwm_list,
-        cor_thresh=0.3,
-        ncor_thresh=0.2,
-        num_threads=24)
-    hclust = linkage(squareform(1 - distances), method="ward")
+    # TODO move this somewhere else
+    #from tronn.interpretation.motifs import get_individual_pwm_thresholds
 
     # get clusters and data
     with h5py.File(h5_file, "r") as hf:
         data = hf[features_key][:] # {N, task, M}
-        raw_data = hf[DataKeys.ORIG_SEQ_PWM_SCORES_SUM][:] # {N, 1, M}
         clusters = hf[cluster_key][:] # {N}
     cluster_ids = sorted(list(set(clusters.tolist())))
-    print cluster_ids
-    if null_cluster_present:
+    if -1 in cluster_ids:
         cluster_ids.remove(-1)
+    print cluster_ids
     
     # set up save arrays as dict
     out_shape = (len(cluster_ids), data.shape[1], data.shape[2])
     out_arrays = {}
     out_arrays[DataKeys.MANIFOLD_CENTERS] = np.zeros(out_shape)
-    out_arrays[DataKeys.MANIFOLD_WEIGHTINGS] = np.zeros(out_shape)
     out_arrays[DataKeys.MANIFOLD_THRESHOLDS] = np.zeros((len(cluster_ids), data.shape[1]))
-    out_arrays[DataKeys.MASTER_PWMS] = np.zeros((data.shape[2]))
-
-    # TODO add in soft clustering array (for each cluster, after recall)
+    out_arrays[DataKeys.MANIFOLD_CLUST] = np.ones((data.shape[0], len(cluster_ids)))
     
     # then calculate metrics on each cluster separately
     for cluster_idx in xrange(len(cluster_ids)):
@@ -484,225 +312,90 @@ def get_manifold_metrics(
         print "cluster_id: {}".format(cluster_id),
         in_cluster = clusters == cluster_id # chekc this
             
-        # get the data in this cluster
+        # get the data in this cluster and remove zeros (if any)
         scores_in_cluster = data[np.where(in_cluster)[0],:,:] # {N, task, M}
         print "total examples: {}".format(scores_in_cluster.shape[0]),
-        raw_scores_in_cluster = raw_data[np.where(in_cluster)[0],:,:] # {N, 1, M}
-        raw_center = np.median(raw_scores_in_cluster, axis=0) # {1, M}
-
-        # row norm
-        orig_shape = scores_in_cluster.shape
-        scores_in_cluster = np.reshape(scores_in_cluster, [-1, orig_shape[2]]) # {N*task, M}
-        scores_in_cluster = rownorm2d(scores_in_cluster) # TODO consider whether this is useful
-        scores_in_cluster = np.reshape(scores_in_cluster, orig_shape)
-
-        # ignore zeros
-        scores_in_cluster = scores_in_cluster[np.max(scores_in_cluster, axis=[1,2])>0]
+        scores_in_cluster = scores_in_cluster[np.max(scores_in_cluster, axis=(1,2))>0]
         print "after remove zeros: {}".format(scores_in_cluster.shape[0])
         
-        # calculate cluster medoids
-        centers = np.median(scores_in_cluster, axis=0) # {task, M}
-        center_ratios = np.divide(centers, raw_center) # {task, M}
-
-        # weighted raw data
-        weighted_raw_data = np.multiply(raw_data, np.expand_dims(center_ratios, 0)) # {N, task, M}
-        weighted_raw_data[np.logical_not(np.isfinite(weighted_raw_data))] = 0
+        # calculate cluster center using median
+        out_arrays[DataKeys.MANIFOLD_CENTERS][cluster_idx,:,:] = np.median(
+            scores_in_cluster, axis=0) # {task, M}
         
-        # calculate thresholds for each task separately (since euclidean and jaccard dont do matrix multiplies)
+        # calculate thresholds for each task separately
+        # TODO - do this as pool?
         for task_idx in xrange(data.shape[1]):
-            print "task: {}, ".format(task_idx),
+            print "task: {}; ".format(task_idx),
 
-            # get threshold by first weighting the raw sequence
-            # TODO check this again
-            # NOTE: compared dot product, euclidean, and jaccard. dot product was best
-            similarity_threshold, threshold_filter = get_threshold_on_dot_product(
-                centers[task_idx,:],
-                weighted_raw_data,
+            # score distances
+            distances = score_distances(
+                data[:,task_idx,:],
+                out_arrays[DataKeys.MANIFOLD_CENTERS][cluster_idx,task_idx,:],
+                method="jaccard")
+            
+            # get threshold
+            # TODO adjust this to grab back threshold for top 100?
+            threshold = threshold_at_recall(
                 in_cluster,
-                recall_thresh=recall_thresh) # ie grab the top 10% of regions
-            print "passing filter: {}".format(np.sum(threshold_filter)),
-            print "true positives: {}".format(np.sum(threshold_filter * cluster_labels)),
+                distances,
+                recall_thresh=recall_thresh)
 
-            # TODO still do this?
-            # but likely pull out of this function?
-            # and better to do this with the soft clustering results
-            # IF keeping this, MUST row norm...
-            # needed for PWM vector though
-            # so if it depends on row norm, what does it really mean? its a filter on rank?
-            # get significant motifs with their thresholds
-            #weighted_raw_scores_in_cluster = weighted_raw_scores[np.where(cluster_labels)[0],:]
-            #pwm_vector = reduce_pwms(weighted_raw_scores, hclust, pwm_list) # TODO consider switching to weighted
-            #pwm_thresholds = get_individual_pwm_thresholds(
-            #    weighted_raw_scores,
-            #    cluster_labels,
-            #    pwm_vector)
+            fdr = 0.50
+            threshold = threshold_at_fdr(
+                in_cluster,
+                distances,
+                fdr=fdr)
+
+
+
             
-            # if there are no significant pwms, do not save out
-            # TODO but somehow need to filter this out?
-            if np.sum(pwm_vector) == 0:
-                continue
-                
-            # and save into master pwm vector
-            master_pwm_vector += pwm_vector
-            print "total in master pwms: {}".format(np.sum(master_pwm_vector > 0))
+            print "Threshold for when recall is {} (ie TPR): {};".format(recall_thresh, threshold),
+            passed_threshold = distances > threshold # CHANGE IF METRIC CHANGES (less than)
             
-            # save this info out
-            out_arrays[DataKeys.MANIFOLD_CENTERS][cluster_idx,task_idx,:] = center
-            out_arrays[DataKeys.MANIFOLD_WEIGHTINGS][cluster_idx,task_idx,:] = center_ratio
-            out_arrays[DataKeys.MANIFOLD_THRESHOLDS][cluster_idx,task_idx] = similarity_threshold
-            #manifold_pwm_thresholds[i,j,:] = pwm_thresholds
+            print "passing filter: {};".format(np.sum(passed_threshold)),
+            print "true positives: {}".format(np.sum(passed_threshold * in_cluster))
+            # NOTE: right now must pass ALL task thresholds
+            out_arrays[DataKeys.MANIFOLD_THRESHOLDS][cluster_idx,task_idx] = threshold
+            out_arrays[DataKeys.MANIFOLD_CLUST][:,cluster_idx] *= passed_threshold
 
-        
-    # remember to save out cluster ids also
+        passed_threshold_final = out_arrays[DataKeys.MANIFOLD_CLUST][:,cluster_idx]
+        print "final passing filter: {};".format(np.sum(passed_threshold_final)),
+        print "final true positives: {}".format(np.sum(passed_threshold_final * in_cluster))
 
-    return
+    import ipdb
+    ipdb.set_trace()
 
-def get_manifold_centers(
-        scores_h5_file,
-        dataset_keys,
-        cluster_key,
-        manifold_h5_file,
-        pwm_list,
-        pwm_dict,
-        null_cluster=True,
-        recall_thresh=0.10):
-    """get manifold centers
-    """
-    from tronn.interpretation.motifs import correlate_pwms
-    from tronn.interpretation.motifs import reduce_pwms
-    from tronn.interpretation.motifs import get_individual_pwm_thresholds
-    
-    raw_scores_key = "raw-pwm-scores"
-    raw_scores_key = DataKeys.ORIG_SEQ_PWM_SCORES # TODO consider using the hits instead?
-    
-    # prep: set up hclust for pwms
-    cor_filt_mat, distances = correlate_pwms(
-        pwm_list,
-        cor_thresh=0.3,
-        ncor_thresh=0.2,
-        num_threads=24)
-    hclust = linkage(squareform(1 - distances), method="ward")
+    # and save all this out to h5
+    with h5py.File(manifold_h5_file, "w") as out:
+        for key in out_arrays.keys():
+            out.create_dataset(key, data=out_arrays[key])
+            out[key].attrs[AttrKeys.CLUSTER_IDS] = cluster_ids
 
-    # go through clusters
-    with h5py.File(scores_h5_file, "r") as hf:
+    quit()
+    # and back to original file?
+    with h5py.File(h5_file, "a") as out:
+        for key in out_arrays.keys():
+            out.create_dataset(key, data=out_arrays[key])
+            out[key].attrs[AttrKeys.CLUSTER_IDS] = cluster_ids
 
-        # determine the number of clusters
-        cluster_ids_by_example = hf[cluster_key][:,0]
-        cluster_ids = list(set(cluster_ids_by_example.tolist()))
-        if null_cluster:
-            max_id = max(cluster_ids)
-            cluster_ids.remove(max_id)
 
-        # get raw scores
-        raw_scores = hf[raw_scores_key][:]
-
-        # TEMP
-        raw_scores = np.sum(np.squeeze(raw_scores), axis=1)
-        print raw_scores.shape
-        print "REMOVE THIS LATER"
-
-        # set up master pwm vector (union of all seen significant motifs)
-        master_pwm_vector = np.zeros((raw_scores.shape[1]))
-
-        # set up master arrays
-        out_shape = (len(cluster_ids), len(dataset_keys), raw_scores.shape[1])
-        manifold_centers = np.zeros(out_shape)
-        manifold_weights = np.zeros(out_shape)
-        manifold_thresholds = np.zeros((len(cluster_ids), len(dataset_keys)))
-        manifold_pwm_thresholds = np.zeros(out_shape)
-
-        # per cluster, extract the manifold description,
-        # which is the motifspace vector and threshold for distance,
-        # and the significant motifs to check.
-        for i in xrange(len(cluster_ids)):
-
-            # get cluster id
-            cluster_id = cluster_ids[i]
-            print "cluster_id: {}".format(cluster_id)
-            cluster_labels = cluster_ids_by_example == cluster_id
             
-            # get the raw scores in this cluster and the mean
-            raw_scores_in_cluster = raw_scores[np.where(cluster_labels)[0],:]
-            mean_raw_scores_in_cluster = np.mean(raw_scores_in_cluster, axis=0)
-
-            for j in xrange(len(dataset_keys)):
-                print "task: {}, ".format(j),
-                dataset_key = dataset_keys[j]
-                
-                # get subset
-                weighted_scores = hf[dataset_key][:]
-                weighted_scores_in_cluster = weighted_scores[np.where(cluster_labels)[0],:]
-                print "total examples: {}".format(weighted_scores_in_cluster.shape),
-
-                # row normalize and remove zeroes
-                max_vals = np.max(weighted_scores_in_cluster, axis=1, keepdims=True)
-                weighted_scores_in_cluster = np.divide(
-                    weighted_scores_in_cluster,
-                    max_vals,
-                    out=np.zeros_like(weighted_scores_in_cluster),
-                    where=max_vals!=0)
-                weighted_scores_in_cluster = weighted_scores_in_cluster[
-                    np.max(weighted_scores_in_cluster, axis=1) >0]
-                print "after remove zeroes: {}".format(weighted_scores_in_cluster.shape),
-
-                # get the mean vector
-                #mean_weighted_scores_in_cluster = np.mean(weighted_scores_in_cluster, axis=0)
-                mean_weighted_scores_in_cluster = np.median(weighted_scores_in_cluster, axis=0)
-                
-                # get mean ratio
-                mean_ratio_scores_in_cluster = np.divide(
-                    mean_weighted_scores_in_cluster,
-                    mean_raw_scores_in_cluster)
-
-                # get threshold by first weighting the raw sequence
-                # NOTE: compared dot product, euclidean, and jaccard. dot product was best
-                weighted_raw_scores = np.multiply(
-                    raw_scores,
-                    np.expand_dims(mean_ratio_scores_in_cluster, axis=0))
-                weighted_raw_scores[np.logical_not(np.isfinite(weighted_raw_scores))] = 0
-                
-                similarity_threshold, threshold_filter = get_threshold_on_dot_product(
-                    mean_weighted_scores_in_cluster,
-                    weighted_raw_scores,
-                    cluster_labels,
-                    recall_thresh=recall_thresh) # ie grab the top 10% of regions
-                print "passing filter: {}".format(np.sum(threshold_filter)),
-                print "true positives: {}".format(np.sum(threshold_filter * cluster_labels)),
-
-                # get significant motifs with their thresholds
-                weighted_raw_scores_in_cluster = weighted_raw_scores[np.where(cluster_labels)[0],:]
-                pwm_vector = reduce_pwms(weighted_raw_scores, hclust, pwm_list) # TODO consider switching to weighted
-                pwm_thresholds = get_individual_pwm_thresholds(
-                    weighted_raw_scores,
-                    cluster_labels,
-                    pwm_vector)
-
-                # if there are no significant pwms, do not save out
-                # TODO but somehow need to filter this out?
-                if np.sum(pwm_vector) == 0:
-                    continue
-                
-                # and save into master pwm vector
-                master_pwm_vector += pwm_vector
-                print "total in master pwms: {}".format(np.sum(master_pwm_vector > 0))
-                
-                # save this info out
-                manifold_centers[i,j,:] = mean_weighted_scores_in_cluster
-                manifold_weights[i,j,:] = mean_ratio_scores_in_cluster
-                manifold_thresholds[i,j] = similarity_threshold
-                manifold_pwm_thresholds[i,j,:] = pwm_thresholds
-                cluster_key_prefix = "motifspace.cluster-{}".format(cluster_id)
-
-    # finally, save out all results
-    with h5py.File(manifold_h5_file, "a") as out:
-        out.create_dataset("manifold_centers", data=manifold_centers)
-        out.create_dataset("manifold_weights", data=manifold_weights)
-        out.create_dataset("manifold_thresholds", data=manifold_thresholds)
-        out.create_dataset("pwm_thresholds", data=manifold_pwm_thresholds)
-        out.create_dataset("pwm_names", data=[pwm.name for pwm in pwm_list])
-        out.create_dataset("master_pwm_vector", data=master_pwm_vector)
-    
     return None
+
+
+# TODO move to... stats?
+def aggregate_array(
+        array,
+        agg_fn=np.median,
+        agg_axis=0,
+        mask=None):
+    """aggregate dataset
+    """
+    agg_array = agg_fn(array, axis=agg_axis) # {task, M}
+    agg_array = agg_array[:,mask>0]
+    
+    return agg_array
+
 
 
 def aggregate_pwm_results(
@@ -800,12 +493,12 @@ def aggregate_pwm_results_per_cluster(
 
                 # TODO row normalize for now, because not calibrated
                 # row normalize and remove zeroes
-                max_vals = np.max(data, axis=1, keepdims=True)
-                data_norm = np.divide(
-                    data,
-                    max_vals,
-                    out=np.zeros_like(data),
-                    where=max_vals!=0)
+                #max_vals = np.max(data, axis=1, keepdims=True)
+                #data_norm = np.divide(
+                #    data,
+                #    max_vals,
+                #    out=np.zeros_like(data),
+                #    where=max_vals!=0)
                 data_norm = data
                 
                 # sum

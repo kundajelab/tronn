@@ -16,27 +16,23 @@ from scipy.signal import correlate2d
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
 from scipy.spatial.distance import squareform
 
-from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import roc_curve
+#from sklearn.metrics import precision_recall_curve
+#from sklearn.metrics import roc_curve
 
 from tronn.visualization import plot_weights
 
 # TODO move all these to stats
 from tronn.interpretation.clustering import get_distance_matrix
-from tronn.interpretation.clustering import sd_cutoff
-from tronn.interpretation.clustering import get_threshold_on_jaccard_similarity
-from tronn.interpretation.clustering import get_threshold_on_euclidean_distance
-from tronn.interpretation.clustering import get_threshold_on_dot_product
+from tronn.interpretation.clustering import aggregate_array
 
-from tronn.interpretation.learning import build_polynomial_model
-
-from tronn.interpretation.learning import build_regression_model
-from tronn.interpretation.learning import threshold_at_recall
+#from tronn.interpretation.learning import build_polynomial_model
+#from tronn.interpretation.learning import build_regression_model
+#from tronn.interpretation.learning import threshold_at_recall
 
 from tronn.stats.nonparametric import select_features_by_permutation_test
 
-from sklearn import linear_model
-from sklearn.preprocessing import PolynomialFeatures
+#from sklearn import linear_model
+#from sklearn.preprocessing import PolynomialFeatures
 
 from tronn.util.utils import DataKeys
 
@@ -472,10 +468,16 @@ def select_pwms_by_cluster(
     with h5py.File(h5_file, "r") as hf:
         data = hf[data_key][:] # {N, task, M}
         clusters = hf[cluster_key][:]
-    cluster_ids = sorted(list(set(clusters.tolist())))
-    if -1 in cluster_ids:
-        cluster_ids.remove(-1)
-    print cluster_ids
+
+    if len(clusters.shape) == 1:
+        # hard clusters
+        cluster_ids = sorted(list(set(clusters.tolist())))
+        if -1 in cluster_ids:
+            cluster_ids.remove(-1)
+        hard_clusters = True
+    else:
+        # soft clusters
+        cluster_ids = range(clusters.shape[1])
 
     # correlate pwms (in prep for reduce)
     cor_filt_mat, distances = correlate_pwms(
@@ -490,7 +492,14 @@ def select_pwms_by_cluster(
     for cluster_idx in xrange(len(cluster_ids)):
         print cluster_idx
         cluster_id = cluster_ids[cluster_idx]
-        in_cluster = clusters == cluster_id
+
+        # get which examples are in cluster
+        if hard_clusters:
+            in_cluster = clusters == cluster_id
+        else:
+            in_cluster = clusters[:,cluster_id] == 1
+
+        # select
         scores_in_cluster = data[np.where(in_cluster)[0],:,:] # {N, task, M}
         cluster_pwms = np.zeros((data.shape[2]))
         
@@ -540,36 +549,80 @@ def select_pwms_by_permutation_test_and_reduce(
     return sig_pwms
 
 
-
-    
-    
-# TODO deprecate this
-# set up for filtering pwm list (to use a subset of pwms)
-def setup_pwms_OLD(master_pwm_file, pwm_subset_list_file):
-    """setup which pwms are being used
+def aggregate_pwm_scores(
+        h5_file,
+        key=DataKeys.FEATURES,
+        out_key=DataKeys.PWM_SCORES_AGG_GLOBAL,
+        sig_mask_key=DataKeys.PWM_SIG_MASK):
+    """aggregate while masking for sig pwms
     """
-    # open the pwm subset file to get names of the pwms to use
-    pwms_to_use = []
-    with open(pwm_subset_list_file, "r") as fp:
-        for line in fp:
-            pwms_to_use.append(line.strip().split('\t')[0])        
-            
-    # then open the master file and filter out unused ones
-    pwm_list = read_pwm_file(master_pwm_file)
-    pwm_list_filt = []
-    pwm_list_filt_indices = []
-    for i in xrange(len(pwm_list)):
-        pwm = pwm_list[i]
-        for pwm_name in pwms_to_use:
-            if pwm_name in pwm.name:
-                pwm_list_filt.append(pwm)
-                pwm_list_filt_indices.append(i)
-    #print "Using PWMS:", [pwm.name for pwm in pwm_list_filt]
-    print len(pwm_list_filt)
-    pwm_names_filt = [pwm.name for pwm in pwm_list_filt]
+    with h5py.File(h5_file, "r") as hf:
+        data = hf[key][:]
+        sig_mask = hf[sig_mask_key][:]
 
-    return pwm_list, pwm_list_filt, pwm_list_filt_indices, pwm_names_filt
+    # aggregate
+    agg_data = aggregate_array(data, slice_indices=sig_mask)
+    
+    # save
+    with h5py.File(h5_file, "a") as out:
+        out.create_dataset(out_key, data=agg_data)
+        out[out_key].attrs[AttrKeys.PWM_NAMES] = out[sig_mask_key].attrs[AttrKeys.PWM_NAMES]
+    
+    return None
 
+
+def aggregate_pwm_scores_by_cluster(
+        h5_file,
+        key=DataKeys.FEATURES,
+        cluster_key=DataKeys.CLUST_FILT,
+        out_key=DataKeys.PWM_SCORES_AGG_CLUST,
+        sig_mask_key=DataKeys.PWM_SIG_MASK):
+    """aggregate while masking for sig pwms
+    """
+    with h5py.File(h5_file, "r") as hf:
+        data = hf[key][:]
+        clusters = hf[cluster_key][:]
+        sig_mask = hf[sig_mask_key][:]
+        
+    if len(clusters.shape) == 1:
+        # hard clusters
+        cluster_ids = sorted(list(set(clusters.tolist())))
+        if -1 in cluster_ids:
+            cluster_ids.remove(-1)
+        hard_clusters = True
+    else:
+        # soft clusters
+        cluster_ids = range(clusters.shape[1])
+
+    agg_data = np.zeros((len(cluster_ids), data.shape[1], data.shape[2]))
+    for cluster_idx in xrange(len(cluster_ids)):
+        cluster_id = cluster_ids[cluster_idx]
+        
+        # get which examples are in cluster
+        if hard_clusters:
+            in_cluster = clusters == cluster_id
+        else:
+            in_cluster = clusters[:,cluster_id] == 1
+
+        # select
+        cluster_data = data[np.where(in_cluster)[0],:,:] # {N, task, M}
+        
+        # aggregate
+        agg_data[cluster_idx,:,:] = aggregate_array(
+            cluster_data, slice_indices=sig_mask)
+    
+    # save
+    with h5py.File(h5_file, "a") as out:
+        out.create_dataset(out_key, data=agg_data)
+        out[out_key].attrs[AttrKeys.PWM_NAMES] = out[sig_mask_key].attrs[AttrKeys.PWM_NAMES]
+    
+    return None
+
+
+
+
+
+    
 
 # set up pwm metadata
 def setup_pwm_metadata(metadata_file):
@@ -592,67 +645,7 @@ def setup_pwm_metadata(metadata_file):
 
 
 
-def make_threshold_at_fdr(fdr):
-    """Construct function to get recall at FDR
-    
-    Args:
-      fdr: FDR value for precision cutoff
-
-    Returns:
-      recall_at_fdr: Function to generate the recall at
-        fdr fraction (number of positives
-        correctly called as positives out of total 
-        positives, at a certain FDR value)
-    """
-    def threshold_at_fdr(labels, probs):
-        pr_curve = precision_recall_curve(labels, probs)
-        precision, recall, thresholds = pr_curve
-        #print precision
-        threshold_index = np.searchsorted(precision, fdr)
-        #threshold_index = np.searchsorted(1 - recall, 1 - fdr)
-        #print "precision at thresh", precision[index]
-        print "recall at thresh", recall[threshold_index]
-        try:
-            #print thresholds
-            #print threshold_index
-            print "threshold val", thresholds[threshold_index]
-            return thresholds[threshold_index]
-        except:
-            return 0 # TODO figure out what to do here...
-        
-    return threshold_at_fdr
-
  
-def make_threshold_at_tpr(desired_tpr):
-    """Construct function to get recall at FDR
-    
-    Args:
-      fdr: FDR value for precision cutoff
-
-    Returns:
-      recall_at_fdr: Function to generate the recall at
-        fdr fraction (number of positives
-        correctly called as positives out of total 
-        positives, at a certain FDR value)
-    """
-    def threshold_at_tpr(labels, probs):
-        fpr, tpr, thresholds = roc_curve(labels, probs)
-        print tpr
-        threshold_index = np.searchsorted(tpr, desired_tpr)
-        #threshold_index = np.searchsorted(1 - recall, 1 - fdr)
-        #print "precision at thresh", precision[index]
-        print "fpr at thresh", fpr[threshold_index]
-        try:
-            print thresholds
-            print threshold_index
-            print "threshold val", thresholds[threshold_index]
-            return thresholds[threshold_index]
-        except:
-            return 0 # TODO figure out what to do here...
-        
-    return threshold_at_tpr
-
-
 def reduce_pwms_old(data, pwm_list, pwm_dict, std_thresh=3):
     """Wrapper for all pwm reduction functions
     """

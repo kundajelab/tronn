@@ -25,14 +25,12 @@ from tronn.interpretation.clustering import cluster_dataset
 from tronn.interpretation.clustering import generate_simple_metaclusters
 from tronn.interpretation.clustering import refine_clusters
 from tronn.interpretation.clustering import aggregate_pwm_results
-from tronn.interpretation.clustering import get_manifold_centers
+#from tronn.interpretation.clustering import get_manifold_centers
+from tronn.interpretation.clustering import get_manifold_metrics
 
 from tronn.interpretation.clustering import aggregate_pwm_results
 from tronn.interpretation.clustering import aggregate_pwm_results_per_cluster
 
-#from tronn.visualization import visualize_clustered_h5_dataset_full
-#from tronn.visualization import visualize_aggregated_h5_datasets
-#from tronn.visualization import visualize_datasets_by_cluster_map
 from tronn.visualization import visualize_h5_dataset
 from tronn.visualization import visualize_h5_dataset_by_cluster
 
@@ -131,6 +129,7 @@ def run(args):
             debug=args.debug)
 
         # add in PWM names to the datasets
+        # TODO also to features!
         add_pwm_names_to_h5(
             results_h5_file,
             [pwm.name for pwm in args.pwm_list])
@@ -165,46 +164,73 @@ def run(args):
                 soft_clustering=False)
             
         # TODO calling significant pwms per cluster
-        #select_pwms(results_h5_file, args.pwm_list, "test")
-        select_pwms_by_cluster(
-            results_h5_file,
-            args.pwm_list,
-            "cluster_pwms",
-            cluster_key=DataKeys.CLUST_FILT)
+        if False:
+            # TODO set up a big wrapper for all this - select_and_agg_pwms()
+            
+            
+            #select_pwms(results_h5_file, args.pwm_list, "test")
+            # remember this needs to return master pwm vector
+            select_pwms_by_cluster(
+                results_h5_file,
+                args.pwm_list,
+                "cluster_pwms",
+                cluster_key=DataKeys.CLUST_FILT)
 
-        quit()
-        
-        dataset_keys = [
-            "pwm-scores.taskidx-{}".format(i)
-            for i in args.inference_task_indices]
+            # after selection get agg results (to compare to manifold run below)
+            
+            # TODO think about do I still want individual new pwm thresholds
+            # for the significant pwms
+
 
         # get the manifold descriptions out per cluster
         # TODO also set up new cluster definitions, and re-visualize?
-        manifold_key = "motifspace-centers"
+        #manifold_key = "motifspace-centers"
         manifold_h5_file = "{0}/{1}.manifold.h5".format(
             args.tmp_dir, args.prefix)
-        dataset_keys = [
-            "pwm-scores.taskidx-{}".format(i)
-            for i in args.inference_task_indices]
+        #dataset_keys = [
+        #    "pwm-scores.taskidx-{}".format(i)
+        #    for i in args.inference_task_indices]
         global_agg_key = "pwm-scores.tasks_x_pwm.global"
         agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
         if not os.path.isfile(manifold_h5_file):
-            # TODO check this again using importance scores (compare to median cluster scores, NOT mean)
 
-            # also rename - get_manifold_metrics()
+            # TODO need to figure out how to filter out bad clusters
+            # do this at pwm level - clusters with no significant pwms should be removed
             
-            get_manifold_centers(
+            # TODO try hidden layer also
+            get_manifold_metrics(
                 results_h5_file,
-                dataset_keys,
-                refined_metacluster_key,
+                manifold_h5_file) # first save this to results file
+
+            # select pwms
+            select_pwms_by_cluster(
+                results_h5_file,
                 manifold_h5_file,
                 args.pwm_list,
-                args.pwm_dict)
+                "manifold_cluster_pwms",
+                cluster_key=DataKeys.MANIFOLD_CLUST) # first save this to results file
+
+            # pwm thresholds (for sig)
+            
+            
+            # slice and aggregate - quick read out (technically just a debug tool)
+            
+            # here save to manifold file - a reduced h5 file
+            # that is portable
+            
+
+
+            
+            quit()
+            
+            dataset_keys = [
+                "pwm-scores.taskidx-{}".format(i)
+                for i in args.inference_task_indices]
 
             # get the overall subset of pwms with some significance
             aggregate_pwm_results(
                 results_h5_file,
-                dataset_keys,
+                dataset_keys, 
                 global_agg_key,
                 manifold_h5_file)
             

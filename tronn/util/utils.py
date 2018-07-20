@@ -55,12 +55,16 @@ class DataKeys(object):
 
     PWM_CLUSTER_THRESHOLDS = "pwms.thresholds" # check is this useful? deprecate this since i now call actual pwm hits with null
     MASTER_PWMS = "master_pwms" # full vector to mask results
+    PWM_SIG_MASK = "master_pwms"
+
+    PWM_SCORES_AGG_GLOBAL = "{}.agg".format(PWM_SCORES_ROOT)
+    PWM_SCORES_AGG_CLUST = "{}.agg.clusters".format(PWM_SCORES_ROOT)
     
-    # pwm manifold keys
+    # manifold keys
     MANIFOLD_ROOT = "pwm_manifold"
     MANIFOLD_CENTERS = "{}.centers".format(MANIFOLD_ROOT)
-    MANIFOLD_WEIGHTINGS = "{}.weightings".format(MANIFOLD_ROOT)
     MANIFOLD_THRESHOLDS = "{}.thresholds".format(MANIFOLD_ROOT)
+    MANIFOLD_CLUST = "{}.clusters".format(MANIFOLD_ROOT)
 
     # cluster keys
     CLUST_ROOT = "clusters"
@@ -70,5 +74,5 @@ class DataKeys(object):
     DMIM_SCORES_ROOT = "dmim-scores"
 
     # split
-    TASK_IDX_ROOT = "taskidx-"
+    TASK_IDX_ROOT = "taskidx"
     
