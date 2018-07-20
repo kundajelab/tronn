@@ -257,11 +257,8 @@ class MotifScannerWithThresholds(MotifScanner):
     def scan(self, inputs, params):
         """run the shuffle scanner and get the results
         """
-        # TODO i don't think this correctly handled the scan...
         # get sequence results
         outputs = super(MotifScannerWithThresholds, self).scan(inputs, params)[0]
-        #test
-        print outputs[DataKeys.FEATURES]
         
         # get shuffle results, only keep positive values in active shuffles
         shuffle_scanner = ShufflesMotifScanner(features_key=self.shuffles_key)
@@ -345,12 +342,6 @@ def get_pwm_scores(inputs, params):
         out_hits_key=DataKeys.ORIG_SEQ_PWM_HITS,
         out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH)
     outputs, params = scanner.scan(inputs, params)
-    print outputs.keys()
-
-    print outputs[DataKeys.ORIG_SEQ_PWM_SCORES]
-    print outputs[DataKeys.ORIG_SEQ_PWM_HITS]
-    print outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH]
-    print ""
     
     # run weighted sequence
     # if onesided (default), then will only return positive scores
@@ -360,24 +351,7 @@ def get_pwm_scores(inputs, params):
         out_scores_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES,
         out_hits_key=DataKeys.WEIGHTED_SEQ_PWM_HITS,
         out_scores_thresh_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH)
-    outputs.update(scanner.scan(inputs, params)[0]) # is this overwriting things?
-
-    print outputs[DataKeys.ORIG_SEQ_PWM_SCORES]
-    print outputs[DataKeys.ORIG_SEQ_PWM_HITS]
-    print outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH]
-    print ""
-
-    print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
-    print outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS]
-    print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
-    print ""
-    
-    print outputs[DataKeys.FEATURES]
-    
-    print outputs.keys()
-    #quit()
-    
-    # TODO check if anything being overwritten?
+    outputs.update(scanner.scan(inputs, params)[0]) 
     
     debug = False
     if debug:
@@ -389,9 +363,6 @@ def get_pwm_scores(inputs, params):
         print outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS]
         print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
         print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
-
-    print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
-    print outputs[DataKeys.ORIG_SEQ_PWM_HITS]
     
     # mask weighted scores with raw hits
     outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS] = tf.multiply(
@@ -406,8 +377,6 @@ def get_pwm_scores(inputs, params):
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH],
         outputs[DataKeys.ORIG_SEQ_PWM_HITS])
 
-    print outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES]
-    
     # TODO mask raw scores with weighted hits?
     
     

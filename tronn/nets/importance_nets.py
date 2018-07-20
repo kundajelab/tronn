@@ -133,9 +133,10 @@ class FeatureImportanceExtractor(object):
 
             # postprocess stack
             inference_stack = [
+                # TODO figure out if there's a cleaner way to manage shuffles
                 (remove_shuffles, {}), # move shuffles out of the way
                 (threshold_shufflenull, {"pval_thresh": 0.01, "shuffle_key": DataKeys.WEIGHTED_SEQ_SHUF}),
-                (filter_singles_twotailed_w_shuffles, {"window": 7, "min_fract": float(2)/7}),
+                (filter_singles_twotailed_w_shuffles, {"window": 7, "min_fract": float(2)/7}), # this is losing p63?
                 (normalize_to_weights_w_shuffles, {"weight_key": DataKeys.LOGITS}), # do this after clipping weights?
                 (clip_edges, {"left_clip": 420, "right_clip": 580}),
 

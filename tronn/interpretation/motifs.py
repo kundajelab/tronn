@@ -21,18 +21,24 @@ from sklearn.metrics import roc_curve
 
 from tronn.visualization import plot_weights
 
+# TODO move all these to stats
 from tronn.interpretation.clustering import get_distance_matrix
 from tronn.interpretation.clustering import sd_cutoff
 from tronn.interpretation.clustering import get_threshold_on_jaccard_similarity
 from tronn.interpretation.clustering import get_threshold_on_euclidean_distance
 from tronn.interpretation.clustering import get_threshold_on_dot_product
+
 from tronn.interpretation.learning import build_polynomial_model
 
 from tronn.interpretation.learning import build_regression_model
 from tronn.interpretation.learning import threshold_at_recall
 
+from tronn.stats.nonparametric import select_features_by_permutation_test
+
 from sklearn import linear_model
 from sklearn.preprocessing import PolynomialFeatures
+
+from tronn.util.utils import DataKeys
 
 
 
@@ -412,8 +418,134 @@ class PWM(object):
 
 
 
+def select_pwms(
+        h5_file,
+        pwm_list,
+        out_key,
+        data_key=DataKeys.FEATURES):
+    """select pwms from whole dataset, per task
+    """
+    # set up
+    with h5py.File(h5_file, "r") as hf:
+        data = hf[data_key][:] # {N, task, M}
+
+    sig_pwms = np.zeros((data.shape[2]))
+
+
+    # correlate pwms (in prep for reduce)
+    cor_filt_mat, distances = correlate_pwms(
+        pwm_list,
+        cor_thresh=0.3,
+        ncor_thresh=0.2,
+        num_threads=24)
+    hclust = linkage(squareform(1 - distances), method="ward")
+
+    
+    for task_idx in xrange(data.shape[1]):
+        task_data = data[:,task_idx,:]
+
+        # select
+        sig_pwms += select_pwms_by_permutation_test_and_reduce(
+            task_data,
+            pwm_list,
+            hclust)
+
+    import ipdb
+    ipdb.set_trace()
+
+        
+    with h5py.File(h5_file, "a") as out:
+        out.create_dataset(out_key, sig_pwms)
+    
+    return None
+
+
+def select_pwms_by_cluster(
+        h5_file,
+        pwm_list,
+        out_key,
+        data_key=DataKeys.FEATURES,
+        cluster_key=DataKeys.CLUST_FILT):
+    """select pwms from whole dataset, per task
+    """
+    # set up
+    with h5py.File(h5_file, "r") as hf:
+        data = hf[data_key][:] # {N, task, M}
+        clusters = hf[cluster_key][:]
+    cluster_ids = sorted(list(set(clusters.tolist())))
+    if -1 in cluster_ids:
+        cluster_ids.remove(-1)
+    print cluster_ids
+
+    # correlate pwms (in prep for reduce)
+    cor_filt_mat, distances = correlate_pwms(
+        pwm_list,
+        cor_thresh=0.3,
+        ncor_thresh=0.2,
+        num_threads=24)
+    hclust = linkage(squareform(1 - distances), method="ward")
+    
+    sig_pwms = np.zeros((len(cluster_ids), data.shape[2]))
+
+    for cluster_idx in xrange(len(cluster_ids)):
+        print cluster_idx
+        cluster_id = cluster_ids[cluster_idx]
+        in_cluster = clusters == cluster_id
+        scores_in_cluster = data[np.where(in_cluster)[0],:,:] # {N, task, M}
+        cluster_pwms = np.zeros((data.shape[2]))
+        
+        for task_idx in xrange(data.shape[1]):
+            task_data = scores_in_cluster[:,task_idx,:] # {N, M}
+
+            # select
+            cluster_pwms += select_pwms_by_permutation_test_and_reduce(
+                task_data,
+                pwm_list,
+                hclust)
+
+        sig_pwms[cluster_idx,:] = cluster_pwms
+
+    import ipdb
+    ipdb.set_trace()
+        
+    with h5py.File(h5_file, "a") as out:
+        out.create_dataset(out_key, sig_pwms)
+    
+    return None
+    
+
+def select_pwms_by_permutation_test_and_reduce(
+        array,
+        pwm_list,
+        hclust,
+        num_shuffles=1000,
+        pval_thresh=0.01):
+    """use permutation test to get sig pwms
+    and then reduce by similarity
+    """
+    # select features
+    sig_pwms = select_features_by_permutation_test(
+        array,
+        num_shuffles=num_shuffles,
+        pval_thresh=pval_thresh)
+
+    # and then reduce
+    sig_pwms = np.multiply(sig_pwms, reduce_pwms(array, hclust, pwm_list))
+
+    # debug
+    print "final pwm count:", np.sum(sig_pwms)
+    indices = np.where(sig_pwms > 0)[0].tolist()
+    print [pwm_list[k].name for k in indices]
+    
+    return sig_pwms
+
+
+
+    
+    
+# TODO deprecate this
 # set up for filtering pwm list (to use a subset of pwms)
-def setup_pwms(master_pwm_file, pwm_subset_list_file):
+def setup_pwms_OLD(master_pwm_file, pwm_subset_list_file):
     """setup which pwms are being used
     """
     # open the pwm subset file to get names of the pwms to use
@@ -1552,11 +1684,15 @@ def reduce_pwms(data, hclust, pwm_list, std_thresh=3):
     
     # set a cutoff - assume Gaussian noise, this controls false positive rate
     # TODO - i think this also uses a mean vector
-    pwm_vector = sd_cutoff(data, std_thresh=std_thresh)
+    # TODO - remove this?
+    #pwm_vector = sd_cutoff(data, std_thresh=std_thresh)
+    #prm_vector
+    
     
     # hagglom
-    signal_vector = np.mean(data, axis=0)
-    pwm_vector = pwm_vector * hagglom_pwms_by_signal(
+    signal_vector = np.median(data, axis=0)
+    #pwm_vector = pwm_vector * hagglom_pwms_by_signal(
+    pwm_vector = hagglom_pwms_by_signal(
         hclust,
         signal_vector,
         pwm_list,
@@ -1571,12 +1707,13 @@ def reduce_pwms(data, hclust, pwm_list, std_thresh=3):
                 pwm_vector[idx] = 0
 
     # debug
-    print "final pwm count:", np.sum(pwm_vector)
-    indices = np.where(pwm_vector > 0)[0].tolist()
-    print [pwm_list[k].name for k in indices]
-    pwm_to_index = {}
-    for k in indices:
-        pwm_to_index[pwm_list[k].name] = k
+    if False:
+        print "final pwm count:", np.sum(pwm_vector)
+        indices = np.where(pwm_vector > 0)[0].tolist()
+        print [pwm_list[k].name for k in indices]
+        pwm_to_index = {}
+        for k in indices:
+            pwm_to_index[pwm_list[k].name] = k
     
     return pwm_vector
 

@@ -2,6 +2,7 @@
 
 import os
 import h5py
+import phenograph
 
 import numpy as np
 import pandas as pd
@@ -9,110 +10,104 @@ import pandas as pd
 from numpy.linalg import norm
 from collections import Counter
 
-from tronn.interpretation.learning import threshold_at_recall
-
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
 from scipy.spatial.distance import squareform
 
-import phenograph
+from tronn.interpretation.learning import threshold_at_recall
 
+
+from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
 
 
-def cluster_by_task(
+def cluster_dataset(
         h5_file,
-        h5_dataset_keys,
-        out_key,
+        dataset_key,
+        cluster_key=DataKeys.CLUST_ROOT,
+        cluster_filt_key=DataKeys.CLUST_FILT,
         num_threads=24):
-    """Get a clustering per task (ie, per cell state)
-    Currently set to a phenograph clustering
+    """wrapper around favorite clustering method
     """
-    with h5py.File(h5_file, "a") as hf:
-        num_examples = hf["example_metadata"].shape[0]
+    # get data
+    with h5py.File(h5_file, "r") as hf:
+        data = hf[dataset_key][:]
 
-        # generate a new dataset that is {N, len(h5_dataset_keys)}
-        clusters_hf = hf.create_dataset(
-            out_key, (num_examples, len(h5_dataset_keys)), dtype=int)
+    # ----------------------------------------------
+    # YOUR FAVORITE CLUSTERING METHOD HERE
+    # Requires: return a {N} size array with numerical
+    # clusters, -1 if example is not clustered
 
-        # add attribute
-        clusters_hf.attrs["tasks"] = h5_dataset_keys
-        
-        # for each dataset, cluster and save to correct spot
-        for i in xrange(len(h5_dataset_keys)):
-            h5_dataset_key = h5_dataset_keys[i]
-            dataset = hf[h5_dataset_key][:]
-            communities, graph, Q = phenograph.cluster(
-                dataset, n_jobs=num_threads)
-            clusters_hf[:,i] = communities
+    data = np.reshape(data, (data.shape[0], data.shape[1]*data.shape[2]))
+    communities, graph, Q = phenograph.cluster(
+        data, n_jobs=num_threads)
+    null_cluster_present = True
+    
+    # END CLUSTERING
+    # ----------------------------------------------
+    
+    # save clusters
+    with h5py.File(h5_file, "a") as out:
+        out.create_dataset(cluster_key, data=communities)
 
-    return None
-
-
-def generate_simple_metaclusters(
-        h5_file, dataset_keys, out_key, num_threads=24):
-    """Given datasets, bind them together to 
-    make a giant matrix, cluster, and save out cluster info
-    """
-    with h5py.File(h5_file, "a") as hf:
-        num_examples = hf["example_metadata"].shape[0]
-        
-        # set up out cluster
-        clusters_hf = hf.create_dataset(
-            out_key, (num_examples, 1), dtype=int)
-        
-        # extract all the data and merge together
-        for i in xrange(len(dataset_keys)):
-            dataset_tmp = pd.DataFrame(hf[dataset_keys[i]][:])
-            
-            if i == 0:
-                dataset = dataset_tmp
-            else:
-                dataset = pd.concat([
-                    dataset.reset_index(drop=True),
-                    dataset_tmp], axis=1)
-                
-        # cluster with louvain
-        communities, graph, Q = phenograph.cluster(
-            dataset, n_jobs=num_threads)
-        clusters_hf[:,0] = communities
+    # refine as desired
+    if cluster_filt_key is not None:
+        remove_small_clusters(
+            h5_file,
+            cluster_key=cluster_key,
+            cluster_filt_key=cluster_filt_key,
+            null_cluster_present=null_cluster_present)
     
     return None
 
 
-def enumerate_metaclusters(
+def remove_small_clusters(
         h5_file,
-        h5_clusters_key,
-        out_key):
-    """Given a series of task-specific clusters,
-    enumerate the metacommunities - groups of regions
-    that share all the same task-specific communities
+        cluster_key=DataKeys.CLUST_ROOT,
+        cluster_filt_key=DataKeys.CLUST_FILT,
+        null_cluster_present=False,
+        fractional_threshold=0.01):
+    """remove small clusters
     """
-    with h5py.File(h5_file, "a") as hf:
-        num_examples = hf["example_metadata"].shape[0]
+    # TODO set up for soft clustering, for now only look at hard clustering
 
-        # generate a new dataset that is {N, 1}
-        metaclusters_hf = hf.create_dataset(
-            out_key, (num_examples, 1), dtype="S100")
+    # get clusters out
+    with h5py.File(h5_file, "r") as hf:
+        clusters = hf[cluster_key][:]
+
+    # get num examples, adjust if null cluster is present
+    if null_cluster_present:
+        num_clustered_examples = clusters[clusters != -1].shape[0]
+    else:
+        num_clustered_examples = clusters.shape[0]
+        
+    # determine counts
+    counts = Counter(clusters.tolist())
+
+    # adjust based on fractional thresh and renumber based on size
+    cluster_ids_and_counts = counts.most_common()
+    for cluster_idx in xrange(len(cluster_ids_and_counts)):
+        cluster_id, count = cluster_ids_and_counts[cluster_idx]
+
+        if float(count) / num_clustered_examples < fractional_threshold:
+            clusters[clusters==cluster_id] = -1
+        else:
+            clusters[clusters==cluster_id] = cluster_idx
+
+    # backcheck TODO
+
+    # save
+    with h5py.File(h5_file, "a") as out:
+        out.create_dataset(cluster_filt_key, data=clusters)
     
-        # pull in the clusters dataset
-        task_clusters = pd.DataFrame(hf[h5_clusters_key][:]).astype(int)
-    
-        # enumerate
-        task_clusters["enumerated"] = ["" for i in xrange(task_clusters.shape[0])]
-        for i in xrange(task_clusters.shape[1]):
-            task_clusters["enumerated"] = task_clusters["enumerated"] + task_clusters.iloc[
-                :, task_clusters.shape[1]-i-2].astype(str).str.zfill(2)
-
-        # save back to file
-        metaclusters_hf[:,0] = task_clusters["enumerated"].tolist()
-
     return None
 
 
+
+# TODO deprecate
 def refine_clusters(
         h5_file,
-        clusters_key,
-        out_key,
+        clusters_key=DataKeys.CLUST_ROOT,
+        out_key=DataKeys.CLUST_FILT,
         null_cluster_present=False,
         fractional_threshold=0.01): # TODO - adjust this fractional threshold based on number actually clustered
     """Given a clusters dataset, remove small clusters 
@@ -165,51 +160,41 @@ def refine_clusters(
                     
     return None
 
-# TODO visualize_clustering_by_task - gives plots per task
-# TODO visualize_clusters - gives plots per cluster. {N, task, pwm} {cluster} -> 2d
-# TODO visualize_clusters_agg - gives aggregate across various keys? {N, task} {cluster} -> 2d??
 
-# both need to take indices (to choose which tasks?) - default is all
-
-
-
-def visualize_clustering_by_key(
-        h5_file,
-        dataset_key,
-        cluster_key,
-        cluster_col=0,
-        remove_final_cluster=0):
-    """Visualize clustering. Note that the R script is downsampling
-    to make things visible.
+# TODO deprecate
+def generate_simple_metaclusters(
+        h5_file, dataset_keys, out_key, num_threads=24):
+    """Given datasets, bind them together to 
+    make a giant matrix, cluster, and save out cluster info
     """
-    # do this in R
-    plot_example_x_pwm = (
-        "plot-h5.example_x_pwm.per_task.R {0} {1} {2} {3} {4}").format(
-            h5_file, dataset_key, cluster_key, cluster_col+1, remove_final_cluster)
-    print plot_example_x_pwm
-    os.system(plot_example_x_pwm)
+    with h5py.File(h5_file, "a") as hf:
+        num_examples = hf["example_metadata"].shape[0]
+        
+        # set up out cluster
+        clusters_hf = hf.create_dataset(
+            out_key, (num_examples, 1), dtype=int)
+        
+        # extract all the data and merge together
+        for i in xrange(len(dataset_keys)):
+            dataset_tmp = pd.DataFrame(hf[dataset_keys[i]][:])
+            
+            if i == 0:
+                dataset = dataset_tmp
+            else:
+                dataset = pd.concat([
+                    dataset.reset_index(drop=True),
+                    dataset_tmp], axis=1)
+                
+        # cluster with louvain
+        communities, graph, Q = phenograph.cluster(
+            dataset, n_jobs=num_threads)
+        clusters_hf[:,0] = communities
     
     return None
 
 
-def visualize_cluster_means(
-        h5_file,
-        dataset_keys,
-        cluster_key,
-        cluster_col,
-        remove_final_cluster=0):
-    """Visualize cluster means
-    """
-    # do this in R
-    plot_cluster_mean = (
-        "plot.pwm_x_task.from_h5.R {0} {1} {2} {3} {4}").format(
-            h5_file, dataset_key, cluster_key, cluster_col+1, remove_final_cluster)
-    print plot_cluster_mean
-    os.system(plot_cluster_mean)
-    
-    return None
 
-
+# check redundancy
 def get_distance_matrix(
         motif_mat,
         corr_method="pearson",
@@ -253,7 +238,7 @@ def get_distance_matrix(
 
 
 
-
+# check redundancy
 def get_correlation_file(
         mat_file,
         corr_file,
@@ -276,7 +261,7 @@ def get_correlation_file(
 
     return None
 
-
+# put into different module
 def generalized_jaccard_similarity(a, b):
     """Calculates a jaccard on real valued vectors
     """
@@ -436,6 +421,141 @@ def sd_cutoff(array, col_mask=None, std_thresh=2, axis=1):
     
     return final_mask
 
+
+def rownorm2d(array):
+    """generic row normalization
+    """
+    max_vals = np.max(array, axis=1, keepdims=True)
+    array_norm = np.divide(
+        array,
+        max_vals,
+        out=np.zeros_like(array),
+        where=max_vals!=0)
+    
+    return array_norm
+
+
+def get_manifold_metrics(
+        h5_file,
+        pwm_list,
+        manifold_h5_file,
+        features_key=DataKeys.FEATURES,
+        cluster_key=DataKeys.CLUST_FILT,
+        null_cluster_present=True,
+        recall_thresh=0.10):
+    """extract metrics on the pwm manifold
+    """
+    from tronn.interpretation.motifs import correlate_pwms
+    from tronn.interpretation.motifs import reduce_pwms
+    from tronn.interpretation.motifs import get_individual_pwm_thresholds
+
+    # TODO move this out. doesn't belong in pure manifold calling
+    # set up hclust on pwms (to know which pwms look like each other)
+    cor_filt_mat, distances = correlate_pwms(
+        pwm_list,
+        cor_thresh=0.3,
+        ncor_thresh=0.2,
+        num_threads=24)
+    hclust = linkage(squareform(1 - distances), method="ward")
+
+    # get clusters and data
+    with h5py.File(h5_file, "r") as hf:
+        data = hf[features_key][:] # {N, task, M}
+        raw_data = hf[DataKeys.ORIG_SEQ_PWM_SCORES_SUM][:] # {N, 1, M}
+        clusters = hf[cluster_key][:] # {N}
+    cluster_ids = sorted(list(set(clusters.tolist())))
+    print cluster_ids
+    if null_cluster_present:
+        cluster_ids.remove(-1)
+    
+    # set up save arrays as dict
+    out_shape = (len(cluster_ids), data.shape[1], data.shape[2])
+    out_arrays = {}
+    out_arrays[DataKeys.MANIFOLD_CENTERS] = np.zeros(out_shape)
+    out_arrays[DataKeys.MANIFOLD_WEIGHTINGS] = np.zeros(out_shape)
+    out_arrays[DataKeys.MANIFOLD_THRESHOLDS] = np.zeros((len(cluster_ids), data.shape[1]))
+    out_arrays[DataKeys.MASTER_PWMS] = np.zeros((data.shape[2]))
+
+    # TODO add in soft clustering array (for each cluster, after recall)
+    
+    # then calculate metrics on each cluster separately
+    for cluster_idx in xrange(len(cluster_ids)):
+        cluster_id = cluster_ids[cluster_idx]
+        print "cluster_id: {}".format(cluster_id),
+        in_cluster = clusters == cluster_id # chekc this
+            
+        # get the data in this cluster
+        scores_in_cluster = data[np.where(in_cluster)[0],:,:] # {N, task, M}
+        print "total examples: {}".format(scores_in_cluster.shape[0]),
+        raw_scores_in_cluster = raw_data[np.where(in_cluster)[0],:,:] # {N, 1, M}
+        raw_center = np.median(raw_scores_in_cluster, axis=0) # {1, M}
+
+        # row norm
+        orig_shape = scores_in_cluster.shape
+        scores_in_cluster = np.reshape(scores_in_cluster, [-1, orig_shape[2]]) # {N*task, M}
+        scores_in_cluster = rownorm2d(scores_in_cluster) # TODO consider whether this is useful
+        scores_in_cluster = np.reshape(scores_in_cluster, orig_shape)
+
+        # ignore zeros
+        scores_in_cluster = scores_in_cluster[np.max(scores_in_cluster, axis=[1,2])>0]
+        print "after remove zeros: {}".format(scores_in_cluster.shape[0])
+        
+        # calculate cluster medoids
+        centers = np.median(scores_in_cluster, axis=0) # {task, M}
+        center_ratios = np.divide(centers, raw_center) # {task, M}
+
+        # weighted raw data
+        weighted_raw_data = np.multiply(raw_data, np.expand_dims(center_ratios, 0)) # {N, task, M}
+        weighted_raw_data[np.logical_not(np.isfinite(weighted_raw_data))] = 0
+        
+        # calculate thresholds for each task separately (since euclidean and jaccard dont do matrix multiplies)
+        for task_idx in xrange(data.shape[1]):
+            print "task: {}, ".format(task_idx),
+
+            # get threshold by first weighting the raw sequence
+            # TODO check this again
+            # NOTE: compared dot product, euclidean, and jaccard. dot product was best
+            similarity_threshold, threshold_filter = get_threshold_on_dot_product(
+                centers[task_idx,:],
+                weighted_raw_data,
+                in_cluster,
+                recall_thresh=recall_thresh) # ie grab the top 10% of regions
+            print "passing filter: {}".format(np.sum(threshold_filter)),
+            print "true positives: {}".format(np.sum(threshold_filter * cluster_labels)),
+
+            # TODO still do this?
+            # but likely pull out of this function?
+            # and better to do this with the soft clustering results
+            # IF keeping this, MUST row norm...
+            # needed for PWM vector though
+            # so if it depends on row norm, what does it really mean? its a filter on rank?
+            # get significant motifs with their thresholds
+            #weighted_raw_scores_in_cluster = weighted_raw_scores[np.where(cluster_labels)[0],:]
+            #pwm_vector = reduce_pwms(weighted_raw_scores, hclust, pwm_list) # TODO consider switching to weighted
+            #pwm_thresholds = get_individual_pwm_thresholds(
+            #    weighted_raw_scores,
+            #    cluster_labels,
+            #    pwm_vector)
+            
+            # if there are no significant pwms, do not save out
+            # TODO but somehow need to filter this out?
+            if np.sum(pwm_vector) == 0:
+                continue
+                
+            # and save into master pwm vector
+            master_pwm_vector += pwm_vector
+            print "total in master pwms: {}".format(np.sum(master_pwm_vector > 0))
+            
+            # save this info out
+            out_arrays[DataKeys.MANIFOLD_CENTERS][cluster_idx,task_idx,:] = center
+            out_arrays[DataKeys.MANIFOLD_WEIGHTINGS][cluster_idx,task_idx,:] = center_ratio
+            out_arrays[DataKeys.MANIFOLD_THRESHOLDS][cluster_idx,task_idx] = similarity_threshold
+            #manifold_pwm_thresholds[i,j,:] = pwm_thresholds
+
+        
+    # remember to save out cluster ids also
+
+    return
 
 def get_manifold_centers(
         scores_h5_file,
@@ -698,9 +818,6 @@ def aggregate_pwm_results_per_cluster(
                 else:
                     agg_data[cluster_idx, dataset_idx,:] = np.sum(
                         data_norm[clusters[:,cluster_id] >= 1], axis=0)
-
-            import ipdb
-            ipdb.set_trace()
             
         # if needed, filter for master pwm vector
         agg_data = agg_data[:,:,master_pwm_vector > 0]

@@ -5,6 +5,17 @@ import h5py
 import numpy as np
 import pandas as pd
 
+from tronn.util.utils import DataKeys
+
+class AttrKeys(object):
+    """standard names for attributes in h5 files
+    """
+
+    PWM_NAMES = "pwm_names"
+
+    
+
+
 
 # TODO try to deprecate this?
 def get_absolute_label_indices(label_keys, key_dict, test_h5_file, list_of_lists=False):
@@ -41,3 +52,17 @@ def get_absolute_label_indices(label_keys, key_dict, test_h5_file, list_of_lists
         return absolute_task_indices
 
 
+def add_pwm_names_to_h5(
+        h5_file,
+        pwm_names,
+        substring=DataKeys.PWM_SCORES_ROOT,
+        pwm_names_key=AttrKeys.PWM_NAMES):
+    """if substring is in the dataset key, then add the 
+    pwm names as an attribute t o h5
+    """
+    with h5py.File(h5_file, "a") as hf:
+        for key in hf.keys():
+            if substring in key:
+                hf[key].attrs[pwm_names_key] = pwm_names
+                
+    return None

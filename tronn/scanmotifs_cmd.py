@@ -17,6 +17,11 @@ from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
 from tronn.nets.nets import net_fns
 
+from tronn.interpretation.motifs import select_pwms
+from tronn.interpretation.motifs import select_pwms_by_cluster
+
+from tronn.interpretation.clustering import cluster_dataset
+
 from tronn.interpretation.clustering import generate_simple_metaclusters
 from tronn.interpretation.clustering import refine_clusters
 from tronn.interpretation.clustering import aggregate_pwm_results
@@ -25,15 +30,19 @@ from tronn.interpretation.clustering import get_manifold_centers
 from tronn.interpretation.clustering import aggregate_pwm_results
 from tronn.interpretation.clustering import aggregate_pwm_results_per_cluster
 
-from tronn.visualization import visualize_clustered_h5_dataset_full
-from tronn.visualization import visualize_aggregated_h5_datasets
-from tronn.visualization import visualize_datasets_by_cluster_map
+#from tronn.visualization import visualize_clustered_h5_dataset_full
+#from tronn.visualization import visualize_aggregated_h5_datasets
+#from tronn.visualization import visualize_datasets_by_cluster_map
 from tronn.visualization import visualize_h5_dataset
 from tronn.visualization import visualize_h5_dataset_by_cluster
 
 from tronn.visualization import visualize_clustering_results
 
 from tronn.interpretation.grammars import make_bed
+
+from tronn.util.h5_utils import add_pwm_names_to_h5
+
+from tronn.util.utils import DataKeys
 
 
 def _get_cluster_bed(h5_file, cluster_key, metadata_key, soft_clustering=False):
@@ -72,14 +81,12 @@ def run(args):
     else:
         args.tmp_dir = args.out_dir
         
-    # data files
+    # set up dataloader and input function
     if args.data_dir is not None:
         data_files = glob.glob('{}/*.h5'.format(args.data_dir))
         data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
         logger.info("Found {} chrom files".format(len(data_files)))
         dataloader = H5DataLoader(data_files, fasta=args.fasta)
-
-        # get input fn
         input_fn = dataloader.build_input_fn(
             args.batch_size,
             label_keys=args.model_info["label_keys"],
@@ -87,16 +94,12 @@ def run(args):
             singleton_filter_tasks=args.inference_task_indices)
         
     elif args.bed_input is not None:
-        # requires a FASTA file
         dataloader = BedDataLoader(args.bed_input, args.fasta)
-
-        # get input fn
         input_fn = dataloader.build_input_fn(
             args.batch_size,
             label_keys=args.model_info["label_keys"])
 
     # set up model
-    args.model_info["params"]["is_regression"] = False # TODO fix this 
     model_manager = ModelManager(
         net_fns[args.model_info["name"]],
         args.model_info["params"])
@@ -107,10 +110,11 @@ def run(args):
         args.out_dir,
         net_fns[args.inference_fn],
         inference_params={
+            # TODO can we clean this up?
             "model_fn": net_fns[args.model_info["name"]],
             "num_tasks": args.model_info["params"]["num_tasks"],
-            "use_filtering": False if args.bed_input is not None else True,
-            "backprop": args.backprop,
+            "use_filtering": False if args.bed_input is not None else True, # TODO do this better
+            "backprop": args.backprop, # change this to importance_method
             "importance_task_indices": args.inference_task_indices,
             "pwms": args.pwm_list},
         checkpoint=args.model_info["checkpoint"],
@@ -125,53 +129,54 @@ def run(args):
             results_h5_file,
             args.sample_size,
             debug=args.debug)
-        
+
         # add in PWM names to the datasets
-        with h5py.File(results_h5_file, "a") as hf:
-            for dataset_key in hf.keys():
-                if "pwm-scores" in dataset_key:
-                    hf[dataset_key].attrs["pwm_names"] = [
-                        pwm.name for pwm in args.pwm_list]
+        add_pwm_names_to_h5(
+            results_h5_file,
+            [pwm.name for pwm in args.pwm_list])
                         
     # now run clustering
     if args.cluster and not args.debug:
         visualize = True # TODO adjust later
         logging.info("running clustering - louvain (Phenograph)")
-        dataset_keys = [
-            "pwm-scores.taskidx-{}".format(i)
-            for i in args.inference_task_indices]
 
-        # clustering: do this using all information (across all tasks)
-        metacluster_key = "metaclusters"
-        #cluster_keys = ["final_hidden"]
-        cluster_keys = dataset_keys
-        if metacluster_key not in h5py.File(results_h5_file, "r").keys():
-            generate_simple_metaclusters(results_h5_file, cluster_keys, metacluster_key)
-
-        # refine
-        refined_metacluster_key = "metaclusters-refined"
-        if refined_metacluster_key not in h5py.File(results_h5_file, "r").keys():
-            refine_clusters(
-                results_h5_file,
-                metacluster_key,
-                refined_metacluster_key,
-                null_cluster_present=False)
-
+        # cluster
+        # TODO try hidden layer again sometime
+        if DataKeys.CLUST_FILT not in h5py.File(results_h5_file, "r").keys():
+            cluster_dataset(results_h5_file, DataKeys.FEATURES)
+        
         # visualize in R
+        # TODO adjust for -1 vals
+        visualize = False
         if visualize:
             visualize_clustering_results(
                 results_h5_file,
-                refined_metacluster_key,
+                DataKeys.CLUST_FILT,
                 args.inference_task_indices,
                 args.visualize_task_indices,
                 args.visualize_signals,
                 remove_final_cluster=False if args.bed_input else True)
 
-        _get_cluster_bed(
+            # TODO there's gotta be a better place to put this
+            _get_cluster_bed(
+                results_h5_file,
+                DataKeys.CLUST_FILT,
+                DataKeys.SEQ_METADATA,
+                soft_clustering=False)
+            
+        # TODO calling significant pwms per cluster
+        #select_pwms(results_h5_file, args.pwm_list, "test")
+        select_pwms_by_cluster(
             results_h5_file,
-            refined_metacluster_key,
-            "example_metadata",
-            soft_clustering=False)
+            args.pwm_list,
+            "cluster_pwms",
+            cluster_key=DataKeys.CLUST_FILT)
+
+        quit()
+        
+        dataset_keys = [
+            "pwm-scores.taskidx-{}".format(i)
+            for i in args.inference_task_indices]
 
         # get the manifold descriptions out per cluster
         # TODO also set up new cluster definitions, and re-visualize?
@@ -184,6 +189,10 @@ def run(args):
         global_agg_key = "pwm-scores.tasks_x_pwm.global"
         agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
         if not os.path.isfile(manifold_h5_file):
+            # TODO check this again using importance scores (compare to median cluster scores, NOT mean)
+
+            # also rename - get_manifold_metrics()
+            
             get_manifold_centers(
                 results_h5_file,
                 dataset_keys,

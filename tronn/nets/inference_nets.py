@@ -16,12 +16,8 @@ from tronn.nets.threshold_nets import threshold_gaussian
 from tronn.nets.threshold_nets import threshold_shufflenull
 from tronn.nets.threshold_nets import clip_edges
 
-#from tronn.nets.motif_nets import pwm_consistency_check
-#from tronn.nets.motif_nets import pwm_positional_max
 from tronn.nets.motif_nets import pwm_position_squeeze
 from tronn.nets.motif_nets import pwm_relu
-#from tronn.nets.motif_nets import pwm_match_filtered_convolve
-#from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import multitask_global_pwm_scores
 
 # TESTING
