@@ -53,19 +53,28 @@ class DataKeys(object):
     WEIGHTED_SEQ_PWM_SCORES_SUM = "{}.sum".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_SEQ_SHUF_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE_SHUF, PWM_SCORES_ROOT)
 
-    PWM_CLUSTER_THRESHOLDS = "pwms.thresholds" # check is this useful? deprecate this since i now call actual pwm hits with null
-    MASTER_PWMS = "master_pwms" # full vector to mask results
-    PWM_SIG_MASK = "master_pwms"
-
-    PWM_SCORES_AGG_GLOBAL = "{}.agg".format(PWM_SCORES_ROOT)
-    PWM_SCORES_AGG_CLUST = "{}.agg.clusters".format(PWM_SCORES_ROOT)
+    # significant pwms
+    PWM_SIG_ROOT = "pwms.sig"
+    PWM_SIG_GLOBAL = "{}.global".format(PWM_SIG_ROOT)
+    PWM_SCORES_AGG_GLOBAL = "{}.agg".format(PWM_SIG_GLOBAL)
+    PWM_SIG_CLUST = "{}.clusters".format(PWM_SIG_ROOT)
+    PWM_SIG_CLUST_ALL = "{}.all".format(PWM_SIG_CLUST)
+    PWM_SCORES_AGG_CLUST = "{}.agg".format(PWM_SIG_CLUST_ALL)
     
     # manifold keys
-    MANIFOLD_ROOT = "pwm_manifold"
+    MANIFOLD_ROOT = "manifold"
     MANIFOLD_CENTERS = "{}.centers".format(MANIFOLD_ROOT)
     MANIFOLD_THRESHOLDS = "{}.thresholds".format(MANIFOLD_ROOT)
     MANIFOLD_CLUST = "{}.clusters".format(MANIFOLD_ROOT)
 
+    # manifold sig pwm keys
+    MANIFOLD_PWM_ROOT = "{}.pwms".format(MANIFOLD_ROOT)
+    MANIFOLD_PWM_SIG_GLOBAL = "{}.global".format(MANIFOLD_PWM_ROOT)
+    MANIFOLD_PWM_SCORES_AGG_GLOBAL = "{}.agg".format(MANIFOLD_PWM_SIG_GLOBAL)
+    MANIFOLD_PWM_SIG_CLUST = "{}.clusters".format(MANIFOLD_PWM_ROOT)
+    MANIFOLD_PWM_SIG_CLUST_ALL = "{}.all".format(MANIFOLD_PWM_SIG_CLUST)
+    MANIFOLD_PWM_SCORES_AGG_CLUST = "{}.agg".format(MANIFOLD_PWM_SIG_CLUST_ALL)
+    
     # cluster keys
     CLUST_ROOT = "clusters"
     CLUST_FILT = "{}.filt".format(CLUST_ROOT)

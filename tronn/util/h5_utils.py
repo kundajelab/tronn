@@ -57,7 +57,8 @@ def add_pwm_names_to_h5(
         h5_file,
         pwm_names,
         substring=DataKeys.PWM_SCORES_ROOT,
-        pwm_names_key=AttrKeys.PWM_NAMES):
+        pwm_names_key=AttrKeys.PWM_NAMES,
+        other_keys=[]):
     """if substring is in the dataset key, then add the 
     pwm names as an attribute t o h5
     """
@@ -65,5 +66,14 @@ def add_pwm_names_to_h5(
         for key in hf.keys():
             if substring in key:
                 hf[key].attrs[pwm_names_key] = pwm_names
+            if key in other_keys:
+                hf[key].attrs[pwm_names_key] = pwm_names
                 
     return None
+
+
+def copy_datasets(in_h5_file, out_h5_file, keys=[]):
+    """
+    """
+
+    return

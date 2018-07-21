@@ -7,8 +7,6 @@ import math
 import numpy as np
 import pandas as pd
 
-import tensorflow as tf
-
 from multiprocessing import Pool
 
 from scipy.stats import pearsonr
@@ -16,28 +14,15 @@ from scipy.signal import correlate2d
 from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
 from scipy.spatial.distance import squareform
 
-#from sklearn.metrics import precision_recall_curve
-#from sklearn.metrics import roc_curve
-
-from tronn.visualization import plot_weights
-
-# TODO move all these to stats
+# TODO check if this needed?
 from tronn.interpretation.clustering import get_distance_matrix
-from tronn.interpretation.clustering import aggregate_array
-
-#from tronn.interpretation.learning import build_polynomial_model
-#from tronn.interpretation.learning import build_regression_model
-#from tronn.interpretation.learning import threshold_at_recall
 
 from tronn.stats.nonparametric import select_features_by_permutation_test
 
-#from sklearn import linear_model
-#from sklearn.preprocessing import PolynomialFeatures
-
 from tronn.util.utils import DataKeys
+from tronn.util.h5_utils import AttrKeys
 
-
-
+# TODO move to a pwm module
 def read_pwm_file(pwm_file, value_type="log_likelihood", as_dict=False):
     """Extracts motifs into PWM class format
     """
@@ -413,116 +398,6 @@ class PWM(object):
         return None
 
 
-
-def select_pwms(
-        h5_file,
-        pwm_list,
-        out_key,
-        data_key=DataKeys.FEATURES):
-    """select pwms from whole dataset, per task
-    """
-    # set up
-    with h5py.File(h5_file, "r") as hf:
-        data = hf[data_key][:] # {N, task, M}
-
-    sig_pwms = np.zeros((data.shape[2]))
-
-
-    # correlate pwms (in prep for reduce)
-    cor_filt_mat, distances = correlate_pwms(
-        pwm_list,
-        cor_thresh=0.3,
-        ncor_thresh=0.2,
-        num_threads=24)
-    hclust = linkage(squareform(1 - distances), method="ward")
-
-    
-    for task_idx in xrange(data.shape[1]):
-        task_data = data[:,task_idx,:]
-
-        # select
-        sig_pwms += select_pwms_by_permutation_test_and_reduce(
-            task_data,
-            pwm_list,
-            hclust)
-
-    import ipdb
-    ipdb.set_trace()
-
-        
-    with h5py.File(h5_file, "a") as out:
-        out.create_dataset(out_key, sig_pwms)
-    
-    return None
-
-
-def select_pwms_by_cluster(
-        h5_file,
-        pwm_list,
-        out_key,
-        data_key=DataKeys.FEATURES,
-        cluster_key=DataKeys.CLUST_FILT):
-    """select pwms from whole dataset, per task
-    """
-    # set up
-    with h5py.File(h5_file, "r") as hf:
-        data = hf[data_key][:] # {N, task, M}
-        clusters = hf[cluster_key][:]
-
-    if len(clusters.shape) == 1:
-        # hard clusters
-        cluster_ids = sorted(list(set(clusters.tolist())))
-        if -1 in cluster_ids:
-            cluster_ids.remove(-1)
-        hard_clusters = True
-    else:
-        # soft clusters
-        cluster_ids = range(clusters.shape[1])
-
-    # correlate pwms (in prep for reduce)
-    cor_filt_mat, distances = correlate_pwms(
-        pwm_list,
-        cor_thresh=0.3,
-        ncor_thresh=0.2,
-        num_threads=24)
-    hclust = linkage(squareform(1 - distances), method="ward")
-    
-    sig_pwms = np.zeros((len(cluster_ids), data.shape[2]))
-
-    for cluster_idx in xrange(len(cluster_ids)):
-        print cluster_idx
-        cluster_id = cluster_ids[cluster_idx]
-
-        # get which examples are in cluster
-        if hard_clusters:
-            in_cluster = clusters == cluster_id
-        else:
-            in_cluster = clusters[:,cluster_id] == 1
-
-        # select
-        scores_in_cluster = data[np.where(in_cluster)[0],:,:] # {N, task, M}
-        cluster_pwms = np.zeros((data.shape[2]))
-        
-        for task_idx in xrange(data.shape[1]):
-            task_data = scores_in_cluster[:,task_idx,:] # {N, M}
-
-            # select
-            cluster_pwms += select_pwms_by_permutation_test_and_reduce(
-                task_data,
-                pwm_list,
-                hclust)
-
-        sig_pwms[cluster_idx,:] = cluster_pwms
-
-    import ipdb
-    ipdb.set_trace()
-        
-    with h5py.File(h5_file, "a") as out:
-        out.create_dataset(out_key, sig_pwms)
-    
-    return None
-    
-
 def select_pwms_by_permutation_test_and_reduce(
         array,
         pwm_list,
@@ -549,747 +424,160 @@ def select_pwms_by_permutation_test_and_reduce(
     return sig_pwms
 
 
-def aggregate_pwm_scores(
-        h5_file,
-        key=DataKeys.FEATURES,
-        out_key=DataKeys.PWM_SCORES_AGG_GLOBAL,
-        sig_mask_key=DataKeys.PWM_SIG_MASK):
-    """aggregate while masking for sig pwms
+# TODO move to... stats?
+def aggregate_array(
+        array,
+        agg_fn=np.median,
+        agg_axis=0,
+        mask=None):
+    """aggregate dataset
     """
-    with h5py.File(h5_file, "r") as hf:
-        data = hf[key][:]
-        sig_mask = hf[sig_mask_key][:]
-
-    # aggregate
-    agg_data = aggregate_array(data, slice_indices=sig_mask)
+    agg_array = agg_fn(array, axis=agg_axis) # {task, M}
+    agg_array = agg_array[:,mask>0]
     
-    # save
-    with h5py.File(h5_file, "a") as out:
-        out.create_dataset(out_key, data=agg_data)
-        out[out_key].attrs[AttrKeys.PWM_NAMES] = out[sig_mask_key].attrs[AttrKeys.PWM_NAMES]
-    
-    return None
+    return agg_array
 
 
-def aggregate_pwm_scores_by_cluster(
-        h5_file,
-        key=DataKeys.FEATURES,
-        cluster_key=DataKeys.CLUST_FILT,
-        out_key=DataKeys.PWM_SCORES_AGG_CLUST,
-        sig_mask_key=DataKeys.PWM_SIG_MASK):
-    """aggregate while masking for sig pwms
+def select_task_pwms(array, pwm_list, hclust):
+    """wrapper to make it easy to work with task dimension
     """
-    with h5py.File(h5_file, "r") as hf:
-        data = hf[key][:]
-        clusters = hf[cluster_key][:]
-        sig_mask = hf[sig_mask_key][:]
+    assert len(array.shape) == 3
+
+    sig_pwms = np.zeros((array.shape[2]))
+    for task_idx in xrange(array.shape[1]):
+        task_data = array[:,task_idx,:]
+        sig_pwms += select_pwms_by_permutation_test_and_reduce(
+            task_data, pwm_list, hclust)
         
+    return sig_pwms
+
+
+def refine_sig_pwm_clusters(clusters):
+    """adjust clusters
+    """
+    # TODO if needed
+
+    
+
+    return
+
+
+def extract_significant_pwms(
+        h5_file,
+        pwm_list,
+        data_key=DataKeys.FEATURES,
+        cluster_key=DataKeys.CLUST_FILT,
+        pwm_names_attr_key=AttrKeys.PWM_NAMES,
+        pwm_sig_global_key=DataKeys.PWM_SIG_GLOBAL,
+        pwm_scores_agg_global_key=DataKeys.PWM_SCORES_AGG_GLOBAL,
+        pwm_sig_clusters_key=DataKeys.PWM_SIG_CLUST,
+        pwm_sig_clusters_all_key=DataKeys.PWM_SIG_CLUST_ALL,
+        pwm_scores_agg_clusters_key=DataKeys.PWM_SCORES_AGG_CLUST,
+        refine_clusters=False):
+    """
+    """
+    # get a hierarchical clustering on pwms by sequence distance
+    cor_filt_mat, distances = correlate_pwms(
+        pwm_list, cor_thresh=0.3, ncor_thresh=0.2, num_threads=24)
+    hclust = linkage(squareform(1 - distances), method="ward")
+
+    # outputs
+    outputs = {}
+    
+    # pull out data
+    with h5py.File(h5_file, "r") as hf:
+        data = hf[data_key][:] # {N, task, M}
+        pwm_names = hf[data_key].attrs[pwm_names_attr_key]
+        
+    # (1) get global sig (and aggregate results)
+    # TODO when stable use multiprocessing Pool
+    sig_pwms = select_task_pwms(data, pwm_list, hclust)
+    agg_data = aggregate_array(data, mask=sig_pwms)
+
+    # save out
+    pwm_sig_global_names = pwm_names[sig_pwms > 0]
+    outputs[pwm_sig_global_key] = (sig_pwms, pwm_sig_global_names)
+    outputs[pwm_scores_agg_global_key] = (agg_data, pwm_sig_global_names)
+    print "globally significant:", pwm_sig_global_names
+    
+    # (2) get cluster sig (and aggregate results)
+    with h5py.File(h5_file, "r") as hf:
+        clusters = hf[cluster_key][:]
+
     if len(clusters.shape) == 1:
         # hard clusters
         cluster_ids = sorted(list(set(clusters.tolist())))
-        if -1 in cluster_ids:
-            cluster_ids.remove(-1)
+        if -1 in cluster_ids: cluster_ids.remove(-1)
         hard_clusters = True
     else:
         # soft clusters
         cluster_ids = range(clusters.shape[1])
+        hard_clusters = False
 
-    agg_data = np.zeros((len(cluster_ids), data.shape[1], data.shape[2]))
+    # go through clusters to get sig pwms
+    sig_pwms = np.zeros((len(cluster_ids), data.shape[2]))
     for cluster_idx in xrange(len(cluster_ids)):
+        print cluster_idx,
         cluster_id = cluster_ids[cluster_idx]
-        
+
+        # get which examples are in cluster
+        if hard_clusters:
+            in_cluster = clusters == cluster_id
+        else:
+            in_cluster = clusters[:,cluster_id] == 1
+        print "num examples: {}".format(np.sum(in_cluster))
+            
+        # select
+        cluster_data = data[np.where(in_cluster)[0],:,:] # {N, task, M}
+        cluster_pwms = np.zeros((data.shape[2]))
+
+        # get sig and aggregate results
+        sig_pwms[cluster_idx,:] = select_task_pwms(cluster_data, pwm_list, hclust)
+        pwm_sig_cluster_names = pwm_names[sig_pwms[cluster_idx,:] > 0]
+        print pwm_sig_cluster_names
+    
+    # adjust clustering as needed
+    if refine_clusters:
+        pass
+
+    # save out
+    outputs[pwm_sig_clusters_all_key] = np.any(sig_pwms > 0, axis=0) # {M}
+    pwm_sig_cluster_global_names = pwm_names[outputs[pwm_sig_clusters_all_key] > 0]
+    print pwm_sig_cluster_global_names
+    
+    # and aggregate {cluster, task, M}
+    agg_data = np.zeros((
+        len(cluster_ids),
+        data.shape[1],
+        np.sum(outputs[pwm_sig_clusters_all_key])))
+    for cluster_idx in xrange(len(cluster_ids)):
+        print cluster_idx
+        cluster_id = cluster_ids[cluster_idx]
+
         # get which examples are in cluster
         if hard_clusters:
             in_cluster = clusters == cluster_id
         else:
             in_cluster = clusters[:,cluster_id] == 1
 
-        # select
-        cluster_data = data[np.where(in_cluster)[0],:,:] # {N, task, M}
-        
-        # aggregate
+        cluster_data = data[np.where(in_cluster)[0],:,:]
         agg_data[cluster_idx,:,:] = aggregate_array(
-            cluster_data, slice_indices=sig_mask)
+            cluster_data, mask=outputs[pwm_sig_clusters_all_key])
     
-    # save
+    # save out
+    outputs[pwm_sig_clusters_key] = (sig_pwms, pwm_sig_cluster_global_names)
+    outputs[pwm_scores_agg_clusters_key] = (agg_data, pwm_sig_cluster_global_names)
+
+    import ipdb
+    ipdb.set_trace()
+    
+    # and then save all of this out
     with h5py.File(h5_file, "a") as out:
-        out.create_dataset(out_key, data=agg_data)
-        out[out_key].attrs[AttrKeys.PWM_NAMES] = out[sig_mask_key].attrs[AttrKeys.PWM_NAMES]
+        for key in outputs.keys():
+            out.create_dataset(key, data=outputs[key][0])
+            out[key].attrs[AttrKeys.PWM_NAMES] = outputs[key][1]
     
     return None
-
-
-
-
-
-    
-
-# set up pwm metadata
-def setup_pwm_metadata(metadata_file):
-    """read in metadata to dicts for easy use
-    """
-    pwm_name_to_hgnc = {}
-    hgnc_to_pwm_name = {}
-    with open(metadata_file, "r") as fp:
-        for line in fp:
-            fields = line.strip().split("\t")
-            try:
-                pwm_name_to_hgnc[fields[0]] = fields[4]
-                hgnc_to_pwm_name[fields[4]] = fields[0]
-            except:
-                pwm_name_to_hgnc[fields[0]] = fields[0].split(".")[0].split("_")[2]
-                pwm_name_to_hgnc[fields[0]] = "UNK"
-
-    return pwm_name_to_hgnc, hgnc_to_pwm_name
-
-
-
-
- 
-def reduce_pwms_old(data, pwm_list, pwm_dict, std_thresh=3):
-    """Wrapper for all pwm reduction functions
-    """
-    assert len(pwm_list) == data.shape[1]
-    
-    # set a cutoff - assume Gaussian noise, this controls
-    # false positive rate
-    #pwm_vector = sd_cutoff(data, col_mask=pwm_vector)
-    pwm_vector = sd_cutoff(data, std_thresh=std_thresh) # was 2
-    
-    # reduce by motif similarity, keeping the motif
-    # with the strongest signal
-    pwm_vector = pwm_vector * reduce_pwms_by_signal_similarity(
-        data, pwm_list, pwm_dict)
-    
-    # ignore long pwms
-    if True:
-        current_indices = np.where(pwm_vector > 0)[0].tolist()
-        for idx in current_indices:
-            if pwm_list[idx].weights.shape[1] > 15:
-                pwm_vector[idx] = 0
-
-    # debug
-    print "final pwm count:", np.sum(pwm_vector)
-    indices = np.where(pwm_vector > 0)[0].tolist()
-    print [pwm_list[k].name for k in indices]
-    pwm_to_index = {}
-    for k in indices:
-        pwm_to_index[pwm_list[k].name] = k
-    
-    return pwm_vector
-
-
-def get_individual_pwm_thresholds(
-        data,
-        labels,
-        pwm_vector,
-        recall_thresh=0.95):
-    """get threshold vector
-    """
-    indices = np.where(pwm_vector > 0)[0].tolist()
-    pwm_thresholds = np.zeros(pwm_vector.shape)
-    for pwm_idx in indices:
-        threshold = threshold_at_recall(
-            labels, data[:,pwm_idx], recall_thresh=recall_thresh)
-        pwm_thresholds[pwm_idx] = threshold
-
-    return pwm_thresholds
-
-
-def distill_to_linear_models(
-        h5_file,
-        dataset_keys,
-        cluster_key,
-        refined_cluster_key,
-        out_key,
-        pwm_list,
-        pwm_dict,
-        pwm_file=None,
-        grammar_files=True,
-        visualize=False,
-        label_indices=[]):
-    """Given clusters, get the subset and determine minimal motifset
-    by reducing motif redundancy and motifs with low signal
-    """
-    assert len(label_indices) > 0
-    from tronn.interpretation.grammars import Grammar
-    
-    with h5py.File(h5_file, "a") as hf:
-        num_examples, num_motifs = hf[dataset_keys[0]].shape
-        raw_scores = hf["raw-pwm-scores"][:] # pull raw sequence
-
-        # set up a new cluster dataset, refined by the thresholded scores
-        #del hf[refined_cluster_key]
-        refined_clusters_hf = hf.create_dataset(
-            refined_cluster_key, hf[cluster_key].shape, dtype=int)
-
-        # get metaclusters and ignore the non-clustered set (highest ID value)
-        metacluster_by_region = hf[cluster_key][:,0]
-        metaclusters = list(set(hf[cluster_key][:,0].tolist()))
-        max_id = max(metaclusters)
-        metaclusters.remove(max_id)
-        print metaclusters
-        
-        # for each metacluster, for each dataset, get matrix
-        for i in xrange(len(metaclusters)):
-        #for i in xrange(1, len(metaclusters)):
-            metacluster_id = metaclusters[i]
-            print"metacluster:", metacluster_id
-
-            if grammar_files:
-                # set up grammar file name
-                grammar_file = "{0}.metacluster-{1}.motifset.grammar".format(
-                    h5_file.split(".h5")[0], metacluster_id)
-
-            for j in xrange(len(dataset_keys)):
-                print "task:", j
-                dataset_key = dataset_keys[j]
-                label_index = label_indices[j]
-                print "label index:", label_index # eventually change this
-                
-                # get subsets
-                cluster_labels = metacluster_by_region == metacluster_id
-                cluster_weighted_scores = hf[dataset_key][:][
-                    np.where(cluster_labels)[0],:]
-                cluster_raw_scores = raw_scores[
-                    np.where(cluster_labels)[0],:]
-                print "total examples used:", cluster_weighted_scores.shape
-                
-                # row normalize
-                max_vals = np.max(cluster_weighted_scores, axis=1, keepdims=True)
-                cluster_weighted_scores = np.divide(
-                    cluster_weighted_scores,
-                    max_vals,
-                    out=np.zeros_like(cluster_weighted_scores),
-                    where=max_vals!=0)
-                cluster_weighted_scores = cluster_weighted_scores[np.max(cluster_weighted_scores, axis=1) >0]
-                print "after remove zeroes:", cluster_weighted_scores.shape
-                
-                # keep mean vectors and weights
-                mean_score_vector = np.mean(cluster_raw_scores, axis=0)
-                mean_weighted_score_vector = np.mean(cluster_weighted_scores, axis=0)
-                mean_weights = np.divide(mean_weighted_score_vector, mean_score_vector)
-                
-                # weighted according to the weights from the cluster
-                weighted_raw_scores = np.multiply(
-                    raw_scores,
-                    np.expand_dims(mean_weights, axis=0))
-
-                # get threshold on distance metric
-                similarity_threshold, threshold_filter = get_threshold_on_dot_product(
-                    mean_weighted_score_vector,
-                    weighted_raw_scores,
-                    cluster_labels,
-                    recall_thresh=0.68) # 0.4?
-                print np.sum(threshold_filter)
-                passing_filter = threshold_filter # passing filter is only on jaccard and pwm thresholds
-                
-                # filter useful pwms
-                pwm_vector = reduce_pwms(cluster_weighted_scores, pwm_list, pwm_dict)
-                if np.sum(pwm_vector) == 0:
-                    continue
-
-                # adjust pwm thresholds
-                recall_thresh = 0.95
-                indices = np.where(pwm_vector > 0)[0].tolist()
-                pwm_thresholds = {}
-                for pwm_idx in indices:
-                    threshold = threshold_at_recall(
-                        cluster_labels, raw_scores[:,pwm_idx], recall_thresh=recall_thresh)
-                    pwm_thresholds[pwm_list[pwm_idx].name] = threshold
-                    passing_filter = np.multiply(
-                        passing_filter, raw_scores[:,pwm_idx] > threshold)
-                    
-                print np.sum(passing_filter)
-
-                print "final pwm count:", np.sum(pwm_vector)
-                print [pwm_list[k].name for k in indices]
-                #import ipdb
-                #ipdb.set_trace()
-
-                # build polynomial (deg 2) model on the subset
-                X = raw_scores[:, pwm_vector > 0]
-                X = np.multiply(X, np.expand_dims(passing_filter, axis=1)) # pass features through filters
-                y = np.multiply(passing_filter, hf["logits"][:,label_index])
-                #y = np.multiply(passing_filter, hf["probs"][:,label_index])
-                #y = np.multiply(passing_filter, hf["labels"][:,label_index])
-                
-                feature_names = [pwm_list[pwm_idx].name for pwm_idx in indices]
-                poly = PolynomialFeatures(
-                    2, interaction_only=False, include_bias=False)
-                X = poly.fit_transform(X)
-                poly_names = poly.get_feature_names(feature_names)
-                
-                #X_learn = X[passing_filter > 0]
-                #y_learn = y[passing_filter > 0]
-                final_set = np.multiply(cluster_labels, passing_filter)
-                X_learn = X[final_set > 0] # only learn on the things in the cluster that pass filter
-                y_learn = y[final_set > 0]
-                print X_learn.shape
-                clf = build_regression_model(X_learn, y_learn)
-
-                # back check and get threshold
-                fdr_thresh = 0.75 # opposite: so if want FDR 0.05, put in 0.95
-                scores = clf.predict(X)
-                from tronn.run_evaluate import auprc
-                # how well do we do at getting back the cluster
-                print "AUPRC for cluster:", auprc(cluster_labels, scores)
-
-                #from scipy.stats import describe
-                #print describe(scores)
-                
-                # threshold and get threshold (remove intercept so don't need to track it)
-                get_threshold = make_threshold_at_fdr(fdr_thresh)
-                model_threshold = get_threshold(cluster_labels, scores)
-
-                # allow the null labels to be included
-                allowed_labels = np.logical_or(cluster_labels, metacluster_by_region == max_id)
-                #model_threshold = get_threshold(cluster_labels, scores)
-                model_threshold = get_threshold(allowed_labels, scores)
-                model_threshold_adj = model_threshold - clf.intercept_
-                print "model threshold", model_threshold
-                print "fraction passing threshold", np.sum(scores > model_threshold)
-
-                # save out things
-                # save out weights into grammar file
-                motifspace_dict = {}
-                motifspace_param_string = "measure=dot_product;threshold={}".format(
-                    similarity_threshold)
-                # keep the mean vector and weighting info
-                for pwm_idx in xrange(mean_score_vector.shape[0]):
-                    motifspace_dict[pwm_list[pwm_idx].name] = (
-                        mean_weighted_score_vector[pwm_idx], mean_weights[pwm_idx])
-
-                    
-                node_dict = {}
-                edge_dict = {}
-                for coef_idx in xrange(len(poly_names)):
-
-                    # TODO - still need to save out!
-                    if clf.coef_[coef_idx] == 0:
-                        nodes = poly_names[coef_idx].split()
-                        if len(nodes) == 1:
-                            if "^2" not in nodes[0]:
-                                # single - save to node dict
-                                node_dict[nodes[0]] = (pwm_thresholds[nodes[0]], clf.coef_[coef_idx])
-                        continue
-
-                    # get name and split
-                    nodes = poly_names[coef_idx].split()
-
-                    # check for squared nodes
-                    if len(nodes) == 1:
-                        if "^2" not in nodes[0]:
-                            # single - save to node dict
-                            node_dict[nodes[0]] = (pwm_thresholds[nodes[0]], clf.coef_[coef_idx])
-                        else:
-                            # squared term - save to edge_dict
-                            node_name = nodes[0].split("^")[0]
-                            edge_dict[(node_name, node_name)] =  clf.coef_[coef_idx]
-                    elif len(nodes) == 2:
-                        # interaction term - save to edge_dict
-                        edge_dict[(nodes[0], nodes[1])] =  clf.coef_[coef_idx]
-                    else:
-                        raise Exception("Higher term polynomial not implemented yet")
-
-                # TODO given the model, get the AUPRC, AUROC, and recall at FDR
-                # for each label set
-                # TODO separate this out into a function in a metrics package
-                num_labels = hf["labels"].shape[1]
-                auroc_by_label = np.zeros((num_labels))
-                auprc_by_label = np.zeros((num_labels))
-                recall_by_label = np.zeros((num_labels))
-                accuracy_by_label = np.zeros((num_labels))
-                for label_idx in xrange(num_labels):
-                    label_set = hf["labels"][:, label_idx]
-
-                    from tronn.run_evaluate import auprc
-                    from tronn.run_evaluate import make_recall_at_fdr
-                    from sklearn.metrics import roc_auc_score
-                    # calculate metrics
-                    try:
-                        auprc_by_label[label_idx] = roc_auc_score(label_set, scores)
-                    except:
-                        auprc_by_label[label_idx] = 0
-                    try:
-                        auprc_by_label[label_idx] = auprc(label_set, scores)
-                    except:
-                        auprc_by_label[label_idx] = 0
-                    try:
-                        recall_at_fdr = make_recall_at_fdr(0.05)
-                        recall_by_label[label_idx] = recall_at_fdr(label_set, scores)
-                    except:
-                        recall_by_label[label_idx] = 0
-
-                    accuracy_by_label[label_idx] = np.sum(np.multiply(
-                        label_set, scores > model_threshold)) / float(np.sum(label_set))
-                    #accuracy_by_label[label_idx] = np.sum(np.multiply(
-                    #    label_set, final_mask)) / np.sum(final_mask)
-                    #accuracy_by_label[label_idx] = np.sum(np.multiply(
-                    #    label_set, scores)) / np.sum(label_set)
-                print accuracy_by_label[13:24]
-                print auprc_by_label[13:24]
-
-                task_grammar = Grammar(
-                    pwm_list,
-                    node_dict,
-                    edge_dict,
-                    ("taskidx={0};"
-                     "type=elastic_net;"
-                     "directed=no;"
-                     "threshold={1}").format(j, model_threshold_adj),
-                    motifspace_dict=motifspace_dict,
-                    motifspace_param_string=motifspace_param_string,
-                    name="metacluster-{0}.taskidx-{1}".format(
-                        metacluster_id, j)) # TODO consider adjusting the taskidx here
-                task_grammar.to_file(grammar_file)
-
-                # save out as a table
-                test = pd.DataFrame()
-                test["nn_logits"] = y_learn
-                test["linear_predictions"] = clf.predict(X_learn)
-
-                test.to_csv("testing.txt", sep="\t")
-
-            if visualize:
-                # network plots?
-
-                # heatmap of the weights on the model?
-                pass
-
-    return None
-
-    
-def get_minimal_motifsets( # minimal feature sets?
-        h5_file,
-        dataset_keys,
-        cluster_key,
-        refined_cluster_key,
-        out_key,
-        pwm_list,
-        pwm_dict,
-        pwm_file=None,
-        grammar_files=True,
-        visualize=False,
-        label_indices=[]):
-    """Given clusters, get the subset and determine minimal motifset
-    by reducing motif redundancy and motifs with low signal
-    """
-    assert len(label_indices) > 0
-    from tronn.interpretation.grammars import Grammar
-    
-    with h5py.File(h5_file, "a") as hf:
-        num_examples, num_motifs = hf[dataset_keys[0]].shape
-
-        # set up a new cluster dataset, refined by the minimal motif set
-        del hf[refined_cluster_key]
-        refined_clusters_hf = hf.create_dataset(
-            refined_cluster_key, hf[cluster_key].shape, dtype=int)
-
-        # get metaclusters and ignore the non-clustered set (highest ID value)
-        metacluster_by_region = hf[cluster_key][:,0]
-        metaclusters = list(set(hf[cluster_key][:,0].tolist()))
-        max_id = max(metaclusters)
-        metaclusters.remove(max_id)
-
-        # set up out matrix {metacluster, task, M} <- save as motif vector
-        del hf[out_key]
-        metacluster_motifs_hf = hf.create_dataset(
-            out_key, (len(metaclusters), len(dataset_keys), num_motifs))
-        metacluster_motifs_hf.attrs["pwm_names"] = hf[dataset_keys[0]].attrs["pwm_names"]
-        # finish filling out attributes first, then append to dataset
-        thresholds = np.zeros((
-            len(metaclusters), len(dataset_keys), 1))
-        
-        # for each metacluster, for each dataset, get matrix
-        for i in xrange(len(metaclusters)):
-            metacluster_id = metaclusters[i]
-            print"metacluster:", metacluster_id
-            metacluster_thresholds = np.zeros((len(dataset_keys), 1))
-
-            if grammar_files:
-                grammar_file = "{0}.metacluster-{1}.motifset.grammar".format(
-                    h5_file.split(".h5")[0], metacluster_id)
-
-            for j in xrange(len(dataset_keys)):
-                print "task:", j
-                dataset_key = dataset_keys[j]
-                label_index = label_indices[j]
-                print "label index:", label_index
-                
-                # get subset
-                sub_dataset = hf[dataset_key][:][
-                    np.where(metacluster_by_region == metacluster_id)[0],:]
-                print "total examples used:", sub_dataset.shape
-
-                # row normalize
-                sub_dataset = np.divide(
-                    sub_dataset, np.max(sub_dataset, axis=1, keepdims=True))
-                
-                # reduce pwms by signal similarity - a hierarchical clustering
-                pwm_vector = np.ones((len(pwm_list)))
-                pwm_vector = reduce_pwms_by_signal_similarity(
-                    sub_dataset, pwm_list, pwm_dict)
-
-                # then set a cutoff - assume Gaussian noise, this controls
-                # false positive rate
-                pwm_vector = sd_cutoff(sub_dataset, pwm_vector)
-
-                # ignore long pwms...
-                current_indices = np.where(pwm_vector > 0)[0].tolist()
-                for idx in current_indices:
-                    if pwm_list[idx].weights.shape[1] > 15:
-                        pwm_vector[idx] = 0
-                
-                print "final pwm count:", np.sum(pwm_vector)
-                indices = np.where(pwm_vector > 0)[0].tolist()
-                print [pwm_list[k].name for k in indices]
-                pwm_to_index = {}
-                for k in indices:
-                    pwm_to_index[pwm_list[k].name] = k
-
-                
-                # then on that set, run modeling
-
-                    
-                # reduce the cluster size to those that have
-                # all of the motifs in the pwm vector
-                refined_clusters_hf[metacluster_by_region==metacluster_id, 0] = max_id
-                data_norm = hf["pwm-scores-raw"][:] # do not adjust, these are as if raw sequence
-                masked_data = np.multiply(
-                    data_norm,
-                    np.expand_dims(pwm_vector, axis=0)) # the mask
-                # TODO - problem here, the minimal motif mask doesn't do anything
-                # or very little
-                minimal_motif_mask = np.sum(masked_data > 0, axis=1) >= np.sum(pwm_vector)
-                metacluster_mask = metacluster_by_region == metacluster_id
-                final_mask = np.multiply(minimal_motif_mask, metacluster_mask) # the label set
-                refined_clusters_hf[final_mask > 0, 0] = metacluster_id
-
-                # TODO first thing may be to adjust thresholds on PWMs
-                # want a pwm score that has perfect recall (gets all instances back)
-                # but no higher - so highest threshold with perfect recall
-                # refine the minimal motif mask
-                for k in indices:
-                    threshold = threshold_at_perfect_recall(
-                        final_mask, data_norm[:,k], recall_thresh=0.95)
-                    print np.min(data_norm[:,k])
-                    print threshold
-                    print np.sum(data_norm[:,k] > threshold)
-                    minimal_motif_mask = np.multiply(minimal_motif_mask, data_norm[:,k] > threshold)
-                    
-                final_mask = np.multiply(minimal_motif_mask, metacluster_mask) # the label set
-                    
-                # fit a polynomial (degree 2, just pairwise interactions) model
-                sub_dataset = masked_data[:,np.sum(masked_data, axis=0) > 0]
-                
-                # sub_dataset also needs to be filtered by motif presence
-                sub_dataset = np.multiply(
-                    sub_dataset,
-                    np.expand_dims(minimal_motif_mask, axis=1))
-                
-                print sub_dataset.shape
-                
-                print np.sum(minimal_motif_mask)
-                print np.sum(final_mask)
-                print np.sum(pwm_vector)
-
-
-                
-                import ipdb
-                ipdb.set_trace()
-                
-                
-                # build polynomial features
-                poly = PolynomialFeatures(2, interaction_only=True, include_bias=False)
-                X = poly.fit_transform(sub_dataset)
-                #X = sub_dataset
-                poly_names = poly.get_feature_names([pwm_list[k].name for k in indices])
-                print poly_names
-                y = np.multiply(final_mask, hf["logits"][:,label_index]) # match to logits
-
-                X_pos = X[final_mask == 1,:]
-                y_pos = y[final_mask == 1]
-
-                print X_pos.shape
-                print y_pos.shape
-
-                if y_pos.shape[0] == 0:
-                    continue
-
-                # note - if can't build a model, probably means not real - so ignore?
-                # LATER - fit the residuals with negative scores?
-                clf = build_regression_model(X_pos, y_pos)
-
-                # TO FIX - need to consider the indicator functions (all motifs present)
-                scores = clf.predict(X)
-                
-                # get threshold, on full dataset
-                print "total in cluster:", np.sum(final_mask)
-                true_pos_rate = np.sum(final_mask) / float(final_mask.shape[0])
-                print true_pos_rate
-                get_threshold = make_threshold_at_tpr(true_pos_rate)
-                #get_threshold = make_threshold_at_fdr(true_pos_rate)
-                threshold = get_threshold(final_mask, scores)
-
-                # save out weights into grammar file
-                node_dict = {}
-                edge_dict = {}
-                for coef_idx in xrange(len(poly_names)):
-
-                    if clf.coef_[coef_idx] == 0:
-                        continue
-                    
-                    # get name and split
-                    nodes = poly_names[coef_idx].split()
-
-                    # check for squared nodes
-                    if len(nodes) == 1:
-                        if "^2" not in nodes[0]:
-                            # single - save to node dict
-                            node_dict[nodes[0]] = clf.coef_[coef_idx]
-                        else:
-                            # squared term - save to edge_dict
-                            edge_dict[(nodes[0], nodes[0])] =  clf.coef_[coef_idx]
-                    elif len(nodes) == 2:
-                        # interaction term - save to edge_dict
-                        edge_dict[(nodes[0], nodes[1])] =  clf.coef_[coef_idx]
-                    else:
-                        raise Exception("Higher term polynomial not implemented yet")
-
-                # TODO given the model, get the AUPRC, AUROC, and recall at FDR
-                # for each label set
-                num_labels = hf["labels"].shape[1]
-                auroc_by_label = np.zeros((num_labels))
-                auprc_by_label = np.zeros((num_labels))
-                recall_by_label = np.zeros((num_labels))
-                accuracy_by_label = np.zeros((num_labels))
-                for label_idx in xrange(num_labels):
-                    label_set = hf["labels"][:, label_idx]
-
-                    from tronn.run_evaluate import auprc
-                    from tronn.run_evaluate import make_recall_at_fdr
-                    from sklearn.metrics import roc_auc_score
-                    # calculate metrics
-                    try:
-                        auprc_by_label[label_idx] = roc_auc_score(label_set, scores)
-                    except:
-                        auprc_by_label[label_idx] = 0
-                    try:
-                        auprc_by_label[label_idx] = auprc(label_set, scores)
-                    except:
-                        auprc_by_label[label_idx] = 0
-                    try:
-                        recall_at_fdr = make_recall_at_fdr(0.05)
-                        recall_by_label[label_idx] = recall_at_fdr(label_set, scores)
-                    except:
-                        recall_by_label[label_idx] = 0
-
-                    #accuracy_by_label[label_idx] = np.sum(np.multiply(
-                    #    label_set, scores > threshold)) / np.sum(label_set)
-                    accuracy_by_label[label_idx] = np.sum(np.multiply(
-                        label_set, final_mask)) / np.sum(label_set)
-                print accuracy_by_label[14:23]
-
-                task_grammar = Grammar(
-                    pwm_file,
-                    node_dict,
-                    edge_dict,
-                    ("taskidx={0};"
-                     "type=elastic_net;"
-                     "directed=no;"
-                     "threshold={1}").format(j, threshold),
-                    "metacluster-{0}.taskidx-{1}".format(
-                        metacluster_id, j)) # TODO consider adjusting the taskidx here
-                task_grammar.to_file(grammar_file)
-                    
-                # save out as a table
-                test = pd.DataFrame()
-                test["nn_logits"] = y_pos
-                test["linear_predictions"] = clf.predict(X_pos)
-
-                test.to_csv("testing.txt", sep="\t")
-
-                import ipdb
-                ipdb.set_trace()
-                
-                # TODO - this is where to save out coefficients in proper places
-                # have both pwm vector AND adjacency matrix (pairwise)
-                # use the names as indices
-                coefficients = clf.coef_.tolist()
-                
-                # save out the pwm vector
-                metacluster_motifs_hf[i, j, :] = pwm_vector
-
-                # determine best threshold and save out to attribute, set at 5% FDR
-                scores = np.sum(
-                    np.multiply(
-                        masked_data,
-                        np.expand_dims(minimal_motif_mask, axis=1)),
-                    axis=1)
-                labels = metacluster_mask
-                get_threshold = make_threshold_at_fdr(0.05)
-                threshold = get_threshold(labels, scores)
-                metacluster_thresholds[j, 0] = threshold
-                
-            # after finishing all tasks, save out to grammar file
-            if False:
-                grammar_file = "{0}.metacluster-{1}.motifset.grammar".format(
-                    h5_file.split(".h5")[0], metacluster_id)
-                for j in xrange(len(dataset_keys)):
-                    pwm_vector = metacluster_motifs_hf[i,j,:]
-                    pwm_names = np.array(metacluster_motifs_hf.attrs["pwm_names"])
-                    pwm_names = pwm_names[np.where(pwm_vector)]
-                    threshold = metacluster_thresholds[j,0]
-                    print threshold
-                    print pwm_names
-                    node_dict = {}
-                    for pwm in pwm_names:
-                        node_dict[pwm] = 1.0
-                    task_grammar = Grammar(
-                        pwm_file,
-                        node_dict,
-                        {},
-                        ("taskidx={0};"
-                         "type=metacluster;"
-                         "directed=no;"
-                         "threshold={1}").format(label_index, threshold),
-                        "metacluster-{0}.taskidx-{1}".format(
-                            metacluster_id, label_index))
-                    task_grammar.to_file(grammar_file)
-                    
-            if visualize:
-                # network plots?
-                pass
-                    
-            # add thresholds    
-            thresholds[i,:,:] = metacluster_thresholds
-
-        # append
-        metacluster_motifs_hf.attrs["thresholds"] = thresholds                    
-
-    return None
-
-
-def threshold_motifs(array, std_thresh=3):
-    """Given a matrix, threshold out motifs (columns) that are low in signal
-    """
-    # opt 1 - just get top k
-    # opt 2 - fit a normal distr and use standard dev cutoff
-    # opt 3 - shuffled vals?
-
-    # row normalize
-    array_norm = np.divide(array, np.max(array, axis=1, keepdims=True))
-    array_means = np.mean(array_norm, axis=0)
-    
-    # for now - across all vals, get a mean and standard dev
-    mean_val = np.mean(array_means)
-    std_val = np.std(array_means)
-
-    # and threshold
-    keep_indices = np.where(array_means > (mean_val + (std_val * std_thresh)))
-    
-    return keep_indices
 
 
 def correlate_pwm_pair(input_list):
@@ -1306,7 +594,6 @@ def correlate_pwm_pair(input_list):
     motif_ncor = pwm1.rsat_cor(pwm2, ncor=True)
 
     return i, j, motif_cor, motif_ncor
-
 
 
 def correlate_pwms(
@@ -1503,7 +790,7 @@ def reduce_pwm_redundancy(
 
 
 
-def hagglom_pwms_by_signal(
+def hagglom_pwms_by_signal_old(
         example_x_pwm_array,
         pwm_list,
         pwm_dict,
@@ -1675,13 +962,6 @@ def reduce_pwms(data, hclust, pwm_list, std_thresh=3):
     """
     assert len(pwm_list) == data.shape[1]
     
-    # set a cutoff - assume Gaussian noise, this controls false positive rate
-    # TODO - i think this also uses a mean vector
-    # TODO - remove this?
-    #pwm_vector = sd_cutoff(data, std_thresh=std_thresh)
-    #prm_vector
-    
-    
     # hagglom
     signal_vector = np.median(data, axis=0)
     #pwm_vector = pwm_vector * hagglom_pwms_by_signal(
@@ -1748,113 +1028,3 @@ def reduce_pwms_by_signal_similarity(
         ncor_thresh=ncor_thresh)
 
     return pwm_mask
-
-
-
-
-
-
-
-
-
-
-
-
-def bootstrap_fdr_v2(
-        pwm_counts_mat_h5,
-        counts_key, # which pwm counts table to use
-        pwm_names,
-        out_prefix,
-        task_idx, # which labels to pull (by idx)
-        global_importances=False,
-        region_set=None,
-        bootstrap_num=99,
-        fdr=0.05):
-    """Given a motif matrix and labels, calculate a bootstrap FDR
-    """
-    with h5py.File(pwm_counts_mat_h5, 'r') as hf:
-        
-        at_least_one_pos = (hf["negative"][:,0] == 0).astype(int)
-        #at_least_one_pos = (np.sum(hf["labels"][:], axis=1) > 0).astype(int)
-        
-        # better to pull it all into memory to slice fast 
-        if global_importances:
-            labels = at_least_one_pos
-            pwm_scores = hf[counts_key][:]
-        else:
-            labels = hf['labels'][:][at_least_one_pos > 0, task_idx]
-            pwm_scores = hf[counts_key][:][at_least_one_pos > 0,:]
-        
-    # first calculate ranks w just positives
-    pos_array = pwm_scores[labels > 0,:]
-    pos_array_summed = np.sum(pos_array, axis=0)
-    
-    # extract top k for spot check
-    top_counts_k = 100
-    top_counts_indices = np.argpartition(pos_array_summed, -top_counts_k)[-top_counts_k:]
-    most_seen_pwms = [pwm_names[i] for i in xrange(len(pwm_names)) if i in top_counts_indices]
-    print most_seen_pwms
-        
-    # now calculate the true diff between pos and neg sets for motifs
-    neg_array = pwm_scores[labels < 1,:]
-    neg_array_summed = np.sum(neg_array, axis=0)
-        
-    true_diff = pos_array_summed - neg_array_summed
-
-    # set up results array 
-    bootstraps = np.zeros((bootstrap_num+1, pwm_scores.shape[1])) 
-    bootstraps[0,:] = true_diff
-
-    # now do bootstraps
-    for i in range(bootstrap_num):
-        
-        if i % 10 == 0: print i
-        
-        # randomly select pos and neg examples
-        # NOTE: this is as unbalanced as the dataset is...
-        # TODO - dk, balance this?
-        shuffled_labels = np.random.permutation(labels)
-        pos_array = pwm_scores[shuffled_labels > 0,:]
-        pos_array_summed = np.sum(pos_array, axis=0)
-
-        neg_array = pwm_scores[shuffled_labels < 1,:]
-        neg_array_summed = np.sum(neg_array, axis=0)
-
-        bootstrap_diff = pos_array_summed - neg_array_summed
-        
-        # save into vector 
-        bootstraps[i+1,:] = bootstrap_diff
-        
-    # convert to ranks and save out 
-    bootstrap_df = pd.DataFrame(data=bootstraps, columns=pwm_names)
-    #bootstrap_df = bootstrap_df.loc[:,(bootstrap_df != 0).any(axis=0)] # remove all zero columns
-    bootstrap_df.to_csv("{}.permutations.txt".format(out_prefix), sep='\t')
-    bootstrap_ranks_df = bootstrap_df.rank(ascending=False, pct=True)
-    
-    pos_fdr = bootstrap_ranks_df.iloc[0,:]
-    pos_fdr_file = "{}.txt".format(out_prefix)
-    pos_fdr.to_csv(pos_fdr_file, sep='\t')
-
-    # also save out a list of those that passed the FDR cutoff
-    fdr_cutoff = pos_fdr.ix[pos_fdr < fdr]
-    fdr_cutoff_file = "{}.cutoff.txt".format(out_prefix)
-    fdr_cutoff.to_csv(fdr_cutoff_file, sep='\t')
-
-    # also save one that is adjusted for most seen
-    fdr_cutoff = fdr_cutoff[fdr_cutoff.index.isin(most_seen_pwms)]
-    fdr_cutoff_mostseen_file = "{}.cutoff.most_seen.txt".format(out_prefix)
-    fdr_cutoff.to_csv(fdr_cutoff_mostseen_file, sep='\t')
-
-    # save a vector of counts (for rank importance)
-    final_pwms = fdr_cutoff.index
-    pwm_name_to_index = dict(zip(pwm_names, range(len(pwm_names))))
-    counts = [pos_array_summed[pwm_name_to_index[pwm_name]] for pwm_name in final_pwms]
-
-    pwm_names_clean = [pwm_name.split("_")[0] for pwm_name in final_pwms]
-    most_seen_df = pd.DataFrame(data=counts, index=pwm_names_clean)
-    most_seen_file = "{}.most_seen.txt".format(out_prefix)
-    most_seen_df.to_csv(most_seen_file, sep='\t', header=False)
-
-    return fdr_cutoff_file
-
-
