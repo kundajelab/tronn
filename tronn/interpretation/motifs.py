@@ -7,6 +7,8 @@ import numpy as np
 
 from tronn.stats.nonparametric import select_features_by_permutation_test
 
+from tronn.interpretation.clustering import get_clusters_from_h5
+
 from tronn.util.pwms import MotifSetManager
 from tronn.util.utils import DataKeys
 from tronn.util.h5_utils import AttrKeys
@@ -85,7 +87,7 @@ def extract_significant_pwms(
         h5_file,
         pwm_list,
         data_key=DataKeys.FEATURES,
-        cluster_key=DataKeys.CLUST_FILT,
+        clusters_key=DataKeys.CLUSTERS,
         pwm_names_attr_key=AttrKeys.PWM_NAMES,
         pwm_sig_global_key=DataKeys.PWM_SIG_GLOBAL,
         pwm_scores_agg_global_key=DataKeys.PWM_SCORES_AGG_GLOBAL,
@@ -121,42 +123,27 @@ def extract_significant_pwms(
     print "globally significant:", pwm_sig_global_names
     
     # (2) get cluster sig (and aggregate results)
-    with h5py.File(h5_file, "r") as hf:
-        clusters = hf[cluster_key][:]
-
-    if len(clusters.shape) == 1:
-        # hard clusters
-        cluster_ids = sorted(list(set(clusters.tolist())))
-        if -1 in cluster_ids: cluster_ids.remove(-1)
-        hard_clusters = True
-    else:
-        # soft clusters
-        cluster_ids = range(clusters.shape[1])
-        hard_clusters = False
-
-    # go through clusters to get sig pwms
-    sig_pwms = np.zeros((len(cluster_ids), data.shape[2]))
-    for cluster_idx in xrange(len(cluster_ids)):
-        print cluster_idx,
-        cluster_id = cluster_ids[cluster_idx]
-
-        # get which examples are in cluster
-        if hard_clusters:
-            in_cluster = clusters == cluster_id
-        else:
-            in_cluster = clusters[:,cluster_id] == 1
-        print "num examples: {}".format(np.sum(in_cluster))
+    clusters = get_clusters_from_h5(h5_file, clusters_key)
+    num_clusters = len(clusters.get_active_cluster_ids())
+    sig_pwms = np.zeros((num_clusters, data.shape[2]))
+    generator = clusters.cluster_mask_generator()
+    cluster_idx = 0
+    for cluster_id, cluster_mask in generator:
+        print "cluster_id: {}".format(cluster_id)
+        print "num examples: {}".format(np.sum(cluster_mask))
             
         # select
-        cluster_data = data[np.where(in_cluster)[0],:,:] # {N, task, M}
+        cluster_data = data[np.where(cluster_mask)[0],:,:] # {N, task, M}
         cluster_pwms = np.zeros((data.shape[2]))
 
         # get sig and aggregate results
         sig_pwms[cluster_idx,:] = select_task_pwms(cluster_data, pwm_list, hclust)
         pwm_sig_cluster_names = pwm_names[sig_pwms[cluster_idx,:] > 0]
         print pwm_sig_cluster_names
+        cluster_idx += 1
     
     # adjust clustering as needed
+    # remove clusters with no sig motifs?
     if refine_clusters:
         pass
 
@@ -167,23 +154,17 @@ def extract_significant_pwms(
     
     # and aggregate {cluster, task, M}
     agg_data = np.zeros((
-        len(cluster_ids),
+        num_clusters,
         data.shape[1],
         np.sum(outputs[pwm_sig_clusters_all_key])))
-    for cluster_idx in xrange(len(cluster_ids)):
-        print cluster_idx
-        cluster_id = cluster_ids[cluster_idx]
-
-        # get which examples are in cluster
-        if hard_clusters:
-            in_cluster = clusters == cluster_id
-        else:
-            in_cluster = clusters[:,cluster_id] == 1
-
-        cluster_data = data[np.where(in_cluster)[0],:,:]
+    generator = clusters.cluster_mask_generator()
+    cluster_idx = 0
+    for cluster_id, cluster_mask in generator:
+        cluster_data = data[np.where(cluster_mask)[0],:,:]
         agg_data[cluster_idx,:,:] = aggregate_array(
             cluster_data, mask=outputs[pwm_sig_clusters_all_key])
-    
+        cluster_idx += 1
+        
     # save out
     outputs[pwm_sig_clusters_key] = (sig_pwms, pwm_sig_cluster_global_names)
     outputs[pwm_scores_agg_clusters_key] = (agg_data, pwm_sig_cluster_global_names)

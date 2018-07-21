@@ -18,7 +18,7 @@ def threshold_at_recall(labels, scores, recall_thresh=1.0):
     try:
         return thresholds[threshold_index]
     except:
-        return 0 # TODO figure out what to do here...
+        return thresholds[-1] # TODO figure out what to do here...
 
 
 def threshold_at_fdr(labels, scores, fdr=0.25):
@@ -28,7 +28,7 @@ def threshold_at_fdr(labels, scores, fdr=0.25):
     try:
         return thresholds[threshold_index]
     except:
-        return 0 # TODO figure out what to do here...
+        return thresholds[-1] # the max?
 
 
 

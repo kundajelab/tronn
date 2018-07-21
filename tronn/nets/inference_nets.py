@@ -27,7 +27,7 @@ from tronn.nets.motif_nets import get_motif_densities
 
 from tronn.nets.grammar_nets import multitask_score_grammars
 from tronn.nets.grammar_nets import score_distance_to_motifspace_point
-from tronn.nets.grammar_nets import check_motifset_presence
+#from tronn.nets.grammar_nets import check_motifset_presence
 
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_singleton_labels
@@ -180,6 +180,7 @@ def sequence_to_importance_scores_from_regression(inputs, params):
     #    inputs, params, inference_stack)
     
     # unstack
+    # TODO deprecate this, make visualization work on multidimensional tensor
     if unstack:
         params["name"] = "importances"
         outputs, params = unstack_tasks(outputs, params)

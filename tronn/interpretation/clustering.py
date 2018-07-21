@@ -7,8 +7,6 @@ import phenograph
 
 import numpy as np
 
-from collections import Counter
-
 from tronn.stats.distances import score_distances
 from tronn.stats.thresholding import threshold_at_recall
 from tronn.stats.thresholding import threshold_at_fdr
@@ -17,11 +15,111 @@ from tronn.util.utils import DataKeys
 from tronn.util.h5_utils import AttrKeys
 
 
+class ClustersManager(object):
+    """manage hard or soft clusters in a consistent way"""
+    
+    def __init__(self, array, active_cluster_ids=None):
+        """from the array, extract whether 
+        hard vs soft and also cluster ids
+        """
+        # save array
+        self.array = array
+        
+        # determine hard or soft clustering
+        if len(array.shape) == 1:
+            self.all_cluster_ids = sorted(
+                list(set(self.array.tolist())))
+            self.hard_clustering = True
+        else:
+            self.all_cluster_ids = range(
+                self.array.shape[1])
+            self.hard_clustering = False
+
+        # set up active cluster ids if exist
+        if active_cluster_ids is not None:
+            self.active_cluster_ids = active_cluster_ids.tolist()
+        else:
+            self.active_cluster_ids = self.all_cluster_ids
+        
+            
+    def cluster_mask_generator(self):
+        """go through the active cluster ids
+        return the cluster id and the cluster mask
+        """
+        for cluster_idx in xrange(len(self.active_cluster_ids)):
+            cluster_id = self.active_cluster_ids[cluster_idx]
+
+            if self.hard_clustering:
+                cluster_mask = self.array == cluster_id
+            else:
+                cluster_mask = self.array[:,cluster_id] > 0
+
+            yield cluster_id, cluster_mask
+
+
+    def get_clusters(self):
+        """return the cluster array
+        """
+        return self.array
+
+    
+    def get_active_cluster_ids(self):
+        """get the cluster ids
+        """
+        return self.active_cluster_ids
+
+    
+    def get_all_cluster_ids(self):
+        """get the cluster ids
+        """
+        return self.all_cluster_ids
+
+    
+    def which_cluster_ids_active(self):
+        """provide back a vector of which cluster
+        ids to use (assuming ordered)
+        """
+        return np.isin(
+            np.array(self.all_cluster_ids),
+            np.array(self.active_cluster_ids))
+
+    
+    def get_num_examples(self):
+        """get the number of examples that 
+        belong to an existing cluster
+        """
+        num_examples = 0
+        generator = self.cluster_mask_generator()
+        for cluster_id, cluster_mask in generator:
+            num_examples += np.sum(cluster_mask)
+        return num_examples
+            
+
+    def remove_cluster_id(self, cluster_id):
+        """remove cluster id (but maintain the old clusters - change this?)
+        """
+        self.active_cluster_ids.remove(cluster_id)
+    
+
+def get_clusters_from_h5(
+        h5_file,
+        clusters_key,
+        cluster_ids_attr_key=AttrKeys.CLUSTER_IDS):
+    """helper function to standardize grabbing clusters from h5
+    """
+    with h5py.File(h5_file, "r") as hf:
+        clusters = hf[clusters_key][:]
+        cluster_ids = hf[clusters_key].attrs[AttrKeys.CLUSTER_IDS]
+    clusters = ClustersManager(clusters, active_cluster_ids=cluster_ids)
+    
+    return clusters
+        
+
 def run_clustering(
         h5_file,
         dataset_key,
-        cluster_key=DataKeys.CLUST_ROOT,
-        cluster_filt_key=DataKeys.CLUST_FILT,
+        cluster_key=DataKeys.CLUSTERS,
+        #cluster_filt_key=DataKeys.CLUST_FILT,
         num_threads=24):
     """wrapper around favorite clustering method
     """
@@ -38,179 +136,152 @@ def run_clustering(
     communities, graph, Q = phenograph.cluster(
         data, n_jobs=num_threads)
     null_cluster_present = True
-    
+    cluster_ids = sorted(list(set(communities)))
+    if -1 in cluster_ids:
+        cluster_ids.delete(-1)
+
     # END CLUSTERING
     # ----------------------------------------------
-    
+
     # save clusters
     with h5py.File(h5_file, "a") as out:
         out.create_dataset(cluster_key, data=communities)
+        out[cluster_key].attrs[AttrKeys.CLUSTER_IDS] = cluster_ids
 
     # refine as desired
     if cluster_filt_key is not None:
-        remove_small_clusters(
+        filter_clusters_by_size(
             h5_file,
             cluster_key=cluster_key,
-            cluster_filt_key=cluster_filt_key,
-            null_cluster_present=null_cluster_present)
+            filter_by="fraction",
+            fractional_threshold=0.01)
     
     return None
 
 
-def remove_small_clusters(
+def filter_clusters_by_size(
         h5_file,
-        cluster_key=DataKeys.CLUST_ROOT,
-        cluster_filt_key=DataKeys.CLUST_FILT,
-        null_cluster_present=False,
-        fractional_threshold=0.01):
-    """remove small clusters
+        cluster_key,
+        cluster_ids_attr_key=AttrKeys.CLUSTER_IDS,
+        filter_by="fraction",
+        fractional_threshold=0.01,
+        min_count=50):
+    """filter clusters by size, relative (fraction)
+    or absolute (count)
     """
-    # get clusters out
-    with h5py.File(h5_file, "r") as hf:
-        clusters = hf[cluster_key][:]
-
-    # get num examples, adjust if null cluster is present
-    if null_cluster_present:
-        num_clustered_examples = clusters[clusters != -1].shape[0]
-    else:
-        num_clustered_examples = clusters.shape[0]
-        
-    # determine counts
-    counts = Counter(clusters.tolist())
-
-    # adjust based on fractional thresh and renumber based on size
-    cluster_ids_and_counts = counts.most_common()
-    for cluster_idx in xrange(len(cluster_ids_and_counts)):
-        cluster_id, count = cluster_ids_and_counts[cluster_idx]
-
-        if float(count) / num_clustered_examples < fractional_threshold:
-            clusters[clusters==cluster_id] = -1
-        else:
-            clusters[clusters==cluster_id] = cluster_idx
-
-    # backcheck TODO
-
-    # save
-    with h5py.File(h5_file, "a") as out:
-        out.create_dataset(cluster_filt_key, data=clusters)
+    # get clusters
+    clusters = get_clusters_from_h5(h5_file, cluster_key)
+    num_clustered_examples = clusters.get_num_examples()
+    print "adjusting clusters..."
+    print clusters.get_active_cluster_ids()
     
-    return None
+    # adjust based on fractional thresh and renumber based on size
+    generator = clusters.cluster_mask_generator()
+    remove_ids = []
+    for cluster_id, cluster_mask in generator:
+
+        if filter_by == "fraction":
+            cluster_fraction = np.sum(cluster_mask) / float(num_clustered_examples)
+            if cluster_fraction < fractional_threshold:
+                remove_ids.append(cluster_id)
+        elif filter_by == "count":
+            cluster_count = np.sum(cluster_mask)
+            if cluster_count < min_count:
+                remove_ids.append(cluster_id)
+
+    for cluster_id in remove_ids:
+        clusters.remove_cluster_id(cluster_id)
+        
+    # backcheck
+    print clusters.get_active_cluster_ids()
+    
+    # just save the attribute level
+    with h5py.File(h5_file, "a") as out:
+        out[cluster_key].attrs[cluster_ids_attr_key] = clusters.get_active_cluster_ids()
+        
+    return clusters.get_active_cluster_ids()
 
 
 def get_cluster_bed_files(
         h5_file,
-        clusters_key=DataKeys.CLUST_FILT):
+        file_prefix,
+        clusters_key=DataKeys.CLUSTERS,
+        seq_metadata_key=DataKeys.SEQ_METADATA):
     """generate BED files from metadata
     """
     prefix = h5_file.split(".h5")[0]
 
     # get clusters
-    with h5py.File(h5_file, "r") as hf:
-        clusters = hf[cluster_key][:,0]
+    clusters = get_clusters_from_h5(h5_file, cluster_key)
 
-    # get cluster ids
-    if len(clusters.shape) == 1:
-        cluster_ids = sorted(list(set(clusters.tolist())))
-        hard_clusters = True
-    else:
-        cluster_ids = range(clusters.shape[1])
-        hard_clusters = False
-        
-    # for each cluster make a bed
-    for cluster_idx in xrange(len(cluster_ids)):
-        cluster_id = cluster_ids[cluster_idx]
-        
-        if hard_clusters:
-            in_cluster = clusters == cluster_id
-        else:
-            in_cluster = clusters[:,cluster_idx] > 0
+    # for each cluster make a bed file
+    generator = clusters.cluster_mask_generator()
+
+    for cluster_id, cluster_mask in generator:
     
         with h5py.File(h5_file, "r") as hf:
-            metadata = hf["example_metadata"][:][in_cluster]
+            metadata = hf[seq_metadata_key][:][cluster_mask]
             
-        cluster_prefix = "{0}.cluster-{1}".format(prefix, cluster_id)
+        cluster_prefix = "{0}.cluster-{1}".format(file_prefix, cluster_id)
         metadata_file = "{}.metadata.txt".format(cluster_prefix)
         metadata_bed = "{}.bed".format(cluster_prefix)
         # TODO rewrite this function
         #make_bed(metadata, metadata_file, metadata_bed)
         print "DOES NOT WORK YET"
+        quit()
         
-    return
-
-
-def refine_manifold(
-        clusters,
-        centers,
-        thresholds,
-        cluster_ids,
-        min_count=0):
-    """given manifold metrics, remove empty clusters
-    """
-    # look at (soft) clusters
-    keep_clusters = np.ones((clusters.shape[1]))
-    for cluster_idx in xrange(clusters.shape[1]):
-
-        if np.sum(clusters[:,cluster_idx]) <= min_count:
-            # empty cluster (or too small) - mark for removal
-            keep_clusters[cluster_idx] = 0
-
-    # remove
-    clusters = clusters[:,keep_clusters==1]
-    centers = centers[keep_clusters==1,:,:]
-    thresholds = thresholds[keep_clusters==1,:]
-    cluster_ids = np.array(cluster_ids)[keep_clusters==1].tolist()
-    
-    return clusters, centers, thresholds, cluster_ids
+    return None
 
 
 # TODO - make one big manifold (flatten) and go from there
 def summarize_clusters_on_manifold(
         h5_file,
         features_key=DataKeys.FEATURES,
-        cluster_key=DataKeys.CLUST_FILT,
+        cluster_key=DataKeys.CLUSTERS,
         centers_key=DataKeys.MANIFOLD_CENTERS,
         thresholds_key=DataKeys.MANIFOLD_THRESHOLDS,
         manifold_clusters_key=DataKeys.MANIFOLD_CLUST,
         fdr=0.50,
         recall_thresh=0.25,
+        min_count=50,
         refine_clusters=True):
     """extract metrics on the pwm manifold
     """
     # get clusters and data
+    clusters = get_clusters_from_h5(h5_file, cluster_key)
     with h5py.File(h5_file, "r") as hf:
         data = hf[features_key][:] # {N, task, M}
-        clusters = hf[cluster_key][:] # {N}
-    cluster_ids = sorted(list(set(clusters.tolist())))
-    if -1 in cluster_ids:
-        cluster_ids.remove(-1)
-    print cluster_ids
-    
+    num_clusters = len(clusters.get_active_cluster_ids())
+        
     # set up save arrays as dict
-    out_shape = (len(cluster_ids), data.shape[1], data.shape[2])
+    out_shape = (num_clusters, data.shape[1], data.shape[2])
     out_arrays = {}
     out_arrays[centers_key] = np.zeros(out_shape)
-    out_arrays[thresholds_key] = np.zeros((len(cluster_ids), data.shape[1]))
-    out_arrays[manifold_clusters_key] = np.ones((data.shape[0], len(cluster_ids)))
+    out_arrays[thresholds_key] = np.zeros((num_clusters, data.shape[1]))
+    out_arrays[manifold_clusters_key] = np.ones((data.shape[0], num_clusters))
     
     # then calculate metrics on each cluster separately
-    for cluster_idx in xrange(len(cluster_ids)):
-        cluster_id = cluster_ids[cluster_idx]
+    generator = clusters.cluster_mask_generator()
+    cluster_idx = 0
+    for cluster_id, cluster_mask in generator:
         print "cluster_id: {}".format(cluster_id),
-        in_cluster = clusters == cluster_id # chekc this
-            
+
+        print cluster_mask.shape
+        
         # get the data in this cluster and remove zeros (if any)
-        scores_in_cluster = data[np.where(in_cluster)[0],:,:] # {N, task, M}
-        print "total examples: {}".format(scores_in_cluster.shape[0]),
-        scores_in_cluster = scores_in_cluster[np.max(scores_in_cluster, axis=(1,2))>0]
-        print "after remove zeros: {}".format(scores_in_cluster.shape[0])
+        cluster_data = data[np.where(cluster_mask)[0],:,:] # {N, task, M}
+        print "total examples: {}".format(cluster_data.shape[0]),
+        cluster_data = cluster_data[np.max(cluster_data, axis=(1,2))>0]
+        print "after remove zeros: {}".format(cluster_data.shape[0])
         
         # calculate cluster center using median
         out_arrays[centers_key][cluster_idx,:,:] = np.median(
-            scores_in_cluster, axis=0) # {task, M}
+            cluster_data, axis=0) # {task, M}
         
         # calculate thresholds for each task separately
         # TODO - do this as pool when stable
         # TODO - consider making tasks into 1 manifold and traversing that
+        passed_threshold = np.zeros((data.shape[0], data.shape[1]))
         for task_idx in xrange(data.shape[1]):
             print "task: {}; ".format(task_idx),
 
@@ -221,59 +292,71 @@ def summarize_clusters_on_manifold(
                 method="jaccard")
             
             # get threshold
-            # TODO adjust this to grab back threshold for top 100?
-            threshold = threshold_at_recall(
-                in_cluster,
-                distances,
-                recall_thresh=recall_thresh)
-
             threshold = threshold_at_fdr(
-                in_cluster,
+                cluster_mask,
                 distances,
                 fdr=fdr)
+
+            print "Threshold for when recall is {} (ie TPR): {};".format(
+                recall_thresh, threshold),
+            passed_threshold[:, task_idx] = distances > threshold
             
-            print "Threshold for when recall is {} (ie TPR): {};".format(recall_thresh, threshold),
-            passed_threshold = distances > threshold # CHANGE IF METRIC CHANGES (less than)
-            
-            print "passing filter: {};".format(np.sum(passed_threshold)),
-            print "true positives: {}".format(np.sum(passed_threshold * in_cluster))
-            # NOTE: right now must pass at least ALL task thresholds
-            # is there a better way to do this?
+            print "passing filter: {};".format(np.sum(passed_threshold[:, task_idx])),
+            print "true positives: {}".format(
+                np.sum(passed_threshold[:, task_idx] * cluster_mask))
             out_arrays[thresholds_key][cluster_idx,task_idx] = threshold
-            out_arrays[manifold_clusters_key][:,cluster_idx] *= passed_threshold
 
+        # calculate passing
+        # NOTE this currently says need to pass threshold twice
+        final_passed_threshold = np.all(passed_threshold, axis=1)
+        out_arrays[manifold_clusters_key][:,cluster_idx] = final_passed_threshold
+            
         passed_threshold_final = out_arrays[manifold_clusters_key][:,cluster_idx]
-        print "final passing filter: {};".format(np.sum(passed_threshold_final)),
-        print "final true positives: {}".format(np.sum(passed_threshold_final * in_cluster))
-
-    if refine_clusters:
-        clusters, centers, thresholds, cluster_ids = refine_manifold(
-            out_arrays[manifold_clusters_key],
-            out_arrays[centers_key],
-            out_arrays[thresholds_key],
-            cluster_ids,
-            min_count=50)
-    
-        out_arrays[manifold_clusters_key] = clusters
-        out_arrays[centers_key] = centers
-        out_arrays[thresholds_key] = thresholds
+        print "final passing filter: {};".format(
+            np.sum(passed_threshold_final)),
+        print "final true positives: {}".format(
+            np.sum(passed_threshold_final * cluster_mask))
+        cluster_idx += 1
     
     # save out
     with h5py.File(h5_file, "a") as out:
         for key in out_arrays.keys():
             del out[key]
             out.create_dataset(key, data=out_arrays[key])
-            out[key].attrs[AttrKeys.CLUSTER_IDS] = cluster_ids
+            out[key].attrs[AttrKeys.CLUSTER_IDS] = clusters.get_active_cluster_ids()
+
+    if refine_clusters:
+        active_cluster_ids = filter_clusters_by_size(
+            h5_file,
+            cluster_key=manifold_clusters_key,
+            filter_by="count",
+            min_count=50)
+
+        # and need to attach these to the
+        # centers and thresholds
+        with h5py.File(h5_file, "a") as out:
+            out[manifold_clusters_key].attrs[AttrKeys.CLUSTER_IDS] = active_cluster_ids
+            out[centers_key].attrs[AttrKeys.CLUSTER_IDS] = active_cluster_ids
+            out[thresholds_key].attrs[AttrKeys.CLUSTER_IDS] = active_cluster_ids
             
     return None
 
 
 
 def visualize_clustering_results_R(
-        h5_file, cluster_key):
+        h5_file,
+        cluster_key,
+        dataset):
     """use R to visualize results
     """
     
+    # example vs key - clustered (ordered clusters)
 
+
+
+    # agg vs key - (ordered)
+
+    
+    
     
     return

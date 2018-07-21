@@ -95,11 +95,11 @@ def run(args):
         
         # cluster
         # TODO try hidden layer again sometime
-        if DataKeys.CLUST_FILT not in h5py.File(results_h5_file, "r").keys():
+        if DataKeys.CLUSTERS not in h5py.File(results_h5_file, "r").keys():
             logging.info("running clustering - louvain (Phenograph)")
             run_clustering(results_h5_file, DataKeys.FEATURES)
-            get_cluster_bed_files(results_h5_file)
-            
+            #get_cluster_bed_files(results_h5_file)
+
         # select pwms with a permutation test
         #extract_significant_pwms(results_h5_file)
             
@@ -110,7 +110,7 @@ def run(args):
         if visualize:
             visualize_clustering_results(
                 results_h5_file,
-                DataKeys.CLUST_FILT,
+                DataKeys.CLUSTERS,
                 args.inference_task_indices,
                 args.visualize_task_indices,
                 args.visualize_signals,
@@ -124,15 +124,14 @@ def run(args):
         if not os.path.isfile(manifold_h5_file):
             
             # TODO try hidden layer also
-            if False:
-                summarize_clusters_on_manifold(
-                    results_h5_file)
-
+            summarize_clusters_on_manifold(
+                results_h5_file)
+            
             # select pwms, and change keys
             extract_significant_pwms(
                 results_h5_file,
                 args.pwm_list,
-                cluster_key=DataKeys.MANIFOLD_CLUST,
+                clusters_key=DataKeys.MANIFOLD_CLUST,
                 pwm_sig_global_key=DataKeys.MANIFOLD_PWM_SIG_GLOBAL,
                 pwm_scores_agg_global_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_GLOBAL,
                 pwm_sig_clusters_key=DataKeys.MANIFOLD_PWM_SIG_CLUST,

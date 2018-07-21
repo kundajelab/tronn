@@ -76,8 +76,8 @@ class DataKeys(object):
     MANIFOLD_PWM_SCORES_AGG_CLUST = "{}.agg".format(MANIFOLD_PWM_SIG_CLUST_ALL)
     
     # cluster keys
-    CLUST_ROOT = "clusters"
-    CLUST_FILT = "{}.filt".format(CLUST_ROOT)
+    CLUSTERS = "clusters"
+    #CLUST_FILT = "{}.filt".format(CLUST_ROOT)
     
     # dmim transformation keys
     DMIM_SCORES_ROOT = "dmim-scores"

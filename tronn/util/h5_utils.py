@@ -7,14 +7,15 @@ import pandas as pd
 
 from tronn.util.utils import DataKeys
 
+
 class AttrKeys(object):
     """standard names for attributes in h5 files
     """
 
     PWM_NAMES = "pwm_names"
     CLUSTER_IDS = "cluster_ids"
-
-    
+    FILE_NAMES = "file_names"
+    TASK_INDICES = "task_indices"
 
 
 
@@ -70,6 +71,15 @@ def add_pwm_names_to_h5(
                 hf[key].attrs[pwm_names_key] = pwm_names
                 
     return None
+
+
+def add_task_metadata_to_h5(
+        h5_file):
+    """this should transfer over the filenames and indices as attributes
+    """
+
+
+    return
 
 
 def copy_datasets(in_h5_file, out_h5_file, keys=[]):

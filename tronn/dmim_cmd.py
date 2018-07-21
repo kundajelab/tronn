@@ -6,19 +6,20 @@ import h5py
 import glob
 import logging
 
-import numpy as np
-import tensorflow as tf
+#import numpy as np
+#import tensorflow as tf
 
 from tronn.graphs import ModelManager
 from tronn.datalayer import H5DataLoader
+from tronn.datalayer import BedDataLoader
 from tronn.nets.nets import net_fns
 
-from tronn.interpretation.motifs import read_pwm_file
-from tronn.interpretation.grammars import generate_grammars_from_dmim
-from tronn.interpretation.grammars import aggregate_dmim_results
+#from tronn.interpretation.motifs import read_pwm_file
+#from tronn.interpretation.grammars import generate_grammars_from_dmim
+#from tronn.interpretation.grammars import aggregate_dmim_results
 
-from tronn.interpretation.clustering import aggregate_pwm_results
-from tronn.interpretation.clustering import aggregate_pwm_results_per_cluster
+#from tronn.interpretation.clustering import aggregate_pwm_results
+#from tronn.interpretation.clustering import aggregate_pwm_results_per_cluster
 
 from tronn.visualization import visualize_h5_dataset
 from tronn.visualization import visualize_h5_dataset_by_cluster
@@ -117,7 +118,8 @@ def run(args):
             inference_generator,
             results_h5_file,
             args.sample_size)
-    
+
+        # TODO move to h5 utils
         # save out additional useful information
         with h5py.File(results_h5_file, "a") as hf:
 
@@ -140,6 +142,7 @@ def run(args):
                         pwm.name for pwm in args.pwm_list]
 
         # aggregate the pwm cluster results
+        # TODO use full pwm tensor
         dataset_keys = [
             "pwm-scores.taskidx-{}".format(i)
             for i in args.inference_task_indices]
@@ -176,6 +179,21 @@ def run(args):
         visualize_h5_dataset(results_h5_file, global_agg_key)        
         visualize_h5_dataset_by_cluster(results_h5_file, agg_key)
 
+    # TODO - here is dmim specific analyses
+    # think about how to get significance on mutational shift.
+    # {N, mut_motif, task, M}
+    # {N, mut_motif, task} delta logits (save as logits?)
+    # apply a test on the difference between two distributions (logit vs mutate logit)
+    # ie shuffle the labels (keeping the pairs) and then recalc difference
+    # and also plot out scatter plots for the sig mutants (sig from mask vector)
+
+    # also apply this to delta motif scores?
+    # here the shuffle labels is basically flip the sign
+    # normalization here is still an issue. think about how to solve this
+    # normalization - fit the noise?
+    # normalize such that the drop in prediction is tied to how much importance was lost
+    # in mut motif?
+    
     # aggregate results
     dmim_keys = ["dmim-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
     pwm_score_keys = ["pwm-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
