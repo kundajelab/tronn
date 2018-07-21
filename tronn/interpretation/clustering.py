@@ -17,7 +17,7 @@ from tronn.util.utils import DataKeys
 from tronn.util.h5_utils import AttrKeys
 
 
-def cluster_dataset(
+def run_clustering(
         h5_file,
         dataset_key,
         cluster_key=DataKeys.CLUST_ROOT,
@@ -261,7 +261,19 @@ def summarize_clusters_on_manifold(
     # save out
     with h5py.File(h5_file, "a") as out:
         for key in out_arrays.keys():
+            del out[key]
             out.create_dataset(key, data=out_arrays[key])
             out[key].attrs[AttrKeys.CLUSTER_IDS] = cluster_ids
             
     return None
+
+
+
+def visualize_clustering_results_R(
+        h5_file, cluster_key):
+    """use R to visualize results
+    """
+    
+
+    
+    return

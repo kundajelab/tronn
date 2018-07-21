@@ -1,59 +1,16 @@
+# description: utils for managing position weight matrices (PWMs)
+
 
 import math
 
 import numpy as np
-import pandas as pd
 
+from multiprocessing import Pool
 
 from scipy.stats import pearsonr
 from scipy.signal import correlate2d
-from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
+from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform
-
-
-
-def read_pwm_file(pwm_file, value_type="log_likelihood", as_dict=False):
-    """Extracts motifs into PWM class format
-    """
-    background_freq = 0.25
-    
-    # option to set up as dict or list
-    if as_dict:
-        pwms = {}
-    else:
-        pwms = []
-
-    # open motif file and read
-    with open(pwm_file) as fp:
-        line = fp.readline().strip()
-        while True:
-            if line == '':
-                break
-            header = line.strip('>').strip()
-            weights = []
-            
-            while True:
-                line = fp.readline()
-                if line == '' or line[0] == '>': break
-                position_weights = map(float, line.split())
-                
-                if value_type == "log_likelihood":
-                    # no need to change anything
-                    weights.append(position_weights)
-                elif value_type == "probability":
-                    # convert to log likelihood
-                    weights.append(
-                        np.log2(np.array(position_weights) / background_freq).tolist())
-
-            pwm = PWM(np.array(weights).transpose(1,0), header)
-
-            # store into dict or list
-            if as_dict:
-                pwms[header] = pwm
-            else:
-                pwms.append(pwm)
-                
-    return pwms
 
 
 class PWM(object):
@@ -386,4 +343,244 @@ class PWM(object):
         
         return None
 
+
+    
+def _pool_correlate_pwm_pair(input_list):
+    """get cor and ncor for pwm1 and pwm2
+    Set up this way because multiprocessing pool only takes 1
+    input
+    """
+    i = input_list[0]
+    j = input_list[1]
+    pwm1 = input_list[2]
+    pwm2 = input_list[3]
+    
+    motif_cor = pwm1.rsat_cor(pwm2)
+    motif_ncor = pwm1.rsat_cor(pwm2, ncor=True)
+
+    return i, j, motif_cor, motif_ncor
+
+
+
+class MotifSetManager(object):
+    """manager for a pwm set"""
+
+    def __init__(self):
+        self.pwms = []
+        self.pwm_dict= {}
+
+        
+    @staticmethod
+    def read_pwm_file(pwm_file, value_type="log_likelihood", as_dict=False):
+        """Extracts motifs into PWM class format
+        """
+        background_freq = 0.25
+
+        # option to set up as dict or list
+        if as_dict:
+            pwms = {}
+        else:
+            pwms = []
+
+        # open motif file and read
+        with open(pwm_file) as fp:
+            line = fp.readline().strip()
+            while True:
+                if line == '':
+                    break
+                header = line.strip('>').strip()
+                weights = []
+
+                while True:
+                    line = fp.readline()
+                    if line == '' or line[0] == '>': break
+                    position_weights = map(float, line.split())
+
+                    if value_type == "log_likelihood":
+                        # no need to change anything
+                        weights.append(position_weights)
+                    elif value_type == "probability":
+                        # convert to log likelihood
+                        weights.append(
+                            np.log2(np.array(position_weights) / background_freq).tolist())
+
+                pwm = PWM(np.array(weights).transpose(1,0), header)
+
+                # store into dict or list
+                if as_dict:
+                    pwms[header] = pwm
+                else:
+                    pwms.append(pwm)
+
+        return pwms
+
+    
+    @staticmethod
+    def correlate_pwms_by_seq_similarity(
+            pwm_list,
+            cor_thresh=0.6,
+            ncor_thresh=0.4,
+            num_threads=24):
+        """cross correlate the pwms to get 
+        distances from pwm to pwm
+        """
+        # set up correlation arrays
+        num_pwms = len(pwm_list)
+        cor_mat = np.zeros((num_pwms, num_pwms))
+        ncor_mat = np.zeros((num_pwms, num_pwms))
+
+        # set up multiprocessing
+        pool = Pool(processes=num_threads)
+        pool_inputs = []
+
+        # for each pair of motifs, get correlation information
+        for i in xrange(num_pwms):
+            for j in xrange(num_pwms):
+            
+                # only calculate upper triangle
+                if i > j:
+                    continue
+
+                pwm_i = pwm_list[i]
+                pwm_j = pwm_list[j]
+            
+                pool_inputs.append((i, j, pwm_i, pwm_j))
+
+        # run multiprocessing
+        pool_outputs = pool.map(
+            _pool_correlate_pwm_pair, pool_inputs)
+        
+        for i, j, motif_cor, motif_ncor in pool_outputs:
+            # if passes cutoffs, save out to matrix
+            if (motif_cor >= cor_thresh) and (motif_ncor >= ncor_thresh):
+                cor_mat[i,j] = motif_cor
+                ncor_mat[i,j] = motif_ncor        
+
+        # and reflect over the triangle
+        lower_triangle_indices = np.tril_indices(cor_mat.shape[0], -1)
+        cor_mat[lower_triangle_indices] = cor_mat.T[lower_triangle_indices]
+        ncor_mat[lower_triangle_indices] = ncor_mat.T[lower_triangle_indices]
+        
+        # multiply each by the other to double threshold
+        cor_present = (cor_mat > 0).astype(float)
+        ncor_present = (ncor_mat > 0).astype(float)
+
+        # and mask
+        cor_filt_mat = cor_mat * ncor_present
+        ncor_filt_mat = ncor_mat * cor_present
+
+        # fill diagonal
+        np.fill_diagonal(cor_filt_mat, 1)
+        np.fill_diagonal(ncor_filt_mat, 1)
+    
+        return cor_filt_mat, ncor_filt_mat
+
+    
+    @staticmethod
+    def hclust(distances):
+        """cluster based on distance array 
+        (get back an hclust object)
+        """
+        return linkage(squareform(1 - distances), method="ward")
+    
+    
+    @staticmethod
+    def hagglom_pwms_by_signal(
+            pwm_list,
+            hclust,
+            signal_vector,
+            cor_thresh=0.6,
+            ncor_thresh=0.4):
+        """agglomerate the pwms
+        hclust is a linkage object from scipy on the pwms
+        signal vector is a 1d vector of scores for each pwm
+        when merging, keep the pwm with the higher SCORE
+        """
+        # set up lists and vectors
+        hclust_pwms = [(pwm, 1.0) for pwm in pwm_list]
+        pwm_vector = np.zeros((len(hclust_pwms)))
+        pwm_position = {}
+        for i in xrange(len(pwm_list)):
+            pwm_position[pwm_list[i].name] = i
+
+        # go through pwms. merge if cor and ncor are above thresh,
+        # and keep the pwm with better signal.
+        for i in xrange(hclust.shape[0]):
+            idx1, idx2, dist, cluster_size = hclust[i,:]
+            pwm1, pwm1_weight = hclust_pwms[int(idx1)]
+            pwm2, pwm2_weight = hclust_pwms[int(idx2)]
+
+            # check if pwms are None
+            if (pwm1 is None) and (pwm2 is None):
+                hclust_pwms.append((None, None))
+                continue
+            elif (pwm1 is None):
+                # mark PWM 2
+                pwm_vector[pwm_position[pwm2.name]] = 1
+                hclust_pwms.append((None, None))
+                continue
+            elif (pwm2 is None):
+                # mark PWM 1
+                pwm_vector[pwm_position[pwm1.name]] = 1
+                hclust_pwms.append((None, None))
+                continue
+
+            # try check
+            try:
+                cor_val, offset = pwm1.pearson_xcor(pwm2, ncor=False)
+                ncor_val, offset = pwm1.pearson_xcor(pwm2, ncor=True)
+            except:
+                print "something unexpected happened"
+                import ipdb
+                ipdb.set_trace()
+
+            # if good match, now check the signal vector for which is stronger and keep that one
+            if (cor_val > cor_thresh) and (ncor_val >= ncor_thresh):
+                if signal_vector[pwm_position[pwm1.name]] >= signal_vector[pwm_position[pwm2.name]]:
+                    hclust_pwms.append((pwm1, 1.0))
+                else:
+                    hclust_pwms.append((pwm2, 1.0))
+            else:
+                # mark out both
+                pwm_vector[pwm_position[pwm1.name]] = 1
+                pwm_vector[pwm_position[pwm2.name]] = 1
+                hclust_pwms.append((None, None))
+
+        return pwm_vector
+
+
+    @staticmethod
+    def reduce_pwms(
+            pwm_list,
+            hclust,
+            signal_vector,
+            remove_long=True):
+        """reduce redundancy in the pwms
+        current preferred method is hagglom with signal vector
+        """
+        assert len(pwm_list) == signal_vector.shape[0]
+
+        # hagglom
+        keep_pwms = MotifSetManager.hagglom_pwms_by_signal(
+            pwm_list,
+            hclust,
+            signal_vector,
+            cor_thresh=0.3,
+            ncor_thresh=0.2)
+
+        # ignore long pwms
+        if remove_long:
+            current_indices = np.where(keep_pwms > 0)[0].tolist()
+            for idx in current_indices:
+                if pwm_list[idx].weights.shape[1] > 15:
+                    keep_pwms[idx] = 0
+                    
+        return keep_pwms
+
+    
+    def add_pwms(self, pwm_file):
+        """add pwms to the set
+        """
+        self.pwms.append(self.read_pwm_file(pwm_file))
+        self.pwms.update(self.read_pwm_file(pwm_file, as_dict=True))
 

@@ -5,55 +5,23 @@ import h5py
 import glob
 import logging
 
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-
-from collections import Counter
-
 from tronn.graphs import ModelManager
-
 from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
 from tronn.nets.nets import net_fns
 
 from tronn.interpretation.motifs import extract_significant_pwms
-
-from tronn.interpretation.clustering import cluster_dataset
+from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
 from tronn.interpretation.clustering import get_cluster_bed_files
 
+# TODO move some of these to clustering
 from tronn.visualization import visualize_h5_dataset
 from tronn.visualization import visualize_h5_dataset_by_cluster
 from tronn.visualization import visualize_clustering_results
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.utils import DataKeys
-
-
-def _get_cluster_bed(h5_file, cluster_key, metadata_key, soft_clustering=False):
-    """
-    """
-    prefix = h5_file.split(".h5")[0]
-    
-    with h5py.File(h5_file, "r") as hf:
-        clusters = hf[cluster_key][:,0]
-        cluster_ids = sorted(list(set(clusters.tolist())))
-
-
-    for cluster_idx in xrange(len(cluster_ids)):
-        cluster_id = cluster_ids[cluster_idx]
-        in_cluster = clusters == cluster_id
-    
-        with h5py.File(h5_file, "r") as hf:
-            metadata = hf["example_metadata"][:][in_cluster]
-        cluster_prefix = "{0}.cluster-{1}".format(prefix, cluster_id)
-        metadata_file = "{}.metadata.txt".format(cluster_prefix)
-        metadata_bed = "{}.bed".format(cluster_prefix)
-        make_bed(metadata, metadata_file, metadata_bed)
-
-    
-    return None
 
 
 def run(args):
@@ -122,19 +90,18 @@ def run(args):
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
                         
-    # now run clustering
+    # run clustering
     if args.cluster and not args.debug:
-        visualize = True # TODO adjust later
-
+        
         # cluster
         # TODO try hidden layer again sometime
         if DataKeys.CLUST_FILT not in h5py.File(results_h5_file, "r").keys():
             logging.info("running clustering - louvain (Phenograph)")
-            cluster_dataset(results_h5_file, DataKeys.FEATURES)
+            run_clustering(results_h5_file, DataKeys.FEATURES)
             get_cluster_bed_files(results_h5_file)
             
         # select pwms with a permutation test
-        extract_significant_pwms(results_h5_file)
+        #extract_significant_pwms(results_h5_file)
             
         # visualize in R
         # TODO adjust for -1 vals, also soft clustering
@@ -150,16 +117,16 @@ def run(args):
                 remove_final_cluster=False if args.bed_input else True)
 
     # run manifold
-    calculate_manifold = True
-    if calculate_manifold and not args.debug:
+    if args.summarize_manifold and not args.debug:
 
         # get the manifold descriptions out per cluster
         manifold_h5_file = "{0}/{1}.manifold.h5".format(args.out_dir, args.prefix)
         if not os.path.isfile(manifold_h5_file):
             
             # TODO try hidden layer also
-            summarize_clusters_on_manifold(
-                results_h5_file)
+            if False:
+                summarize_clusters_on_manifold(
+                    results_h5_file)
 
             # select pwms, and change keys
             extract_significant_pwms(

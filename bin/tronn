@@ -13,7 +13,7 @@ import argparse
 import pkg_resources
 
 from tronn.util.h5_utils import get_absolute_label_indices # better way to handle this?
-from tronn.interpretation.pwms import read_pwm_file # TODO move this?
+from tronn.util.pwms import MotifSetManager # TODO move this?
 
 
 def parse_args():
@@ -481,9 +481,9 @@ def _setup_interpretation_options(args):
     args.filter_task_indices = all_filter_task_indices
 
     # pwm file
-    args.pwm_list = read_pwm_file(args.pwm_file)
+    args.pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
     args.pwm_names = [pwm.name for pwm in args.pwm_list]
-    args.pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
+    args.pwm_dict = MotifSetManager.read_pwm_file(args.pwm_file, as_dict=True)
 
     return
 
@@ -538,7 +538,6 @@ def add_scanmotifs_parser(subparsers):
         "Interpretation params")
     _add_interpretation_options(group_interpret)
     _add_visualization_options(group_interpret)
-    
 
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
@@ -546,6 +545,9 @@ def add_scanmotifs_parser(subparsers):
     group_other.add_argument(
         "--cluster", action="store_true",
         help="run clustering")
+    group_other.add_argument(
+        "--summarize_manifold", action="store_true",
+        help="summarize clusters in the manifold")
     
     # group for output files
     group_output = cmd_argparser.add_argument_group(
@@ -554,9 +556,6 @@ def add_scanmotifs_parser(subparsers):
     group_output.add_argument(
         '--tmp_dir',
         help='temporary scratch directory as needed')
-    #group_output.add_argument(
-    #    '--plot_importance_sample', action='store_true',
-    #    help='plot some sample importance score weighted samples')
 
     return
 
