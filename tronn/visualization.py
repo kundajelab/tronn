@@ -332,6 +332,14 @@ def visualize_h5_dataset_by_cluster(
 
 
 
+# how to manage visualizations...
+# always pull features
+# key - get the key, and equivallently pull the probs (or logits)
+# then use indices if any to choose the subset
+# different index sets operate on axis 1
+
+# so pass to R
+
 
 def visualize_clustering_results(
         h5_file,
@@ -360,6 +368,7 @@ def visualize_clustering_results(
     indices = [[] for i in xrange(len(dataset_keys))]
     indices += [visualize_task_indices[i] for i in xrange(num_vis_sets)] * 2
 
+    # TODO dont do this anymore?
     row_normalizations = [True for i in xrange(len(dataset_keys))]
     row_normalizations += [False for i in xrange(num_vis_sets)] * 2
 
@@ -386,7 +395,7 @@ def visualize_clustering_results(
             h5_file,
             cluster_key,
             keys[i],
-            cluster_col=cluster_col, # must always be single column
+            cluster_col=cluster_col, # must always be single column CHANGE THIS
             remove_final_cluster=remove_final_cluster,
             row_normalize=row_normalizations[i],
             signal_normalize=signal_normalizations[i],

@@ -6,6 +6,25 @@ Requires that these tools are installed and/or loaded
 import os
 
 
+def make_bed(seq_metadata, out_bed, key="active"):
+    """make a bed from a text file
+    """
+    convert = (
+        "cat {0} | "
+        "awk -F '{1}=' '{{ print $2 }}' | "
+        "awk -F ';' '{{ print $1 }}' | "
+        "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
+        "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
+        "gzip -c > {2}").format(
+            seq_metadata,
+            key,
+            out_bed)
+    print convert
+    os.system(convert)
+
+    return None
+
+
 def run_great(positive_bed, prefix, background_bed='None'):
     """Using rGreat, runs GREAT analysis
     Need to install rGreat first in R

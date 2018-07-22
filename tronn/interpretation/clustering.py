@@ -13,6 +13,11 @@ from tronn.stats.thresholding import threshold_at_fdr
 
 from tronn.util.utils import DataKeys
 from tronn.util.h5_utils import AttrKeys
+from tronn.util.bioinformatics import make_bed
+
+from tronn.visualization import visualize_clustered_h5_dataset_full
+from tronn.visualization import visualize_aggregated_h5_datasets
+from tronn.visualization import visualize_datasets_by_cluster_map
 
 
 class ClustersManager(object):
@@ -119,7 +124,6 @@ def run_clustering(
         h5_file,
         dataset_key,
         cluster_key=DataKeys.CLUSTERS,
-        #cluster_filt_key=DataKeys.CLUST_FILT,
         num_threads=24):
     """wrapper around favorite clustering method
     """
@@ -209,26 +213,22 @@ def get_cluster_bed_files(
         seq_metadata_key=DataKeys.SEQ_METADATA):
     """generate BED files from metadata
     """
-    prefix = h5_file.split(".h5")[0]
-
     # get clusters
-    clusters = get_clusters_from_h5(h5_file, cluster_key)
+    clusters = get_clusters_from_h5(h5_file, clusters_key)
 
+    # get metadata
+    with h5py.File(h5_file, "r") as hf:
+        metadata = hf[seq_metadata_key][:]
+    
     # for each cluster make a bed file
     generator = clusters.cluster_mask_generator()
-
     for cluster_id, cluster_mask in generator:
-    
-        with h5py.File(h5_file, "r") as hf:
-            metadata = hf[seq_metadata_key][:][cluster_mask]
-            
+        cluster_metadata = metadata[cluster_mask]
         cluster_prefix = "{0}.cluster-{1}".format(file_prefix, cluster_id)
         metadata_file = "{}.metadata.txt".format(cluster_prefix)
         metadata_bed = "{}.bed".format(cluster_prefix)
-        # TODO rewrite this function
-        #make_bed(metadata, metadata_file, metadata_bed)
-        print "DOES NOT WORK YET"
-        quit()
+        np.savetxt(metadata_file, cluster_metadata, fmt="%s")
+        make_bed(metadata_file, metadata_bed)
         
     return None
 
@@ -265,8 +265,6 @@ def summarize_clusters_on_manifold(
     cluster_idx = 0
     for cluster_id, cluster_mask in generator:
         print "cluster_id: {}".format(cluster_id),
-
-        print cluster_mask.shape
         
         # get the data in this cluster and remove zeros (if any)
         cluster_data = data[np.where(cluster_mask)[0],:,:] # {N, task, M}
@@ -343,20 +341,122 @@ def summarize_clusters_on_manifold(
 
 
 
-def visualize_clustering_results_R(
+def visualize_clustered_features_R(
+        h5_file, clusters_key, data_key=DataKeys.FEATURES):
+    """this specifically handles the featuresx
+    """
+    # example vs key
+    visualize_clustered_h5_dataset_full(
         h5_file,
-        cluster_key,
-        dataset):
+        clusters_key,
+        data_key,
+        cluster_columns=True,
+        use_raster=True)
+    
+    # cluster map? {cluster, features}
+    
+    return None
+
+
+def visualize_clustered_outputs_R(
+        h5_file,
+        clusters_key,
+        visualize_tasks,
+        visualize_signals,
+        output_key=DataKeys.PROBABILITIES):
     """use R to visualize results
     """
-    
     # example vs key - clustered (ordered clusters)
+    # keys: probs, labels for various index sets
+    # visualize_clustered_h5_dataset_full
+    for data_key in visualize_tasks.keys():
+        indices = visualize_tasks[data_key][0]
 
+        # data key
+        visualize_clustered_h5_dataset_full(
+            h5_file,
+            clusters_key,
+            data_key,
+            cluster_columns=True,
+            use_raster=True,
+            indices=indices)
 
+        # and model output
+        visualize_clustered_h5_dataset_full(
+            h5_file,
+            clusters_key,
+            output_key,
+            cluster_columns=True,
+            use_raster=True,
+            indices=indices)
 
-    # agg vs key - (ordered)
+        # show data key aggregated by cluster
+        visualize_datasets_by_cluster_map(
+            h5_file,
+            clusters_key,
+            data_key,
+            indices=indices)
+        
+        # show model output aggregated by cluster
+        visualize_datasets_by_cluster_map(
+            h5_file,
+            clusters_key,
+            output_key,
+            indices=indices)
+        
+        # and combined outputs
+        # actually returns a plot PER cluster
+        visualize_aggregated_h5_datasets(
+            h5_file,
+            clusters_key,
+            [data_key, output_key],
+            indices)
 
+        
+    # same for signals
+    for data_key in visualize_signals:
+        indices = visualize_signals[data_key][0]
+        partner_key = visualize_signals[data_key][1]["label_key"]
+
+        # data key
+        visualize_clustered_h5_dataset_full(
+            h5_file,
+            clusters_key,
+            data_key,
+            cluster_columns=True,
+            use_raster=True,
+            indices=indices)
+
+        # and model output
+        visualize_clustered_h5_dataset_full(
+            h5_file,
+            clusters_key,
+            output_key,
+            cluster_columns=True,
+            use_raster=True,
+            indices=indices)
+
+        # show data key aggregated by cluster
+        visualize_datasets_by_cluster_map(
+            h5_file,
+            clusters_key,
+            data_key,
+            indices=indices)
+        
+        # show model output aggregated by cluster
+        visualize_datasets_by_cluster_map(
+            h5_file,
+            clusters_key,
+            output_key,
+            indices=indices)
+
+        # and show combined keys, PER cluster
+        visualize_aggregated_h5_datasets(
+            h5_file,
+            clusters_key,
+            [data_key, output_key, partner_key],
+            indices)
     
-    
-    
-    return
+    return None
+
+

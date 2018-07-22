@@ -177,3 +177,18 @@ def extract_significant_pwms(
             out[key].attrs[AttrKeys.PWM_NAMES] = outputs[key][1]
     
     return None
+
+
+def visualize_significant_pwms_R(
+        h5_file,
+        pwm_scores_agg_global_key,
+        pwm_scores_agg_clusters_key):
+    """
+    """
+    # pull aggregated global (pwm, task) and plot
+
+
+    # pull by clusters, for each cluster (pwm, task) and plot
+
+    
+    return

@@ -77,7 +77,6 @@ class DataKeys(object):
     
     # cluster keys
     CLUSTERS = "clusters"
-    #CLUST_FILT = "{}.filt".format(CLUST_ROOT)
     
     # dmim transformation keys
     DMIM_SCORES_ROOT = "dmim-scores"

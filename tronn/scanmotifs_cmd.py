@@ -10,15 +10,14 @@ from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
 from tronn.nets.nets import net_fns
 
-from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
 from tronn.interpretation.clustering import get_cluster_bed_files
+from tronn.interpretation.clustering import visualize_clustered_features_R
+from tronn.interpretation.clustering import visualize_clustered_outputs_R
 
-# TODO move some of these to clustering
-from tronn.visualization import visualize_h5_dataset
-from tronn.visualization import visualize_h5_dataset_by_cluster
-from tronn.visualization import visualize_clustering_results
+from tronn.interpretation.motifs import extract_significant_pwms
+from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.utils import DataKeys
@@ -76,7 +75,7 @@ def run(args):
 
     # run inference and save out
     results_h5_file = "{0}/{1}.inference.h5".format(
-        args.tmp_dir, args.prefix)
+        args.out_dir, args.prefix)
     if not os.path.isfile(results_h5_file):
         model_manager.infer_and_save_to_h5(
             inference_generator,
@@ -89,45 +88,53 @@ def run(args):
             results_h5_file,
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
-                        
-    # run clustering
+
+    visualize_R = False
+        
+    # run clustering analysis
     if args.cluster and not args.debug:
+        cluster_file_prefix = "{0}/{1}.{2}".format(
+            args.out_dir, args.prefix, DataKeys.CLUSTERS)
         
         # cluster
         # TODO try hidden layer again sometime
         if DataKeys.CLUSTERS not in h5py.File(results_h5_file, "r").keys():
             logging.info("running clustering - louvain (Phenograph)")
             run_clustering(results_h5_file, DataKeys.FEATURES)
-            #get_cluster_bed_files(results_h5_file)
-
-        # select pwms with a permutation test
-        #extract_significant_pwms(results_h5_file)
+            get_cluster_bed_files(
+                results_h5_file,
+                cluster_file_prefix)
+            extract_significant_pwms(results_h5_file)
             
-        # visualize in R
-        # TODO adjust for -1 vals, also soft clustering
-        # TODO do this after pwm selection
-        visualize = False
-        if visualize:
-            visualize_clustering_results(
+        if visualize_R:
+            visualize_clustered_features_R(
+                results_h5_file,
+                DataKeys.CLUSTERS)
+            visualize_clustered_outputs_R(
                 results_h5_file,
                 DataKeys.CLUSTERS,
-                args.inference_task_indices,
-                args.visualize_task_indices,
-                args.visualize_signals,
-                remove_final_cluster=False if args.bed_input else True)
-
-    # run manifold
-    if args.summarize_manifold and not args.debug:
-
-        # get the manifold descriptions out per cluster
-        manifold_h5_file = "{0}/{1}.manifold.h5".format(args.out_dir, args.prefix)
-        if not os.path.isfile(manifold_h5_file):
-            
-            # TODO try hidden layer also
-            summarize_clusters_on_manifold(
+                args.visualize_tasks,
+                args.visualize_signals)
+            visualize_significant_pwms_R(
                 results_h5_file)
             
-            # select pwms, and change keys
+    # run manifold analysis
+    # NOTE relies on cluster analysis
+    if args.summarize_manifold and not args.debug:
+        manifold_file_prefix = "{0}/{1}.{2}".format(
+            args.out_dir, args.prefix, DataKeys.MANIFOLD_ROOT)
+
+        # get the manifold descriptions out per cluster
+        manifold_h5_file = "{0}/{1}.manifold.h5".format(
+            args.out_dir, args.prefix)
+        if not os.path.isfile(manifold_h5_file):
+
+            summarize_clusters_on_manifold(
+                results_h5_file)
+            get_cluster_bed_files(
+                results_h5_file,
+                manifold_file_prefix,
+                clusters_key=DataKeys.MANIFOLD_CLUST)
             extract_significant_pwms(
                 results_h5_file,
                 args.pwm_list,
@@ -137,14 +144,27 @@ def run(args):
                 pwm_sig_clusters_key=DataKeys.MANIFOLD_PWM_SIG_CLUST,
                 pwm_sig_clusters_all_key=DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL,
                 pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
+
+            # TODO copy over to manifold file
+            # need: centers, thresholds and cluster_ids
             
-            # here save to manifold file - a reduced h5 file
-            # that is portable
-            # save out to manifold
+        if visualize_R:
+            visualize_clustered_features_R(
+                results_h5_file,
+                DataKeys.CLUSTERS)
+            visualize_clustered_outputs_R(
+                results_h5_file,
+                DataKeys.CLUSTERS,
+                args.visualize_tasks,
+                args.visualize_signals)
+            visualize_significant_pwms_R(
+                results_h5_file)
+
+    analyze_density = False
+    if analyze_density and not args.debug:
+        # motif density analysis here
+        pass
             
-        if visualize:
-            visualize_h5_dataset(results_h5_file, global_agg_key)        
-            visualize_h5_dataset_by_cluster(results_h5_file, agg_key)
 
     return None
 
