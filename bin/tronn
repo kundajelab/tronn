@@ -56,6 +56,7 @@ def parse_args():
     # TODO:    
     # modisco?
     # add_modisco_parser(subparsers)
+    # DONT develop this here, use Av's package
     
     # baseline model
     add_baseline_parser(subparsers)
@@ -421,6 +422,9 @@ def _add_interpretation_inputs(parser):
     parser.add_argument(
         "--model_info", required=True,
         help="json with training info")
+    parser.add_argument(
+        "--processed_inputs", action="store_true",
+        help="inputs are already preprocessed through some inference stack")
     
     return
 

@@ -82,8 +82,16 @@ def add_task_metadata_to_h5(
     return
 
 
-def copy_datasets(in_h5_file, out_h5_file, keys=[]):
+def copy_h5_datasets(in_h5_file, out_h5_file, keys=[]):
+    """copy keys into new file
     """
-    """
-
-    return
+    for key in keys:
+        with h5py.File(in_h5_file, "r") as hf:
+            with h5py.File(out_h5_file, "a") as out:
+                # copy over data
+                out.create_dataset(key, data=hf[key][:])
+                # and copy all attributes
+                for attr_key, val in hf[key].attrs.iteritems():
+                    out[key].attrs[attr_key] = val
+    
+    return None

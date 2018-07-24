@@ -260,7 +260,7 @@ class H5DataLoader(DataLoader):
         """
         # calculate end idx
         end_idx = start_idx + batch_size
-
+        
         # get keys
         if keys is None:
             keys = sorted([key for key in h5_handle.keys() if key not in skip_keys])
@@ -332,6 +332,16 @@ class H5DataLoader(DataLoader):
         """
         # get hdf5 file params
         h5_handle = h5py.File(h5_file, "r")
+
+        # check skip keys
+        num_examples = h5_handle[features_key].shape[0]
+        for key in h5_handle.keys():
+            # check if scalar
+            if h5_handle[key].shape == 0:
+                skip_keys.append(key)
+            # check if different shape
+            if h5_handle[key].shape[0] != num_examples:
+                skip_keys.append(key)
 
         # keys
         if keys is None:

@@ -1,34 +1,31 @@
 # description: scan for grammar scores
 
 import os
-import json
 import h5py
 import glob
 import logging
-
-#import numpy as np
-#import tensorflow as tf
 
 from tronn.graphs import ModelManager
 from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
 from tronn.nets.nets import net_fns
 
-#from tronn.interpretation.motifs import read_pwm_file
-#from tronn.interpretation.grammars import generate_grammars_from_dmim
-#from tronn.interpretation.grammars import aggregate_dmim_results
+from tronn.interpretation.clustering import visualize_clustered_features_R
+from tronn.interpretation.clustering import visualize_clustered_outputs_R
+from tronn.interpretation.clustering import get_cluster_bed_files
 
-#from tronn.interpretation.clustering import aggregate_pwm_results
-#from tronn.interpretation.clustering import aggregate_pwm_results_per_cluster
-
-from tronn.visualization import visualize_h5_dataset
-from tronn.visualization import visualize_h5_dataset_by_cluster
-from tronn.visualization import visualize_clustering_results
+from tronn.interpretation.motifs import extract_significant_pwms
+from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.visualization import visualize_agg_pwm_results
 from tronn.visualization import visualize_agg_delta_logit_results
 from tronn.visualization import visualize_agg_dmim_adjacency_results
 
+from tronn.util.h5_utils import add_pwm_names_to_h5
+from tronn.util.utils import DataKeys
+
+
+# TODO move this out
 def _visualize_mut_results(
         h5_file,
         pwm_scores_key,
@@ -74,25 +71,37 @@ def run(args):
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
         args.tmp_dir = args.out_dir
+
+    # TODO need to better handle input of one file
+    # set up dataloader and input function
+    if args.data_dir is not None:
+        data_files = glob.glob('{}/*.h5'.format(args.data_dir))
+        data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
+        data_files = [h5_file for h5_file in data_files if "manifold" not in h5_file]
+        logging.info("Found {} chrom files".format(len(data_files)))
+        dataloader = H5DataLoader(data_files, fasta=args.fasta)
+        input_fn = dataloader.build_input_fn(
+            args.batch_size,
+            label_keys=args.model_info["label_keys"],
+            filter_tasks=args.filter_tasks,
+            singleton_filter_tasks=args.inference_task_indices)
+
+    elif args.bed_input is not None:
+        dataloader = BedDataLoader(args.bed_input, args.fasta)
+        input_fn = dataloader.build_input_fn(
+            args.batch_size,
+            label_keys=args.model_info["label_keys"])
         
-    # data files
-    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
-    data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
-    logging.info("Found {} chrom files".format(len(data_files)))
-
-    # set up dataloader
-    dataloader = H5DataLoader(data_files)
-    input_fn = dataloader.build_input_fn(
-        args.batch_size,
-        label_keys=args.model_info["label_keys"],
-        filter_tasks=[
-            args.inference_task_indices,
-            args.filter_task_indices],
-        singleton_filter_tasks=args.inference_task_indices)
-
     # set up model
+    if args.processed_inputs:
+        model_fn = net_fns["empty_net"]
+        reuse = False
+    else:
+        model_fn = net_fns[args.model_info["name"]]
+        reuse = True
+    
     model_manager = ModelManager(
-        net_fns[args.model_info["name"]],
+        model_fn,
         args.model_info["params"])
 
     # set up inference generator
@@ -101,7 +110,10 @@ def run(args):
         args.out_dir,
         net_fns[args.inference_fn],
         inference_params={
+            # TODO can we clean this up?
             "model_fn": net_fns[args.model_info["name"]],
+            "model_reuse": reuse,
+            "num_tasks": args.model_info["params"]["num_tasks"],
             "backprop": args.backprop,
             "importances_fn": args.backprop, # TODO fix this
             "importance_task_indices": args.inference_task_indices,
@@ -111,14 +123,21 @@ def run(args):
         yield_single_examples=True)
 
     # run inference and save out
-    results_h5_file = "{0}/{1}.inference.h5".format(
-        args.tmp_dir, args.prefix)
+    results_h5_file = "{0}/{1}.dmim_results.h5".format(
+        args.out_dir, args.prefix)
     if not os.path.isfile(results_h5_file):
         model_manager.infer_and_save_to_h5(
             inference_generator,
             results_h5_file,
-            args.sample_size)
+            args.sample_size,
+            debug=args.debug)
 
+        # add in PWM names to the datasets
+        add_pwm_names_to_h5(
+            results_h5_file,
+            [pwm.name for pwm in args.pwm_list],
+            other_keys=[])
+        
         # TODO move to h5 utils
         # save out additional useful information
         with h5py.File(results_h5_file, "a") as hf:
@@ -135,50 +154,43 @@ def run(args):
             for task_idx in args.inference_task_indices:
                 hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_mut_names
 
-            # pwm names
-            for dataset_key in hf.keys():
-                if "pwm-scores" in dataset_key:
-                    hf[dataset_key].attrs["pwm_names"] = [
-                        pwm.name for pwm in args.pwm_list]
 
-        # aggregate the pwm cluster results
-        # TODO use full pwm tensor
-        dataset_keys = [
-            "pwm-scores.taskidx-{}".format(i)
-            for i in args.inference_task_indices]
-        global_agg_key = "pwm-scores.tasks_x_pwm.global"
-
-        aggregate_pwm_results(
+    # TODO - all the below stuff is basically
+    # get bed files
+    # get sig pwms (which aggregates results)
+    # visualize R all
+    check_manifold = False
+    if check_manifold:
+        manifold_file_prefix = "{0}/{1}.{2}".format(
+            args.out_dir, args.prefix, DataKeys.MANIFOLD_ROOT)
+        get_cluster_bed_files(
             results_h5_file,
-            dataset_keys,
-            global_agg_key,
-            args.manifold_file)
-
-        # TODO need to maintain cluster numbering
-        agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
-        aggregate_pwm_results_per_cluster(
+            manifold_file_prefix)
+        extract_significant_pwms(
             results_h5_file,
-            "manifold_clusters",
-            dataset_keys,
-            agg_key,
-            args.manifold_file,
-            soft_clustering=True)
+            args.pwm_list,
+            clusters_key=DataKeys.MANIFOLD_CLUST,
+            pwm_sig_global_key=DataKeys.MANIFOLD_PWM_SIG_GLOBAL,
+            pwm_scores_agg_global_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_GLOBAL,
+            pwm_sig_clusters_key=DataKeys.MANIFOLD_PWM_SIG_CLUST,
+            pwm_sig_clusters_all_key=DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL,
+            pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
+
+    visualize_R = False
+    if visualize_R:
+        visualize_clustered_features_R(
+            results_h5_file,
+            DataKeys.CLUSTERS)
+        visualize_clustered_outputs_R(
+            results_h5_file,
+            DataKeys.CLUSTERS,
+            args.visualize_tasks,
+            args.visualize_signals)
+        visualize_significant_pwms_R(
+            results_h5_file)
+
+    
         
-    visualize = True
-    if visualize:
-        visualize_clustering_results(
-            results_h5_file,
-            "manifold_clusters.onehot",
-            args.inference_task_indices,
-            args.visualize_task_indices,
-            args.visualize_signals,
-            soft_cluster_key="manifold_clusters",
-            remove_final_cluster=False)
-        global_agg_key = "pwm-scores.tasks_x_pwm.global"
-        agg_key = "pwm-scores.tasks_x_pwm.per_cluster"
-        visualize_h5_dataset(results_h5_file, global_agg_key)        
-        visualize_h5_dataset_by_cluster(results_h5_file, agg_key)
-
     # TODO - here is dmim specific analyses
     # think about how to get significance on mutational shift.
     # {N, mut_motif, task, M}

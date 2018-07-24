@@ -5,8 +5,8 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
+from tronn.nets.sequence_nets import pad_data
 from tronn.nets.sequence_nets import generate_scaled_inputs
-#from tronn.nets.sequence_nets import unpad_examples
 
 from tronn.nets.filter_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
@@ -18,6 +18,7 @@ from tronn.nets.threshold_nets import threshold_shufflenull
 
 from tronn.nets.normalization_nets import normalize_to_weights
 from tronn.nets.normalization_nets import normalize_to_weights_w_shuffles
+from tronn.nets.normalization_nets import normalize_to_absolute_one
 
 from tronn.nets.threshold_nets import clip_edges
 
@@ -60,7 +61,8 @@ class FeatureImportanceExtractor(object):
     def run_model_and_get_anchors(self, inputs, params, layer_key):
         """run the model fn with preprocessed inputs
         """
-        with tf.variable_scope("", reuse=True):
+        reuse = params.get("model_reuse", True)
+        with tf.variable_scope("", reuse=reuse):
             model_outputs, params = self.model_fn(inputs, params)
         
         # gather anchors
@@ -88,16 +90,20 @@ class FeatureImportanceExtractor(object):
 
         # NOTE: cannot use map_fn here, breaks the connection to the gradients
         importances = []
+        gradients = []
         for task_idx in xrange(anchors.get_shape().as_list()[1]):
             inputs_anchor = anchors[:,task_idx]
             inputs.update({"anchor": inputs_anchor})
             results, _ = cls.get_singletask_feature_importances(inputs, params)
             importances.append(results[DataKeys.FEATURES])
+            gradients.append(results[DataKeys.IMPORTANCE_GRADIENTS])
         importances = tf.concat(importances, axis=1)
-
+        gradients = tf.concat(gradients, axis=1)
+        
         # save out
         outputs[DataKeys.FEATURES] = importances
         outputs[DataKeys.WEIGHTED_SEQ] = importances
+        outputs[DataKeys.IMPORTANCE_GRADIENTS] = gradients
         
         return outputs, params
         
@@ -199,7 +205,7 @@ class InputxGrad(FeatureImportanceExtractor):
         results = tf.multiply(features, feature_gradients, 'input_x_grad')
 
         outputs[DataKeys.FEATURES] = results
-        outputs["gradients"] = feature_gradients
+        outputs[DataKeys.IMPORTANCE_GRADIENTS] = feature_gradients
 
         return outputs, params
 
@@ -363,15 +369,71 @@ class DeltaFeatureImportanceMapper(InputxGrad):
     and return the delta results"""
 
     def preprocess(self, inputs, params):
-        # attach the mutations?
-        pass
+        """preprocess for delta features
+        """
+        assert inputs.get(DataKeys.FEATURES) is not None
+        assert inputs.get(DataKeys.MUT_MOTIF_SEQ) is not None
+        
+        # don't generate shuffles, assume that the shuffles are still attached from before
+        
+        # attach the mutations (interleaved)
+        orig_features = inputs[DataKeys.FEATURES] # {N, 1, 1000, 4}
+        orig_features = tf.expand_dims(orig_features, axis=1) # {N, 1, 1, 1000, 4}
+        mut_features = inputs[DataKeys.MUT_MOTIF_SEQ] # {N, mut_M, 1, 1000, 4}
+        features = tf.concat([orig_features, mut_features], axis=1) # {N, 1+mut_M, 1, 1000, 4}
+        features = tf.reshape(features, [-1]+orig_features.get_shape().as_list()[2:]) # {N*(1+mut_M), 1, 1000, 4}
+        inputs[DataKeys.FEATURES] = features
+        
+        # track which parts of the batch are what
+        params["num_shuffles"] = inputs[DataKeys.MUT_MOTIF_SEQ].get_shape().as_list()[1]
+        batch_size = params["num_shuffles"] + 1
+        
+        # and pad everything
+        outputs, _ = pad_data(
+            inputs,
+            {"num_shuffles": params["num_shuffles"],
+             "ignore": [DataKeys.FEATURES]})
+
+        # and rebatch
+        outputs, _ = rebatch(outputs, {"name": "rebatch_motif_mut", "batch_size": batch_size})
+
+        return outputs, params
 
     
     def postprocess(self, inputs, params):
-        # adjust the mutational results
-        # should output the deltas {N, mut_motif, task, pos, 4}
-        pass
+        """postprocess
+        """
 
+        from tronn.nets.inference_nets import build_inference_stack
+
+        
+        # postprocess stack
+        inference_stack = [
+            (threshold_shufflenull, {"pval_thresh": 0.01, "shuffle_key": DataKeys.WEIGHTED_SEQ_SHUF}),
+            
+            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
+            (normalize_to_absolute_one, {}),
+            (clip_edges, {"left_clip": 420, "right_clip": 580}),
+
+            (remove_shuffles, {})
+
+            # importance filter? to remove examples w no change?
+            # but may be important to keep these for statistics
+        ]
+
+        # build the postproces stack
+        outputs, params = build_inference_stack(
+            inputs, params, inference_stack)
+
+        print outputs[DataKeys.FEATURES]
+        
+        # Q: is there a way to get the significance of a delta score even here?
+        # ie, what is the probability of a delta score by chance?
+        # could build a distribution?
+
+        # this returns the delta importances as features
+
+        return outputs, params
     
     
     
@@ -404,6 +466,17 @@ def get_task_importances(inputs, params):
     outputs, params = extractor.extract(inputs, params)
 
     return outputs, params
+
+
+def run_dfim(inputs, params):
+    """wrapper for functional calls
+    """
+    extractor = DeltaFeatureImportanceMapper(params["model_fn"])
+
+    outputs, params = extractor.extract(inputs, params)
+    
+    return outputs, params
+
 
 
 def filter_singles(inputs, params):

@@ -234,6 +234,7 @@ def get_cluster_bed_files(
 
 
 # TODO - make one big manifold (flatten) and go from there
+# since that's how clustering was calculated
 def summarize_clusters_on_manifold(
         h5_file,
         features_key=DataKeys.FEATURES,

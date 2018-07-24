@@ -53,6 +53,10 @@ class DataKeys(object):
     WEIGHTED_SEQ_PWM_SCORES_SUM = "{}.sum".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_SEQ_SHUF_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE_SHUF, PWM_SCORES_ROOT)
 
+    # pwm positions
+    WEIGHTED_PWM_SCORES_POSITION_MAX_VAL = "{}.sum".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
+    WEIGHTED_PWM_SCORES_POSITION_MAX_IDX = "{}.sum".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
+    
     # significant pwms
     PWM_SIG_ROOT = "pwms.sig"
     PWM_SIG_GLOBAL = "{}.global".format(PWM_SIG_ROOT)
@@ -79,6 +83,9 @@ class DataKeys(object):
     CLUSTERS = "clusters"
     
     # dmim transformation keys
+    MUT_MOTIF_SEQ = "{}.motif_mut".format(ORIG_SEQ)
+    MUT_MOTIF_POS = "{}.motif_mut.mask".format(ORIG_SEQ)
+    MUT_MOTIF_PRESENT = "{}.motif_mut_present".format(ORIG_SEQ)
     DMIM_SCORES_ROOT = "dmim-scores"
 
     # split

@@ -1,11 +1,15 @@
 """Contains nets that perform PWM convolutions
 """
 
+import h5py
 import logging
 
+import numpy as np
 import tensorflow as tf
 
 from tronn.nets.threshold_nets import build_null_distribution_threshold_fn
+from tronn.nets.filter_nets import filter_and_rebatch
+
 from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
@@ -305,26 +309,28 @@ class DeltaMotifImportanceMapper(MotifScanner):
     def preprocess(self, inputs, params):
         """assertions, and blank the motif site
         """
-        # check for correct input {N, task, pos, 4}
+        # check for correct input {N, mut_M, task, pos, 4}
+        # join dims for scanning
+        
+        # blank the motif sites (might be redundant, but sometimes not
+        # if only blanking 1 base pair during normalization)
 
-        # blank the motif site
 
-        # clip edges?
         
         return
 
     
-    def scan(self, inputs, params):
-        """scan motifs
-        """
-        
-        return
-
-
     def postprocess(self, inputs, params):
-        """subtract orig from mut
         """
+        """
+        # do not threshold (ie just use the motif scanner)
+        
+        # utilizing existing pwm hits, mask the scores
 
+        # remember to return BOTH positive and negative scores here!
+        # returns delta motif scores {N, mut_M, pos, M}
+        # and reduce sum to {N, mut_M, M}
+        
         return
     
 
@@ -417,6 +423,59 @@ def get_motif_densities(inputs, params):
 
     return outputs, params
 
+
+def filter_for_significant_pwms(inputs, params):
+    """
+    """
+    assert inputs.get(DataKeys.ORIG_SEQ_PWM_HITS) is not None # {N, task, pos, M}
+    assert params.get("manifold") is not None # {cluster, task, M}
+
+    # features
+    features = inputs[DataKeys.ORIG_SEQ_PWM_HITS]
+    features = tf.reduce_sum(features, axis=2)
+    features = tf.expand_dims(features, axis=1) # {N, 1, task, M}
+    outputs = dict(inputs)
+
+    # pwm masks
+    with h5py.File(params["manifold"], "r") as hf:
+        pwm_masks = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST][:]
+    pwm_masks = np.expand_dims(pwm_masks, axis=1) # {cluster, 1, M}
+    pwm_masks = np.expand_dims(pwm_masks, axis=0) # {1, cluster, 1, M}
+    pwm_totals = np.sum(pwm_masks, axis=3) # {1, cluster, 1}
+    pwm_totals = np.squeeze(pwm_totals, axis=2) # {1, cluster}
+    
+    # multiply
+    pwms_present = tf.multiply(features, pwm_masks) # {N, cluster, task, M}
+    pwms_present = tf.cast(tf.greater(pwms_present, 0), tf.float32)
+    pwms_present_sums = tf.reduce_sum(pwms_present, axis=3) # {N, cluster, task}
+
+    # and get max present across tasks
+    pwms_present_sums = tf.reduce_max(pwms_present_sums, axis=2) # {N, cluster}
+    
+    # passes threshold
+    passed_thresholds = tf.cast(tf.equal(pwms_present_sums, pwm_totals), tf.float32) # {N, cluster}
+ 
+    # TODO
+    # save out
+    outputs["sig_pwms_present"] = passed_thresholds # {N, cluster}
+
+    # check condition
+    outputs["condition_mask"] = tf.reduce_any(
+        tf.greater(passed_thresholds, 0), axis=1)
+
+    params.update({"name": "sig_pwm_filter"})
+    outputs, params = filter_and_rebatch(outputs, params)
+    
+    return outputs, params
+
+
+
+
+
+
+
+
+# OLD BELOW = CHECK TO SEE WHAT TO KEEP
 
 # TODO is this necessary?
 def get_bp_overlap(inputs, params):

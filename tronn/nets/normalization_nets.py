@@ -84,6 +84,43 @@ def normalize_to_weights_w_shuffles(inputs, params):
     return outputs, params
 
 
+def normalize_to_absolute_one(inputs, params):
+    """Normalize features on a per example basis. Requires a weights vector,
+    normally the probabilities at the final point of the output
+    (ie, think of if you had a total weight
+    of 1, how should it be spread, and then weight that by the final
+    probability value)
+    """
+    # assertions
+    assert inputs.get(DataKeys.FEATURES) is not None
+    
+    # get features and pass rest through
+    features = inputs[DataKeys.FEATURES] # {N, task, ...}
+    outputs = dict(inputs)
+
+    # adjust shape
+    features_shape = features.get_shape().as_list()
+    features = tf.reshape(
+        features,
+        [features_shape[0]*features_shape[1],
+         features_shape[2],
+         features_shape[3]])
+
+    # divide
+    features = tf.divide(
+        features,
+        tf.reduce_sum(tf.abs(features), axis=[1,2], keepdims=True)) # {N*task, 1000, 4}
+
+    # reshape
+    features = tf.reshape(features, features_shape)
+
+    # save out
+    outputs[DataKeys.FEATURES] = features
+    
+    return outputs, params
+
+
+
 def normalize_to_delta_logits(inputs, params):
     """Normalize features on a per example basis. Requires a weights vector,
     normally the probabilities at the final point of the output

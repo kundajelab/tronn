@@ -1,6 +1,7 @@
 # description: scan motifs and get motif sets (co-occurring motifs) back
 
 import os
+import json
 import h5py
 import glob
 import logging
@@ -12,14 +13,15 @@ from tronn.nets.nets import net_fns
 
 from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
-from tronn.interpretation.clustering import get_cluster_bed_files
 from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
+from tronn.interpretation.clustering import get_cluster_bed_files
 
 from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
+from tronn.util.h5_utils import copy_h5_datasets
 from tronn.util.utils import DataKeys
 
 
@@ -74,6 +76,7 @@ def run(args):
         yield_single_examples=True)
 
     # run inference and save out
+    # TODO change this to pwm_results
     results_h5_file = "{0}/{1}.inference.h5".format(
         args.out_dir, args.prefix)
     if not os.path.isfile(results_h5_file):
@@ -145,8 +148,15 @@ def run(args):
                 pwm_sig_clusters_all_key=DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL,
                 pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
 
-            # TODO copy over to manifold file
-            # need: centers, thresholds and cluster_ids
+            # copy over to (smaller) manifold file for ease of use
+            copy_h5_datasets(
+                results_h5_file,
+                manifold_h5_file,
+                keys=[
+                    DataKeys.MANIFOLD_CENTERS,
+                    DataKeys.MANIFOLD_THRESHOLDS,
+                    DataKeys.MANIFOLD_PWM_SIG_CLUST,
+                    DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL])
             
         if visualize_R:
             visualize_clustered_features_R(
@@ -164,7 +174,13 @@ def run(args):
     if analyze_density and not args.debug:
         # motif density analysis here
         pass
-            
+
+    # save out additional info to model json
+    args.model_info["pwm_file"] = args.pwm_file
+    args.model_info["inference_tasks"] = args.inference_tasks
+    args.model_info["backprop"] = args.backprop
+    with open("{}/model_info.json".format(args.out_dir), "w") as fp:
+        json.dump(args.model_info, fp, sort_keys=True, indent=4)
 
     return None
 

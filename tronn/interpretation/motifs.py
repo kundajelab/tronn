@@ -141,28 +141,31 @@ def extract_significant_pwms(
         pwm_sig_cluster_names = pwm_names[sig_pwms[cluster_idx,:] > 0]
         print pwm_sig_cluster_names
         cluster_idx += 1
-    
+        
     # adjust clustering as needed
     # remove clusters with no sig motifs?
     if refine_clusters:
         pass
 
     # save out
-    outputs[pwm_sig_clusters_all_key] = np.any(sig_pwms > 0, axis=0) # {M}
-    pwm_sig_cluster_global_names = pwm_names[outputs[pwm_sig_clusters_all_key] > 0]
+    pwm_sig_clusters_all = np.any(sig_pwms > 0, axis=0).astype(int) # {M}
+    pwm_sig_cluster_global_names = pwm_names[pwm_sig_clusters_all > 0]
+    outputs[pwm_sig_clusters_all_key] = (
+        pwm_sig_clusters_all,
+        pwm_sig_cluster_global_names)
     print pwm_sig_cluster_global_names
     
     # and aggregate {cluster, task, M}
     agg_data = np.zeros((
         num_clusters,
         data.shape[1],
-        np.sum(outputs[pwm_sig_clusters_all_key])))
+        np.sum(outputs[pwm_sig_clusters_all_key][0])))
     generator = clusters.cluster_mask_generator()
     cluster_idx = 0
     for cluster_id, cluster_mask in generator:
         cluster_data = data[np.where(cluster_mask)[0],:,:]
         agg_data[cluster_idx,:,:] = aggregate_array(
-            cluster_data, mask=outputs[pwm_sig_clusters_all_key])
+            cluster_data, mask=outputs[pwm_sig_clusters_all_key][0])
         cluster_idx += 1
         
     # save out

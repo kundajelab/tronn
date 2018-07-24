@@ -17,6 +17,8 @@ from tronn.nets.sequence_nets import unpad_examples
 from tronn.nets.filter_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
 
+from tronn.util.utils import DataKeys
+
 # for dmim, stack:
 # (1) manifold filtering
 # (2) feature extraction
@@ -45,42 +47,190 @@ class Mutagenizer(object):
         # base level - search for motif
         # requires motif score thresh map {N, task, pos, M} and filter_width
         # base level, returns the pos of greatest M (top k)
+        assert inputs.get(DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH) is not None
+        assert params.get("manifold") is not None # {M}
+        outputs = dict(inputs)
         
-        pass
+        # TODO should this be a separate function in motifs?
+        # features - look at global top score positions
+        features = inputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] # {N, task, pos, M}
+        features = tf.reduce_max(features, axis=1) # {N, pos, M}
+        features = tf.transpose(features, perm=[0,2,1]) # {N, M, pos}
+        
+        # params
+        num_mutations = params.get("num_mutations", 1)
+        
+        # get the max positions
+        vals, indices = tf.nn.top_k(features, k=num_mutations, sorted=True)
 
-    @staticmethod
-    def point_mutagenize(inputs, params):
-        pass
+        # and then only keep the ones that filter through pwm vector
+        with h5py.File(params["manifold"], "r") as hf:
+            pwm_mask = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL][:]
+        sig_pwm_indices = np.where(pwm_mask > 0)[0]
+        vals = tf.gather(vals, sig_pwm_indices, axis=1)
+        indices = tf.cast(tf.gather(vals, sig_pwm_indices, axis=1), tf.int64)
+        
+        # save
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, mut_M, k}
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, mut_M, k}
+        outputs["motif_present"] = tf.reduce_any(tf.greater(vals, 0), axis=2) # {N, mut_M}
 
-    @staticmethod
-    def shuffle_mutagenize(inputs, params):
-        pass
+        if self.mutation_type == "point":
+            # set up gradients
+            grad = inputs[DataKeys.IMPORTANCE_GRADIENTS]
+            grad_mins = tf.reduce_min(grad, axis=1, keepdims=True) # {N, 1, 1000, 4}
+            grad_mins = tf.argmin(grad_mins, axis=3) # {N, 1, 1000}
+            grad_mins = tf.one_hot(grad_mins, 4) # {N, 1, 1000, 4}
+            outputs["grad_mins"] = grad_mins
+        
+        return outputs, params
 
     
-    @classmethod
-    def mutagenize(cls, inputs, params):
-        # instantiate in child class - point mutagenizer or motif mutagenizer
-        # should have a position to mutate, and will mutate there.
-        # should save out under different key
-        pass
+    @staticmethod
+    def point_mutagenize_example(tensors):
+        """generate a point mutant
+        """
+        # extract tensors
+        example = tensors[0] # {1, 1000, 4}
+        motif_present = tensors[1]
+        pos = tensors[2] # {1, 1000, 1}
+        grad_mins = tensors[3] # {tasks, 1000, 4}
+
+        # adjust tensor
+        example_mut = tf.where(positions, example, grad_mins) # {1, 1000, 4}
+
+        # but only actually adjust if the motif actually there
+        example = tf.cond(motif_present, lambda: example_mut, lambda: example)
+        
+        return example, pos
+
+
+    @staticmethod
+    def shuffle_mutagenize_example(tensors):
+        """generate shuffle mutants
+        """
+        # extract tensors
+        example = tensors[0] # {1, 1000, 4}
+        motif_present = tensors[1]
+        positions = tensors[2] # {1, 1000, 1}
+        k = 5
+        
+        # adjustments
+        example = tf.squeeze(example, axis=0) # {1000, 4}
+        positions = tf.expand_dims(positions, axis=0) # {1, 1, 1000, 1}
+        
+        # use pooling to get a spread
+        positions = tf.nn.max_pool(positions, [1,1,5,4], [1,1,1,1], padding="SAME") # {1, 1, 1000, 1}
+        positions = tf.squeeze(positions) # {1000}
+        num_positions = positions.get_shape().as_list()[0]
+
+        # set up true indices, after splitting out positions to shuffle
+        positions_to_shuffle = tf.where(tf.greater(positions, 0)) # {?}
+        positions_to_keep = tf.where(tf.equal(positions, 0)) # {?}
+        true_indices = tf.concat([positions_to_shuffle, positions_to_keep], axis=0) # {1000}
+        true_indices = tf.squeeze(true_indices, axis=1)
+        true_indices.set_shape(positions.get_shape())
+
+        # shuffle, and save out to shuffled positions
+        positions_to_shuffle = tf.random_shuffle(positions_to_shuffle) # {?}
+        shuffled_indices = tf.concat([positions_to_shuffle, positions_to_keep], axis=0) # {1000}
+        shuffled_indices = tf.squeeze(shuffled_indices, axis=1)
+        shuffled_indices.set_shape(positions.get_shape())
+        
+        # now rank the TRUE indices to get the indices ordered back to normal
+        vals, indices = tf.nn.top_k(true_indices, k=num_positions, sorted=True) # indices
+
+        # gather on the SHUFFLED to get back indices shuffled only where requested
+        final_indices = tf.gather(shuffled_indices, indices)
+
+        # gather from example
+        example_mut = tf.gather(example, final_indices)
+        
+        # conditional on whether the motif actually there
+        example = tf.cond(motif_present, lambda: example_mut, lambda: example)
+        example = tf.expand_dims(example, axis=0)
+        
+        # adjust positions
+        positions = tf.expand_dims(positions, axis=1)
+        positions = tf.expand_dims(positions, axis=0) # {1, 1000, 1}
+        
+        return example, positions
 
     
-    @staticmethod
-    def mutagenize_multiple(inputs, params):
-        # mutagenize multiple spots (ie, call mutagenize multiple times)
-        # this requires checking if there are enough hits
-        # to mutagenize multiple
+    def mutagenize_multiple_motifs(self, inputs, params):
+        """comes in from map fn?
+        """
+        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] is not None # {N, mut_M, k}
+        outputs = dict(inputs)
         
-        pass
+        # for each motif, run map fn to mutagenize
+        features = inputs[DataKeys.ORIG_SEQ] # {N, 1, 1000, 4}
+        position_indices = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] # {N, mut_M, k}
+        motif_present = inputs["motif_present"] # {N, mut_M, k}
+        
+        # choose what kind of mutagenesis
+        if self.mutation_type == "point":
+            mutagenize_fn = self.point_mutagenize_example
+        else:
+            mutagenize_fn = self.shuffle_mutagenize_example
+
+        all_mut_sequences = []
+        all_mut_positions = []
+        for mut_i in xrange(position_indices.get_shape().as_list()[1]):
+
+            # TODO must adjust the position based on clip offset!
+            # TODO would like to pass out the position mask too (for further analyses)
+            
+            mut_positions = position_indices[:,mut_i,:] # {N, k}
+            mut_positions = tf.one_hot(mut_positions, 1000) # {N, k, 1000}
+            mut_positions = tf.reduce_max(mut_positions, axis=1) # {N, 1000}
+            mut_positions = tf.expand_dims(mut_positions, axis=2) # {N, 1000, 1}
+            mut_positions = tf.expand_dims(mut_positions, axis=1) # {N, 1, 1000, 1}
+            mut_motif_present = motif_present[:,mut_i] # {N}
+            mut_sequences, mut_positions = tf.map_fn(
+                mutagenize_fn,
+                [features, mut_motif_present, mut_positions],
+                dtype=(tf.float32, tf.float32)) # {N, 1, 1000, 4}
+            all_mut_sequences.append(mut_sequences)
+            all_mut_positions.append(mut_positions)
+            
+        outputs[DataKeys.MUT_MOTIF_SEQ] = tf.stack(all_mut_sequences, axis=1) # {N, mut_M, 1, 1000, 4}
+        outputs[DataKeys.MUT_MOTIF_POS] = tf.stack(all_mut_positions, axis=1)
+        
+        return outputs, params
+
+
+    def mutagenize(self, inputs, params):
+        """wrapper function to call everything
+        """
+        inputs, params = self.preprocess(inputs, params)
+        outputs, params = self.mutagenize_multiple_motifs(inputs, params)
+        outputs, params = self.postprocess(outputs, params)
+        
+        return outputs, params
     
 
     def postprocess(self, inputs, params):
-        # blank motif site?
-        # depends on the analysis?
+        # depends on the analysis
         
-        pass
+        return inputs, params
 
+
+def mutate_weighted_motif_sites(inputs, params):
+    """ mutate
+    """
+    mutagenizer = Mutagenizer(mutation_type="shuffle")
+    outputs, params = mutagenizer.mutagenize(inputs, params)
+
+    return outputs, params
     
+
+
+
+
+# OLD
+
+# TODO deprecate   
 def mutate_motif(inputs, params):
     """Find max motif positions and mutate
     """
@@ -133,7 +283,7 @@ def mutate_motif(inputs, params):
     
     return outputs, params
 
-
+# TODO deprecate
 def blank_motif_site_old(sequence, pwm_indices, pwm_positions, filter_width):
     """given the position and the filter width, mutate sequence
     """

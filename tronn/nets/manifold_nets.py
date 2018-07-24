@@ -8,130 +8,92 @@ import tensorflow as tf
 
 from tronn.nets.filter_nets import filter_and_rebatch
 
+from tronn.util.h5_utils import AttrKeys
+from tronn.util.utils import DataKeys
 
-def distance_metric(features, centers, metric="dot"):
-    """determine distance to center
+
+def batch_jaccard_distance_from_centers(features, centers, axis=-1):
+    """calculates the jaccard for multiple
+    centers on a batch of examples
+    calculates on the last axis
     """
-    if metric == "dot":
-        distances = tf.reduce_sum(tf.multiply(features, centers), axis=2)
-    else:
-        print "distance metric does not exist yet"
-        
+    min_vals = tf.minimum(features, centers) # {N, cluster, task, M}
+    max_vals = tf.maximum(features, centers) # {N, cluster, task, M}
+
+    similarities = tf.divide(
+        tf.reduce_sum(min_vals, axis=axis),
+        tf.reduce_sum(max_vals, axis=axis)) # {N, cluster, task}
+    
+    return similarities
+
+
+def batch_euclidean_distance_from_centers(features, centers, axis=-1):
+    """calculate euclidean distance from the centers
+    """
+    diffs = tf.subtract(features, centers) # {N, cluster, task, M}
+    norms = tf.norm(diffs, ord="euclidean", axis=axis) # {N, cluster, task}
+
+    return norms
+
+
+def batch_dot_distance_from_centers(features, centers, axis=-1):
+    """calculate dot product with centers
+    """
+    distances = tf.reduce_sum(tf.multiply(features, centers), axis=axis)
+    
     return distances
 
 
-def score_manifold_distances(inputs, params):
-    """given motifspace centers, score distance from the centers
+def score_distances_on_manifold(inputs, params):
+    """score distances from center
     """
-    # assertions
-    assert params.get("raw-pwm-scores-key") is not None
-    assert inputs.get(params["raw-pwm-scores-key"]) is not None
+    assert inputs.get(DataKeys.FEATURES) is not None
     assert params.get("manifold") is not None
-    assert params.get("pwms") is not None
     
-    # get features and pass on rest
-    features = inputs[params["raw-pwm-scores-key"]] # {N, motif}
-    features = tf.expand_dims(features, axis=1) # {N, 1, motif}
-    features = tf.expand_dims(features, axis=3) # {N, 1, motif, 1}
+    # features
+    features = inputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM]
     outputs = dict(inputs)
 
-    # params
-    manifold_h5_file = params["manifold"]
+    # centers and thresholds
+    with h5py.File(params["manifold"], "r") as hf:
+        centers = hf[DataKeys.MANIFOLD_CENTERS][:].astype(np.float32)
+        thresholds = hf[DataKeys.MANIFOLD_THRESHOLDS][:].astype(np.float32)
+        cluster_ids = hf[DataKeys.MANIFOLD_CENTERS].attrs[AttrKeys.CLUSTER_IDS]
 
-    # get the weights
-    with h5py.File(manifold_h5_file, "r") as hf:
-        feature_weights = hf["manifold_weights"][:] # {cluster, task, motif}
-    feature_weights = np.transpose(feature_weights, axes=[1, 2, 0]) # {task, motif, cluster}
-    feature_weights = np.expand_dims(feature_weights, axis=0) # {1, task, motif, cluster}
-    feature_weights = tf.convert_to_tensor(feature_weights, dtype=tf.float32)
-
-    # multiply by the features
-    features = tf.multiply(features, feature_weights) # {N, task, motif, cluster}
-
-    # get the centers
-    with h5py.File(manifold_h5_file, "r") as hf:
-        cluster_centers = hf["manifold_centers"][:] # {cluster, task, motif}
-    cluster_centers = np.transpose(cluster_centers, axes=[1, 2, 0]) # {task, motif, cluster}
-    cluster_centers = np.expand_dims(cluster_centers, axis=0) # {1, task, motif, cluster}
-    cluster_centers = tf.convert_to_tensor(cluster_centers, dtype=tf.float32)
-
-    # get distances
-    outputs["manifold_distances"] = distance_metric(
-        features, cluster_centers, metric="dot") # {N, task, cluster}
-
-    # get thresholds and thresholded results
-    with h5py.File(manifold_h5_file, "r") as hf:
-        manifold_thresholds = hf["manifold_thresholds"][:] # {cluster, task}
-    manifold_thresholds = np.transpose(manifold_thresholds, axes=[1, 0])
-    manifold_thresholds = np.expand_dims(manifold_thresholds, axis=0) # {1, task, cluster}
-    manifold_thresholds = tf.convert_to_tensor(manifold_thresholds, dtype=tf.float32)
-
-    # compare to distances
-    # currently - must match on ALL tasks, but ANY cluster
-    passes_thresholds = tf.cast(
-        tf.greater(outputs["manifold_distances"], manifold_thresholds),
-        tf.float32)
-    outputs["manifold_clusters"] = tf.reduce_mean(passes_thresholds, axis=1) # {N, cluster}
-    outputs["manifold_clusters.onehot"] = tf.argmax(
-        tf.reduce_mean(outputs["manifold_distances"], axis=1),
-        axis=1) # {N}
+    # adjust by cluster ids
+    centers = centers[cluster_ids]
+    thresholds = thresholds[cluster_ids]
     
-    # now get motif thresholds
-    with h5py.File(manifold_h5_file, "r") as hf:
-        pwm_thresholds = hf["pwm_thresholds"][:] # {cluster, task, motif}
-    pwm_thresholds = np.transpose(pwm_thresholds, axes=[1, 2, 0]) # {task, motif, cluster}
-    pwm_thresholds = np.expand_dims(pwm_thresholds, axis=0) # {1, task, motif, cluster}
-    pwm_thresholds = tf.convert_to_tensor(pwm_thresholds, dtype=tf.float32)
-    cutoffs = tf.reduce_sum(pwm_thresholds, axis=2) # {1, task, cluster}
+    # calculate distances
+    features = tf.expand_dims(features, axis=1)
+    centers = tf.expand_dims(centers, axis=0)
+    distances = batch_jaccard_distance_from_centers(features, centers)
 
-    # get whether passed cutoffs or not
-    passes_thresholds = tf.reduce_sum(
-        tf.cast(
-            tf.greater_equal(features, pwm_thresholds),
-            tf.float32),
-        axis=2) # {1, task, cluster}
-    passed_cutoffs = tf.cast(tf.greater_equal(passes_thresholds, cutoffs), tf.float32) # {N, task, cluster}
-    outputs["sig_pwms_present"] = tf.reduce_mean(passed_cutoffs, axis=1) # {N, cluster}
+    # compare to thresholds
+    thresholds = tf.expand_dims(thresholds, axis=0) # {N, cluster, task}
+    passed_thresholds = tf.greater(distances, thresholds)
+
+    # give back a single score - passed ALL thresholds
+    passed_all_thresholds = tf.cast(tf.reduce_all(passed_thresholds, axis=-1), tf.float32) # {N, cluster}
+    outputs[DataKeys.MANIFOLD_CLUST] = passed_all_thresholds
     
     return outputs, params
 
 
-def filter_by_manifold_distance(inputs, params):
-    """given the manifold distances, filter
+def filter_by_manifold_distances(inputs, params):
+    """filter by passed thresholds
     """
-    # assertions
-    assert inputs.get("manifold_clusters") is not None
-    features = inputs["manifold_clusters"] # {N, cluster}
+    assert inputs.get(DataKeys.MANIFOLD_CLUST) is not None
 
-    # get condition mask
-    inputs["condition_mask"] = tf.greater_equal(
-        tf.reduce_max(features, axis=1),
-        [1]) # {N}
+    # features
+    features = inputs[DataKeys.MANIFOLD_CLUST]
+    
+    # check condition
+    inputs["condition_mask"] = tf.reduce_any(
+        tf.greater(features, 0), axis=1)
 
-    # filter and rebatch
+    # filter
     params.update({"name": "manifold_filter"})
     outputs, params = filter_and_rebatch(inputs, params)
     
     return outputs, params
-
-
-def filter_by_sig_pwm_presence(inputs, params):
-    """given the manifold distances, filter
-    """
-    # assertions
-    assert inputs.get("sig_pwms_present") is not None
-    features = inputs["sig_pwms_present"] # {N, cluster}
-    
-    # currently - must match on ALL tasks, but ANY cluster
-    inputs["condition_mask"] = tf.greater_equal(
-        tf.reduce_max(features, axis=1),
-        [1]) # {N}
-
-    # filter and rebatch
-    params.update({"name": "sig_motif_filter"})
-    outputs, params = filter_and_rebatch(inputs, params)
-    
-    return outputs, params
-
-
-
