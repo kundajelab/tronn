@@ -43,6 +43,7 @@ class Mutagenizer(object):
         # and then only keep the ones that filter through pwm vector
         with h5py.File(params["manifold"], "r") as hf:
             pwm_mask = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL][:]
+        outputs["num_aux_examples"] = np.sum(pwm_mask > 0)
         sig_pwm_indices = np.where(pwm_mask > 0)[0]
         vals = tf.gather(vals, sig_pwm_indices, axis=1)
         indices = tf.cast(tf.gather(vals, sig_pwm_indices, axis=1), tf.int64)

@@ -85,7 +85,8 @@ class DataKeys(object):
     CLUSTERS = "clusters"
     
     # dmim transformation keys
-    MUT_MOTIF_SEQ = "{}.motif_mut".format(ORIG_SEQ)
+    MUT_MOTIF_ORIG_SEQ = "{}.motif_mut".format(ORIG_SEQ)
+    MUT_MOTIF_WEIGHTED_SEQ = "{}.motif_mut".format(WEIGHTED_SEQ)
     MUT_MOTIF_POS = "{}.motif_mut.mask".format(ORIG_SEQ)
     MUT_MOTIF_PRESENT = "{}.motif_mut_present".format(ORIG_SEQ)
     DMIM_SCORES_ROOT = "dmim-scores"

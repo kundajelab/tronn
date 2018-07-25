@@ -124,7 +124,7 @@ def generate_scaled_inputs(inputs, params):
             axis=0)
         transformed_features.append(scaled_features)
         
-    outputs[DataKeys.FEATURESx] = tf.concat(transformed_features, axis=0)
+    outputs[DataKeys.FEATURES] = tf.concat(transformed_features, axis=0)
     
     # do the same for all others in inputs
     outputs, _ = pad_data(outputs, {"ignore": [DataKeys.FEATURES]})
@@ -151,7 +151,7 @@ def _make_basepair_array(features, basepair_string="N"):
     
     return basepair_array
 
-# TODO keep for backwards compatibility, but generally push through string
+# TODO keep to convert onehot mutants to string
 def onehot_to_string(inputs, params):
     """convert onehot back into a string
     """
@@ -206,59 +206,3 @@ def get_variance_importance(inputs, params):
     outputs["snp_importance_scores"] = importance_at_snp_pos
     
     return None
-
-
-# TODO deprecate this
-def remove_shuffles_old(inputs, params):
-    """calculate offsets, gather the indices, and separate out
-    """
-    assert params.get("num_shuffles") is not None
-
-    # params
-    num_shuffles = params["num_shuffles"]
-    keep_shuffles = params.get("keep_shuffles", True)
-    keep_shuffle_keys = params.get("keep_shuffle_keys", [])
-    full_batch_size = inputs[inputs.keys()[0]].get_shape().as_list()[0]
-    new_batch_size = params.get("batch_size", full_batch_size)
-    
-    # get indices
-    indices = range(full_batch_size)
-    example_indices = np.where(np.mod(indices, [num_shuffles+1]) == 0)[0]
-    shuffle_indices = np.where(np.mod(indices, [num_shuffles+1]) != 0)[0]
-    batch_size = len(example_indices)
-    
-    # go through keys
-    outputs = {}
-    for key in inputs.keys():
-
-        # gather examples and save out
-        example_batch = tf.gather(inputs[key], example_indices)
-        outputs[key] = example_batch
-
-        # gather shuffles and keep if desired
-        if key in keep_shuffle_keys:
-            shuffle_batch = tf.gather(inputs[key], shuffle_indices)
-            shuffle_batch = tf.reshape(
-                shuffle_batch,
-                [batch_size, -1] + inputs[key].get_shape().as_list()[1:])
-            outputs["{}.{}".format(key, DataKeys.SHUFFLE_SUFFIX)] = shuffle_batch
-
-    # rebatch back up
-    outputs, _ = rebatch(outputs, {"name": "remove_shuffles_rebatch", "batch_size": new_batch_size})
-    
-    return outputs, params
-
-
-
-def clear_shuffles(inputs, params):
-    """clear out anything from shuffles
-    """
-    outputs = {}
-    for key in inputs.keys():
-
-        if DataKeys.SHUFFLE_SUFFIX in key:
-            continue
-
-        outputs[key] = inputs[key]
-
-    return outputs, params

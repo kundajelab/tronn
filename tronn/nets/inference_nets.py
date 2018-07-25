@@ -2,20 +2,13 @@
 
 import tensorflow as tf
 
-#from tronn.nets.importance_nets import multitask_importances
 from tronn.nets.importance_nets import filter_by_importance
-from tronn.nets.importance_nets import filter_singles_twotailed
-
-# TESTING
 from tronn.nets.importance_nets import get_task_importances
 from tronn.nets.importance_nets import run_dfim
 
-from tronn.nets.normalization_nets import normalize_to_weights
-from tronn.nets.normalization_nets import normalize_to_delta_logits
-
-from tronn.nets.threshold_nets import threshold_gaussian
-from tronn.nets.threshold_nets import threshold_shufflenull
-from tronn.nets.threshold_nets import clip_edges
+#from tronn.nets.threshold_nets import threshold_gaussian
+#from tronn.nets.threshold_nets import threshold_shufflenull
+#from tronn.nets.threshold_nets import clip_edges
 
 from tronn.nets.motif_nets import pwm_position_squeeze
 from tronn.nets.motif_nets import pwm_relu
@@ -27,15 +20,9 @@ from tronn.nets.motif_nets import get_motif_densities
 from tronn.nets.motif_nets import filter_for_significant_pwms
 from tronn.nets.motif_nets import run_dmim
 
-#from tronn.nets.grammar_nets import multitask_score_grammars
-#from tronn.nets.grammar_nets import score_distance_to_motifspace_point
-#from tronn.nets.grammar_nets import check_motifset_presence
-
 from tronn.nets.filter_nets import filter_by_accuracy
 from tronn.nets.filter_nets import filter_singleton_labels
 
-from tronn.nets.mutate_nets import generate_mutation_batch
-from tronn.nets.mutate_nets import run_model_on_mutation_batch
 from tronn.nets.mutate_nets import dfim
 from tronn.nets.mutate_nets import motif_dfim
 from tronn.nets.mutate_nets import delta_logits
@@ -49,28 +36,14 @@ from tronn.nets.manifold_nets import score_distances_on_manifold
 from tronn.nets.manifold_nets import filter_by_manifold_distances
 
 from tronn.nets.sequence_nets import onehot_to_string
-#from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 
 from tronn.nets.variant_nets import get_variant_importance_scores
 from tronn.nets.variant_nets import blank_variant_sequence
 from tronn.nets.variant_nets import reduce_alleles
 
+from tronn.nets.util_nets import build_stack
+
 from tronn.util.utils import DataKeys
-
-# TODO consider moving this to utils
-def build_inference_stack(inputs, params, inference_stack):
-    """Given the inference stack, build the graph
-    """
-    outputs = inputs
-    master_params = params
-    for transform_fn, params in inference_stack:
-        print transform_fn
-        master_params.update(params) # update config before and after
-        outputs, params = transform_fn(outputs, master_params)
-        print outputs["features"].get_shape()
-        master_params.update(params)
-
-    return outputs, master_params
 
 
 #  TODO consider moving this to utils
@@ -102,7 +75,7 @@ def unstack_tasks(inputs, params):
 
 
 # TODO reduce this: filter by accuracy, and then call get_importances
-def sequence_to_importance_scores(inputs, params):
+def sequence_to_importance_scores_OLD(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
     # params
@@ -153,41 +126,20 @@ def sequence_to_importance_scores(inputs, params):
 def sequence_to_importance_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
-    # params
-    params["is_training"] = False
-    unstack = params.get("unstack_importances", True)
-    use_filtering = params.get("use_filtering", True)
-    
+    # TODO filter by accuracy (for classification)
+
+    # get task importances
     outputs, params = get_task_importances(inputs, params)
-        
+    
     return outputs, params
 
 
 def sequence_to_motif_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
-    # params
-    params["is_training"] = False
-    #params["unstack_importances"] = False # normally, adjust for debugging
-    params["unstack_importances"] = True # normally, adjust for debugging
-    params["raw-sequence-key"] = "raw-sequence"
-    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
-    params["raw-pwm-scores-key"] = "raw-pwm-scores"
-    
-    # params
-    use_importances = params.get("use_importances", True)
-    count_thresh = params.get("count_thresh", 1)
-    unstack = params.get("unstack_pwm_scores", True)
-    
-    if params.get("raw-sequence-key") is not None:
-        inputs[params["raw-sequence-key"]] = inputs["features"]
-    if params.get("raw-sequence-clipped-key") is not None:
-        inputs[params["raw-sequence-clipped-key"]] = inputs["features"]
-    
-    # if using NN, convert features to importance scores first
-    if use_importances:
-        inputs, params = sequence_to_importance_scores(inputs, params)
-        count_thresh = 2 # there's time info, so can filter across tasks
+
+    # get importances
+    outputs, params = get_task_importances(inputs, params)
         
     # set up inference stack
     inference_stack = [
@@ -212,52 +164,20 @@ def sequence_to_motif_scores(inputs, params):
 def sequence_to_motif_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
-    # params
-    params["is_training"] = False
-    #params["unstack_importances"] = False # normally, adjust for debugging
-    params["unstack_importances"] = True # normally, adjust for debugging
-    #params["raw-sequence-key"] = "raw-sequence"
-    #params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
-    #params["raw-pwm-scores-key"] = "raw-pwm-scores"
-    
-    # params
-    use_importances = params.get("use_importances", True)
-    count_thresh = params.get("count_thresh", 1)
-    unstack = params.get("unstack_pwm_scores", True)
 
-    
-    # TODO deprecate these
-    #if params.get("raw-sequence-key") is not None:
-    #    inputs[params["raw-sequence-key"]] = inputs["features"]
-    #if params.get("raw-sequence-clipped-key") is not None:
-    #    inputs[params["raw-sequence-clipped-key"]] = inputs["features"]
-    
-    # if using NN, convert features to importance scores first
-    if use_importances:
-        inputs, params = sequence_to_importance_scores_from_regression(inputs, params)
-        count_thresh = 2 # there's time info, so can filter across tasks
-        
-    # set up inference stack
-    inference_stack = [
-        (get_pwm_scores, {}),
-        (get_motif_densities, {}),
-        #(pwm_match_filtered_convolve, {}),
-        #(multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
-        #(pwm_position_squeeze, {"squeeze_type": "sum"}),
-        (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
+    # get importances
+    outputs, params = get_task_importances(inputs, params)
 
-        # TODO clear shuffles
-    ]
+    # scan motifs
+    outputs, params = get_pwm_scores(outputs, params)
+    outputs, params = get_motif_densities(outputs, params)
+    outputs, params = pwm_relu(outputs, params)
 
-    # build inference stack
-    outputs, params = build_inference_stack(
-        inputs, params, inference_stack)
+
+    # convert sequences to strings
     
-    # unstack
-    if unstack:
-        params["name"] = "pwm-scores"
-        outputs, params = unstack_tasks(outputs, params)
-
+    print sorted(outputs.keys())
+    
     return outputs, params
 
 

@@ -246,7 +246,6 @@ class FeatureImportanceExtractor(object):
 
             LEFT_CLIP = 420
             RIGHT_CLIP = 580
-            MIN_IMPORTANCE_BP = 10
 
             # remove the shuffles - weighted seq (orig seq shuffles are already saved)
             params.update({"save_aux": {
@@ -280,11 +279,14 @@ class FeatureImportanceExtractor(object):
             
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
             outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-            
-            # finally
-            # (1) filter by importance
-            outputs, _ = filter_by_importance(outputs, {"cutoff": MIN_IMPORTANCE_BP, "positive_only": True})
-            logging.info("OUT: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+
+            # clear active shuffles
+            del outputs[DataKeys.ACTIVE_SHUFFLES]
+
+            # clear full shuffles (pwms only scores on active segments, and thresholds contain
+            # info for full segments)
+            del outputs[DataKeys.ORIG_SEQ_SHUF]
+            del outputs[DataKeys.WEIGHTED_SEQ_SHUF]
             
         return outputs, params
 
@@ -486,31 +488,13 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         """preprocess for delta features
         """
         assert inputs.get(DataKeys.FEATURES) is not None
-        assert inputs.get(DataKeys.MUT_MOTIF_SEQ) is not None
+        assert inputs.get(DataKeys.MUT_MOTIF_ORIG_SEQ) is not None
         
         # don't generate shuffles, assume that the shuffles are still attached from before
-        
         # attach the mutations (interleaved)
-        orig_features = inputs[DataKeys.FEATURES] # {N, 1, 1000, 4}
-        orig_features = tf.expand_dims(orig_features, axis=1) # {N, 1, 1, 1000, 4}
-        mut_features = inputs[DataKeys.MUT_MOTIF_SEQ] # {N, mut_M, 1, 1000, 4}
-        features = tf.concat([orig_features, mut_features], axis=1) # {N, 1+mut_M, 1, 1000, 4}
-        features = tf.reshape(features, [-1]+orig_features.get_shape().as_list()[2:]) # {N*(1+mut_M), 1, 1000, 4}
-        inputs[DataKeys.FEATURES] = features
-        
-        # track which parts of the batch are what
-        params["num_shuffles"] = inputs[DataKeys.MUT_MOTIF_SEQ].get_shape().as_list()[1]
-        batch_size = params["num_shuffles"] + 1
-        params["batch_size"] = orig_features.get_shape().as_list()[0]
-        
-        # and pad everything
-        outputs, _ = pad_data(
-            inputs,
-            {"num_shuffles": params["num_shuffles"],
-             "ignore": [DataKeys.FEATURES]})
-
-        # and rebatch
-        outputs, _ = rebatch(outputs, {"name": "rebatch_dfim", "batch_size": batch_size})
+        params.update({"aux_key": DataKeys.MUT_MOTIF_ORIG_SEQ})        
+        params.update({"name": "attach_mut_motif_seq"})
+        inputs, params = attach_auxiliary_tensors(inputs, params)
 
         return outputs, params
 
@@ -518,40 +502,62 @@ class DeltaFeatureImportanceMapper(InputxGrad):
     def postprocess(self, inputs, params):
         """postprocess
         """
+        LEFT_CLIP = 420
+        RIGHT_CLIP = 580
 
-        from tronn.nets.inference_nets import build_inference_stack
+        # remove the mutations - weighted seq (orig seq shuffles are already saved)
+        params.update({"save_aux": {
+            DataKeys.FEATURES: DataKeys.MUT_MOTIF_WEIGHTED_SEQ,
+            DataKeys.LOGITS: DataKeys.LOGITS_MUT_MOTIF}})
+        params.update({"rebatch_name": "detach_mut_motif_seq"})
+        outputs, params = detach_auxiliary_tensors(inputs, params)
 
+        # apply thresholds to the mut sequences
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.multiply(
+            threshold_mask,
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ])
+            
+        # denoise - this is same as above?
+        logging.info("TRANSFORM: denoise by removing alone bps")
+        SINGLES_FILT_WINDOW = 7
+        SINGLES_FILT_WINDOW_MIN = float(2) / SINGLES_FILT_WINDOW
+        
+        params.update({"window": SINGLES_FILT_WINDOW, "min_fract": SINGLES_FILT_WINDOW_MIN})
+        outputs, params = filter_singles_twotailed(outputs, params)
+        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = transform_auxiliary_tensor( # except this is not
+            filter_singles_twotailed, DataKeys.WEIGHTED_SEQ_SHUF, outputs, params, aux_axis=2)
+
+        logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+
+        
+        # normalize - think about how to do this
+        # this is for sure different from above
+        outputs, params = normalize_to_absolute_one(outputs, params)
+            
+        # for both raw and weighted, both shuf and not
+        # (1) clip edges
+        # this is same as above
+        outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES] # save out from features
+        outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
+        
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        
+        # HERE - calculate the deltas
+        # does it save any space to do this here though? or maybe saves computation time later
+        
         # TODO need to calculate the delta logits (but also keep the actual logits too)
         # use delta logits to get statistical sig on whether mutation had an effect
         # {N, mutM, logit} - test is for every mutM for every logit (not in NN)
         # remember to first grab the subset where the motif is actually present
         # {N, mutM} this means run a for loop across the mutM
         # result: {muM, logit}
-        
-        # postprocess stack
-        inference_stack = [
-            (threshold_shufflenull, {"pval_thresh": 0.01, "shuffle_key": DataKeys.WEIGHTED_SEQ_SHUF}),
-            
-            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-            (normalize_to_absolute_one, {}),
-            (clip_edges, {"left_clip": 420, "right_clip": 580}),
 
-            (remove_shuffles, {})
 
-            # importance filter? to remove examples w no change?
-            # but may be important to keep these for statistics
-        ]
-
-        # HERE - calculate the delta
 
         # and after calculating the delta, normalize the delta
         # to the diff in the logits
-        
-        # build the postproces stack
-        outputs, params = build_inference_stack(
-            inputs, params, inference_stack)
-
-        print outputs[DataKeys.FEATURES]
         
         # Q: is there a way to get the significance of a delta score even here?
         # ie, what is the probability of a delta score by chance?
@@ -590,6 +596,12 @@ def get_task_importances(inputs, params):
         quit()
     
     outputs, params = extractor.extract(inputs, params)
+    
+    # filter by importance
+    if params.get("use_filtering", True):
+        MIN_IMPORTANCE_BP = 10
+        outputs, _ = filter_by_importance(outputs, {"cutoff": MIN_IMPORTANCE_BP, "positive_only": True})
+        logging.info("OUT: {}".format(outputs[DataKeys.FEATURES].get_shape()))
 
     return outputs, params
 

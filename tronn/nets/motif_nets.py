@@ -134,12 +134,18 @@ class MotifScanner(object):
     
     def postprocess(self, inputs, params):
         # things to run after convolving
+
+        # TODO consider whether to re-weight by number of basepairs that were marked as important (nonzero)
+
+        # TODO consider smoothing across time (an average pool with height, no width)
         
         # get the global best scores across tasks?
         #params.update({"append": True, "count_thresh": 1})
         #outputs, params = multitask_global_pwm_scores(inputs, params)
         #print outputs[DataKeys.FEATURES]
 
+
+        
         return inputs, params
 
 
@@ -284,6 +290,9 @@ class MotifScannerWithThresholds(MotifScanner):
         
         # also save out raw scores
         outputs[self.out_scores_key] = outputs[DataKeys.FEATURES]
+
+        # delete active shuffles
+        del outputs[DataKeys.ACTIVE_SHUFFLES]
         
         return outputs, params
 
@@ -518,68 +527,7 @@ def run_dmim(inputs, params):
 
 # OLD BELOW = CHECK TO SEE WHAT TO KEEP
 
-# TODO is this necessary?
-def get_bp_overlap(inputs, params):
-    """Re-weight by num of importance-weighted base pairs that are nonzero
-    """
-    features = inputs["features"]
-    
-    features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
-    max_size = params.get("filter_width")
-    assert max_size is not None
-    nonzero_bp_fraction_per_window = tf.reduce_sum(
-        tf.layers.average_pooling2d(
-            features_present, [1, max_size], [1,1], padding="VALID"),
-        axis=3, keepdims=True)
-    #features = tf.multiply(
-    #    features,
-    #    nonzero_bp_fraction_per_window)
-    
-    return nonzero_bp_fraction_per_window, params
 
-
-
-
-
-# TODO more correctly, need to set up a check so that a motif across time is only kept if seen at least
-# twice across time too
-
-# TODO is this used?
-def pwm_consistency_check(features, labels, config, is_training=False):
-    """Try to keep most consistent motifs across tasks. max scores are accounted for later
-    """
-
-    # TODO is this useful? check multitask global importance to see thresholding
-    
-    # split by example
-    features_by_example = [tf.expand_dims(tensor, axis=0) for tensor in tf.unstack(features)] # {1, task, pos, M}
-
-    # for each example, get sum across tasks
-    masked_features_list = []
-    for example_features in features_by_example:
-        motif_present = tf.cast(tf.not_equal(example_features, 0), tf.float32) # {1, task, pos, M}
-
-        # TODO: probably just want max sum across the real scores, not counts.
-        motif_counts = tf.reduce_sum(
-            motif_present, axis=1, keep_dims=True) # sum across tasks {1, 1, pos, M}
-        #motif_counts = tf.reduce_sum(
-        #    tf.abs(example_features), axis=1, keep_dims=True) # sum across tasks {1, 1, pos, M}
-        motif_max = tf.reduce_max(motif_counts, axis=3, keep_dims=True) # max across motifs {1, 1, pos, 1}
-        # then mask based on max position
-        motif_mask = tf.cast(tf.greater_equal(motif_counts, motif_max), tf.float32) # {1, 1, pos, M}
-        # and mask
-        masked_features = tf.multiply(motif_mask, example_features)
-        masked_features_list.append(masked_features)
-
-    # stack
-    features = tf.concat(masked_features_list, axis=0) # {N, task, pos, M}
-
-    # sometimes keep (for grammars)
-    if config.get("keep_pwm_scores_full") is not None:
-        # attach to config
-        config["outputs"][config["keep_pwm_scores_full"]] = features # {N, task, pos, M}
-
-    return features, labels, config
 
 
 # TODO deprecate
@@ -610,7 +558,7 @@ def pwm_position_squeeze(inputs, params):
     return outputs, params
 
 
-
+# tODO deprecate
 def pwm_relu(inputs, params):
     """Only keep positive
     """
