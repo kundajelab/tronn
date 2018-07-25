@@ -4,12 +4,7 @@
 import h5py
 
 import numpy as np
-
 import tensorflow as tf
-#import tensorflow.contrib.slim as slim
-
-#from tronn.util.initializers import pwm_simple_initializer
-#from tronn.util.tf_utils import get_fan_in
 
 from tronn.nets.sequence_nets import pad_data
 from tronn.nets.sequence_nets import unpad_examples
@@ -19,22 +14,7 @@ from tronn.nets.filter_nets import filter_and_rebatch
 
 from tronn.util.utils import DataKeys
 
-# for dmim, stack:
-# (1) manifold filtering
-# (2) feature extraction
-# (3) motif scanning
-# (4) mutagenize - allow starting from here! (use empty net?)
-# (5) feature extraction (dfim)
-# (6) motif scanning (dmim)
 
-
-# Mutagenizer
-# preprocess - generate mutation batch
-# this requires finding the strongest motif hit
-# also would like to track bp level gradients - which single bp change would most disrupt the motif/prediction output
-
-# use this to mutagenize motifs, positions
-# types: single mutagenesis, multiple mutagenesis, single position, shuffle
 class Mutagenizer(object):
     """basic in silico mutagenesis"""
 
@@ -226,96 +206,51 @@ def mutate_weighted_motif_sites(inputs, params):
     
 
 
-
-
-# OLD
-
-# TODO deprecate   
-def mutate_motif(inputs, params):
-    """Find max motif positions and mutate
+def blank_mutation_site(inputs, params):
+    """cover up the mutation site when scanning for motifs
     """
-    # assertions
-    assert params.get("pos") is not None
+    assert inputs.get(DataKeys.FEATURES) is not None # {N, mutM, 1, pos, 4}
+    assert inputs.get(DataKeys.MUT_MOTIF_POS) is not None # {N, mutM, 1, pos, 4}
+    # given mutation position and mutation style, cover up the mutation site
 
     # features
-    features = inputs["features"]
-    # TODO grab the conditional here
-    
-    
+    features = inputs[DataKeys.FEATURES]
+    positions = inputs[DataKeys.MUT_MOTIF_POS]
     outputs = dict(inputs)
     
-    # params
-    positions = params["pos"]
-    filter_width = params.get("filter_width", 10) / 2
+    # multiply by the opoosite
+    blank_mask = tf.cast(tf.equal(positions, 0), tf.float32)
 
-    # use gather, with an index tensor that part of it gets shuffled
-    features = features[0,0] # {1000, 4}
-    
-    for pwm_idx, position, motif_present in positions:
-        # set up start and end positions
-        start_pos = tf.maximum(position - filter_width, 0)
-        end_pos = tf.minimum(position + filter_width, features.get_shape()[0])
-        
-        # get the indices that are LEFT of the shuffle region
-        # these do NOT get shuffled
-        left_indices = tf.range(start_pos)
-
-        # get the indices to shuffle
-        indices = tf.range(start_pos, end_pos)
-        shuffled_indices = tf.random_shuffle(indices)
-
-        # get the indices that are RIGHT of the shuffle region
-        # these do NOT get shuffled
-        right_indices = tf.range(end_pos, features.get_shape()[0])
-
-        # concat the indices, and set shape
-        all_indices = tf.concat([left_indices, shuffled_indices, right_indices], axis=0)
-        all_indices = tf.reshape(all_indices, [features.get_shape()[0]])
-        
-        # and gather
-        mut_features = tf.gather(features, all_indices)
-
-        # conditional on whether the motif actually had a positive score
-        features = tf.cond(motif_present, lambda: mut_features, lambda: features)
-        
-    # readjust dims before returning
-    outputs["features"] = tf.expand_dims(tf.expand_dims(features, axis=0), axis=0)
+    features = tf.multiply(blank_mask, features)
+    outputs[DataKeys.FEATURES] = features
     
     return outputs, params
 
-# TODO deprecate
-def blank_motif_site_old(sequence, pwm_indices, pwm_positions, filter_width):
-    """given the position and the filter width, mutate sequence
+
+
+def calculate_delta_scores(inputs, params):
+    """assumes the the first example is the ref. 
     """
-    for pwm_idx, position in positions:
-        # set up start and end positions
-        start_pos = tf.maximum(position - filter_width, 0)
-        end_pos = tf.minimum(position + filter_width, features.get_shape()[0])
-        
-        # get the indices that are LEFT of the shuffle region
-        # these do NOT get shuffled
-        left_indices = tf.range(start_pos)
-
-        # get the indices to shuffle
-        indices = tf.range(start_pos, end_pos)
-        shuffled_indices = tf.random_shuffle(indices)
-
-        # get the indices that are RIGHT of the shuffle region
-        # these do NOT get shuffled
-        right_indices = tf.range(end_pos, features.get_shape()[0])
-
-        # concat the indices, and set shape
-        all_indices = tf.concat([left_indices, shuffled_indices, right_indices], axis=0)
-        all_indices = tf.reshape(all_indices, [features.get_shape()[0]])
-        
-        # and gather
-        features = tf.gather(features, all_indices)
-
-    # readjust dims before returning
-    sequence = tf.expand_dims(tf.expand_dims(features, axis=0), axis=0)
+    features = inputs[DataKeys.FEATURES]
+    outputs = dict(inputs)
     
-    return sequence
+    delta_features = tf.subtract(
+        features,
+        tf.expand_dims(features[0], axis=0))
+    
+    outputs[DataKeys.FEATURES] = delta_features
+    
+    return outputs, params
 
+
+
+
+
+
+
+
+
+# OLD BELOW
 
 def blank_motif_sites(inputs, params):
     """given the shuffle positions, zero out this range
@@ -609,57 +544,4 @@ def motif_dfim(inputs, params):
     outputs, params = rebatch(outputs, params)
     
     return outputs, params
-
-
-def filter_mutation_directionality(inputs, params):
-    """When you mutate the max motif, the motif score should
-    drop (even with compensation from another hit) - make sure
-    directionality is preserved
-    """
-    # assertions
-    assert inputs.get("features") is not None
-    assert params.get("manifold") is not None
-    #assert params.get("grammars") is not None
-
-    # features
-    features = inputs["features"] # {N, task, mutation, motifset}
-    outputs = dict(inputs)
-
-    # params
-    #grammar_sets = params["grammars"]
-    manifold_h5_file = params["manifold"]
-    with h5py.File(manifold_h5_file, "r") as hf:
-        pwm_vector = hf["master_pwm_vector"][:]
-    
-    # set up pwm vector
-    pwm_vector = np.zeros((grammar_sets[0][0].pwm_vector.shape[0]))
-    for i in xrange(len(grammar_sets[0])):
-        pwm_vector += grammar_sets[0][i].pwm_thresholds > 0
-    pwm_indices = np.where(pwm_vector > 0)
-    print pwm_indices
-
-    # number of pwms should match the mutation axis
-    assert pwm_indices[0].shape[0] == features.get_shape().as_list()[2]
-
-    # set up mask
-    directionality_mask = tf.ones((features.get_shape()[0]))
-
-    # for each motif, filter for directionality
-    # TODO check this, might be too rigorous, since needs to pass for ALL tasks
-    for i in xrange(pwm_indices[0].shape[0]):
-        per_task_motif_mask = tf.cast(
-            tf.less_equal(features[:,:,i,pwm_indices[0][i]], [0]),
-            tf.float32) # {N, task}
-        global_motif_mask = tf.reduce_min(per_task_motif_mask, axis=1) # {N}
-        directionality_mask = tf.multiply(
-            directionality_mask,
-            global_motif_mask)
-        
-    # then run the mask through the filter queue
-    outputs["condition_mask"] = tf.greater(directionality_mask, [0])
-    params["name"] = "motif_dfim_directionality"
-    outputs, params = filter_and_rebatch(outputs, params)
-        
-    return outputs, params
-
 

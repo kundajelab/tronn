@@ -25,6 +25,7 @@ from tronn.nets.motif_nets import multitask_global_pwm_scores
 from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import get_motif_densities
 from tronn.nets.motif_nets import filter_for_significant_pwms
+from tronn.nets.motif_nets import run_dmim
 
 #from tronn.nets.grammar_nets import multitask_score_grammars
 #from tronn.nets.grammar_nets import score_distance_to_motifspace_point
@@ -329,54 +330,14 @@ def sequence_to_dmim(inputs, params):
         (run_dfim, {}),
         
         # (5) run dmim 
-        
-        
+        (run_dmim, {})
+
+
+        # (6) convert left over sequences to strings coming out
         
         # (6) after all runs, calculate stats
 
-        
-        # save normal sequence
-        #(onehot_to_string, {}),
-        
-        # score motifs on importance scores
-        #(sequence_to_motif_scores, {}),
 
-        # filter by manifold locations
-        #(score_manifold_distances, {}),
-        #(filter_by_manifold_distance, {}),
-        #(filter_by_sig_pwm_presence, {}),
-
-        # generate mutations and run model and get dfim
-        #(generate_mutation_batch, {}),
-        #(run_model_on_mutation_batch, {}),
-        #(onehot_to_string, {"string_key": "mut_features.string"}),
-        #(delta_logits, {"logits_to_features": False}),
-        #(multitask_importances, {"backprop": method, "relu": False}), # check relu - should this be done later?
-        
-        #(threshold_gaussian, {"stdev": 3, "two_tailed": True}), # TODO - some shuffle null here? if so need to generate shuffles
-        #(filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        #(normalize_to_weights, {"weight_key": "mut_probs"}), 
-
-        # only keep positives
-        #(pwm_relu, {}),
-        
-        #(normalize_to_delta_logits, {}),
-        #(dfim, {}), # {N, task, 1000, 4}
-
-        #(blank_motif_sites, {}),
-        #(clip_edges, {"left_clip": 400, "right_clip": 600, "clip_string": True}),
-
-        # NOTE: can't filter here - will throw off balance
-        #(filter_by_importance, {"cutoff": 10, "positive_only": True}), 
-
-        # scan motifs
-        #(pwm_match_filtered_convolve, {"positional-pwm-scores-key": None}),
-        #(pwm_position_squeeze, {"squeeze_type": "max"}),
-        #(motif_dfim, {}), # TODO - somewhere here, keep the mutated sequences to read out if desired?
-
-        # TODO some kind of filter here on the dmim scores (remove those with no delta dmim)?
-        
-        #(filter_mutation_directionality, {}) # check if this makes sense (in the right order) in the context of blanking things out
     ]
 
     # build inference stack

@@ -36,7 +36,7 @@ def _build_pad_fn(num_shuffles):
     return pad_fn
 
 
-def pad_data(inputs, params):
+def pad_data_old(inputs, params):
     """pad examples when a data key was adjusted
     """
     # assertions
@@ -71,35 +71,6 @@ def pad_data(inputs, params):
     return outputs, params
 
 
-# TODO deprecate this
-def unpad_examples(inputs, params):
-    """unpad the examples to remove the offset
-    """
-    assert params.get("ignore") is not None
-    assert len(params["ignore"]) > 0
-
-    # params
-    batch_size = params["batch_size"]
-    ignore_keys = params["ignore"]
-
-    # calculate the offsets
-    reduced_size = inputs[ignore_keys[0]].get_shape().as_list()[0]
-    num_scaled_inputs = batch_size / float(reduced_size)
-    assert num_scaled_inputs.is_integer()
-    num_scaled_inputs = int(num_scaled_inputs)
-    
-    # for all keys, grab the first one and keep
-    keep_indices = tf.range(0, batch_size, num_scaled_inputs)
-    outputs = {}
-    for key in inputs.keys():
-        if key in ignore_keys:
-            outputs[key] = inputs[key]
-            continue
-        outputs[key] = tf.gather(inputs[key], keep_indices)
-
-    return outputs, params
-
-
 def dinucleotide_shuffle(sequence):
     """shuffle input by dinucleotides
     """
@@ -130,11 +101,10 @@ def _build_dinucleotide_shuffle_fn(num_shuffles):
     """internal build fn to give to map_fn
     """
     def shuffle_fn(sequence):
-        sequences = [sequence]
+        sequences = []
         for shuffle_idx in xrange(num_shuffles):
             sequences.append(dinucleotide_shuffle(sequence))
         sequences = tf.stack(sequences, axis=0)
-
         return sequences
     
     return shuffle_fn
@@ -152,8 +122,8 @@ def generate_dinucleotide_shuffles(inputs, params):
     outputs = dict(inputs)
     
     # params
+    aux_key = params.get("aux_key")
     num_shuffles = params.get("num_shuffles", 7)
-    params["num_shuffles"] = num_shuffles
     batch_size = features.get_shape().as_list()[0]
     assert batch_size % (num_shuffles + 1) == 0
 
@@ -168,14 +138,8 @@ def generate_dinucleotide_shuffles(inputs, params):
         features_w_shuffles,
         [-1]+features.get_shape().as_list()[1:])
 
-    # and then pad everything else
-    outputs, _ = pad_data(
-        outputs,
-        {"num_shuffles": num_shuffles,
-         "ignore": [DataKeys.FEATURES]})
-
-    # rebatch
-    outputs, _ = rebatch(outputs, {"name": "rebatch_dinuc", "batch_size": batch_size})
+    # save this to an auxiliary tensor
+    outputs[aux_key] = dinuc_shuffles # {N, aux, 1, 1000, 4}
 
     return outputs, params
 
@@ -291,8 +255,8 @@ def get_variance_importance(inputs, params):
     return None
 
 
-
-def remove_shuffles(inputs, params):
+# TODO deprecate this
+def remove_shuffles_old(inputs, params):
     """calculate offsets, gather the indices, and separate out
     """
     assert params.get("num_shuffles") is not None
@@ -302,6 +266,7 @@ def remove_shuffles(inputs, params):
     keep_shuffles = params.get("keep_shuffles", True)
     keep_shuffle_keys = params.get("keep_shuffle_keys", [])
     full_batch_size = inputs[inputs.keys()[0]].get_shape().as_list()[0]
+    new_batch_size = params.get("batch_size", full_batch_size)
     
     # get indices
     indices = range(full_batch_size)
@@ -326,7 +291,7 @@ def remove_shuffles(inputs, params):
             outputs["{}.{}".format(key, DataKeys.SHUFFLE_SUFFIX)] = shuffle_batch
 
     # rebatch back up
-    outputs, _ = rebatch(outputs, {"name": "remove_shuffles_rebatch", "batch_size": full_batch_size})
+    outputs, _ = rebatch(outputs, {"name": "remove_shuffles_rebatch", "batch_size": new_batch_size})
     
     return outputs, params
 

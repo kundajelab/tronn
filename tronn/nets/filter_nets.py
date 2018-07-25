@@ -139,43 +139,6 @@ def filter_singleton_labels(inputs, params):
 
 
 
-# TODO adjust this
-def remove_shuffles(features, labels, config, is_training=False):
-    """Given shuffled sequences interspersed, remove them
-    """
-    shuffle_num = config.get("shuffle_num", 7)
-    batch_size = features.get_shape().as_list()[0]
-    assert batch_size % (shuffle_num + 1) == 0
-
-    example_num = batch_size / (shuffle_num + 1)
-    
-    # remove shuffles from features and labels
-    features = [tf.expand_dims(example, axis=0)
-                for example in tf.unstack(features, axis=0)]
-    labels = [tf.expand_dims(example, axis=0)
-              for example in tf.unstack(labels, axis=0)]
-    final_features = []
-    final_labels = []
-    for i in xrange(example_num):
-        idx = (shuffle_num + 1) * (i)
-        final_features.append(features[idx])
-        final_labels.append(labels[idx])
-    features = tf.concat(final_features, axis=0)
-    labels = tf.concat(final_labels, axis=0)
-
-    # remove shuffles from config
-    for key in config["outputs"].keys():
-        key_tensors = [tf.expand_dims(example, axis=0)
-                       for example in tf.unstack(config["outputs"][key], axis=0)]
-        new_outputs = []
-        for i in xrange(example_num):
-            idx = (shuffle_num + 1) * (i)
-            new_outputs.append(key_tensors[idx])
-        new_outputs = tf.concat(new_outputs, axis=0)
-        config["outputs"][key] = new_outputs
-        
-    return features, labels, config
-
 
 def filter_by_accuracy(inputs, params):
     """Filter by accuracy

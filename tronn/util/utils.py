@@ -91,3 +91,11 @@ class DataKeys(object):
     # split
     TASK_IDX_ROOT = "taskidx"
     
+
+
+class ParamKeys(object):
+    """standard names for params"""
+    
+    # tensor management
+    AUX_ROOT = "{}.aux".format(DataKeys.FEATURES)
+    NUM_AUX = "{}.num".format(AUX_ROOT)

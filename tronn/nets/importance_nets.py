@@ -32,10 +32,12 @@ class FeatureImportanceExtractor(object):
             self,
             model_fn,
             feature_type="sequence",
+            num_shuffles=7,
             keep_shuffles=True):
         """initialize object
         """
         self.model_fn = model_fn
+        self.num_shuffles = num_shuffles
         self.keep_shuffles = keep_shuffles
         self.feature_type = feature_type
         
@@ -48,12 +50,19 @@ class FeatureImportanceExtractor(object):
 
         # generate shuffles if sequence
         if self.feature_type == "sequence":
+            
+            # save out the original sequence
+            inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
+
+            # update params
+            params.update({"aux_key": DataKeys.ORIG_SEQ_SHUF})
+            params.update({"num_shuffles": self.num_shuffles})
+            
             # TODO add assert for is sequence
             inputs, params = generate_dinucleotide_shuffles(inputs, params)
-            
-            # also save it for later use
-            # NOTE that this contains shuffles
-            inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
+
+            # and attach the shuffles (aux key points to ORIG_SEQ_SHUF)
+            inputs, params = attach_auxiliary_tensors(inputs, params)
 
         return inputs, params
             
@@ -63,6 +72,7 @@ class FeatureImportanceExtractor(object):
         """
         reuse = params.get("model_reuse", True)
         with tf.variable_scope("", reuse=reuse):
+            logging.info("Calling model fn")
             model_outputs, params = self.model_fn(inputs, params)
         
         # gather anchors
@@ -130,6 +140,9 @@ class FeatureImportanceExtractor(object):
         from tronn.nets.inference_nets import build_inference_stack
         
         if self.feature_type == "sequence":
+
+            params.update({"num_aux_examples": self.num_shuffles})
+            params.update({"rebatch_name": "detach_dinuc_seq"})
             
             # update params
             params.update(
@@ -137,6 +150,16 @@ class FeatureImportanceExtractor(object):
                  "keep_shuffle_keys": keep_shuffle_keys,
                  "process_shuffles": True})
 
+            # is it better to
+            # 1) detach shuffles
+            # 2) threshold by shuffled null
+            # 3) reattach shuffles
+            # 4) filter singles
+            # 5) normalize to weights
+            # 6) clip edges
+            # 7) detach shuffles
+            # 8) filter
+            
             # postprocess stack
             inference_stack = [
                 # TODO figure out if there's a cleaner way to manage shuffles
@@ -387,6 +410,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # track which parts of the batch are what
         params["num_shuffles"] = inputs[DataKeys.MUT_MOTIF_SEQ].get_shape().as_list()[1]
         batch_size = params["num_shuffles"] + 1
+        params["batch_size"] = orig_features.get_shape().as_list()[0]
         
         # and pad everything
         outputs, _ = pad_data(
@@ -395,7 +419,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
              "ignore": [DataKeys.FEATURES]})
 
         # and rebatch
-        outputs, _ = rebatch(outputs, {"name": "rebatch_motif_mut", "batch_size": batch_size})
+        outputs, _ = rebatch(outputs, {"name": "rebatch_dfim", "batch_size": batch_size})
 
         return outputs, params
 
@@ -406,6 +430,12 @@ class DeltaFeatureImportanceMapper(InputxGrad):
 
         from tronn.nets.inference_nets import build_inference_stack
 
+        # TODO need to calculate the delta logits (but also keep the actual logits too)
+        # use delta logits to get statistical sig on whether mutation had an effect
+        # {N, mutM, logit} - test is for every mutM for every logit (not in NN)
+        # remember to first grab the subset where the motif is actually present
+        # {N, mutM} this means run a for loop across the mutM
+        # result: {muM, logit}
         
         # postprocess stack
         inference_stack = [
@@ -421,6 +451,11 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             # but may be important to keep these for statistics
         ]
 
+        # HERE - calculate the delta
+
+        # and after calculating the delta, normalize the delta
+        # to the diff in the logits
+        
         # build the postproces stack
         outputs, params = build_inference_stack(
             inputs, params, inference_stack)
