@@ -4,36 +4,8 @@
 import numpy as np
 
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
-
-def rebatch(inputs, params):
-    """Re-batch after "breaking" a batch
-    """
-    # assertions
-    assert params.get("name") is not None
-    assert params.get("batch_size") is not None
-
-    # params
-    name = params["name"]
-    batch_size = params["batch_size"]
-    num_threads = params.get("num_queue_threads", 1)
-    
-    # set up the train batch
-    with tf.variable_scope(name):
-        outputs = tf.train.batch(
-            inputs,
-            batch_size,
-            capacity=batch_size*3,
-            num_threads=num_threads,
-            enqueue_many=True,
-            name="rebatch_queue")
-
-    # delete name to make sure queues stay
-    # in separate scopes
-    del params["name"]
-
-    return outputs, params
+from tronn.nets.util_nets import rebatch
 
 
 def filter_and_rebatch(inputs, params):

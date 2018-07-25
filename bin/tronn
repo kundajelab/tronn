@@ -816,7 +816,7 @@ def _setup_logs(args):
     reload(logging)
     logging.basicConfig(
         filename=logging_file,
-        level=logging.INFO,
+        level=logging.DEBUG, # ADJUST BACK AT END WHEN RELEASING
         format='%(message)s')
     logging.getLogger().addHandler(logging.StreamHandler())
     for arg in sorted(vars(args)):

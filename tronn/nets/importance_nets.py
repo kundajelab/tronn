@@ -1,28 +1,78 @@
 """Description: graphs that transform importance scores to other representations
 """
 
+import logging
+
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
 from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
-from tronn.nets.sequence_nets import pad_data
 from tronn.nets.sequence_nets import generate_scaled_inputs
 
-from tronn.nets.filter_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
 
-from tronn.nets.sequence_nets import remove_shuffles
-from tronn.nets.sequence_nets import clear_shuffles
-
-from tronn.nets.threshold_nets import threshold_shufflenull
-
-from tronn.nets.normalization_nets import normalize_to_weights
-from tronn.nets.normalization_nets import normalize_to_weights_w_shuffles
+from tronn.nets.normalization_nets import normalize_to_importance_logits
 from tronn.nets.normalization_nets import normalize_to_absolute_one
 
-from tronn.nets.threshold_nets import clip_edges
+from tronn.nets.threshold_nets import build_null_distribution_threshold_fn
+from tronn.nets.threshold_nets import get_threshold_mask_twotailed
+
+from tronn.nets.util_nets import build_stack
+from tronn.nets.util_nets import transform_auxiliary_tensor
+from tronn.nets.util_nets import attach_auxiliary_tensors
+from tronn.nets.util_nets import detach_auxiliary_tensors
+from tronn.nets.util_nets import rebatch
 
 from tronn.util.utils import DataKeys
+
+
+def threshold_w_dinuc_shuffle_null(inputs, params):
+    """get a threshold using dinuc-shuffle-derived 
+    importances as a null background
+    """
+    logging.info("LAYER: thresholding with dinuc shuffle null")
+    
+    # features and shuffles
+    features = inputs[DataKeys.FEATURES]
+    shuffles = inputs[DataKeys.ACTIVE_SHUFFLES] # {N, task, aux, pos, 4}
+    outputs = dict(inputs)
+
+    # params
+    # for a sequence of 1Kb with pval 0.01, 10 bp will pass by chance
+    pval_thresh = params.get("pval_thresh", 0.01)
+    thresholds_key = params["thresholds_key"]
+    
+    # adjust shuffles so that you get a threshold
+    # for every example, for every task
+    #shuffles = tf.transpose(shuffles, perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
+    shuffles_shape = shuffles.get_shape().as_list()
+    shuffles = tf.reshape(shuffles, [-1]+shuffles_shape[2:])
+    shuffles = tf.reduce_sum(shuffles, axis=3) # {N*task, shuf, pos}
+
+    # get thresholds for each example, for each task
+    threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
+    thresholds = tf.map_fn(
+        threshold_fn,
+        shuffles)
+    
+    # readjust shape and save
+    feature_shape = features.get_shape().as_list()
+    thresholds = tf.reshape(
+        thresholds,
+        feature_shape[0:2] + [1 for i in xrange(len(feature_shape[2:]))])
+    outputs[thresholds_key] = thresholds
+    logging.debug("...thresholds: {}".format(thresholds.get_shape()))
+
+    
+    # apply
+    threshold_mask = get_threshold_mask_twotailed(
+        {DataKeys.FEATURES: features, thresholds_key: thresholds},
+        {"thresholds_key": thresholds_key})[0][DataKeys.FEATURES]
+    outputs[DataKeys.FEATURES] = tf.multiply(threshold_mask, features)
+
+    logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+    
+    return outputs, params
+
 
 
 class FeatureImportanceExtractor(object):
@@ -32,44 +82,47 @@ class FeatureImportanceExtractor(object):
             self,
             model_fn,
             feature_type="sequence",
-            num_shuffles=7,
-            keep_shuffles=True):
+            num_shuffles=7):
         """initialize object
         """
         self.model_fn = model_fn
         self.num_shuffles = num_shuffles
-        self.keep_shuffles = keep_shuffles
         self.feature_type = feature_type
         
         
     def preprocess(self, inputs, params):
         """assertions and any feature preprocessing
         """
+        logging.info("feature importance extractor: preprocess")
         # run some generic assertions that apply to all here
         assert inputs.get(DataKeys.FEATURES) is not None
 
         # generate shuffles if sequence
         if self.feature_type == "sequence":
+
+            # TODO assert is sequence
             
             # save out the original sequence
             inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
 
-            # update params
+            # update params for where to put the dinuc shuffles
             params.update({"aux_key": DataKeys.ORIG_SEQ_SHUF})
             params.update({"num_shuffles": self.num_shuffles})
-            
-            # TODO add assert for is sequence
             inputs, params = generate_dinucleotide_shuffles(inputs, params)
 
-            # and attach the shuffles (aux key points to ORIG_SEQ_SHUF)
+            # and attach the shuffles (aux_key points to ORIG_SEQ_SHUF)
+            params.update({"name": "attach_dinuc_seq"})
             inputs, params = attach_auxiliary_tensors(inputs, params)
 
         return inputs, params
             
             
-    def run_model_and_get_anchors(self, inputs, params, layer_key):
+    def run_model_and_get_anchors(self, inputs, params):
         """run the model fn with preprocessed inputs
         """
+        logging.debug("LAYER: call model and set up backprop")
+        layer_key = params.get("layer_key", DataKeys.LOGITS)
+        
         reuse = params.get("model_reuse", True)
         with tf.variable_scope("", reuse=reuse):
             logging.info("Calling model fn")
@@ -80,6 +133,8 @@ class FeatureImportanceExtractor(object):
             model_outputs[layer_key],
             params["importance_task_indices"],
             axis=1)
+
+        logging.debug("FEATURES: {}".format(inputs[DataKeys.FEATURES].get_shape()))
         
         return inputs, params
 
@@ -116,70 +171,120 @@ class FeatureImportanceExtractor(object):
         outputs[DataKeys.IMPORTANCE_GRADIENTS] = gradients
         
         return outputs, params
+
+
+    def threshold(self, inputs, params):
+        """threshold using dinuc shuffles
+        """
+        logging.info("TRANSFORM: threshold features")
         
+        SHUFFLE_PVAL = 0.01
+
+        # threshold main features
+        inputs.update({DataKeys.ACTIVE_SHUFFLES: inputs[DataKeys.WEIGHTED_SEQ_SHUF]})
+        params.update({"pval_thresh": SHUFFLE_PVAL})
+        params.update({"thresholds_key": DataKeys.WEIGHTED_SEQ_THRESHOLDS})
+        outputs, params = threshold_w_dinuc_shuffle_null(inputs, params)
+
+        # apply to shuffles
+        threshold_mask = get_threshold_mask_twotailed(
+            {DataKeys.FEATURES: outputs[DataKeys.WEIGHTED_SEQ_SHUF],
+             DataKeys.WEIGHTED_SEQ_THRESHOLDS: outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]},
+            params)[0][DataKeys.FEATURES]
+        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.multiply(
+            threshold_mask,
+            outputs[DataKeys.WEIGHTED_SEQ_SHUF])
         
+        logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.WEIGHTED_SEQ_SHUF].get_shape()))
+        
+        return outputs, params
+
+
+    def denoise(self, inputs, params):
+        """perform any de-noising as desired
+        """
+        logging.info("TRANSFORM: denoise by removing alone bps")
+        SINGLES_FILT_WINDOW = 7
+        SINGLES_FILT_WINDOW_MIN = float(2) / SINGLES_FILT_WINDOW
+        
+        params.update({"window": SINGLES_FILT_WINDOW, "min_fract": SINGLES_FILT_WINDOW_MIN})
+        outputs, params = filter_singles_twotailed(inputs, params)
+        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = transform_auxiliary_tensor(
+            filter_singles_twotailed, DataKeys.WEIGHTED_SEQ_SHUF, outputs, params, aux_axis=2)
+
+        logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        
+        return outputs, params
+
+
+    def normalize(self, inputs, params):
+        """normalize
+        """
+        logging.info("TRANSFORM: normalize importance scores")
+        # normalize to logits
+        params.update({"weight_key": DataKeys.LOGITS})
+        outputs, params = normalize_to_importance_logits(inputs, params)
+        params.update({"weight_key": DataKeys.LOGITS_SHUF})
+        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = normalize_to_importance_logits(
+            {DataKeys.FEATURES: outputs[DataKeys.WEIGHTED_SEQ_SHUF],
+             DataKeys.LOGITS_SHUF: outputs[DataKeys.LOGITS_SHUF]}, params)[0][DataKeys.FEATURES]
+
+        logging.info("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        
+        return outputs, params
+    
+    
     def postprocess(
             self,
             inputs,
-            params,
-            keep_shuffle_keys=[
-                DataKeys.ORIG_SEQ,
-                DataKeys.WEIGHTED_SEQ,
-                DataKeys.LOGITS]):
+            params):
         """post processing 
         """
-        default_params = {
-            "pval_thresh": 0.01,
-            "filter_window": 7,
-            "filter_window_fract": float(2)/7,
-            "normalize_weight_key": DataKeys.LOGITS,
-            "left_clip": 420,
-            "right_clip": 580,
-            "required_nonzero_bp": 10}
-        
-        from tronn.nets.inference_nets import build_inference_stack
-        
+        logging.info("feature importance extractor: postprocess")
         if self.feature_type == "sequence":
 
-            params.update({"num_aux_examples": self.num_shuffles})
+            LEFT_CLIP = 420
+            RIGHT_CLIP = 580
+            MIN_IMPORTANCE_BP = 10
+
+            # remove the shuffles - weighted seq (orig seq shuffles are already saved)
+            params.update({"save_aux": {
+                DataKeys.FEATURES: DataKeys.WEIGHTED_SEQ_SHUF,
+                DataKeys.LOGITS: DataKeys.LOGITS_SHUF}})
             params.update({"rebatch_name": "detach_dinuc_seq"})
+            outputs, params = detach_auxiliary_tensors(inputs, params)
+
+            # adjust the axes for the saved shuffles so that task comes before shuffle
+            outputs[DataKeys.ORIG_SEQ_SHUF] = tf.transpose(
+                outputs[DataKeys.ORIG_SEQ_SHUF], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
+            outputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.transpose(
+                outputs[DataKeys.WEIGHTED_SEQ_SHUF], perm=[0,2,1,3,4])
+            outputs[DataKeys.LOGITS_SHUF] = tf.transpose(
+                outputs[DataKeys.LOGITS_SHUF], perm=[0,2,1])
+
+            # threshold
+            outputs, params = self.threshold(outputs, params)
             
-            # update params
-            params.update(
-                {"keep_shuffles": self.keep_shuffles,
-                 "keep_shuffle_keys": keep_shuffle_keys,
-                 "process_shuffles": True})
-
-            # is it better to
-            # 1) detach shuffles
-            # 2) threshold by shuffled null
-            # 3) reattach shuffles
-            # 4) filter singles
-            # 5) normalize to weights
-            # 6) clip edges
-            # 7) detach shuffles
-            # 8) filter
+            # denoise
+            outputs, params = self.denoise(outputs, params)
             
-            # postprocess stack
-            inference_stack = [
-                # TODO figure out if there's a cleaner way to manage shuffles
-                (remove_shuffles, {}), # move shuffles out of the way
-                (threshold_shufflenull, {"pval_thresh": 0.01, "shuffle_key": DataKeys.WEIGHTED_SEQ_SHUF}),
-                (filter_singles_twotailed_w_shuffles, {"window": 7, "min_fract": float(2)/7}), # this is losing p63?
-                (normalize_to_weights_w_shuffles, {"weight_key": DataKeys.LOGITS}), # do this after clipping weights?
-                (clip_edges, {"left_clip": 420, "right_clip": 580}),
-
-                #(clear_shuffles, {}),
-                (filter_by_importance, {"cutoff": 10, "positive_only": True}) # TODO move this out?
-
-            ]
-
-            # build the postproces stack
-            outputs, params = build_inference_stack(
-                inputs, params, inference_stack)
-
-            # save out updates to weighted seq key
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES]
+            # normalize
+            outputs, params = self.normalize(outputs, params)
+            
+            # for both raw and weighted, both shuf and not
+            # (1) clip edges
+            outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES] # save out from features
+            outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
+            
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+            outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+            
+            # finally
+            # (1) filter by importance
+            outputs, _ = filter_by_importance(outputs, {"cutoff": MIN_IMPORTANCE_BP, "positive_only": True})
+            logging.info("OUT: {}".format(outputs[DataKeys.FEATURES].get_shape()))
             
         return outputs, params
 
@@ -187,26 +292,12 @@ class FeatureImportanceExtractor(object):
     def extract(self, inputs, params):
         """put all the pieces together
         """
-        layer_key = params.get("layer_key", DataKeys.LOGITS)
-        
         outputs, params = self.preprocess(inputs, params)
-        outputs, params = self.run_model_and_get_anchors(outputs, params, layer_key)
+        outputs, params = self.run_model_and_get_anchors(outputs, params)
         outputs, params = self.get_multitask_feature_importances(outputs, params)
         outputs, params = self.postprocess(outputs, params)
         
         return outputs, params
-
-    
-
-    def extract_old(self, layer_key=DataKeys.LOGITS):
-        """put all the pieces together
-        """
-        self.preprocess()
-        self.run_model_and_get_anchors(layer_key)
-        self.outputs, _ = self.get_multitask_feature_importances(self.inputs, self.params)
-        results, params = self.postprocess()
-        
-        return results, params
 
         
 class InputxGrad(FeatureImportanceExtractor):
@@ -574,30 +665,6 @@ def filter_singles_twotailed(inputs, params):
     return outputs, params
 
 
-def filter_singles_twotailed_w_shuffles(inputs, params):
-    """also filter the singles out of the shuffles
-    """
-    # first run the normal one
-    outputs, _ = filter_singles_twotailed(inputs, params)
-
-    # and then also filter the shuffles
-    shuffles = inputs[DataKeys.WEIGHTED_SEQ_SHUF]
-    shuf_shape = shuffles.get_shape().as_list()
-    shuffles = tf.reshape(
-        shuffles,
-        [shuf_shape[0],
-         shuf_shape[1]*shuf_shape[2],
-         shuf_shape[3],
-         shuf_shape[4]])
-    
-    inputs.update({DataKeys.FEATURES: shuffles})
-    shuffles = filter_singles_twotailed(
-        inputs, params)[0][DataKeys.FEATURES]
-    outputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.reshape(shuffles, shuf_shape)
-    
-    return outputs, params
-
-
 def filter_by_importance(inputs, params):
     """Filter out low importance examples, not interesting
     """
@@ -625,6 +692,6 @@ def filter_by_importance(inputs, params):
 
     inputs["condition_mask"] = tf.greater(feature_sums, cutoff)
     params.update({"name": "importances_filter"})
-    outputs, params = filter_and_rebatch(inputs, params)
+    outputs, _ = filter_and_rebatch(inputs, params)
     
     return outputs, params

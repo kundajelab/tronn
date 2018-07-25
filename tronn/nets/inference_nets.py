@@ -39,7 +39,6 @@ from tronn.nets.mutate_nets import run_model_on_mutation_batch
 from tronn.nets.mutate_nets import dfim
 from tronn.nets.mutate_nets import motif_dfim
 from tronn.nets.mutate_nets import delta_logits
-from tronn.nets.mutate_nets import filter_mutation_directionality
 from tronn.nets.mutate_nets import blank_motif_sites
 
 # TESTING
@@ -159,36 +158,7 @@ def sequence_to_importance_scores_from_regression(inputs, params):
     unstack = params.get("unstack_importances", True)
     use_filtering = params.get("use_filtering", True)
     
-    # set up importance logits
-    #inputs["importance_logits"] = inputs["logits"]
-
     outputs, params = get_task_importances(inputs, params)
-    
-    # set up inference stack
-    #if use_filtering:
-    #    inference_stack = [
-            # TODO figure out equivalent of this in regression
-            #(filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead            
-    #        (get_task_importances, {}),
-    #    ]
-    #else:
-    #    inference_stack = [
-    #        (multitask_importances, {"relu": False}),
-    #        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-    #        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-    #        (normalize_to_weights, {"weight_key": "probs"}), 
-    #        (clip_edges, {"left_clip": 400, "right_clip": 600}),
-    #    ]
-        
-    # build inference stack
-    #outputs, params = build_inference_stack(
-    #    inputs, params, inference_stack)
-    
-    # unstack
-    # TODO deprecate this, make visualization work on multidimensional tensor
-    if unstack:
-        params["name"] = "importances"
-        outputs, params = unstack_tasks(outputs, params)
         
     return outputs, params
 
@@ -255,6 +225,7 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     count_thresh = params.get("count_thresh", 1)
     unstack = params.get("unstack_pwm_scores", True)
 
+    
     # TODO deprecate these
     #if params.get("raw-sequence-key") is not None:
     #    inputs[params["raw-sequence-key"]] = inputs["features"]

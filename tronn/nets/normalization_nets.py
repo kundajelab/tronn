@@ -1,10 +1,62 @@
 """Description: nets for normalizing results
 """
 
+import logging
+
 import tensorflow as tf
 
 from tronn.util.utils import DataKeys
 
+
+def normalize_to_importance_logits(inputs, params):
+    """normalize to the logits
+    """
+    # assertions
+    assert params.get("weight_key") is not None
+    assert params.get("importance_task_indices") is not None
+    assert inputs.get(params["weight_key"]) is not None
+    assert inputs.get("features") is not None
+
+    logging.info("LAYER: normalize to the logits")
+    
+    # features
+    features = inputs[DataKeys.FEATURES]
+    features_shape = features.get_shape().as_list()
+    outputs = dict(inputs)
+
+    # weights
+    weights = tf.gather(
+        inputs[params["weight_key"]],
+        params["importance_task_indices"],
+        axis=1) # {N,.., task}
+    weights_shape = weights.get_shape().as_list() # {N, shuf, logit} or {N, logit}
+    diff_dims = len(features_shape) - len(weights_shape)
+    weights = tf.reshape(weights, weights_shape + [1 for i in xrange(diff_dims)])
+    logging.debug("...weights: {}".format(weights.get_shape()))
+    
+    axes = range(len(features_shape))[len(weights_shape):]
+    logging.debug("...reduction over axes: {}".format(axes))
+    
+    # summed importances
+    importance_sums = tf.reduce_sum(tf.abs(features), axis=axes, keepdims=True)
+    logging.debug("...importance_sums: {}".format(importance_sums.get_shape()))
+    
+    # normalize
+    features = tf.divide(features, importance_sums)
+    features = tf.multiply(weights, features)
+
+    # guard against inf
+    features = tf.multiply(
+        features,
+        tf.cast(tf.greater(importance_sums, 1e-7), tf.float32))
+    
+    outputs[DataKeys.FEATURES] = features
+
+    logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+    
+    return outputs, params
+
+# TODO deprecate
 def normalize_to_weights(inputs, params):
     """Normalize features on a per example basis. Requires a weights vector,
     normally the probabilities at the final point of the output

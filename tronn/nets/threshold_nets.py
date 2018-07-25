@@ -1,10 +1,11 @@
 """Contains nets for quick thresholding
 """
 
-import tensorflow as tf
-import tensorflow.contrib.slim as slim
+import logging
 
-from tronn.nets.filter_nets import rebatch
+import tensorflow as tf
+
+from tronn.nets.util_nets import rebatch
 
 from tronn.util.utils import DataKeys
 
@@ -55,7 +56,7 @@ def threshold_shufflenull(inputs, params):
     # adjust the shuffle key so that when running map_fn
     # you get a threshold for each example for each task
     shuffles = tf.transpose(shuffles, perm=[0,2,1,3,4]) # this is sequence specific
-    shuffles = tf.concat(tf.unstack(shuffles, axis=0), axis=0)
+    shuffles = tf.concat(tf.unstack(shuffles, axis=0), axis=0) # {N*task, shuf, pos, 4}
     shuffles = tf.reduce_sum(shuffles, axis=3) # this is sequence specific
     
     # params
@@ -79,6 +80,8 @@ def threshold_shufflenull(inputs, params):
     pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
     outputs[DataKeys.FEATURES] = tf.multiply(features, pass_thresh)
 
+    # also save out the thresholds
+    
     # also apply to the shuffles (used for pwm scoring)
     if params.get("process_shuffles", False):
         thresholds = tf.expand_dims(thresholds, axis=1)
@@ -92,128 +95,39 @@ def threshold_shufflenull(inputs, params):
 
 
 
-def threshold_shufflenull_old(features, labels, config, is_training=False):
-    """Pick out the distribution from the shuffled vals to get threshold
+def get_threshold_mask_twotailed(inputs, params):
+    """apply a threshold and return a boolean mask for things
+    that pass the threshold in both the positive and negative directions
     """
-    assert is_training == False
-    shuffle_num = config.get("shuffle_num", 7) # TODO do this correctly later
-    batch_size = config.get("batch_size")
-    empirical_pval_threshold = config.get("pval_thresh", 0.05)
-    assert batch_size is not None
-    assert shuffle_num is not None
-    assert batch_size % (shuffle_num + 1) == 0
+    logging.info("LAYER: apply thresholds")
+    features = inputs[DataKeys.FEATURES]
+    thresholds = tf.abs(inputs[params["thresholds_key"]]) # abs is just in case
+    outputs = dict(inputs)
 
-    example_num = batch_size / (shuffle_num + 1)
+    # adjust thresholds internally as needed for different feature dims
+    features_shape = features.get_shape().as_list()
+    thresholds_shape = thresholds.get_shape().as_list()
+
+    diff_dims = len(features_shape) - len(thresholds_shape)
+    if diff_dims > 0:
+        thresholds = tf.reshape(
+            thresholds,
+            thresholds_shape + [1 for i in xrange(diff_dims)])
+
+    # apply two tailed
+    pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
+    pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
+    pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
+
+    logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
     
-    # separate by tasks
-    all_task_features = [tf.expand_dims(example, axis=1)
-                     for example in tf.unstack(features, axis=1)]
-
-    thresholded_features = []
-    for task_features in all_task_features:
-        # determine threshold using the shuffles as empirical null
-        task_features = [tf.expand_dims(example, axis=0)
-                    for example in tf.unstack(task_features, axis=0)]
-        thresholded_task_features = []
-        for i in xrange(example_num):
-            idx = (shuffle_num + 1) * i
-            actual = task_features[idx]
-            shuffles = tf.concat(task_features[idx+1:idx+shuffle_num+1], axis=0)
-            shuffles = tf.reduce_sum(shuffles, axis=3)
-            shuffle_vals = tf.reshape(tf.abs(shuffles), [-1])
-            
-            # with the shuffles, determine the value at which you should threshold
-            k_val = int(empirical_pval_threshold*shuffle_vals.get_shape().as_list()[0])
-            top_k_vals, top_k_indices = tf.nn.top_k(shuffle_vals, k=k_val)
-            threshold_val = top_k_vals[-1]
-            
-            # threshold actual
-            threshold_mask = tf.add(
-                tf.cast(tf.greater_equal(actual, threshold_val), tf.float32),
-                tf.cast(tf.less_equal(actual, threshold_val), tf.float32))
-            actual_thresholded = tf.multiply(actual, threshold_mask)
-            thresholded_task_features.append(actual_thresholded)
-            
-        thresholded_task_features = tf.concat(thresholded_task_features, axis=0)
-        thresholded_features.append(thresholded_task_features)
-
-    features = tf.concat(thresholded_features, axis=1)
-    
-    # need to adjust the config and labels
-    labels_adj = []
-    labels = [tf.expand_dims(tensor, axis=0)
-              for tensor in tf.unstack(labels, axis=0)]
-    for i in xrange(example_num):
-        idx = (shuffle_num + 1) * i
-        actual = labels[idx]
-        labels_adj.append(actual)
-    labels = tf.concat(labels_adj, axis=0)
-
-    for key in config["outputs"].keys():
-        output_adj = []
-        output = [tf.expand_dims(tensor, axis=0)
-                  for tensor in tf.unstack(config["outputs"][key], axis=0)]
-        for i in xrange(example_num):
-            idx = (shuffle_num + 1) * i
-            actual = output[idx]
-            output_adj.append(actual)
-        config["outputs"][key] = tf.concat(output_adj, axis=0)
-    
-    # and then rebatch
-    with tf.variable_scope("shufflenull_threshold_rebatch"): # for the rebatch queue
-        features, labels, config = rebatch(features, labels, config)
-        
-    return features, labels, config
+    return outputs, params
 
 
 
-def threshold_shufflenull_old(features, labels, config, is_training=False):
-    """Shuffle values to get a null distribution at each position
-    """
-    assert is_training == False
-    num_shuffles = config.get("num_shuffles", 100)
-    k_val = int(num_shuffles*config.get("pval", 0.05)) # too strict?
-    two_tailed = config.get("two_tailed", False)
-    
-    # separate out tasks first and reduce to get importance on one axis
-    task_list = tf.unstack(tf.reduce_sum(features, axis=3), axis=1)
-    
-    task_thresholds = []
-    for task_features in task_list:
 
-        # then separate out examples
-        examples_list = tf.unstack(task_features) # list of {seq_len}
-        threshold_masks = []
-        for example in examples_list:
-            #example_reduced = tf.reduce_sum(example, axis=1)
-            # shuffle
-            shuffles = []
-            for i in xrange(num_shuffles):
-                shuffles.append(tf.random_shuffle(example))
-            all_shuffles = tf.stack(shuffles, axis=1) # {seq_len, 100}
-            
-            # get top k
-            top_k_vals, top_k_indices = tf.nn.top_k(all_shuffles, k=k_val)
-            thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0]])
-            greaterthan_mask = tf.cast(tf.greater_equal(example, thresholds), tf.float32) # {seq_len, 4}
-            if two_tailed:
-                top_k_vals, top_k_indices = tf.nn.top_k(-all_shuffles, k=k_val)
-                thresholds = tf.reshape(tf.reduce_min(top_k_vals, axis=1, keep_dims=True), [example.get_shape().as_list()[0]])
-                lessthan_mask = tf.cast(tf.less_equal(example, -thresholds), tf.float32) # {seq_len, 4}
-                greaterthan_mask = tf.add(greaterthan_mask, lessthan_mask)
 
-            # just keep masks and broadcast to channels on the original features
-            threshold_masks.append(greaterthan_mask)
 
-        # stack
-        threshold_mask = tf.stack(threshold_masks, axis=0)
-        task_thresholds.append(threshold_mask)
-
-    # stack
-    threshold_mask = tf.expand_dims(tf.stack(task_thresholds, axis=1), axis=3)
-    features = tf.multiply(features, threshold_mask)
-        
-    return features, labels, config
 
 
 def threshold_poisson(signal, pval):
@@ -253,55 +167,6 @@ def threshold_poisson(signal, pval):
 
     return out_tensor, signal_mean
 
-
-def threshold_gaussian_old(features, labels, config, is_training=False):
-    """Given importance scores, calculates stdev cutoff
-    and thresholds at that pval
-
-    Args:
-      signal: input tensor
-      pval: the pval threshold
-
-    Returns:
-      out_tensor: output thresholded tensor
-    """
-    assert is_training == False
-    
-    num_stdev = config.get("stdev", 3)
-    two_tailed = config.get("two_tailed", True)
-
-    # separate out tasks first
-    task_features_list = [tf.expand_dims(tensor, axis=1) for tensor in tf.unstack(features, axis=1)]
-    
-    thresholded = []
-    for task_features in task_features_list:
-    
-        # get mean and stdev to get threshold
-        signal_mean, signal_var = tf.nn.moments(task_features, axes=[1, 2, 3])
-        signal_stdev = tf.sqrt(signal_var)
-        thresholds = tf.add(signal_mean, tf.scalar_mul(num_stdev, signal_stdev))
-
-        # expand thresholds for broadcasting
-        signal_shape = task_features.get_shape()
-        for dim_idx in xrange(1, len(signal_shape)):
-            thresholds = tf.expand_dims(thresholds, axis=dim_idx)
-
-        # set up mask
-        if two_tailed:
-            greaterthan_tensor = tf.cast(tf.greater_equal(task_features, thresholds), tf.float32)
-            lessthan_tensor = tf.cast(tf.less_equal(task_features, -thresholds), tf.float32)
-            mask_tensor = tf.add(greaterthan_tensor, lessthan_tensor)
-        else:
-            mask_tensor = tf.cast(tf.greater_equal(task_features, thresholds), tf.float32)
-        
-        # mask out insignificant features and append
-        task_features = tf.multiply(task_features, mask_tensor)
-        thresholded.append(task_features)
-        
-    # remerge
-    features = tf.concat(thresholded, axis=1) #{N, task, pos, C}
-    
-    return features, labels, config
 
 
 def threshold_gaussian(inputs, params):
@@ -461,54 +326,6 @@ def multitask_threshold_topk_by_example(features, labels, config, is_training=Fa
 
     return features, labels, config
 
-
-def add_sumpool_threshval(features, labels, config, is_training=False):
-    """Determine whether there are enough meaningful basepairs within a window to keep a motif there
-    """
-    width = config.get("width", 25)
-    stride = config.get("stride", 1)
-    fract = config.get("fract", 2/25.)
-
-    # first pool with 1bp stride
-    features_present = tf.cast(tf.not_equal(features, [0]), tf.float32)
-    bp_fraction_per_window = slim.avg_pool2d(features_present, [1, width], stride=[1, stride])
-    threshold_mask = tf.cast(tf.greater_equal(bp_fraction_per_window, fract), tf.float32)
-    
-    print bp_fraction_per_window
-    print threshold_mask
-
-    # to consider - trim the edges?
-    
-    config["sumpool_mask"] = threshold_mask
-
-    return features, labels, config
-
-
-def apply_sumpool_thresh(features, labels, config, is_training=False):
-    """Apply the sumpooled threshold from before
-    """
-    mask = config.get("sumpool_mask")
-    assert mask is not None
-    
-    features = tf.multiply(features, mask)
-    
-    return features, labels, config
-
-
-def clip_edges_old(features, labels, config, is_training=False):
-    """Grab just the middle base pairs
-    """
-    assert is_training == False
-
-    left_clip = config.get("left_clip", 0)
-    right_clip = config.get("right_clip", features.get_shape().as_list()[2])
-    features = features[:,:,left_clip:right_clip,:]
-
-    if config["outputs"].get("onehot_sequence") is not None:
-        config["outputs"]["onehot_sequence_clipped"] = config[
-            "outputs"]["onehot_sequence"][:,:,left_clip:right_clip,:]
-
-    return features, labels, config
 
 
 def clip_edges(inputs, params):

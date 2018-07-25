@@ -20,14 +20,10 @@ from tronn.preprocess.fasta import batch_string_to_onehot
 from tronn.nets.filter_nets import filter_by_labels
 from tronn.nets.filter_nets import filter_singleton_labels
 
-from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
-from tronn.nets.sequence_nets import generate_scaled_inputs
-from tronn.nets.sequence_nets import pad_data
-
 from tronn.util.h5_utils import get_absolute_label_indices
-
 from tronn.util.utils import DataKeys
 
+# TODO attach as static method to H5DataLoader
 def setup_h5_files(data_dir):
     """quick helper function to go into h5 directory and organize h5 files
     """
@@ -162,9 +158,9 @@ class DataLoader(object):
             
             # note that everything else needs to be padded
             quit()
-            inputs, _ = pad_data(
-                inputs,
-                {"ignore": ["features"], "batch_size": batch_size})
+            #inputs, _ = pad_data(
+            #    inputs,
+            #    {"ignore": ["features"], "batch_size": batch_size})
 
             return inputs, None
         
@@ -334,7 +330,7 @@ class H5DataLoader(DataLoader):
         h5_handle = h5py.File(h5_file, "r")
 
         # check skip keys
-        num_examples = h5_handle[features_key].shape[0]
+        num_examples = h5_handle[DataKeys.SEQ_METADATA].shape[0]
         for key in h5_handle.keys():
             # check if scalar
             if h5_handle[key].shape == 0:

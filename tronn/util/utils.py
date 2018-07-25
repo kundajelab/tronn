@@ -22,6 +22,7 @@ class DataKeys(object):
     IMPORTANCE_ANCHORS = "anchors"
     IMPORTANCE_GRADIENTS = "gradients"
     WEIGHTED_SEQ = "{}-weighted".format(ORIG_SEQ)
+    WEIGHTED_SEQ_THRESHOLDS = "{}.thresholds".format(WEIGHTED_SEQ)
 
     # clipping
     ORIG_SEQ_ACTIVE = "{}.active".format(ORIG_SEQ)
@@ -34,6 +35,7 @@ class DataKeys(object):
     WEIGHTED_SEQ_SHUF = "{}.{}".format(WEIGHTED_SEQ, SHUFFLE_SUFFIX)
     ORIG_SEQ_ACTIVE_SHUF = "{}.{}".format(ORIG_SEQ_ACTIVE, SHUFFLE_SUFFIX)
     WEIGHTED_SEQ_ACTIVE_SHUF = "{}.{}".format(WEIGHTED_SEQ_ACTIVE, SHUFFLE_SUFFIX)
+    LOGITS_SHUF = "{}.{}".format(LOGITS, SHUFFLE_SUFFIX)
     
     # pwm transformation keys
     PWM_SCORES_ROOT = "pwm-scores"

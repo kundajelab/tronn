@@ -8,6 +8,8 @@ import numpy as np
 import tensorflow as tf
 
 from tronn.nets.threshold_nets import build_null_distribution_threshold_fn
+from tronn.nets.threshold_nets import get_threshold_mask_twotailed
+
 from tronn.nets.filter_nets import filter_and_rebatch
 
 from tronn.util.initializers import pwm_simple_initializer
@@ -211,7 +213,7 @@ class MotifScannerWithThresholds(MotifScanner):
 
         
     @staticmethod
-    def positive_threshold(inputs, params):
+    def threshold(inputs, params):
         """threshold scores using motif scores from 
         shuffled sequence (ie null distribution)
         """
@@ -219,41 +221,44 @@ class MotifScannerWithThresholds(MotifScanner):
         assert inputs.get(DataKeys.ACTIVE_SHUFFLES) is not None
         assert inputs.get(DataKeys.FEATURES) is not None
 
-        # adjust the shuffle key so that when running map_fn
-        # you get a threshold for each example for each task
-        shuffles = tf.transpose(
-            inputs[DataKeys.ACTIVE_SHUFFLES],
-            perm=[0,2,4,1,3]) # becomes {N, task, M, shuf, pos}
-        shuffles_shape = shuffles.get_shape().as_list()
-        shuffles = tf.reshape(
-            shuffles,
-            [shuffles_shape[0]*shuffles_shape[1]*shuffles_shape[2],
-             shuffles_shape[3]*shuffles_shape[4]])
-
-        # features
-        features = inputs[DataKeys.FEATURES]
+        # features and shuffles
+        features = inputs[DataKeys.FEATURES] # {N, task, pos, M}
+        shuffles = inputs[DataKeys.ACTIVE_SHUFFLES] # {N, task, shuf, pos, M}
         outputs = dict(inputs)
-
+        
         # params
         pval_thresh = params.get("pval_thresh", 0.05)
-        threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
+        thresholds_key = params["thresholds_key"]
 
-        # get thresholds for each example, for each task
+        # adjust features
+        features = tf.transpose(features, perm=[0,3,1,2]) # {N, M, task, pos}
+        features_shape = features.get_shape().as_list()
+        
+        # adjust shuffles and features for thresholding
+        perm = [0,4,1,2,3]
+        shuffles = tf.transpose(shuffles, perm=perm) # becomes {N, M, task, shuf, pos}
+        shuffles_shape = shuffles.get_shape().as_list()
+        shuffles = tf.reshape(shuffles, [-1]+shuffles_shape[3:]) # {N*M*task, shuf, pos}
+        
+        # get thresholds
+        threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
         thresholds = tf.map_fn(
             threshold_fn,
-            shuffles)
+            shuffles) # {N*M*task}
 
-        # and apply (remember to reshape and transpose back to feature dim ordering)
-        feature_shape = features.get_shape().as_list()
-        thresholds = tf.reshape(thresholds, shuffles_shape[0:3]+[1])
-        thresholds = tf.transpose(thresholds, perm=[0,1,3,2]) # {N, task, pos, M}
+        # readjust shape and save
+        thresholds = tf.reshape(
+            thresholds,
+            features_shape[0:3]+[1]) # back to {N, M, task, 1}
+        outputs[thresholds_key] = tf.transpose(thresholds, perm=[0,2,3,1]) # {N, task, 1, M}
+        
+        # apply
+        threshold_mask = get_threshold_mask_twotailed(
+            {DataKeys.FEATURES: features, thresholds_key: thresholds},
+            {"thresholds_key": thresholds_key})[0][DataKeys.FEATURES]
+        threshold_mask = tf.transpose(threshold_mask, perm=[0,2,3,1]) # {N, task, pos, M}
 
-        # this should be a onesided threshold, since raw seq should just get positive thresh vals
-        # for importance scores call twice with each half
-        pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
-        #pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
-        #pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
-        outputs[DataKeys.FEATURES] = pass_positive_thresh
+        outputs[DataKeys.FEATURES] = tf.nn.relu(threshold_mask)
 
         return outputs, params
 
@@ -268,34 +273,14 @@ class MotifScannerWithThresholds(MotifScanner):
         shuffle_scanner = ShufflesMotifScanner(features_key=self.shuffles_key)
         shuffle_results = shuffle_scanner.scan(inputs, params)[0]
         outputs[DataKeys.ACTIVE_SHUFFLES] = tf.nn.relu(shuffle_results[DataKeys.FEATURES])
-
+        
         # get thresholds
         params.update({"pval": self.pval})
-        outputs[self.out_hits_key] = MotifScannerWithThresholds.positive_threshold(
+        outputs[self.out_hits_key] = MotifScannerWithThresholds.threshold(
             outputs, params)[0][DataKeys.FEATURES]
         outputs[self.out_scores_thresh_key] = tf.multiply(
             outputs[self.out_hits_key],
             outputs[DataKeys.FEATURES])
-
-        # get twosided if required
-        # TODO remerge back in? does not influence outcome
-        if self.two_sided_thresh:
-            # set shuffles to negative scores, and flip features
-            outputs[DataKeys.ACTIVE_SHUFFLES] = tf.nn.relu(-shuffle_results[DataKeys.FEATURES])
-            outputs[DataKeys.FEATURES] = -outputs[DataKeys.FEATURES]
-
-            # add the results to hits
-            # TODO keep as negative?
-            outputs[self.out_hits_key] = tf.add(
-                outputs[self.out_hits_key],
-                MotifScannerWithThresholds.positive_threshold(
-                    outputs, params)[0][DataKeys.FEATURES])
-
-            # flip features and multiply again
-            outputs[DataKeys.FEATURES] = -outputs[DataKeys.FEATURES]
-            outputs[self.out_scores_thresh_key] = tf.multiply(
-                outputs[self.out_hits_key],
-                outputs[DataKeys.FEATURES])
         
         # also save out raw scores
         outputs[self.out_scores_key] = outputs[DataKeys.FEATURES]

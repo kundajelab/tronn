@@ -1,9 +1,6 @@
 
 import tensorflow as tf
 
-from tronn.nets.sequence_nets import pad_data
-from tronn.nets.sequence_nets import unpad_examples
-
 
 def get_variant_importance_scores(inputs, params):
     """
@@ -111,7 +108,7 @@ def blank_variant_sequence(inputs, params):
 
     # pad the outputs
     outputs["features"] = tmp_features
-    outputs, _ = pad_data(outputs, {"ignore": ["features"], "batch_size": batch_size})
+    #outputs, _ = pad_data(outputs, {"ignore": ["features"], "batch_size": batch_size})
     quit()
     
     return outputs, params

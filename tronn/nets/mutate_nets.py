@@ -6,10 +6,7 @@ import h5py
 import numpy as np
 import tensorflow as tf
 
-from tronn.nets.sequence_nets import pad_data
-from tronn.nets.sequence_nets import unpad_examples
-
-from tronn.nets.filter_nets import rebatch
+from tronn.nets.util_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
 
 from tronn.util.utils import DataKeys
@@ -408,7 +405,7 @@ def generate_mutation_batch(inputs, params):
     outputs["features"] = tf.concat(features_w_mutated, axis=0)
     outputs["pos"] = tf.stack(positions, axis=0)
     params["ignore"] = ["features", "pos"]
-    outputs, params = pad_data(outputs, params)
+    #outputs, params = pad_data(outputs, params)
     quit()
     
     # and delete the used features
@@ -481,7 +478,7 @@ def delta_logits(inputs, params):
         outputs["features"] = logits_adj
 
         params["ignore"] = ["features"]
-        outputs, params = pad_data(outputs, params)
+        #outputs, params = pad_data(outputs, params)
         quit()
 
         params["name"] = "extract_delta_logits"
