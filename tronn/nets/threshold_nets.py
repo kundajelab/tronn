@@ -41,7 +41,7 @@ def build_null_distribution_threshold_fn(pval_thresh):
     return threshold_fn
 
 
-def threshold_shufflenull(inputs, params):
+def threshold_shufflenull_OLD(inputs, params):
     """build distribution from the shuffles to get threshold
     # note that this is for sequence (or things that have a sequential order)
     """
@@ -118,6 +118,7 @@ def get_threshold_mask_twotailed(inputs, params):
     pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
     pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
     pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
+    outputs[DataKeys.FEATURES] = pass_thresh
 
     logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
     

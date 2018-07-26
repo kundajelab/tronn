@@ -15,6 +15,9 @@ from tronn.nets.filter_nets import filter_and_rebatch
 from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
+from tronn.nets.util_nets import pad_inputs
+from tronn.nets.util_nets import rebatch
+
 from tronn.util.utils import DataKeys
 
 
@@ -264,7 +267,7 @@ class MotifScannerWithThresholds(MotifScanner):
             {"thresholds_key": thresholds_key})[0][DataKeys.FEATURES]
         threshold_mask = tf.transpose(threshold_mask, perm=[0,2,3,1]) # {N, task, pos, M}
 
-        outputs[DataKeys.FEATURES] = tf.nn.relu(threshold_mask)
+        outputs[DataKeys.FEATURES] = threshold_mask
 
         return outputs, params
 
@@ -303,35 +306,34 @@ class DeltaMotifImportanceMapper(MotifScanner):
     def preprocess(self, inputs, params):
         """assertions, and blank the motif site
         """
-        assert inputs.get(DataKeys.FEATURES) is not None
-        # check for correct input {N, mut_M, task, pos, 4}
-        # join dims for scanning
+        assert inputs.get(DataKeys.FEATURES) is not None # {N, mutM, task, pos, 4}
+        assert inputs.get(DataKeys.MUT_MOTIF_POS) is not None # {N, mut_M, 1, pos, 1}
 
-        # first blank the motif sites (might be redundant, but sometimes not
-        # if only blanking 1 base pair during normalization)
-
-        # TODO factor this out, and name better
-        # not just shuffles, but also steps and mutations
-        orig_features = inputs[DataKeys.FEATURES] # {N, task, pos, 4}
-        orig_features = tf.expand_dims(orig_features, axis=1)
-        mut_features = inputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] # {N, mutM, task, pos, 4}
-        features = tf.concat([orig_features, mut_features], axis=1)
-        features = tf.reshape(features, [-1]+orig_features.get_shape().as_list()[2:])
-        inputs[DataKeys.FEATURES] = features
-
-        # track info - keep this in the object instead of in params?
-        params["num_shuffles"] = mut_features.get_shape().as_list()[1]
-        batch_size = params["num_shuffles"] + 1
-        params["batch_size"] = orig_features.get_shape().as_list()[0]
+        # features - these are dfim scores
+        features = inputs[DataKeys.FEATURES]
+        mask = tf.cast(tf.greater(inputs[DataKeys.MUT_MOTIF_POS], 0), tf.float32)
+        outputs = dict(inputs)
         
-        # pad examples
-        outputs, _ = pad_data(
-            inputs,
-            {"num_shuffles": params["num_shuffles"],
-             "ignore": [DataKeys.FEATURES]})
+        # blank out motif sites
+        # TODO extend the blanking, if using single?
+        features = tf.multiply(features, mask) # {N, mutM, task, pos, 4}
+        
+        # join dims for scanning
+        features_shape = features.get_shape().as_list()
+        params["batch_size"] = features_shape[0]
+        features = tf.reshape(features, [-1]+features_shape[2:]) # {N*mutM, task, pos, 4}
+        new_batch_size = features.get_shape().as_list()[0]
+        outputs[DataKeys.FEATURES] = features
+        
+        # and pad
+        params.update({"num_aux_examples": features_shape[1]-1})
+        params.update({"ignore_keys": [DataKeys.FEATURES]})
+        outputs, _ = pad_inputs(outputs, params)
 
-        # and rebatch
-        outputs, _ = rebatch(outputs, {"name": "rebatch_dmim", "batch_size": batch_size})
+        # rebatch to mut size
+        outputs, _ = rebatch(outputs, {"name": "rebatch_dfim", "batch_size": features_shape[1]})
+
+        outputs, params = super(DeltaMotifImportanceMapper, self).preprocess(outputs, params)
         
         return outputs, params
 
@@ -339,28 +341,24 @@ class DeltaMotifImportanceMapper(MotifScanner):
     def postprocess(self, inputs, params):
         """make sure you only keep the hits and reduce sum?
         """
-        # do not threshold (ie just use the motif scanner)
-        
         # utilizing existing pwm hits, mask the scores
+        outputs = dict(inputs)
+        
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
             inputs[DataKeys.ORIG_SEQ_PWM_HITS])
 
-        # TODO for now relu?
+        # adjust shape
+        features_shape = features.get_shape().as_list()
+        features = tf.reshape(features, [1, -1] + features_shape[1:])
 
-
-
+        # and then rebatch?
         
-        
-        # remember to return BOTH positive AND negative scores here!
-        # returns delta motif scores {N, mut_M, task, pos, M}
-        # and reduce sum? to {N, mut_M, M}
-        features = tf.reduce_sum(features, axis=3) # {N, mut_M, task, M}
+        # get sum across positions. keep both positive and negative scores
+        features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
         outputs[DataKeys.FEATURES] = features
-
-        # no delta from normal, since the dfim is the delta from normal
-        # but is it better to keep separate?
-        # key question here is which motif moved more than noise
+        print outputs[DataKeys.FEATURES]
+        
         # two tailed, drop or increase
         # the permutation test would be:
         # per mut motif, per task, per motif
@@ -368,10 +366,6 @@ class DeltaMotifImportanceMapper(MotifScanner):
         # look at label shuffling N vs N
         # just keep the diffs, and run permutation test on the diffs
         # perm test is sign flip
-
-        # this is also true for delta logits
-
-        # Q: better to calculate the delta here?
         
         return outputs, params
     
@@ -430,10 +424,14 @@ def get_pwm_scores(inputs, params):
     
     # squeeze the raw and weighted
     # this happens here because you need to filter the scores
-    # with the hits from raw sequence
+    # with the hits from raw sequence first
     # TODO can try max instead of sum?
     outputs[DataKeys.ORIG_SEQ_PWM_SCORES_SUM] = tf.reduce_sum(
         outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH], axis=2) # {N, 1, M}
+
+    # relu on the weighted scores for now
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.nn.relu(
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]) # {N, task, pos, M}
 
     outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] = tf.reduce_sum(
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH], axis=2) # {N, task, M}
@@ -514,9 +512,10 @@ def run_dmim(inputs, params):
     """run dmim
     """
     # scan, no shuffles or filtering
-    scanner = MotifScanner(features_key=DataKeys.FEATURES)
+    scanner = DeltaMotifImportanceMapper(features_key=DataKeys.FEATURES)
     outputs, params = scanner.scan(inputs, params)
 
+    
     
     return outputs, params
 

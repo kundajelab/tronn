@@ -2,26 +2,26 @@
 
 import tensorflow as tf
 
-from tronn.nets.importance_nets import filter_by_importance
+from tronn.nets.filter_nets import filter_by_accuracy
+from tronn.nets.filter_nets import filter_singleton_labels
+
 from tronn.nets.importance_nets import get_task_importances
 from tronn.nets.importance_nets import run_dfim
 
-#from tronn.nets.threshold_nets import threshold_gaussian
-#from tronn.nets.threshold_nets import threshold_shufflenull
-#from tronn.nets.threshold_nets import clip_edges
+# TESTING
+from tronn.nets.manifold_nets import score_distances_on_manifold
+from tronn.nets.manifold_nets import filter_by_manifold_distances
 
-from tronn.nets.motif_nets import pwm_position_squeeze
-from tronn.nets.motif_nets import pwm_relu
-from tronn.nets.motif_nets import multitask_global_pwm_scores
+# TODO move these out?
+#from tronn.nets.motif_nets import pwm_position_squeeze
+#from tronn.nets.motif_nets import pwm_relu
+#from tronn.nets.motif_nets import multitask_global_pwm_scores
 
 # TESTING
 from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import get_motif_densities
 from tronn.nets.motif_nets import filter_for_significant_pwms
 from tronn.nets.motif_nets import run_dmim
-
-from tronn.nets.filter_nets import filter_by_accuracy
-from tronn.nets.filter_nets import filter_singleton_labels
 
 from tronn.nets.mutate_nets import dfim
 from tronn.nets.mutate_nets import motif_dfim
@@ -31,23 +31,22 @@ from tronn.nets.mutate_nets import blank_motif_sites
 # TESTING
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites
 
-# TESTING
-from tronn.nets.manifold_nets import score_distances_on_manifold
-from tronn.nets.manifold_nets import filter_by_manifold_distances
-
+# TODO move this out
 from tronn.nets.sequence_nets import onehot_to_string
 
+from tronn.nets.util_nets import build_stack
+
+# clean up
 from tronn.nets.variant_nets import get_variant_importance_scores
 from tronn.nets.variant_nets import blank_variant_sequence
 from tronn.nets.variant_nets import reduce_alleles
-
-from tronn.nets.util_nets import build_stack
 
 from tronn.util.utils import DataKeys
 
 
 #  TODO consider moving this to utils
-def unstack_tasks(inputs, params):
+# but also do we need this anymore?
+def unstack_tasks_OLD(inputs, params):
     """Unstack by task
     """
     features = inputs.get("features")
@@ -74,67 +73,17 @@ def unstack_tasks(inputs, params):
     return outputs, params
 
 
-# TODO reduce this: filter by accuracy, and then call get_importances
-def sequence_to_importance_scores_OLD(inputs, params):
-    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
-    """
-    # params
-    params["is_training"] = False
-    unstack = params.get("unstack_importances", True)
-    use_filtering = params.get("use_filtering", True)
-    
-    # set up importance logits
-    inputs["importance_logits"] = inputs["logits"]
-
-    # set up inference stack
-    if use_filtering:
-        inference_stack = [
-            (multitask_importances, {"relu": False}),
-            #(threshold_shufflenull, {"pval_thresh": 0.05}),
-            
-            (filter_by_accuracy, {"acc_threshold": 0.7}), # TODO use FDR instead
-
-            # could filter first, and THEN generate all the shuffles and run through model?
-            
-            (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}), # try 9 and 2/9?
-            (normalize_to_weights, {"weight_key": "probs"}),
-            (clip_edges, {"left_clip": 400, "right_clip": 600}),
-            (filter_by_importance, {"cutoff": 10, "positive_only": True}), 
-        ]
-    else:
-        inference_stack = [
-            (multitask_importances, {"relu": False}),
-            (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-            (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-            (normalize_to_weights, {"weight_key": "probs"}), 
-            (clip_edges, {"left_clip": 400, "right_clip": 600}),
-        ]
-        
-    # build inference stack
-    outputs, params = build_inference_stack(
-        inputs, params, inference_stack)
-
-    # unstack
-    if unstack:
-        params["name"] = "importances"
-        outputs, params = unstack_tasks(outputs, params)
-        
-    return outputs, params
-
 
 def sequence_to_importance_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
-    # TODO filter by accuracy (for classification)
-
     # get task importances
     outputs, params = get_task_importances(inputs, params)
     
     return outputs, params
 
 
-def sequence_to_motif_scores(inputs, params):
+def sequence_to_motif_scores_OLD(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
 
@@ -171,7 +120,8 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     # scan motifs
     outputs, params = get_pwm_scores(outputs, params)
     outputs, params = get_motif_densities(outputs, params)
-    outputs, params = pwm_relu(outputs, params)
+    # TODO when to relu the scores?
+    #outputs, params = pwm_relu(outputs, params)
 
 
     # convert sequences to strings
@@ -187,58 +137,23 @@ def sequence_to_dmim(inputs, params):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
     """
-    # params:
-    params["raw-sequence-key"] = "raw-sequence"
-    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
-    params["raw-pwm-scores-key"] = "raw-pwm-scores"
-    params["positional-pwm-scores-key"] = "positional-pwm-scores"
-    params["filter_motifspace"] = True
-    params["filter_motifset"] = True
-    params["dmim-scores-key"] = "dmim-scores"
-
-    # maybe keep
-    #params["keep_importances"] = None
-    params["keep_importances"] = "importances"
+    # here - assume sequence to motif scores has already been run
+    # if not set up in another fn
+    outputs = dict(inputs)
     
-    method = params.get("importances_fn")
-    
-    # set up inference stack
-    inference_stack = [
+    # filtering
+    #outputs, params = filter_for_significant_pwms(inputs, params)
+    outputs, params = score_distances_on_manifold(outputs, params)
+    #outputs, params = filter_by_manifold_distances(outputs, params)
 
-        # HERE: assume sequence to motif scores run (if not, set up in another fn)
+    # mutate
+    #outputs, params = mutate_weighted_motif_sites(outputs, params)
 
-        # (1) filter for sig pwms (based on clusters)
-        (filter_for_significant_pwms, {}),
-        
-        # (2) filter on manifold (based on clusters)
-        (score_distances_on_manifold, {}),
-        (filter_by_manifold_distances, {}),
-        
-        # (3) mutagenize sequences. separate mutagenized sequence into separate key
-        (mutate_weighted_motif_sites, {}),
-        
-        # (4) run dfim feature extraction
-        (run_dfim, {}),
-        
-        # (5) run dmim 
-        (run_dmim, {})
+    # run dfim
+    #outputs, params = run_dfim(outputs, params)
 
-
-        # (6) convert left over sequences to strings coming out
-        
-        # (6) after all runs, calculate stats
-
-
-    ]
-
-    # build inference stack
-    outputs, params = build_inference_stack(
-        inputs, params, inference_stack)
-
-    # unstack
-    if params.get("dmim-scores-key") is not None:
-        params["name"] = params["dmim-scores-key"]
-        outputs, params = unstack_tasks(outputs, params)
+    # and then run dmim
+    #outputs, params = run_dmim(outputs, params)
         
     return outputs, params
 

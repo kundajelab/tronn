@@ -361,8 +361,8 @@ class H5DataLoader(DataLoader):
         for key in keys:
             if isinstance(h5_handle[key][0], basestring):
                 tensor_dtypes.append(tf.string)
-            #elif "features" in key:
-            #    tensor_dtypes.append(tf.uint8)
+            elif h5_handle[key][0].dtype.char == "S":
+                tensor_dtypes.append(tf.string)
             else:
                 tensor_dtypes.append(tf.float32)
 
@@ -370,8 +370,12 @@ class H5DataLoader(DataLoader):
         keys.append("labels")
         tensor_dtypes.append(tf.float32)
 
-        keys.append(DataKeys.FEATURES)
-        tensor_dtypes.append(tf.uint8)
+        if DataKeys.FEATURES not in keys:
+            keys.append(DataKeys.FEATURES)
+            tensor_dtypes.append(tf.uint8)
+        else:
+            # replace
+            tensor_dtypes[keys.index(DataKeys.FEATURES)] = tf.uint8
 
         # set up tmp numpy array so that it's not re-created for every batch
         # TODO adjust seq length
@@ -596,7 +600,11 @@ class H5DataLoader(DataLoader):
                     h5_file, batch_size, task_indices,
                     fasta=self.fasta, label_keys=label_keys, shuffle=True)
                 for h5_file in self.h5_files]
-            min_after_dequeue = 10000
+            # TODO need to adjust this relative to the problem at hand...
+            if len(example_slices_list) > 1:
+                min_after_dequeue = 10000
+            else:
+                min_after_dequeue = batch_size * 3
             capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
             inputs = tf.train.shuffle_batch_join(
                 example_slices_list,

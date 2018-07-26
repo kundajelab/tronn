@@ -37,13 +37,14 @@ class Mutagenizer(object):
         # params
         num_mutations = params.get("num_mutations", 1)
         
-        # get the max positions
+        # get the max positions ON THE ACTIVE REGION
+        # NOTE that these are indices for the short region
         vals, indices = tf.nn.top_k(features, k=num_mutations, sorted=True)
-
+        
         # and then only keep the ones that filter through pwm vector
         with h5py.File(params["manifold"], "r") as hf:
             pwm_mask = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL][:]
-        outputs["num_aux_examples"] = np.sum(pwm_mask > 0)
+        params["num_aux_examples"] = np.sum(pwm_mask > 0)
         sig_pwm_indices = np.where(pwm_mask > 0)[0]
         vals = tf.gather(vals, sig_pwm_indices, axis=1)
         indices = tf.cast(tf.gather(vals, sig_pwm_indices, axis=1), tf.int64)
@@ -143,7 +144,9 @@ class Mutagenizer(object):
         
         # for each motif, run map fn to mutagenize
         features = inputs[DataKeys.ORIG_SEQ] # {N, 1, 1000, 4}
-        position_indices = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] # {N, mut_M, k}
+        orig_seq_len = features.get_shape().as_list()[2]
+        LEFT_CLIP = 420
+        position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
         motif_present = inputs["motif_present"] # {N, mut_M, k}
         
         # choose what kind of mutagenesis
@@ -155,12 +158,9 @@ class Mutagenizer(object):
         all_mut_sequences = []
         all_mut_positions = []
         for mut_i in xrange(position_indices.get_shape().as_list()[1]):
-
-            # TODO must adjust the position based on clip offset!
-            # TODO would like to pass out the position mask too (for further analyses)
             
             mut_positions = position_indices[:,mut_i,:] # {N, k}
-            mut_positions = tf.one_hot(mut_positions, 1000) # {N, k, 1000}
+            mut_positions = tf.one_hot(mut_positions, orig_seq_len) # {N, k, 1000}
             mut_positions = tf.reduce_max(mut_positions, axis=1) # {N, 1000}
             mut_positions = tf.expand_dims(mut_positions, axis=2) # {N, 1000, 1}
             mut_positions = tf.expand_dims(mut_positions, axis=1) # {N, 1, 1000, 1}
@@ -172,8 +172,8 @@ class Mutagenizer(object):
             all_mut_sequences.append(mut_sequences)
             all_mut_positions.append(mut_positions)
             
-        outputs[DataKeys.MUT_MOTIF_SEQ] = tf.stack(all_mut_sequences, axis=1) # {N, mut_M, 1, 1000, 4}
-        outputs[DataKeys.MUT_MOTIF_POS] = tf.stack(all_mut_positions, axis=1)
+        outputs[DataKeys.MUT_MOTIF_ORIG_SEQ] = tf.stack(all_mut_sequences, axis=1) # {N, mut_M, 1, 1000, 4}
+        outputs[DataKeys.MUT_MOTIF_POS] = tf.stack(all_mut_positions, axis=1) # {N, mutM, 1, 1000, 1}
         
         return outputs, params
 

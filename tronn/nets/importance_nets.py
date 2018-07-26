@@ -489,14 +489,19 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         """
         assert inputs.get(DataKeys.FEATURES) is not None
         assert inputs.get(DataKeys.MUT_MOTIF_ORIG_SEQ) is not None
+
+        print inputs[DataKeys.MUT_MOTIF_ORIG_SEQ]
         
         # don't generate shuffles, assume that the shuffles are still attached from before
         # attach the mutations (interleaved)
+        logging.info("LAYER: attaching {}".format(DataKeys.MUT_MOTIF_ORIG_SEQ))
         params.update({"aux_key": DataKeys.MUT_MOTIF_ORIG_SEQ})        
         params.update({"name": "attach_mut_motif_seq"})
         inputs, params = attach_auxiliary_tensors(inputs, params)
+        logging.debug("After attaching aux: {}".format(inputs[DataKeys.FEATURES].get_shape()))
 
-        return outputs, params
+        
+        return inputs, params
 
     
     def postprocess(self, inputs, params):
@@ -508,62 +513,60 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # remove the mutations - weighted seq (orig seq shuffles are already saved)
         params.update({"save_aux": {
             DataKeys.FEATURES: DataKeys.MUT_MOTIF_WEIGHTED_SEQ,
-            DataKeys.LOGITS: DataKeys.LOGITS_MUT_MOTIF}})
+            DataKeys.LOGITS: DataKeys.MUT_MOTIF_LOGITS}})
         params.update({"rebatch_name": "detach_mut_motif_seq"})
         outputs, params = detach_auxiliary_tensors(inputs, params)
+        logging.debug("FEATURES: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        logging.debug("MUT_MOTIF_WEIGHTED_SEQ: {}".format(
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ].get_shape()))
+        logging.debug("MUT_MOTIF_LOGITS: {}".format(outputs[DataKeys.MUT_MOTIF_LOGITS].get_shape()))
 
-        # apply thresholds to the mut sequences
+        # apply thresholds to normal and mut sequences
+        outputs[DataKeys.FEATURES] = tf.multiply(
+            outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS],
+            outputs[DataKeys.FEATURES])
+        
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.multiply(
-            threshold_mask,
+            tf.expand_dims(outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS], axis=1),
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ])
-            
+        
         # denoise - this is same as above?
+        # can it be made the same by attach.detach?
         logging.info("TRANSFORM: denoise by removing alone bps")
         SINGLES_FILT_WINDOW = 7
         SINGLES_FILT_WINDOW_MIN = float(2) / SINGLES_FILT_WINDOW
         
         params.update({"window": SINGLES_FILT_WINDOW, "min_fract": SINGLES_FILT_WINDOW_MIN})
         outputs, params = filter_singles_twotailed(outputs, params)
-        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = transform_auxiliary_tensor( # except this is not
-            filter_singles_twotailed, DataKeys.WEIGHTED_SEQ_SHUF, outputs, params, aux_axis=2)
-
-        logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
-
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = transform_auxiliary_tensor( # except this is not
+            filter_singles_twotailed, DataKeys.MUT_MOTIF_WEIGHTED_SEQ, outputs, params, aux_axis=2)
         
         # normalize - think about how to do this
         # this is for sure different from above
         outputs, params = normalize_to_absolute_one(outputs, params)
-            
+
         # for both raw and weighted, both shuf and not
         # (1) clip edges
+        # if all is correct, only need to chop the features and the mut motif seqs
         # this is same as above
+        # and clip the position mask also (for blanking at the motif level)
         outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
-        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES] # save out from features
-        outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
-        
-        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-        outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-        
-        # HERE - calculate the deltas
-        # does it save any space to do this here though? or maybe saves computation time later
-        
-        # TODO need to calculate the delta logits (but also keep the actual logits too)
-        # use delta logits to get statistical sig on whether mutation had an effect
-        # {N, mutM, logit} - test is for every mutM for every logit (not in NN)
-        # remember to first grab the subset where the motif is actually present
-        # {N, mutM} this means run a for loop across the mutM
-        # result: {muM, logit}
+        outputs[DataKeys.MUT_MOTIF_ORIG_SEQ] = outputs[DataKeys.MUT_MOTIF_ORIG_SEQ][
+            :,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ][
+            :,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        outputs[DataKeys.MUT_MOTIF_POS] = outputs[DataKeys.MUT_MOTIF_POS][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
 
-
-
-        # and after calculating the delta, normalize the delta
-        # to the diff in the logits
+        # calculate deltas scores (DFIM). leave as aux (to attach later)
+        outputs[DataKeys.DFIM_SCORES] = tf.subtract(
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
+            tf.expand_dims(outputs[DataKeys.FEATURES], axis=1))
+        outputs[DataKeys.FEATURES] = outputs[DataKeys.DFIM_SCORES]
+        
+        # calculate the delta logits later, in post analysis
         
         # Q: is there a way to get the significance of a delta score even here?
         # ie, what is the probability of a delta score by chance?
-        # could build a distribution?
-
-        # this returns the delta importances as features
 
         return outputs, params
     
@@ -599,6 +602,7 @@ def get_task_importances(inputs, params):
     
     # filter by importance
     if params.get("use_filtering", True):
+        print "using filtering"
         MIN_IMPORTANCE_BP = 10
         outputs, _ = filter_by_importance(outputs, {"cutoff": MIN_IMPORTANCE_BP, "positive_only": True})
         logging.info("OUT: {}".format(outputs[DataKeys.FEATURES].get_shape()))
@@ -672,7 +676,7 @@ def filter_singles_twotailed(inputs, params):
 
     # save desired outputs
     outputs[DataKeys.FEATURES] = features
-    outputs["positive_importance_bp_sum"] = num_positive_features
+    outputs["positive_importance_bp_sum"] = num_positive_features # TODO this number is deceptive, change
 
     return outputs, params
 

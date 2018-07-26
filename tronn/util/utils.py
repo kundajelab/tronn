@@ -52,7 +52,7 @@ class DataKeys(object):
     WEIGHTED_SEQ_PWM_HITS = "{}.pwm-hits".format(WEIGHTED_SEQ_ACTIVE)    
     WEIGHTED_SEQ_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE, PWM_SCORES_ROOT)
     WEIGHTED_SEQ_PWM_SCORES_THRESH = "{}.thresh".format(WEIGHTED_SEQ_PWM_SCORES)
-    WEIGHTED_SEQ_PWM_SCORES_SUM = "{}.sum".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
+    WEIGHTED_SEQ_PWM_SCORES_SUM = "{}.sum".format(WEIGHTED_SEQ_PWM_SCORES_THRESH) # CHECK some downstream change here
     WEIGHTED_SEQ_SHUF_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE_SHUF, PWM_SCORES_ROOT)
 
     # pwm positions
@@ -72,6 +72,7 @@ class DataKeys(object):
     MANIFOLD_CENTERS = "{}.centers".format(MANIFOLD_ROOT)
     MANIFOLD_THRESHOLDS = "{}.thresholds".format(MANIFOLD_ROOT)
     MANIFOLD_CLUST = "{}.clusters".format(MANIFOLD_ROOT)
+    MANIFOLD_SCORES = "{}.scores".format(MANIFOLD_ROOT)
 
     # manifold sig pwm keys
     MANIFOLD_PWM_ROOT = "{}.pwms".format(MANIFOLD_ROOT)
@@ -89,6 +90,8 @@ class DataKeys(object):
     MUT_MOTIF_WEIGHTED_SEQ = "{}.motif_mut".format(WEIGHTED_SEQ)
     MUT_MOTIF_POS = "{}.motif_mut.mask".format(ORIG_SEQ)
     MUT_MOTIF_PRESENT = "{}.motif_mut_present".format(ORIG_SEQ)
+    MUT_MOTIF_LOGITS = "{}.motif_mut".format(LOGITS)
+    DFIM_SCORES = "{}.delta".format(MUT_MOTIF_WEIGHTED_SEQ)
     DMIM_SCORES_ROOT = "dmim-scores"
 
     # split

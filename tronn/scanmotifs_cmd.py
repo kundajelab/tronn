@@ -107,7 +107,7 @@ def run(args):
             get_cluster_bed_files(
                 results_h5_file,
                 cluster_file_prefix)
-            extract_significant_pwms(results_h5_file)
+            extract_significant_pwms(results_h5_file, args.pwm_list)
             
         if visualize_R:
             visualize_clustered_features_R(

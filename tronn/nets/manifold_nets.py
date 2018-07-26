@@ -68,7 +68,8 @@ def score_distances_on_manifold(inputs, params):
     features = tf.expand_dims(features, axis=1)
     centers = tf.expand_dims(centers, axis=0)
     distances = batch_jaccard_distance_from_centers(features, centers)
-
+    outputs[DataKeys.MANIFOLD_SCORES] = distances
+    
     # compare to thresholds
     thresholds = tf.expand_dims(thresholds, axis=0) # {N, cluster, task}
     passed_thresholds = tf.greater(distances, thresholds)

@@ -72,13 +72,15 @@ def attach_auxiliary_tensors(inputs, params):
     
     main_features = inputs[DataKeys.FEATURES]
     main_features_shape = main_features.get_shape().as_list()
-    batch_size = main_features_shape[0]
+    old_batch_size = main_features_shape[0]
+    params["batch_size"] = old_batch_size
     
     aux_features = inputs[params["aux_key"]]
     num_aux_examples = aux_features.get_shape().as_list()[1]
     aux_axis = 1
     outputs = dict(inputs)
-
+    batch_size = np.ceil(old_batch_size / (num_aux_examples+1)) * (num_aux_examples+1)
+    
     # params
     filter_name = params["name"]
     
@@ -105,14 +107,16 @@ def attach_auxiliary_tensors(inputs, params):
     return outputs, params
 
 
-def _build_pad_fn(num_aux_examples):
+def _build_pad_fn(num_aux_examples, axis=1):
     """internal build fn to build a padding fn 
     """
     def pad_fn(tensor):
-        tensors = [tensor]
-        for aux_idx in xrange(num_aux_examples):
-            tensors.append(tensor)
+        tensors = [tensor for i in xrange(num_aux_examples + 1)]
         tensors = tf.stack(tensors, axis=0)
+        tensors = tf.reshape(
+            tensors,
+            [-1]+tensors.get_shape().as_list()[1:])
+            
         return tensors
 
     return pad_fn

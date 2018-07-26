@@ -124,7 +124,8 @@ def run_clustering(
         h5_file,
         dataset_key,
         cluster_key=DataKeys.CLUSTERS,
-        num_threads=24):
+        num_threads=24,
+        refine=True):
     """wrapper around favorite clustering method
     """
     # get data
@@ -149,11 +150,12 @@ def run_clustering(
 
     # save clusters
     with h5py.File(h5_file, "a") as out:
+        #del out[cluster_key]
         out.create_dataset(cluster_key, data=communities)
         out[cluster_key].attrs[AttrKeys.CLUSTER_IDS] = cluster_ids
 
     # refine as desired
-    if cluster_filt_key is not None:
+    if refine:
         filter_clusters_by_size(
             h5_file,
             cluster_key=cluster_key,
@@ -320,7 +322,7 @@ def summarize_clusters_on_manifold(
     # save out
     with h5py.File(h5_file, "a") as out:
         for key in out_arrays.keys():
-            del out[key]
+            #del out[key]
             out.create_dataset(key, data=out_arrays[key])
             out[key].attrs[AttrKeys.CLUSTER_IDS] = clusters.get_active_cluster_ids()
 
