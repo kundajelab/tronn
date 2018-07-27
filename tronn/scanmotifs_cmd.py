@@ -111,24 +111,19 @@ def run(args):
                 cluster_file_prefix)
             extract_significant_pwms(results_h5_file, args.pwm_list)
             
-        #if len(args.visualize_R) > 0:
-        if False:
-            print args.visualize_R
-            #visualize_clustered_features_R(
-            #    results_h5_file)
+        if len(args.visualize_R) > 0:
+            visualize_clustered_features_R(
+                results_h5_file)
             visualize_clustered_outputs_R(
                 results_h5_file,
-                args.visualize_R) # TODO figure out how to adjust this for classification/regression
-            quit()
+                args.visualize_R)
             visualize_significant_pwms_R(
                 results_h5_file)
-
         if len(args.visualize_multikey_R) > 0:
             visualize_multikey_outputs_R(
                 results_h5_file,
                 args.visualize_multikey_R)
-            
-    quit()
+
     # run manifold analysis
     # NOTE relies on cluster analysis
     if args.summarize_manifold and not args.debug:
@@ -166,16 +161,20 @@ def run(args):
                     DataKeys.MANIFOLD_PWM_SIG_CLUST,
                     DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL])
             
-        if visualize_R:
+        if len(args.visualize_R) > 0:
             visualize_clustered_features_R(
                 results_h5_file)
             visualize_clustered_outputs_R(
                 results_h5_file,
-                DataKeys.CLUSTERS,
-                args.visualize_tasks,
-                args.visualize_signals)
+                args.visualize_R)
             visualize_significant_pwms_R(
-                results_h5_file)
+                results_h5_file,
+                pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
+
+        if len(args.visualize_multikey_R) > 0:
+            visualize_multikey_outputs_R(
+                results_h5_file,
+                args.visualize_multikey_R)
 
     analyze_density = False
     if analyze_density and not args.debug:

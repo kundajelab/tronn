@@ -1,6 +1,7 @@
 """Description: code to analyze motifs
 """
 
+import os
 import h5py
 
 import numpy as np
@@ -184,16 +185,16 @@ def extract_significant_pwms(
 
 def visualize_significant_pwms_R(
         h5_file,
-        pwm_scores_agg_global_key,# TODO adjust this?
-        pwm_scores_agg_clusters_key=DataKeys.PWM_SCORES_AGG_CLUST):
+        pwm_scores_agg_clusters_key=DataKeys.PWM_SCORES_AGG_CLUST,
+        pwm_names_attr_key=AttrKeys.PWM_NAMES):
     """plot out the pwm maps
     """
-
+    r_cmd = (
+        "plot-h5.sig_pwms.R {} {} {}").format(
+            h5_file,
+            pwm_scores_agg_clusters_key,
+            pwm_names_attr_key)
+    print r_cmd
+    os.system(r_cmd)
     
-    # pull aggregated global (pwm, task) and plot
-    
-
-    # pull by clusters, for each cluster (pwm, task) and plot
-
-    
-    return
+    return None

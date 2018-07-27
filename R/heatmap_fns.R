@@ -109,10 +109,10 @@ make_heatmap <- function(
 make_agg_heatmap <- function(
     data,
     out_pdf_file,
-    cluster_columns) {
+    cluster_columns) { # add: symkey, breaks uncomment?
 
     # color palette
-                                        #my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
+    #my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
     my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
 
     # grid
