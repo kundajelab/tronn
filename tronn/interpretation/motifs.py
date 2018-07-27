@@ -184,12 +184,14 @@ def extract_significant_pwms(
 
 def visualize_significant_pwms_R(
         h5_file,
-        pwm_scores_agg_global_key,
-        pwm_scores_agg_clusters_key):
+        pwm_scores_agg_global_key,# TODO adjust this?
+        pwm_scores_agg_clusters_key=DataKeys.PWM_SCORES_AGG_CLUST):
+    """plot out the pwm maps
     """
-    """
-    # pull aggregated global (pwm, task) and plot
 
+    
+    # pull aggregated global (pwm, task) and plot
+    
 
     # pull by clusters, for each cluster (pwm, task) and plot
 

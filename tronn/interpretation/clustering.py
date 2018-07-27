@@ -16,8 +16,6 @@ from tronn.util.h5_utils import AttrKeys
 from tronn.util.bioinformatics import make_bed
 
 from tronn.visualization import visualize_clustered_h5_dataset_full
-#from tronn.visualization import visualize_aggregated_h5_datasets
-#from tronn.visualization import visualize_datasets_by_cluster_map
 
 
 class ClustersManager(object):
@@ -372,126 +370,54 @@ def visualize_clustered_features_R(
 
 def visualize_clustered_outputs_R(
         h5_file,
-        visualize_tasks,
-        visualize_signals,
+        visualize_keys,
         clusters_key=DataKeys.CLUSTERS,
         colnames_attr_key=AttrKeys.FILE_NAMES,
-        cluster_ids_attr_key=AttrKeys.CLUSTER_IDS,
-        output_key=DataKeys.PROBABILITIES):
-    """use R to visualize results
+        cluster_ids_attr_key=AttrKeys.CLUSTER_IDS):
+    """plot out the full matrix and then reduced to clusters
     """
-    # example vs key - clustered (ordered clusters)
-    # keys: probs, labels for various index sets
-    # visualize_clustered_h5_dataset_full
-    for data_key in visualize_tasks.keys():
-        indices = visualize_tasks[data_key][0]
-        logging.debug("R viz on {}: {}".format(data_key, indices))
-        
-        # data key
+    for key in visualize_keys:
+        indices = visualize_keys[key][0]
+
         visualize_clustered_h5_dataset_full(
             h5_file,
-            data_key,
+            key,
             clusters_key,
             cluster_ids_attr_key,
             colnames_attr_key,
             indices=indices)
 
-        # and model output
         visualize_clustered_h5_dataset_full(
             h5_file,
-            output_key,
-            clusters_key,
-            cluster_ids_attr_key,
-            colnames_attr_key,
-            indices=indices)
-
-        # show data key aggregated by cluster
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            data_key,
-            clusters_key,
-            cluster_ids_attr_key,
-            colnames_attr_key,
-            indices=indices,
-            viz_type="cluster_map")
-        
-        # show model output aggregated by cluster
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            output_key,
+            key,
             clusters_key,
             cluster_ids_attr_key,
             colnames_attr_key,
             indices=indices,
             viz_type="cluster_map")
 
-        # and combined outputs
-        # actually returns a plot PER cluster
-        # only use this in classification
-        if False:
-            visualize_clustered_h5_dataset_full(
-                h5_file,
-                ",".join([data_key,output_key]),
-                clusters_key,
-                cluster_ids_attr_key,
-                colnames_attr_key,
-                indices=indices,
-                viz_type="multi_key")
-
-    # same for signals
-    for data_key in visualize_signals:
-        indices = visualize_signals[data_key][0]
-        partner_key = visualize_signals[data_key][1]["label_key"]
-
-        # data key
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            data_key,
-            clusters_key,
-            cluster_ids_attr_key,
-            colnames_attr_key,
-            indices=indices)
-        
-        # data key
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            output_key,
-            clusters_key,
-            cluster_ids_attr_key,
-            colnames_attr_key,
-            indices=indices)
-
-        # show data key aggregated by cluster
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            data_key,
-            clusters_key,
-            cluster_ids_attr_key,
-            colnames_attr_key,
-            indices=indices,
-            viz_type="cluster_map")
-        
-        # show model output aggregated by cluster
-        visualize_clustered_h5_dataset_full(
-            h5_file,
-            output_key,
-            clusters_key,
-            cluster_ids_attr_key,
-            colnames_attr_key,
-            indices=indices,
-            viz_type="cluster_map")
-
-        # and show combined keys, PER cluster
-        # only show for regression
-        if False:
-            visualize_aggregated_h5_datasets(
-                h5_file,
-                clusters_key,
-                [data_key, output_key, partner_key],
-                indices)
-
-    quit()
-    
     return None
 
 
+def visualize_multikey_outputs_R(
+        h5_file,
+        visualize_keys,
+        clusters_key=DataKeys.CLUSTERS,
+        colnames_attr_key=AttrKeys.FILE_NAMES,
+        cluster_ids_attr_key=AttrKeys.CLUSTER_IDS):
+    """plot out multi key outputs
+    """
+    # NOTE that key is a comma separated list
+    for key in visualize_keys:
+        indices = visualize_keys[key][0]
+        
+        visualize_clustered_h5_dataset_full(
+            h5_file,
+            key,
+            clusters_key,
+            cluster_ids_attr_key,
+            colnames_attr_key,
+            indices=indices,
+            viz_type="multi_key")
+
+    return None

@@ -331,6 +331,7 @@ class DeltaMotifImportanceMapper(MotifScanner):
         outputs, _ = pad_inputs(outputs, params)
 
         # rebatch to mut size
+        # TODO rebatch multiple mutants
         outputs, _ = rebatch(outputs, {"name": "rebatch_dfim", "batch_size": features_shape[1]})
 
         outputs, params = super(DeltaMotifImportanceMapper, self).preprocess(outputs, params)
@@ -342,8 +343,6 @@ class DeltaMotifImportanceMapper(MotifScanner):
         """make sure you only keep the hits and reduce sum?
         """
         # utilizing existing pwm hits, mask the scores
-        outputs = dict(inputs)
-        
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
             inputs[DataKeys.ORIG_SEQ_PWM_HITS])
@@ -352,13 +351,17 @@ class DeltaMotifImportanceMapper(MotifScanner):
         features_shape = features.get_shape().as_list()
         features = tf.reshape(features, [1, -1] + features_shape[1:])
 
-        # and then rebatch?
-        
+        # TODO unpad based on multiple mutant rebatch
+        # and then unpad
+        outputs = {}
+        for key in inputs.keys():
+            outputs[key] = tf.gather(inputs[key], [0])
+            
         # get sum across positions. keep both positive and negative scores
         features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
         outputs[DataKeys.FEATURES] = features
         print outputs[DataKeys.FEATURES]
-        
+
         # two tailed, drop or increase
         # the permutation test would be:
         # per mut motif, per task, per motif
@@ -470,14 +473,15 @@ def filter_for_significant_pwms(inputs, params):
     assert params.get("manifold") is not None # {cluster, task, M}
 
     # features
-    features = inputs[DataKeys.ORIG_SEQ_PWM_HITS]
-    features = tf.reduce_sum(features, axis=2)
-    features = tf.expand_dims(features, axis=1) # {N, 1, task, M}
+    features = inputs[DataKeys.ORIG_SEQ_PWM_HITS] # {N, 1, pos, M}
+    features = tf.reduce_sum(features, axis=2) # {N, 1, M}
+    features = tf.expand_dims(features, axis=1) # {N, 1, 1, M}
     outputs = dict(inputs)
 
     # pwm masks
     with h5py.File(params["manifold"], "r") as hf:
-        pwm_masks = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST][:]
+        pwm_masks = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST][:] # {cluster, M}
+    pwm_masks = (pwm_masks > 0).astype(int) # make sure bool
     pwm_masks = np.expand_dims(pwm_masks, axis=1) # {cluster, 1, M}
     pwm_masks = np.expand_dims(pwm_masks, axis=0) # {1, cluster, 1, M}
     pwm_totals = np.sum(pwm_masks, axis=3) # {1, cluster, 1}
@@ -501,10 +505,10 @@ def filter_for_significant_pwms(inputs, params):
     # check condition
     outputs["condition_mask"] = tf.reduce_any(
         tf.greater(passed_thresholds, 0), axis=1)
-
+        
     params.update({"name": "sig_pwm_filter"})
     outputs, params = filter_and_rebatch(outputs, params)
-    
+        
     return outputs, params
 
 

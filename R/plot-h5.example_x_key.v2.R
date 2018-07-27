@@ -52,7 +52,11 @@ if (three_dims) {
     for (i in 1:num_slices) {
         slice_data <- data_sample[,i,]
         colnames(slice_data) <- data_colnames
-        #print(dim(slice_data))
+
+        if (length(data_indices) > 0) {
+            slice_data <- slice_data[,data_indices]
+        }
+        print(dim(slice_data))
 
         # normalize
         if (row_normalize) {
@@ -72,6 +76,11 @@ if (three_dims) {
     
 } else {
     colnames(data_sample) <- data_colnames
+
+    if (length(data_indices) > 0) {
+        data_sample <- data_sample[,data_indices]
+    }
+    print(dim(data_sample))
     
     heatmap_file <- paste(
         sub(".h5", "", h5_file),

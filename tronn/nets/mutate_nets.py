@@ -99,7 +99,7 @@ class Mutagenizer(object):
         positions = tf.expand_dims(positions, axis=0) # {1, 1, 1000, 1}
         
         # use pooling to get a spread
-        positions = tf.nn.max_pool(positions, [1,1,5,4], [1,1,1,1], padding="SAME") # {1, 1, 1000, 1}
+        positions = tf.nn.max_pool(positions, [1,1,5,1], [1,1,1,1], padding="SAME") # {1, 1, 1000, 1}
         positions = tf.squeeze(positions) # {1000}
         num_positions = positions.get_shape().as_list()[0]
 

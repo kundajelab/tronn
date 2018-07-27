@@ -58,31 +58,24 @@ for (cluster_idx in 1:length(cluster_ids)) {
         cluster_data <- get_cluster_data(data, clusters, cluster_id)
         
         # set up indices
-        if (length(indices) > 0) {
-            cluster_data <- cluster_data[,indices]
-            indices_string <- paste(
-                "_indices_",
-                indices[1]-1,
-                "-",
-                indices[length(indices)]-1, sep="")
-        } else {
-            indices_string <- ""
+        if (length(data_indices) > 0) {
+            cluster_data <- cluster_data[,data_indices]
         }
 
         # normalize if needed
         cluster_data <- normalize_rows(cluster_data)
 
         # aggregate
-        data <- colMeans(data)
+        cluster_data <- colMeans(cluster_data)
         
         # append
         if (key_idx == 1) {
-            all_data <- data
-            key_string <- paste(key, indices_string, sep="")
+            all_data <- cluster_data
+            key_string <- paste(key, indices_string, sep="_")
             data_names <- c(key)
         } else {
-            all_data <- rbind(all_data, data)
-            key_tmp <- paste(key, indices_string, sep="")
+            all_data <- rbind(all_data, cluster_data)
+            key_tmp <- paste(key, indices_string, sep="_")
             key_string <- paste(key_string, key_tmp, sep="-")
             data_names <- c(data_names, key)
         }
@@ -96,6 +89,7 @@ for (cluster_idx in 1:length(cluster_ids)) {
         sub(".h5", "", h5_file),
         key_string,
         cluster_key,
+        cluster_id,
         "pdf", sep=".")
     print(heatmap_file)
     make_agg_heatmap(all_data, heatmap_file, FALSE)

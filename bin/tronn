@@ -496,11 +496,19 @@ def _add_visualization_options(parser):
     """set up visualization after interpretation options
     """
     parser.add_argument(
-        "--visualize_tasks", nargs="+", default=[],
-        help="label files")
+        "--visualize_R", nargs="+", default=[],
+        help="visualize with R scripts")
     parser.add_argument(
-        "--visualize_signals", nargs="+", default=[],
-        help="signal files with corresponding label sets")
+        "--visualize_multikey_R", nargs="+", default=[],
+        help="visualize with R scripts")
+
+    
+    #parser.add_argument(
+    #    "--visualize_tasks", nargs="+", default=[],
+    #    help="label files")
+    #parser.add_argument(
+    #    "--visualize_signals", nargs="+", default=[],
+    #    help="signal files with corresponding label sets")
     
     return
 
@@ -509,18 +517,23 @@ def _setup_visualization_options(args):
     """given parsed args, adjust visualization inputs as needed
     matches _add_visualization_options
     """
+    if args.visualize_R is not None:
+        args.visualize_R = _parse_files(args.visualize_R)
+    if args.visualize_multikey_R is not None:
+        args.visualize_multikey_R = _parse_files(args.visualize_multikey_R)
+
     # visualize tasks
-    if args.visualize_tasks is not None:
-        args.visualize_tasks = _parse_files(args.visualize_tasks)
-        args.visualize_task_indices = get_absolute_label_indices(
-            args.model_info["label_keys"], 
-            args.visualize_tasks, 
-            args.model_info["train_files"][0],
-            list_of_lists=True)
+    #if args.visualize_tasks is not None:
+    #    args.visualize_tasks = _parse_files(args.visualize_tasks)
+    #    args.visualize_task_indices = get_absolute_label_indices(
+    #        args.model_info["label_keys"], 
+    #        args.visualize_tasks, 
+    #        args.model_info["train_files"][0],
+    #        list_of_lists=True)
 
     # visualize signals
-    if args.visualize_signals is not None:
-        args.visualize_signals = _parse_files(args.visualize_signals)
+    #if args.visualize_signals is not None:
+    #    args.visualize_signals = _parse_files(args.visualize_signals)
 
     return
 

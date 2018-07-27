@@ -6,22 +6,26 @@ import h5py
 import glob
 import logging
 
-from tronn.graphs import ModelManager
 from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
-from tronn.nets.nets import net_fns
+
+from tronn.graphs import ModelManager
 
 from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
+from tronn.interpretation.clustering import get_cluster_bed_files
 from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
-from tronn.interpretation.clustering import get_cluster_bed_files
+from tronn.interpretation.clustering import visualize_multikey_outputs_R
 
 from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
+from tronn.nets.nets import net_fns
+
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
+
 from tronn.util.utils import DataKeys
 
 
@@ -91,8 +95,6 @@ def run(args):
             results_h5_file,
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
-
-    visualize_R = True
         
     # run clustering analysis
     if args.cluster and not args.debug:
@@ -109,18 +111,23 @@ def run(args):
                 cluster_file_prefix)
             extract_significant_pwms(results_h5_file, args.pwm_list)
             
-        if visualize_R:
+        #if len(args.visualize_R) > 0:
+        if False:
+            print args.visualize_R
             #visualize_clustered_features_R(
             #    results_h5_file)
             visualize_clustered_outputs_R(
                 results_h5_file,
-                args.visualize_tasks,
-                args.visualize_signals,
-                output_key=DataKeys.LOGITS) # TODO figure out how to adjust this for classification/regression
+                args.visualize_R) # TODO figure out how to adjust this for classification/regression
             quit()
             visualize_significant_pwms_R(
                 results_h5_file)
 
+        if len(args.visualize_multikey_R) > 0:
+            visualize_multikey_outputs_R(
+                results_h5_file,
+                args.visualize_multikey_R)
+            
     quit()
     # run manifold analysis
     # NOTE relies on cluster analysis

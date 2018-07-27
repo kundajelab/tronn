@@ -142,18 +142,18 @@ def sequence_to_dmim(inputs, params):
     outputs = dict(inputs)
     
     # filtering
-    #outputs, params = filter_for_significant_pwms(inputs, params)
+    outputs, params = filter_for_significant_pwms(inputs, params)
     outputs, params = score_distances_on_manifold(outputs, params)
-    #outputs, params = filter_by_manifold_distances(outputs, params)
+    outputs, params = filter_by_manifold_distances(outputs, params)
 
     # mutate
-    #outputs, params = mutate_weighted_motif_sites(outputs, params)
+    outputs, params = mutate_weighted_motif_sites(outputs, params)
 
     # run dfim
-    #outputs, params = run_dfim(outputs, params)
+    outputs, params = run_dfim(outputs, params)
 
     # and then run dmim
-    #outputs, params = run_dmim(outputs, params)
+    outputs, params = run_dmim(outputs, params)
         
     return outputs, params
 

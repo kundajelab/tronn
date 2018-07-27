@@ -359,7 +359,7 @@ def visualize_h5_dataset_by_cluster(
 
 # so pass to R
 
-
+# TODO deprecate
 def visualize_clustering_results(
         h5_file,
         cluster_key,

@@ -30,12 +30,12 @@ use_raster <- as.logical(as.numeric(args[11]))
 # indices on data
 if (length(args) > 11) {
     data_indices <- as.numeric(
-        unlist(strsplit(args[12], ",", fixed=TRUE)))
+        unlist(strsplit(args[12], ",", fixed=TRUE))) + 1
     indices_string <- paste(
         "indices_",
-        indices[1]-1,
+        data_indices[1]-1,
         "-",
-        indices[length(indices)]-1, sep="")
+        data_indices[length(data_indices)]-1, sep="")
     key_string <- paste(
         data_key,
         indices_string,

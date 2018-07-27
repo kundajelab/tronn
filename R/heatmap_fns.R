@@ -1,13 +1,11 @@
 #!/usr/bin/env/ Rscript
 
-
 library(gplots)
 library(RColorBrewer)
 library(reshape2)
 
 # description: module for easy management of
 # heatmaps
-
 
 get_ordered_sample <- function(data) {
     plottable_nrow <- 1500 #2000 # important - useRaster in heatmap!
@@ -21,7 +19,7 @@ get_ordered_sample <- function(data) {
             data <- data[ordered_sample_indices,]
         }
     }
-    
+
     return(data)
 }
 
@@ -33,7 +31,8 @@ make_heatmap <- function(
     is_signal,
     large_view,
     use_raster) {
-    
+    # make heatmap
+
     # color palette
     my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
     my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
@@ -49,7 +48,7 @@ make_heatmap <- function(
     } else {
         my_breaks <- NULL
     }
-    
+
     # grid
     mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
     mylwid = c(2,6,2)
@@ -63,7 +62,7 @@ make_heatmap <- function(
         labCol <- ""
         width <- 10
     }
-    
+
     # plot
     pdf(out_pdf_file, height=18, width=width)
     heatmap.2(
@@ -73,12 +72,12 @@ make_heatmap <- function(
         dendrogram="none",
         trace="none",
         density.info="none",
-        
+
         labRow="",
         labCol=labCol,
         srtCol=45,
         cexCol=0.75,
-        
+
         keysize=0.1,
         key.title=NA,
         key.xlab=NA,
@@ -89,15 +88,15 @@ make_heatmap <- function(
             font.axis=2),
         key.xtickfun=function() {
             breaks <- pretty(parent.frame()$breaks)
-            #breaks <- breaks[c(1,length(breaks))]
+                                        #breaks <- breaks[c(1,length(breaks))]
             list(at = parent.frame()$scale01(breaks),
                  labels = breaks)},
-        
+
         margins=c(3,0),
         lmat=mylmat,
         lwid=mylwid,
         lhei=mylhei,
-        
+
         col=my_palette,
         breaks=my_breaks,
         useRaster=use_raster)
@@ -111,9 +110,9 @@ make_agg_heatmap <- function(
     data,
     out_pdf_file,
     cluster_columns) {
-    
+
     # color palette
-    #my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
+                                        #my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
     my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
 
     # grid
@@ -137,7 +136,7 @@ make_agg_heatmap <- function(
         cexCol=1.25,
         cexRow=1.25,
         srtCol=45,
-        
+
         keysize=0.1,
         key.title=NA,
         key.xlab=NA,
@@ -148,10 +147,10 @@ make_agg_heatmap <- function(
             font.axis=2),
         key.xtickfun=function() {
             breaks <- pretty(parent.frame()$breaks)
-            #breaks <- breaks[c(1,length(breaks))]
+                                        #breaks <- breaks[c(1,length(breaks))]
             list(at = parent.frame()$scale01(breaks),
                  labels = breaks)},
-        
+
         margins=c(1,0),
         lmat=mylmat,
         lwid=mylwid,
@@ -161,3 +160,5 @@ make_agg_heatmap <- function(
     dev.off()
 
 }
+
+

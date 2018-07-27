@@ -209,14 +209,14 @@ def run(args):
     # aggregate results
     dmim_keys = ["dmim-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
     pwm_score_keys = ["pwm-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
-    if True:
-        aggregate_dmim_results(
-            results_h5_file,
-            "manifold_clusters",
-            args.inference_task_indices,
-            dmim_keys,
-            pwm_score_keys,
-            args.pwm_list)
+    #if True:
+        #aggregate_dmim_results(
+        #    results_h5_file,
+        #    "manifold_clusters",
+        #    args.inference_task_indices,
+        #    dmim_keys,
+        #    pwm_score_keys,
+        ##    args.pwm_list)
 
     visualize = True
     visualize_task_indices = [args.inference_task_indices] + args.visualize_task_indices
