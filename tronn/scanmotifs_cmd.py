@@ -92,7 +92,7 @@ def run(args):
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
 
-    visualize_R = False
+    visualize_R = True
         
     # run clustering analysis
     if args.cluster and not args.debug:
@@ -110,17 +110,18 @@ def run(args):
             extract_significant_pwms(results_h5_file, args.pwm_list)
             
         if visualize_R:
-            visualize_clustered_features_R(
-                results_h5_file,
-                DataKeys.CLUSTERS)
+            #visualize_clustered_features_R(
+            #    results_h5_file)
             visualize_clustered_outputs_R(
                 results_h5_file,
-                DataKeys.CLUSTERS,
                 args.visualize_tasks,
-                args.visualize_signals)
+                args.visualize_signals,
+                output_key=DataKeys.LOGITS) # TODO figure out how to adjust this for classification/regression
+            quit()
             visualize_significant_pwms_R(
                 results_h5_file)
-            
+
+    quit()
     # run manifold analysis
     # NOTE relies on cluster analysis
     if args.summarize_manifold and not args.debug:
@@ -160,8 +161,7 @@ def run(args):
             
         if visualize_R:
             visualize_clustered_features_R(
-                results_h5_file,
-                DataKeys.CLUSTERS)
+                results_h5_file)
             visualize_clustered_outputs_R(
                 results_h5_file,
                 DataKeys.CLUSTERS,

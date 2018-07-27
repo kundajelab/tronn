@@ -8,6 +8,10 @@ import os
 
 import numpy as np
 
+from tronn.util.h5_utils import AttrKeys
+from tronn.util.utils import DataKeys
+
+
 # h/t Avanti Shrikumar - importance score visualization code
 def plot_a(ax, base, left_edge, height, color):
     a_polygon_coords = [
@@ -200,42 +204,57 @@ def visualize_debug(example_dict, prefix):
             
 
     return None
-    
 
-    
 
 def visualize_clustered_h5_dataset_full(
         h5_file,
+        data_key,
         cluster_key,
-        dataset_key,
-        cluster_col=0,
-        remove_final_cluster=True,
+        cluster_ids_attr_key,
+        colnames_attr_key,
+        three_dims=False,
+        cluster_columns=False,
         row_normalize=False,
         signal_normalize=False,
-        cluster_columns=False,
-        use_raster=True,
-        indices=[]):
+        large_view=False,
+        use_raster=False,
+        indices=[],
+        viz_type="full"):
     """wrapper on nice heatmap2 plotting 
     """
-    r_cmd = (
-        "plot-h5.example_x_key.R {0} {1} {2} {3} {4} {5} {6} {7} {8} {9}").format(
-            h5_file,
-            cluster_key,
-            cluster_col,
-            1 if remove_final_cluster else 0,
-            1 if row_normalize else 0,
-            1 if signal_normalize else 0,
-            1 if cluster_columns else 0,
-            1 if use_raster else 0,
-            dataset_key,
-            ",".join(str(val) for val in indices))
+
+    args = [
+        h5_file,
+        data_key,
+        cluster_key,
+        cluster_ids_attr_key,
+        colnames_attr_key,
+        1 if three_dims else 0,
+        1 if cluster_columns else 0,
+        1 if row_normalize else 0,
+        1 if signal_normalize else 0,
+        1 if large_view else 0,
+        1 if use_raster else 0,
+        ",".join(str(val) for val in indices)
+    ]
+
+    if viz_type == "full":
+        script = "plot-h5.example_x_key.v2.R"
+    elif viz_type == "cluster_map":
+        script = "plot-h5.cluster_x_key.v2.R"
+    elif viz_type == "multi_key":
+        script = "plot-h5.keys_x_task.v2.R"
+        
+    r_cmd = "{} {}".format(
+        script, " ".join(str(val) for val in args))
     print r_cmd
-    #os.system(r_cmd)
+    os.system(r_cmd)
     
     return None
 
 
-def visualize_aggregated_h5_datasets(
+
+def visualize_aggregated_h5_datasets_OLD(
         h5_file,
         cluster_key,
         dataset_keys,
@@ -265,7 +284,7 @@ def visualize_aggregated_h5_datasets(
     return None
 
 
-def visualize_datasets_by_cluster_map(
+def visualize_datasets_by_cluster_map_OLD(
         h5_file,
         cluster_key,
         dataset_key,
