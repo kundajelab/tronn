@@ -5,9 +5,12 @@ import h5py
 import glob
 import logging
 
-from tronn.graphs import ModelManager
+
 from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
+
+from tronn.graphs import ModelManager
+
 from tronn.nets.nets import net_fns
 
 from tronn.interpretation.clustering import visualize_clustered_features_R
@@ -21,7 +24,10 @@ from tronn.visualization import visualize_agg_pwm_results
 from tronn.visualization import visualize_agg_delta_logit_results
 from tronn.visualization import visualize_agg_dmim_adjacency_results
 
+from tronn.util.h5_utils import AttrKeys
 from tronn.util.h5_utils import add_pwm_names_to_h5
+from tronn.util.h5_utils import copy_h5_datasets
+
 from tronn.util.utils import DataKeys
 
 
@@ -137,35 +143,31 @@ def run(args):
             results_h5_file,
             [pwm.name for pwm in args.pwm_list],
             other_keys=[])
-        
-        # TODO move to h5 utils
-        # save out additional useful information
-        with h5py.File(results_h5_file, "a") as hf:
 
-            # save master pwm vector
-            with h5py.File(args.manifold_file, "r") as manifold:
-                #del hf["master_pwm_vector"]
-                hf.create_dataset("master_pwm_vector", data=manifold["master_pwm_vector"][:])
-                mut_indices = np.where(manifold["master_pwm_vector"][:] > 0)[0]
-                pwm_mut_names = [args.pwm_list[i].name for i in mut_indices]
-                
-            # attach to delta logits and mutated scores
-            hf["delta_logits"].attrs["pwm_mut_names"] = pwm_mut_names
-            for task_idx in args.inference_task_indices:
-                hf["dmim-scores.taskidx-{}".format(task_idx)].attrs["pwm_mut_names"] = pwm_mut_names
+        # use copy_h5_datasets
+        copy_h5_datasets(
+            args.manifold_file,
+            results_h5_file,
+            keys=[
+                DataKeys.MANIFOLD_PWM_SIG_CLUST,
+                DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL])
 
-
-    # TODO - all the below stuff is basically
-    # get bed files
-    # get sig pwms (which aggregates results)
-    # visualize R all
-    check_manifold = False
+        # TODO set up attr for delta logits and clusters
+        with h5py.File(args.manifold_file, "r") as hf:
+            with h5py.File(results_h5_file, "a") as out:
+                num_clusters = out[DataKeys.MANIFOLD_CLUST].shape[1]
+                out[DataKeys.MANIFOLD_CLUST].attrs[AttrKeys.CLUSTER_IDS] = range(num_clusters)
+            
+    # check manifold - was it consistent
+    check_manifold = True
     if check_manifold:
         manifold_file_prefix = "{0}/{1}.{2}".format(
             args.out_dir, args.prefix, DataKeys.MANIFOLD_ROOT)
+        
         get_cluster_bed_files(
             results_h5_file,
-            manifold_file_prefix)
+            manifold_file_prefix,
+            clusters_key=DataKeys.MANIFOLD_CLUST)
         extract_significant_pwms(
             results_h5_file,
             args.pwm_list,
@@ -175,21 +177,23 @@ def run(args):
             pwm_sig_clusters_key=DataKeys.MANIFOLD_PWM_SIG_CLUST,
             pwm_sig_clusters_all_key=DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL,
             pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
-
-    visualize_R = False
-    if visualize_R:
+            
+    if len(args.visualize_R) > 0:
         visualize_clustered_features_R(
-            results_h5_file,
-            DataKeys.CLUSTERS)
+            results_h5_file)
         visualize_clustered_outputs_R(
             results_h5_file,
-            DataKeys.CLUSTERS,
-            args.visualize_tasks,
-            args.visualize_signals)
+            args.visualize_R)
         visualize_significant_pwms_R(
-            results_h5_file)
+            results_h5_file,
+            pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
 
-    
+    if len(args.visualize_multikey_R) > 0:
+        visualize_multikey_outputs_R(
+            results_h5_file,
+            args.visualize_multikey_R)
+
+    quit()
         
     # TODO - here is dmim specific analyses
     # think about how to get significance on mutational shift.

@@ -87,7 +87,7 @@ def refine_sig_pwm_clusters(clusters):
 def extract_significant_pwms(
         h5_file,
         pwm_list,
-        data_key=DataKeys.FEATURES,
+        data_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
         clusters_key=DataKeys.CLUSTERS,
         pwm_names_attr_key=AttrKeys.PWM_NAMES,
         pwm_sig_global_key=DataKeys.PWM_SIG_GLOBAL,
@@ -111,7 +111,7 @@ def extract_significant_pwms(
     with h5py.File(h5_file, "r") as hf:
         data = hf[data_key][:] # {N, task, M}
         pwm_names = hf[data_key].attrs[pwm_names_attr_key]
-        
+
     # (1) get global sig (and aggregate results)
     # TODO when stable use multiprocessing Pool
     sig_pwms = select_task_pwms(data, pwm_list, hclust)
