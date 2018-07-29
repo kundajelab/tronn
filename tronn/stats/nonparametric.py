@@ -42,7 +42,51 @@ def select_features_by_permutation_test(
         results[:,i] = diffs
 
     # count how often the diff is 0 or less
+    # this is confidence interval - sort of SE of mean
     results = np.mean(results <= 0, axis=1) # {real_M}
     results = (results <= pval_thresh).astype(int)
         
     return results
+
+
+
+def run_delta_permutation_test(
+        array,
+        num_shuffles=1000,
+        pval_thresh=0.01,
+        twotailed=True):
+    """when given an array, randomly
+    flip the sign and recalculate the sum (across last axis)
+    consider significant if actual sum is above the 
+    pval_thresh
+    """
+    true_sums = np.sum(array, axis=0) # ex {mutM, task, M}
+    
+    results_shape = list(array.shape) # ex {N, mutM, task, M}
+    results_shape[0] = num_shuffles # ex {num_shuffles, mutM, task, M}
+    results = np.zeros(results_shape) # ex {num_shuffles, mutM, task, M}
+    
+    for i in xrange(num_shuffles):
+        if i % 100 == 0:
+            print i
+            
+        random_vals = np.random.random((array.shape)) # ex {N, mutM, task, M}
+        random_flips = -(random_vals < 0.5).astype(int) 
+
+        shuffle_results = np.multiply(random_flips, array)
+        shuffle_results = np.sum(shuffle_results, axis=0) # ex {mutM, task, M}
+
+        results[i] = shuffle_results
+        
+    # move axis back here
+    results = np.moveaxis(results, 0, -1) # ex {mutM, task, M, shuf}
+
+    # get the pval thresh percentile values
+    thresholds = np.percentile(results, 1-pval_thresh, axis=-1) # {mutM, task, M}
+    
+    # apply the threshold
+    positive_pass = np.greater(true_sums, thresholds)
+    negative_pass = np.less(true_sums, -thresholds)
+    passed_threshold = np.add(positive_pass, negative_pass)
+
+    return passed_threshold

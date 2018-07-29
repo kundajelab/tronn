@@ -15,6 +15,7 @@ def make_bed(seq_metadata, out_bed, key="active"):
         "awk -F ';' '{{ print $1 }}' | "
         "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
         "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
+        "sort -k1,1 -k2,2n | "
         "gzip -c > {2}").format(
             seq_metadata,
             key,

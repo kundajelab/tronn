@@ -226,7 +226,7 @@ def get_cluster_bed_files(
         cluster_metadata = metadata[cluster_mask]
         cluster_prefix = "{0}.cluster-{1}".format(file_prefix, cluster_id)
         metadata_file = "{}.metadata.txt".format(cluster_prefix)
-        metadata_bed = "{}.bed".format(cluster_prefix)
+        metadata_bed = "{}.bed.gz".format(cluster_prefix)
         np.savetxt(metadata_file, cluster_metadata, fmt="%s")
         make_bed(metadata_file, metadata_bed)
         

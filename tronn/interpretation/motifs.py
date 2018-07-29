@@ -176,7 +176,8 @@ def extract_significant_pwms(
     # and then save all of this out
     with h5py.File(h5_file, "a") as out:
         for key in outputs.keys():
-            #del out[key]
+            if out.get(key) is not None:
+                del out[key]
             out.create_dataset(key, data=outputs[key][0])
             out[key].attrs[AttrKeys.PWM_NAMES] = outputs[key][1]
     

@@ -362,6 +362,8 @@ class DeltaMotifImportanceMapper(MotifScanner):
         outputs[DataKeys.FEATURES] = features
         print outputs[DataKeys.FEATURES]
 
+        # TODO also save out to a separate aux tensor
+
         # two tailed, drop or increase
         # the permutation test would be:
         # per mut motif, per task, per motif

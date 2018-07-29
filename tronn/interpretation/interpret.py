@@ -22,15 +22,12 @@ from tronn.util.tf_utils import close_tensorflow_session
 from tronn.visualization import plot_weights
 from tronn.interpretation.regions import RegionImportanceTracker
 
-#from tronn.outlayer import ExampleGenerator
-#from tronn.outlayer import H5Handler
-#from tronn.outlayer import OutLayer
-
 from tronn.util.tf_ops import restore_variables_op
 
 from tronn.visualization import plot_weights
 
 
+# TODO deprecate - should this ever be used?
 @ops.RegisterGradient("GuidedRelu")
 def _GuidedReluGrad(op, grad):
     """Replaces ReLUs with guided ReLUs in a tensorflow graph. Use to 
@@ -136,7 +133,8 @@ def visualize_region(
     return None
 
 
-def interpret(
+# TODO deprecate
+def interpret_OLD(
         tronn_graph,
         model_checkpoint,
         batch_size,
@@ -270,8 +268,8 @@ def interpret(
 
     return None
 
-
-def interpret_v2(tronn_graph, h5_file, infer_params, num_evals=100000, reconstruct_regions=False):
+# TODO deprecate
+def interpret_v2_OLD(tronn_graph, h5_file, infer_params, num_evals=100000, reconstruct_regions=False):
     """run interpretation
     """
     with tf.Graph().as_default():

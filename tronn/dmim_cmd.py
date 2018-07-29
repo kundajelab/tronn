@@ -5,30 +5,34 @@ import h5py
 import glob
 import logging
 
+import numpy as np
 
 from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
 
 from tronn.graphs import ModelManager
 
-from tronn.nets.nets import net_fns
-
+from tronn.interpretation.clustering import get_cluster_bed_files
 from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
-from tronn.interpretation.clustering import get_cluster_bed_files
 
 from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
-from tronn.visualization import visualize_agg_pwm_results
-from tronn.visualization import visualize_agg_delta_logit_results
-from tronn.visualization import visualize_agg_dmim_adjacency_results
+from tronn.nets.nets import net_fns
+
+from tronn.stats.nonparametric import run_delta_permutation_test
 
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
 
 from tronn.util.utils import DataKeys
+
+# TODO clean this up
+from tronn.visualization import visualize_agg_pwm_results
+from tronn.visualization import visualize_agg_delta_logit_results
+from tronn.visualization import visualize_agg_dmim_adjacency_results
 
 
 # TODO move this out
@@ -159,7 +163,8 @@ def run(args):
                 out[DataKeys.MANIFOLD_CLUST].attrs[AttrKeys.CLUSTER_IDS] = range(num_clusters)
             
     # check manifold - was it consistent
-    check_manifold = True
+    # TODO make an arg
+    check_manifold = False
     if check_manifold:
         manifold_file_prefix = "{0}/{1}.{2}".format(
             args.out_dir, args.prefix, DataKeys.MANIFOLD_ROOT)
@@ -177,7 +182,8 @@ def run(args):
             pwm_sig_clusters_key=DataKeys.MANIFOLD_PWM_SIG_CLUST,
             pwm_sig_clusters_all_key=DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL,
             pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
-            
+
+    args.visualize_R = [] # TODO remove
     if len(args.visualize_R) > 0:
         visualize_clustered_features_R(
             results_h5_file)
@@ -193,35 +199,45 @@ def run(args):
             results_h5_file,
             args.visualize_multikey_R)
 
-    quit()
+    # TODO some issue in dmim
         
-    # TODO - here is dmim specific analyses
-    # think about how to get significance on mutational shift.
-    # {N, mut_motif, task, M}
-    # {N, mut_motif, task} delta logits (save as logits?)
+    # outputs:
+    # mut effects - {N, mutM, task, M} - this is a delta
+    # delta logits - {N, mutM, logit}, partner with logits {N, logit}
+    with h5py.File(results_h5_file, "r") as hf:
+        true_logits = np.expand_dims(hf[DataKeys.LOGITS][:], axis=1)
+        mut_logits = hf[DataKeys.MUT_MOTIF_LOGITS][:]
+        delta_logits = np.subtract(mut_logits, true_logits)
+        sig_delta_logits = run_delta_permutation_test(delta_logits)
+
+    import ipdb
+    ipdb.set_trace()
+    
+    
+    # calculate OUTPUT effects {N, mutM, logit} vs {N, logit}
+    # for each mutation, for each logit, permutation test
+    # make a sig mask.
+    # plot significant ones - box/whisker, and aggregate plot?
+    # for each mutation, {N, logit} vs {N, logit}, subtract to get {N, delta_logit}
+    # use randint to randomly flip the sign, and subtract each from each
+    # and save out summed result
+    
+    
+    # calculate SYNERGY effects {N, mutM, task, M}
+    # for each mutation, for each task, calculate permutation test
+    # and plot significant ones
+
+
+
+    
+
     # apply a test on the difference between two distributions (logit vs mutate logit)
     # ie shuffle the labels (keeping the pairs) and then recalc difference
     # and also plot out scatter plots for the sig mutants (sig from mask vector)
 
     # also apply this to delta motif scores?
     # here the shuffle labels is basically flip the sign
-    # normalization here is still an issue. think about how to solve this
-    # normalization - fit the noise?
-    # normalize such that the drop in prediction is tied to how much importance was lost
-    # in mut motif?
     
-    # aggregate results
-    dmim_keys = ["dmim-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
-    pwm_score_keys = ["pwm-scores.taskidx-{}".format(i) for i in args.inference_task_indices]
-    #if True:
-        #aggregate_dmim_results(
-        #    results_h5_file,
-        #    "manifold_clusters",
-        #    args.inference_task_indices,
-        #    dmim_keys,
-        #    pwm_score_keys,
-        ##    args.pwm_list)
-
     visualize = True
     visualize_task_indices = [args.inference_task_indices] + args.visualize_task_indices
     if visualize:
