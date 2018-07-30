@@ -38,7 +38,7 @@ class Mutagenizer(object):
         num_mutations = params.get("num_mutations", 1)
         
         # get the max positions ON THE ACTIVE REGION
-        # NOTE that these are indices for the short region
+        # NOTE that these are indices for the short region!!
         vals, indices = tf.nn.top_k(features, k=num_mutations, sorted=True)
         
         # and then only keep the ones that filter through pwm vector
@@ -47,7 +47,7 @@ class Mutagenizer(object):
         params["num_aux_examples"] = np.sum(pwm_mask > 0)
         sig_pwm_indices = np.where(pwm_mask > 0)[0]
         vals = tf.gather(vals, sig_pwm_indices, axis=1)
-        indices = tf.cast(tf.gather(vals, sig_pwm_indices, axis=1), tf.int64)
+        indices = tf.gather(indices, sig_pwm_indices, axis=1)
         
         # save
         outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, mut_M, k}
@@ -106,19 +106,20 @@ class Mutagenizer(object):
         # set up true indices, after splitting out positions to shuffle
         positions_to_shuffle = tf.where(tf.greater(positions, 0)) # {?}
         positions_to_keep = tf.where(tf.equal(positions, 0)) # {?}
-        true_indices = tf.concat([positions_to_shuffle, positions_to_keep], axis=0) # {1000}
+        true_indices = tf.concat([positions_to_shuffle, positions_to_keep], axis=0) # {1000, 1}
         true_indices = tf.squeeze(true_indices, axis=1)
         true_indices.set_shape(positions.get_shape())
 
         # shuffle, and save out to shuffled positions
         positions_to_shuffle = tf.random_shuffle(positions_to_shuffle) # {?}
-        shuffled_indices = tf.concat([positions_to_shuffle, positions_to_keep], axis=0) # {1000}
+        shuffled_indices = tf.concat([positions_to_shuffle, positions_to_keep], axis=0) # {1000, 1}
         shuffled_indices = tf.squeeze(shuffled_indices, axis=1)
         shuffled_indices.set_shape(positions.get_shape())
         
         # now rank the TRUE indices to get the indices ordered back to normal
         vals, indices = tf.nn.top_k(true_indices, k=num_positions, sorted=True) # indices
-
+        indices = tf.reverse(indices, [-1])
+        
         # gather on the SHUFFLED to get back indices shuffled only where requested
         final_indices = tf.gather(shuffled_indices, indices)
 
@@ -130,6 +131,8 @@ class Mutagenizer(object):
         example = tf.expand_dims(example, axis=0)
         
         # adjust positions
+        no_positions = tf.zeros(positions.get_shape())
+        positions = tf.cond(motif_present, lambda: positions, lambda: no_positions)
         positions = tf.expand_dims(positions, axis=1)
         positions = tf.expand_dims(positions, axis=0) # {1, 1000, 1}
         
@@ -147,6 +150,7 @@ class Mutagenizer(object):
         orig_seq_len = features.get_shape().as_list()[2]
         LEFT_CLIP = 420
         position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
+        inputs["test.position_indices"] = position_indices
         motif_present = inputs[DataKeys.MUT_MOTIF_PRESENT] # {N, mut_M}
         
         # choose what kind of mutagenesis
@@ -184,7 +188,7 @@ class Mutagenizer(object):
         inputs, params = self.preprocess(inputs, params)
         outputs, params = self.mutagenize_multiple_motifs(inputs, params)
         outputs, params = self.postprocess(outputs, params)
-        
+
         return outputs, params
     
 

@@ -494,7 +494,8 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         assert inputs.get(DataKeys.FEATURES) is not None
         assert inputs.get(DataKeys.MUT_MOTIF_ORIG_SEQ) is not None
 
-        print inputs[DataKeys.MUT_MOTIF_ORIG_SEQ]
+        inputs["test.mut_seq"] = inputs[DataKeys.MUT_MOTIF_ORIG_SEQ]
+        inputs["test.orig_seq"] = inputs[DataKeys.FEATURES]
         
         # don't generate shuffles, assume that the shuffles are still attached from before
         # attach the mutations (interleaved)

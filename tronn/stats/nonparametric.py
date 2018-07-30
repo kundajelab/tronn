@@ -3,6 +3,8 @@
 
 import numpy as np
 
+from multiprocessing import Pool
+
 
 def select_features_by_permutation_test(
         array,
@@ -49,6 +51,23 @@ def select_features_by_permutation_test(
     return results
 
 
+def random_flip_and_sum(array):
+    """random flip the sign and return sum
+    set up this way for multiprocessing pool
+    """
+    array = input_list
+    
+    random_vals = np.random.random((array.shape)) # ex {N, mutM, task, M}
+    flips = -(random_vals < 0.5).astype(int) 
+    noflips = (random_vals >=0.5).astype(int)
+    random_flips = np.add(flips, noflips)
+    
+    shuffle_results = np.multiply(random_flips, array)
+    shuffle_results = np.sum(shuffle_results, axis=0) # ex {mutM, task, M}
+
+    return shuffle_results
+
+
 
 def run_delta_permutation_test(
         array,
@@ -71,8 +90,10 @@ def run_delta_permutation_test(
             print i
             
         random_vals = np.random.random((array.shape)) # ex {N, mutM, task, M}
-        random_flips = -(random_vals < 0.5).astype(int) 
-
+        flips = -(random_vals < 0.5).astype(int) 
+        noflips = (random_vals >=0.5).astype(int)
+        random_flips = np.add(flips, noflips)
+        
         shuffle_results = np.multiply(random_flips, array)
         shuffle_results = np.sum(shuffle_results, axis=0) # ex {mutM, task, M}
 
@@ -82,7 +103,10 @@ def run_delta_permutation_test(
     results = np.moveaxis(results, 0, -1) # ex {mutM, task, M, shuf}
 
     # get the pval thresh percentile values
-    thresholds = np.percentile(results, 1-pval_thresh, axis=-1) # {mutM, task, M}
+    thresholds = np.percentile(results, 100.*(1-pval_thresh), axis=-1) # {mutM, task, M}
+
+    import ipdb
+    ipdb.set_trace()
     
     # apply the threshold
     positive_pass = np.greater(true_sums, thresholds)

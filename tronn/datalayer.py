@@ -17,6 +17,7 @@ from tronn.preprocess.fasta import bed_to_sequence_iterator
 from tronn.preprocess.fasta import sequence_string_to_onehot_converter
 from tronn.preprocess.fasta import batch_string_to_onehot
 
+# TODO split this out somehow? so that datalayer code is completely separable
 from tronn.nets.filter_nets import filter_by_labels
 from tronn.nets.filter_nets import filter_singleton_labels
 

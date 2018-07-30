@@ -19,6 +19,9 @@ from tronn.interpretation.clustering import visualize_clustered_outputs_R
 from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
+from tronn.interpretation.variants import get_significant_delta_logit_responses
+from tronn.interpretation.variants import get_interacting_motifs
+
 from tronn.nets.nets import net_fns
 
 from tronn.stats.nonparametric import run_delta_permutation_test
@@ -204,12 +207,14 @@ def run(args):
     # outputs:
     # mut effects - {N, mutM, task, M} - this is a delta
     # delta logits - {N, mutM, logit}, partner with logits {N, logit}
-    with h5py.File(results_h5_file, "r") as hf:
-        true_logits = np.expand_dims(hf[DataKeys.LOGITS][:], axis=1)
-        mut_logits = hf[DataKeys.MUT_MOTIF_LOGITS][:]
-        delta_logits = np.subtract(mut_logits, true_logits)
-        sig_delta_logits = run_delta_permutation_test(delta_logits)
+    sig_mut_responders = get_interacting_motifs(
+        results_h5_file, DataKeys.MANIFOLD_CLUST)
 
+    
+    sig_delta_logits = get_significant_delta_logit_responses(
+        results_h5_file, DataKeys.MANIFOLD_CLUST)
+
+        
     import ipdb
     ipdb.set_trace()
     
