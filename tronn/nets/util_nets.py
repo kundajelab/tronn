@@ -79,7 +79,7 @@ def attach_auxiliary_tensors(inputs, params):
     num_aux_examples = aux_features.get_shape().as_list()[1]
     aux_axis = 1
     outputs = dict(inputs)
-    batch_size = np.ceil(old_batch_size / (num_aux_examples+1)) * (num_aux_examples+1)
+    batch_size = np.ceil(old_batch_size / float(num_aux_examples+1)) * (num_aux_examples+1)
     
     # params
     filter_name = params["name"]

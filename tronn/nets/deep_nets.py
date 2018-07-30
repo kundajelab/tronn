@@ -12,13 +12,17 @@ from tronn.nets.tfslim import resnet_v2
 
 from tronn.util.tf_ops import maxnorm
 
+from tronn.util.utils import DataKeys
+
 
 def empty_net(inputs, params):
     """Placeholder model to pass through features without modifying them
     """
-    # for all outputs, return 0 as logit - average prediction
-    inputs["logits"] = tf.zeros(inputs["labels"].get_shape())
-    
+    if inputs.get(DataKeys.LOGITS) is None:
+        # for all outputs, return 0 as logit - average prediction
+        inputs[DataKeys.LOGITS] = tf.zeros(inputs[DataKeys.LABELS].get_shape())
+    # otherwise, keep logits
+        
     return inputs, params
 
 

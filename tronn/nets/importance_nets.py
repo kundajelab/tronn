@@ -134,6 +134,10 @@ class FeatureImportanceExtractor(object):
             params["importance_task_indices"],
             axis=1)
 
+        # save out logits 
+        inputs[DataKeys.LOGITS] = model_outputs[DataKeys.LOGITS]
+
+        # debug
         logging.debug("FEATURES: {}".format(inputs[DataKeys.FEATURES].get_shape()))
         
         return inputs, params
@@ -499,7 +503,6 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         params.update({"name": "attach_mut_motif_seq"})
         inputs, params = attach_auxiliary_tensors(inputs, params)
         logging.debug("After attaching aux: {}".format(inputs[DataKeys.FEATURES].get_shape()))
-
         
         return inputs, params
 

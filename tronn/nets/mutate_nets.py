@@ -52,7 +52,7 @@ class Mutagenizer(object):
         # save
         outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, mut_M, k}
         outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, mut_M, k}
-        outputs["motif_present"] = tf.reduce_any(tf.greater(vals, 0), axis=2) # {N, mut_M}
+        outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.reduce_any(tf.greater(vals, 0), axis=2) # {N, mut_M}
 
         if self.mutation_type == "point":
             # set up gradients
@@ -147,7 +147,7 @@ class Mutagenizer(object):
         orig_seq_len = features.get_shape().as_list()[2]
         LEFT_CLIP = 420
         position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
-        motif_present = inputs["motif_present"] # {N, mut_M, k}
+        motif_present = inputs[DataKeys.MUT_MOTIF_PRESENT] # {N, mut_M}
         
         # choose what kind of mutagenesis
         if self.mutation_type == "point":

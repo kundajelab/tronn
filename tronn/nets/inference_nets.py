@@ -8,16 +8,9 @@ from tronn.nets.filter_nets import filter_singleton_labels
 from tronn.nets.importance_nets import get_task_importances
 from tronn.nets.importance_nets import run_dfim
 
-# TESTING
 from tronn.nets.manifold_nets import score_distances_on_manifold
 from tronn.nets.manifold_nets import filter_by_manifold_distances
 
-# TODO move these out?
-#from tronn.nets.motif_nets import pwm_position_squeeze
-#from tronn.nets.motif_nets import pwm_relu
-#from tronn.nets.motif_nets import multitask_global_pwm_scores
-
-# TESTING
 from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import get_motif_densities
 from tronn.nets.motif_nets import filter_for_significant_pwms
@@ -28,7 +21,6 @@ from tronn.nets.mutate_nets import motif_dfim
 from tronn.nets.mutate_nets import delta_logits
 from tronn.nets.mutate_nets import blank_motif_sites
 
-# TESTING
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites
 
 # TODO move this out
