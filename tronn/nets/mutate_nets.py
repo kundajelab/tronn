@@ -92,7 +92,7 @@ class Mutagenizer(object):
         example = tensors[0] # {1, 1000, 4}
         motif_present = tensors[1]
         positions = tensors[2] # {1, 1000, 1}
-        k = 5
+        k = 10
         
         # adjustments
         example = tf.squeeze(example, axis=0) # {1000, 4}

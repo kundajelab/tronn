@@ -55,11 +55,9 @@ def get_interacting_motifs(
         mut_data = hf[mut_effects_key][:]
         sig_pwms = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL][:]
         
+        
     # subset down for time sake
-    mut_data_tmp = mut_data[:,:,:,np.where(sig_pwms > 0)[0]]
-    
-    import ipdb
-    ipdb.set_trace()
+    mut_data = mut_data[:,:,:,np.where(sig_pwms > 0)[0]]
     
     # try global first
     sig_responses = run_delta_permutation_test(mut_data)

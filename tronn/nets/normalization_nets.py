@@ -94,6 +94,8 @@ def normalize_to_weights(inputs, params):
                        weight_sums.get_shape()))
         normalized_features.append(task_features)
 
+    
+
     # and concat back into a block
     features = tf.concat(normalized_features, axis=1)
 
@@ -159,10 +161,14 @@ def normalize_to_absolute_one(inputs, params):
          features_shape[3]])
 
     # divide
-    features = tf.divide(
-        features,
-        tf.reduce_sum(tf.abs(features), axis=[1,2], keepdims=True)) # {N*task, 1000, 4}
+    importance_sums = tf.reduce_sum(tf.abs(features), axis=[1,2], keepdims=True)
+    features = tf.divide(features, importance_sums)
 
+    # guard against inf
+    features = tf.multiply(
+        features,
+        tf.cast(tf.greater(importance_sums, 1e-7), tf.float32))
+    
     # reshape
     features = tf.reshape(features, features_shape)
 

@@ -493,9 +493,6 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         """
         assert inputs.get(DataKeys.FEATURES) is not None
         assert inputs.get(DataKeys.MUT_MOTIF_ORIG_SEQ) is not None
-
-        inputs["test.mut_seq"] = inputs[DataKeys.MUT_MOTIF_ORIG_SEQ]
-        inputs["test.orig_seq"] = inputs[DataKeys.FEATURES]
         
         # don't generate shuffles, assume that the shuffles are still attached from before
         # attach the mutations (interleaved)
@@ -526,12 +523,23 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         logging.debug("MUT_MOTIF_LOGITS: {}".format(outputs[DataKeys.MUT_MOTIF_LOGITS].get_shape()))
 
         # apply thresholds to normal and mut sequences
+        passed_thresholds = tf.cast(
+            tf.greater(
+                outputs[DataKeys.FEATURES],
+                outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]),
+            tf.float32)
         outputs[DataKeys.FEATURES] = tf.multiply(
-            outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS],
+            passed_thresholds,
             outputs[DataKeys.FEATURES])
         
+        passed_thresholds = tf.cast(
+            tf.greater(
+                outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
+                tf.expand_dims(
+                    outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS], axis=1)),
+            tf.float32)
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.multiply(
-            tf.expand_dims(outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS], axis=1),
+            passed_thresholds,
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ])
         
         # denoise - this is same as above?
@@ -544,11 +552,17 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         outputs, params = filter_singles_twotailed(outputs, params)
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = transform_auxiliary_tensor( # except this is not
             filter_singles_twotailed, DataKeys.MUT_MOTIF_WEIGHTED_SEQ, outputs, params, aux_axis=2)
-        
+
+        #outputs["test.before_norm"] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ]
         # normalize - think about how to do this
         # this is for sure different from above
         outputs, params = normalize_to_absolute_one(outputs, params)
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = transform_auxiliary_tensor(
+            normalize_to_absolute_one, DataKeys.MUT_MOTIF_WEIGHTED_SEQ, outputs, params, aux_axis=2)
 
+        #outputs["test.after_norm"] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ]
+        #outputs["test.features"] = outputs[DataKeys.FEATURES]
+        
         # for both raw and weighted, both shuf and not
         # (1) clip edges
         # if all is correct, only need to chop the features and the mut motif seqs
@@ -565,6 +579,21 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         outputs[DataKeys.DFIM_SCORES] = tf.subtract(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
             tf.expand_dims(outputs[DataKeys.FEATURES], axis=1))
+
+        # zero out the ones that shouldn't have responded
+        # they already give low responses, but easiest to just zero them out
+        # TODO figure out how to fix this
+        if True:
+            mut_motif_present = tf.cast(outputs[DataKeys.MUT_MOTIF_PRESENT], tf.float32)
+            mut_motif_shape = mut_motif_present.get_shape().as_list()
+            feature_shape = outputs[DataKeys.DFIM_SCORES].get_shape().as_list()
+            mut_motif_present = tf.reshape(
+                mut_motif_present,
+                mut_motif_shape + [1 for i in xrange(len(feature_shape) - len(mut_motif_shape))])
+            outputs[DataKeys.DFIM_SCORES] = tf.multiply(
+                mut_motif_present,
+                outputs[DataKeys.DFIM_SCORES])
+        
         outputs[DataKeys.FEATURES] = outputs[DataKeys.DFIM_SCORES]
         
         # calculate the delta logits later, in post analysis
