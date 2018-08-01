@@ -85,14 +85,17 @@ class DataKeys(object):
     # cluster keys
     CLUSTERS = "clusters"
     
-    # dmim transformation keys
+    # dfim transformation keys
     MUT_MOTIF_ORIG_SEQ = "{}.motif_mut".format(ORIG_SEQ)
     MUT_MOTIF_WEIGHTED_SEQ = "{}.motif_mut".format(WEIGHTED_SEQ)
     MUT_MOTIF_POS = "{}.motif_mut.mask".format(ORIG_SEQ)
     MUT_MOTIF_PRESENT = "{}.motif_mut_present".format(ORIG_SEQ)
     MUT_MOTIF_LOGITS = "{}.motif_mut".format(LOGITS)
     DFIM_SCORES = "{}.delta".format(MUT_MOTIF_WEIGHTED_SEQ)
-    DMIM_SCORES_ROOT = "dmim-scores"
+
+    # dmim agg results keys
+    DMIM_ROOT = "{}.{}".format(DFIM_SCORES, PWM_SCORES_ROOT)
+    DMIM_SIG_RESULTS = "{}.agg.sig".format(DMIM_ROOT)
 
     # split
     TASK_IDX_ROOT = "taskidx"

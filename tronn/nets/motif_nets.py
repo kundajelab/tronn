@@ -346,11 +346,45 @@ class DeltaMotifImportanceMapper(MotifScanner):
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
             inputs[DataKeys.ORIG_SEQ_PWM_HITS])
+        
+        # and make them fractional contributions
+        # ie, delta / weighted_motif
+        if True:
+            weighted_scores = inputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
+            features = tf.divide(features, weighted_scores)
 
+            features = tf.where(
+                tf.is_finite(features),
+                features,
+                tf.zeros_like(features))
+            
+            #features = tf.where(
+            #    tf.is_nan(features),
+            #    tf.zeros_like(features),
+            #    features)
+
+            #features = tf.where(
+            #    tf.is_inf(features),
+            #    tf.zeros_like(features),
+            #    features)
+
+            
+            #sig_vals = tf.cast(tf.not_equal(weighted_scores, 0), tf.float32)
+            #inputs["sig_vals"] = sig_vals
+            #sig_pos_vals = tf.cast(tf.greater(weighted_scores, 1e-7), tf.float32)
+            #sig_neg_vals = tf.cast(tf.less(weighted_scores, -1e-7), tf.float32)
+            #sig_vals = tf.add(sig_pos_vals, sig_neg_vals)
+            #features = tf.multiply(features, sig_vals)
+            #inputs["test.features"] = features
+            
         # adjust shape
         features_shape = features.get_shape().as_list()
         features = tf.reshape(features, [1, -1] + features_shape[1:])
-
+        inputs["test.check"] = features
+        
+        features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
+        inputs[DataKeys.FEATURES] = features
+        
         # TODO unpad based on multiple mutant rebatch
         # and then unpad
         outputs = {}
@@ -358,9 +392,6 @@ class DeltaMotifImportanceMapper(MotifScanner):
             outputs[key] = tf.gather(inputs[key], [0])
             
         # get sum across positions. keep both positive and negative scores
-        features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
-        outputs[DataKeys.FEATURES] = features
-        print outputs[DataKeys.FEATURES]
 
         # TODO also save out to a separate aux tensor
 

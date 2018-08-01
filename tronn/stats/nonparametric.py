@@ -79,9 +79,7 @@ def run_delta_permutation_test(
     consider significant if actual sum is above the 
     pval_thresh
     """
-
     #num_hits = np.sum(array!=0, axis=0) # {mutM, task, M} # question is, how do i know
-    
     true_sums = np.sum(array, axis=0) # ex {mutM, task, M}
     
     results_shape = list(array.shape) # ex {N, mutM, task, M}
@@ -107,11 +105,6 @@ def run_delta_permutation_test(
 
     # get the pval thresh percentile values
     thresholds = np.percentile(results, 100.*(1-pval_thresh), axis=-1) # {mutM, task, M}
-
-    import ipdb
-    ipdb.set_trace()
-
-    # way too many things are responders... how to adjust?
     
     # apply the threshold
     positive_pass = np.greater(true_sums, thresholds)

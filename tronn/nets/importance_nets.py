@@ -521,26 +521,27 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         logging.debug("MUT_MOTIF_WEIGHTED_SEQ: {}".format(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ].get_shape()))
         logging.debug("MUT_MOTIF_LOGITS: {}".format(outputs[DataKeys.MUT_MOTIF_LOGITS].get_shape()))
-
-        # apply thresholds to normal and mut sequences
-        passed_thresholds = tf.cast(
-            tf.greater(
-                outputs[DataKeys.FEATURES],
-                outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]),
-            tf.float32)
-        outputs[DataKeys.FEATURES] = tf.multiply(
-            passed_thresholds,
-            outputs[DataKeys.FEATURES])
         
-        passed_thresholds = tf.cast(
-            tf.greater(
-                outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-                tf.expand_dims(
-                    outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS], axis=1)),
-            tf.float32)
+        # apply thresholds to normal and mut sequences
+        # NOTE: for now, only deal with positives
+        thresholds = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]
+        
+        features = outputs[DataKeys.FEATURES]
+        pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
+        pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
+        passed_thresholds = tf.add(pass_positive_thresh, pass_negative_thresh)
+        outputs[DataKeys.FEATURES] = tf.multiply(
+            passed_thresholds, outputs[DataKeys.FEATURES])
+        outputs[DataKeys.FEATURES] = tf.nn.relu(outputs[DataKeys.FEATURES])
+
+        thresholds = tf.expand_dims(thresholds, axis=1)
+        features = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ]
+        pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
+        pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
+        passed_thresholds = tf.add(pass_positive_thresh, pass_negative_thresh)
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.multiply(
-            passed_thresholds,
-            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ])
+            passed_thresholds, outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ])
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.nn.relu(outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ])
         
         # denoise - this is same as above?
         # can it be made the same by attach.detach?
@@ -552,23 +553,24 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         outputs, params = filter_singles_twotailed(outputs, params)
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = transform_auxiliary_tensor( # except this is not
             filter_singles_twotailed, DataKeys.MUT_MOTIF_WEIGHTED_SEQ, outputs, params, aux_axis=2)
-
-        #outputs["test.before_norm"] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ]
-        # normalize - think about how to do this
-        # this is for sure different from above
+        
+        # normalization - NOTE: this function normalizes while blanking the motif site
+        outputs[DataKeys.FEATURES] = tf.expand_dims(outputs[DataKeys.FEATURES], axis=1)
         outputs, params = normalize_to_absolute_one(outputs, params)
-        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = transform_auxiliary_tensor(
-            normalize_to_absolute_one, DataKeys.MUT_MOTIF_WEIGHTED_SEQ, outputs, params, aux_axis=2)
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = normalize_to_absolute_one(
+            {DataKeys.FEATURES: outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
+             DataKeys.MUT_MOTIF_POS: outputs[DataKeys.MUT_MOTIF_POS]},
+            params)[0][DataKeys.FEATURES]
 
-        #outputs["test.after_norm"] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ]
         #outputs["test.features"] = outputs[DataKeys.FEATURES]
+        #outputs["test.mut"] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ]
         
         # for both raw and weighted, both shuf and not
         # (1) clip edges
         # if all is correct, only need to chop the features and the mut motif seqs
         # this is same as above
         # and clip the position mask also (for blanking at the motif level)
-        outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
         outputs[DataKeys.MUT_MOTIF_ORIG_SEQ] = outputs[DataKeys.MUT_MOTIF_ORIG_SEQ][
             :,:,:,LEFT_CLIP:RIGHT_CLIP,:]
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ][
@@ -578,7 +580,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # calculate deltas scores (DFIM). leave as aux (to attach later)
         outputs[DataKeys.DFIM_SCORES] = tf.subtract(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-            tf.expand_dims(outputs[DataKeys.FEATURES], axis=1))
+            outputs[DataKeys.FEATURES])
 
         # zero out the ones that shouldn't have responded
         # they already give low responses, but easiest to just zero them out

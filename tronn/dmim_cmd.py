@@ -208,7 +208,9 @@ def run(args):
     # mut effects - {N, mutM, task, M} - this is a delta
     # delta logits - {N, mutM, logit}, partner with logits {N, logit}
     sig_mut_responders = get_interacting_motifs(
-        results_h5_file, DataKeys.MANIFOLD_CLUST)
+        results_h5_file,
+        DataKeys.MANIFOLD_CLUST,
+        DataKeys.DMIM_SIG_RESULTS)
 
     
     sig_delta_logits = get_significant_delta_logit_responses(

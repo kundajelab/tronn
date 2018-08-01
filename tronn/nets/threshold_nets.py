@@ -127,10 +127,6 @@ def get_threshold_mask_twotailed(inputs, params):
 
 
 
-
-
-
-
 def threshold_poisson(signal, pval):
     """Given importance scores, calculates poisson pval
     and thresholds at that pval

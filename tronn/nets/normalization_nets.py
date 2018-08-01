@@ -150,33 +150,23 @@ def normalize_to_absolute_one(inputs, params):
     
     # get features and pass rest through
     features = inputs[DataKeys.FEATURES] # {N, task, ...}
+    mask = tf.cast(tf.equal(inputs[DataKeys.MUT_MOTIF_POS], 0), tf.float32)
+    blanked_features = tf.multiply(mask, features) # {N, mutM, task, pos, 4}
     outputs = dict(inputs)
 
-    # adjust shape
-    features_shape = features.get_shape().as_list()
-    features = tf.reshape(
-        features,
-        [features_shape[0]*features_shape[1],
-         features_shape[2],
-         features_shape[3]])
-
     # divide
-    importance_sums = tf.reduce_sum(tf.abs(features), axis=[1,2], keepdims=True)
+    importance_sums = tf.reduce_sum(tf.abs(blanked_features), axis=[-2, -1], keepdims=True)
     features = tf.divide(features, importance_sums)
 
     # guard against inf
     features = tf.multiply(
         features,
         tf.cast(tf.greater(importance_sums, 1e-7), tf.float32))
-    
-    # reshape
-    features = tf.reshape(features, features_shape)
 
     # save out
     outputs[DataKeys.FEATURES] = features
     
     return outputs, params
-
 
 
 def normalize_to_delta_logits(inputs, params):
