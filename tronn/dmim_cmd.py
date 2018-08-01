@@ -21,6 +21,7 @@ from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.interpretation.variants import get_significant_delta_logit_responses
 from tronn.interpretation.variants import get_interacting_motifs
+from tronn.interpretation.variants import visualize_interacting_motifs_R
 
 from tronn.nets.nets import net_fns
 
@@ -202,59 +203,26 @@ def run(args):
             results_h5_file,
             args.visualize_multikey_R)
 
-    # TODO some issue in dmim
-        
-    # outputs:
-    # mut effects - {N, mutM, task, M} - this is a delta
-    # delta logits - {N, mutM, logit}, partner with logits {N, logit}
-    sig_mut_responders = get_interacting_motifs(
+
+    # DMIM ANALYSES
+    if False:
+        get_interacting_motifs(
+            results_h5_file,
+            DataKeys.MANIFOLD_CLUST,
+            DataKeys.DMIM_SIG_RESULTS)
+
+    # and plot these out with R
+    visualize_interacting_motifs_R(
         results_h5_file,
-        DataKeys.MANIFOLD_CLUST,
         DataKeys.DMIM_SIG_RESULTS)
 
-    
-    sig_delta_logits = get_significant_delta_logit_responses(
-        results_h5_file, DataKeys.MANIFOLD_CLUST)
+    quit()
 
+    # TODO still do this to show that all motifs have sig effects
+    get_significant_delta_logit_responses(
+        results_h5_file, DataKeys.MANIFOLD_CLUST)
         
     import ipdb
     ipdb.set_trace()
-    
-    
-    # calculate OUTPUT effects {N, mutM, logit} vs {N, logit}
-    # for each mutation, for each logit, permutation test
-    # make a sig mask.
-    # plot significant ones - box/whisker, and aggregate plot?
-    # for each mutation, {N, logit} vs {N, logit}, subtract to get {N, delta_logit}
-    # use randint to randomly flip the sign, and subtract each from each
-    # and save out summed result
-    
-    
-    # calculate SYNERGY effects {N, mutM, task, M}
-    # for each mutation, for each task, calculate permutation test
-    # and plot significant ones
-
-
-
-    
-
-    # apply a test on the difference between two distributions (logit vs mutate logit)
-    # ie shuffle the labels (keeping the pairs) and then recalc difference
-    # and also plot out scatter plots for the sig mutants (sig from mask vector)
-
-    # also apply this to delta motif scores?
-    # here the shuffle labels is basically flip the sign
-    
-    visualize = True
-    visualize_task_indices = [args.inference_task_indices] + args.visualize_task_indices
-    if visualize:
-        _visualize_mut_results(
-            results_h5_file,
-            "pwm-scores.agg",
-            "delta_logits.agg",
-            "dmim-scores.agg.mut_only",
-            visualize_task_indices,
-            "pwm_names",
-            "mut_pwm_names")
     
     return None

@@ -67,13 +67,26 @@ def get_interacting_motifs(
         np.isfinite(agg_mut_data_sig),
         agg_mut_data_sig,
         np.zeros_like(agg_mut_data_sig))
-    
-    import ipdb
-    ipdb.set_trace()
 
-    # TODO save this to the h5 file
+    # save this to the h5 file
     with h5py.File(h5_file, "a") as out:
-        out.create_dataset(out_key, data=sig_responses)
+        out.create_dataset(out_key, data=agg_mut_data_sig)
         out[out_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
 
+    return None
+
+
+
+def visualize_interacting_motifs_R(
+        h5_file,
+        visualize_key,
+        pwm_names_attr_key=AttrKeys.PWM_NAMES):
+    """visualize results
+    """
+    
+    r_cmd = "plot-h5.dmim_sig_agg.R {} {} {}".format(
+        h5_file, visualize_key, pwm_names_attr_key)
+    print r_cmd
+    quit()
+    
     return None
