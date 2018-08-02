@@ -33,7 +33,11 @@ order_by_clusters <- function(data, clusters) {
     # check if soft (2d) or hard (1D)
     if (length(dim(clusters)) > 1) {
         # soft
-        data <- apply(data, 2, sort, decreasing=FALSE)
+        if (length(dim(data)) == 3) {
+            data <- data[do.call(order,as.data.frame(clusters)),,]
+        } else {
+            data <- data[do.call(order,as.data.frame(clusters)),]
+        }
         
     } else {
         # hard

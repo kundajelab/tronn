@@ -72,7 +72,7 @@ def random_flip_and_sum(array):
 def run_delta_permutation_test(
         array,
         num_shuffles=1000,
-        pval_thresh=0.01,
+        pval_thresh=0.0001, # 0.01
         twotailed=True):
     """when given an array, randomly
     flip the sign and recalculate the sum (across last axis)

@@ -51,6 +51,8 @@ def get_interacting_motifs(
         mut_data = hf[mut_effects_key][:]
         sig_pwms = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL][:]
         pwm_names = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL].attrs[AttrKeys.PWM_NAMES]
+        # TODO - also logits? {N, mutM, task, 1}
+        # if have this can also plot out logits according to muts
         
     # subset down for time sake
     mut_data = mut_data[:,:,:,np.where(sig_pwms > 0)[0]]
@@ -58,10 +60,15 @@ def get_interacting_motifs(
     # try global first
     sig_responses = run_delta_permutation_test(mut_data) # {mutM, task, M}
 
+    # get mean for places where this score exists
+    if False:
+        agg_mut_data = np.divide(
+            np.sum(mut_data, axis=0),
+            np.sum(mut_data != 0, axis=0))
+    else:
+        agg_mut_data = np.sum(mut_data, axis=0)
+    
     # multiply by the scores
-    agg_mut_data = np.divide(
-        np.sum(mut_data, axis=0),
-        np.sum(mut_data != 0, axis=0))
     agg_mut_data_sig = np.multiply(sig_responses, agg_mut_data)
     agg_mut_data_sig = np.where(
         np.isfinite(agg_mut_data_sig),
@@ -69,7 +76,9 @@ def get_interacting_motifs(
         np.zeros_like(agg_mut_data_sig))
 
     # save this to the h5 file
+    # TODO save out the sig mask also
     with h5py.File(h5_file, "a") as out:
+        #del out[out_key]
         out.create_dataset(out_key, data=agg_mut_data_sig)
         out[out_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
 

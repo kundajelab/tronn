@@ -190,7 +190,9 @@ def run(args):
     args.visualize_R = [] # TODO remove
     if len(args.visualize_R) > 0:
         visualize_clustered_features_R(
-            results_h5_file)
+            results_h5_file,
+            data_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
+            clusters_key=DataKeys.MANIFOLD_CLUST)
         visualize_clustered_outputs_R(
             results_h5_file,
             args.visualize_R)
@@ -203,9 +205,8 @@ def run(args):
             results_h5_file,
             args.visualize_multikey_R)
 
-
     # DMIM ANALYSES
-    if False:
+    if True:
         get_interacting_motifs(
             results_h5_file,
             DataKeys.MANIFOLD_CLUST,

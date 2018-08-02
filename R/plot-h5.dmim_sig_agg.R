@@ -32,15 +32,25 @@ dimnames(data) <- data_dimnames
 data_melted <- melt(data)
 
 # normalize
-
-
+max_cutoff <- quantile(abs(data_melted$value), 0.99)
+data_melted$value <- data_melted$value / max_cutoff
+data_melted$value[data_melted$value < -1.0] <- -1.0
 
 # plot with ggplot
 p <- ggplot(data_melted, aes(x=task, y=response_motif)) +
-    facet_grid(response_motif ~ mutated_motif, scales="free", space="free_x") +
-        geom_tile(aes(fill=value))
+    facet_grid(response_motif ~ mutated_motif, scales="free", space="free_x", switch="y") +
+    geom_tile(aes(fill=value)) +
+    scale_fill_gradient(high="white", low="steelblue") +
+    theme_bw() +
+    theme(
+        axis.text.y=element_blank(),
+        strip.text.y=element_text(angle=180),
+        strip.background=element_blank(),
+        panel.spacing.x=unit(1, "lines"),
+        panel.spacing.y=unit(0.1, "lines"))
 
-ggsave("test.pdf")
+        
+ggsave("test.pdf", width=15, height=4)
    
 
 

@@ -33,9 +33,6 @@ cluster_ids <- attr(clusters, cluster_id_attr_key)
 data <- aperm(data) # {N, ...}
 clusters <- aperm(clusters)
 
-#print(dim(data))
-#print(dim(clusters))
-
 # order
 data <- order_by_clusters(data, clusters)
 
