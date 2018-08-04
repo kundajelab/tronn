@@ -32,15 +32,34 @@ dimnames(data) <- data_dimnames
 data_melted <- melt(data)
 
 # normalize
-max_cutoff <- quantile(abs(data_melted$value), 0.99)
-data_melted$value <- data_melted$value / max_cutoff
-data_melted$value[data_melted$value < -1.0] <- -1.0
+if (FALSE) {
+    max_cutoff <- quantile(abs(data_melted$value), 0.99)
+    data <- data / max_cutoff
+    data[data < -1.0] <- -1.0
+    data[data > 1.0] <- 1.0
+    data_melted <- melt(data)
+}
 
+# ordering by mutational similarity
+if (TRUE) {
+    flattened <- data
+    dim(flattened) <- c(dim(data)[1], dim(data)[2]*dim(data)[3])
+    hc <- hclust(dist(flattened), method="ward.D2")
+    ordering <- hc$order
+    data_melted$mutated_motif <- factor(
+        data_melted$mutated_motif,
+        levels=pwm_names[ordering])
+    data_melted$response_motif <- factor(
+        data_melted$response_motif,
+        levels=pwm_names[ordering])
+}
+    
 # plot with ggplot
 p <- ggplot(data_melted, aes(x=task, y=response_motif)) +
     facet_grid(response_motif ~ mutated_motif, scales="free", space="free_x", switch="y") +
     geom_tile(aes(fill=value)) +
-    scale_fill_gradient(high="white", low="steelblue") +
+    #scale_fill_gradient(high="white", low="steelblue") +
+    scale_fill_gradient(high="steelblue", low="white") +
     theme_bw() +
     theme(
         axis.text.y=element_blank(),

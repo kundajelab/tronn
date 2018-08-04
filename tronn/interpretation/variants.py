@@ -62,12 +62,13 @@ def get_interacting_motifs(
 
     # get mean for places where this score exists
     if False:
-        agg_mut_data = np.divide(
-            np.sum(mut_data, axis=0),
-            np.sum(mut_data != 0, axis=0))
-    else:
+        #agg_mut_data = np.divide(
+        #    np.sum(mut_data, axis=0),
+        #    np.sum(mut_data != 0, axis=0))
         agg_mut_data = np.sum(mut_data, axis=0)
-    
+    else:
+        agg_mut_data = np.sum(mut_data != 0, axis=0)
+        
     # multiply by the scores
     agg_mut_data_sig = np.multiply(sig_responses, agg_mut_data)
     agg_mut_data_sig = np.where(
