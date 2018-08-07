@@ -51,12 +51,23 @@ def get_interacting_motifs(
         mut_data = hf[mut_effects_key][:]
         sig_pwms = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL][:]
         pwm_names = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL].attrs[AttrKeys.PWM_NAMES]
+        dx = hf["dx"][:] # {N, mutM}
         # TODO - also logits? {N, mutM, task, 1}
         # if have this can also plot out logits according to muts
         
     # subset down for time sake
     mut_data = mut_data[:,:,:,np.where(sig_pwms > 0)[0]]
-    
+
+    # and get dy/dx
+    dx = np.reshape(dx, dx.shape + [1 for i in xrange(len(mut_data.shape)-len(dx.shape))])
+    mut_data = np.divide(mut_data, dx)
+                    
+    mut_data = np.where(
+        np.isfinite(mut_data),
+        mut_data,
+        np.zeros_like(mut_data))
+
+                    
     # try global first
     sig_responses = run_delta_permutation_test(mut_data) # {mutM, task, M}
 

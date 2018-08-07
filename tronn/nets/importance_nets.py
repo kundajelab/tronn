@@ -553,17 +553,29 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         outputs, params = filter_singles_twotailed(outputs, params)
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = transform_auxiliary_tensor( # except this is not
             filter_singles_twotailed, DataKeys.MUT_MOTIF_WEIGHTED_SEQ, outputs, params, aux_axis=2)
+
+        # normalize
+        params.update({"weight_key": DataKeys.LOGITS})        
+        outputs, params = normalize_to_importance_logits(outputs, params)
+        params.update({"weight_key": DataKeys.MUT_MOTIF_LOGITS})
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = normalize_to_importance_logits(
+            {DataKeys.FEATURES: outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
+             DataKeys.MUT_MOTIF_LOGITS: outputs[DataKeys.MUT_MOTIF_LOGITS]},
+            params)[0][DataKeys.FEATURES]
         
+        # TODO
+        # (1) features divide by total, multiply by logits - this gives you features normalized to logits
+        # (2) 1ST OUTPUT - dy/dx, where you get dy by subtracting orig from mut response, and
+        #     dx is subtracting orig from mut at the mut position(s). this is used for permute test
+        # (3) 2ND OUTPUT - just the subtraction, which is used for ranking/vis
         # normalization - NOTE: this function normalizes while blanking the motif site
         outputs[DataKeys.FEATURES] = tf.expand_dims(outputs[DataKeys.FEATURES], axis=1)
-        outputs, params = normalize_to_absolute_one(outputs, params)
-        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = normalize_to_absolute_one(
-            {DataKeys.FEATURES: outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-             DataKeys.MUT_MOTIF_POS: outputs[DataKeys.MUT_MOTIF_POS]},
-            params)[0][DataKeys.FEATURES]
-
-        #outputs["test.features"] = outputs[DataKeys.FEATURES]
-        #outputs["test.mut"] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ]
+        if False:
+            outputs, params = normalize_to_absolute_one(outputs, params)
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = normalize_to_absolute_one(
+                {DataKeys.FEATURES: outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
+                 DataKeys.MUT_MOTIF_POS: outputs[DataKeys.MUT_MOTIF_POS]},
+                params)[0][DataKeys.FEATURES]
         
         # for both raw and weighted, both shuf and not
         # (1) clip edges
@@ -578,10 +590,24 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         outputs[DataKeys.MUT_MOTIF_POS] = outputs[DataKeys.MUT_MOTIF_POS][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
 
         # calculate deltas scores (DFIM). leave as aux (to attach later)
+        # this is dy
         outputs[DataKeys.DFIM_SCORES] = tf.subtract(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
             outputs[DataKeys.FEATURES])
 
+        # dx
+        #  {N, mut, pos, 4}
+        orig_x = tf.reduce_sum(tf.multiply(
+            outputs[DataKeys.FEATURES],
+            outputs[DataKeys.MUT_MOTIF_POS]), axis=[2,3,4])
+
+        mut_x = tf.reduce_sum(tf.multiply(
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
+            outputs[DataKeys.MUT_MOTIF_POS]), axis=[2,3,4])
+
+        # can keep this separate for now
+        outputs["dx"] = tf.subtract(mut_x, orig_x)
+        
         # zero out the ones that shouldn't have responded
         # they already give low responses, but easiest to just zero them out
         # TODO figure out how to fix this
