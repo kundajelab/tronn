@@ -15,9 +15,9 @@ from tensorflow.python.estimator import model_fn as model_fn_lib
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import random_seed
 
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import resources
-from tensorflow.python.ops import variables
+#from tensorflow.python.ops import control_flow_ops
+#from tensorflow.python.ops import resources
+#from tensorflow.python.ops import variables
 
 from tensorflow.python.training import monitored_session
 from tensorflow.python.training import training
@@ -39,6 +39,7 @@ from tronn.interpretation.dreaming import dream_one_sequence
 from tronn.visualization import visualize_debug
 
 
+# TODO move into learn.estimator
 class TronnEstimator(tf.estimator.Estimator):
     """Extended estimator to have extra capabilities"""
 
@@ -132,8 +133,10 @@ class TronnEstimator(tf.estimator.Estimator):
                         num_bp_per_iter=10)
                     yield preds_evaluated
 
-                    
-    def build_restore_graph_function(self, checkpoints, is_ensemble=False, skip=[], scope_change=None):
+
+
+    # TODO deprecate this?
+    def build_restore_graph_function_old(self, checkpoints, is_ensemble=False, skip=[], scope_change=None):
         """build the restore function
         """
         if is_ensemble: # this is really determined by there being more than 1 ckpt - can use as test?
@@ -162,7 +165,7 @@ class TronnEstimator(tf.estimator.Estimator):
         return restore_function
 
     
-    def restore_graph(self, sess, checkpoints, is_ensemble=False, skip=[], scope_change=None):
+    def restore_graph_old(self, sess, checkpoints, is_ensemble=False, skip=[], scope_change=None):
         """restore saved model from checkpoint into sess
         """
         restore_function = self.build_restore_graph_function(
@@ -172,7 +175,7 @@ class TronnEstimator(tf.estimator.Estimator):
         return None
 
 
-    
+# keep but rename this module...
 class ModelManager(object):
     """Manages the full model pipeline (utilizes Estimator framework)"""
     

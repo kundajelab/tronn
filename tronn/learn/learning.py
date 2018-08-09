@@ -94,14 +94,11 @@ class EarlyStoppingHook(tf.train.SessionRunHook):
             if self.wait >= self.patience:
                 run_context.request_stop()
 
-# TODO - 2 different run styles - one where you run continuously and stop
-# when the loss stops dropping (the eval criteria)
-# the other is when you train for an epoch and then continue
-# TODO add this as a function into the model manager
-# makes use of early stopping hook so keep
 
-
-def train_and_evaluate_with_early_stopping(
+# TODO DON'T DELETE YET
+# port into manager to run continuous evaluation
+# and stop when loss stops dropping
+def train_and_evaluate_with_early_stopping_OLD(
         model_manager,
         train_input_fn,
         eval_input_fn,

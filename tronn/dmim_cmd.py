@@ -19,6 +19,8 @@ from tronn.interpretation.clustering import visualize_clustered_outputs_R
 from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
+from tronn.interpretation.networks import get_motif_hierarchies
+
 from tronn.interpretation.variants import get_significant_delta_logit_responses
 from tronn.interpretation.variants import get_interacting_motifs
 from tronn.interpretation.variants import visualize_interacting_motifs_R
@@ -206,7 +208,7 @@ def run(args):
             args.visualize_multikey_R)
 
     # DMIM ANALYSES
-    if True:
+    if False:
         get_interacting_motifs(
             results_h5_file,
             DataKeys.MANIFOLD_CLUST,
@@ -217,6 +219,12 @@ def run(args):
         results_h5_file,
         DataKeys.DMIM_SIG_RESULTS)
 
+    # and then build hierarcy
+    get_motif_hierarchies(
+        results_h5_file,
+        DataKeys.DMIM_SIG_RESULTS,
+        DataKeys.FEATURES)
+    
     quit()
 
     # TODO still do this to show that all motifs have sig effects

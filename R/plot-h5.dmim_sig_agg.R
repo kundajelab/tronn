@@ -25,14 +25,14 @@ pwm_names <- gsub(".UNK.*", "", pwm_names)
 
 # set the dimnames in prep for melt
 data_dimnames <- list(
-    "mutated_motif"=pwm_names,
+    "response_motif"=pwm_names,
     "task"=1:dim(data)[2],
-    "response_motif"=pwm_names)
+    "mutated_motif"=pwm_names)
 dimnames(data) <- data_dimnames
 data_melted <- melt(data)
 
 # normalize
-if (FALSE) {
+if (TRUE) {
     max_cutoff <- quantile(abs(data_melted$value), 0.99)
     data <- data / max_cutoff
     data[data < -1.0] <- -1.0
@@ -59,7 +59,8 @@ p <- ggplot(data_melted, aes(x=task, y=response_motif)) +
     facet_grid(response_motif ~ mutated_motif, scales="free", space="free_x", switch="y") +
     geom_tile(aes(fill=value)) +
     #scale_fill_gradient(high="white", low="steelblue") +
-    scale_fill_gradient(high="steelblue", low="white") +
+                                        #scale_fill_gradient(high="steelblue", low="white") +
+    scale_fill_gradient2(low="steelblue", mid="white", high="red", midpoint=0) +
     theme_bw() +
     theme(
         axis.text.y=element_blank(),

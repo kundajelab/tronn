@@ -57,22 +57,22 @@ def get_interacting_motifs(
         
     # subset down for time sake
     mut_data = mut_data[:,:,:,np.where(sig_pwms > 0)[0]]
-
+    
     # and get dy/dx
-    dx = np.reshape(dx, dx.shape + [1 for i in xrange(len(mut_data.shape)-len(dx.shape))])
-    mut_data = np.divide(mut_data, dx)
-                    
-    mut_data = np.where(
-        np.isfinite(mut_data),
-        mut_data,
-        np.zeros_like(mut_data))
-
+    dx = np.reshape(dx, list(dx.shape) + [1 for i in xrange(len(mut_data.shape)-len(dx.shape))])
+    dydx = np.divide(mut_data, dx)
+    dydx = np.where(
+        np.isfinite(dydx),
+        dydx,
+        np.zeros_like(dydx))
                     
     # try global first
-    sig_responses = run_delta_permutation_test(mut_data) # {mutM, task, M}
+    sig_responses = run_delta_permutation_test(dydx) # {mutM, task, M}
+    #sig_responses = np.ones(dydx.shape[1:])
 
+    
     # get mean for places where this score exists
-    if False:
+    if True:
         #agg_mut_data = np.divide(
         #    np.sum(mut_data, axis=0),
         #    np.sum(mut_data != 0, axis=0))
@@ -90,7 +90,7 @@ def get_interacting_motifs(
     # save this to the h5 file
     # TODO save out the sig mask also
     with h5py.File(h5_file, "a") as out:
-        #del out[out_key]
+        del out[out_key]
         out.create_dataset(out_key, data=agg_mut_data_sig)
         out[out_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
 
@@ -108,6 +108,5 @@ def visualize_interacting_motifs_R(
     r_cmd = "plot-h5.dmim_sig_agg.R {} {} {}".format(
         h5_file, visualize_key, pwm_names_attr_key)
     print r_cmd
-    quit()
     
     return None

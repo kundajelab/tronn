@@ -1,85 +1,196 @@
 # description: code for doing network analyses
 
-import os
+import h5py
 
 import numpy as np
-import pandas as pd
 import networkx as nx
 
-def separate_and_save_components(G, mat_file, prefix, name_to_id, grammar_file):
-    """given a graph, separate by non-connected components
-    """
-    # read in score file and get sums (to be weights)
-    score_df = pd.read_table(mat_file, index_col=0)
-    signal = np.sum(score_df, axis=0)
-    signal = signal / signal.max()
-    id_to_signal_dict = dict(zip(signal.index, signal.as_matrix()))
-    
-    # TODO: format as a grammar file
-    # for master file, first save out nodes
-    with open(grammar_file, "w") as out:
-        out.write("")
-    
-    # save out connected components as separate groups (just connectivity, look at cliques later)
-    components = []
-    component_idx = 0
-    for component in nx.connected_components(G):
-        print component
-        components.append(list(component))
+from tronn.util.h5_utils import AttrKeys
+from tronn.util.utils import DataKeys
 
-        with open(grammar_file, "a") as out:
-            out.write(">grammar.{}\n".format(component_idx))
-            out.write("#params type:cc;directed=no\n".format(component_idx))
-            
-            # first save nodes
-            out.write("#nodes\n".format(component_idx))
-            for name in list(component):
-                node_id = name_to_id[name]
-                out.write("{0}\t{1}\n".format(node_id, id_to_signal_dict[node_id]))
 
-            # then save edges - assume all connected (not true, but for simplicity for now)
-            out.write("#edges\n".format(component_idx))
-            for name1 in list(component):
-                for name2 in list(component):
-                    if name1 == name2:
-                        continue
-                    node_id1 = name_to_id[name1]
-                    node_id2 = name_to_id[name2]
-                    out.write("{0}\t{1}\t{2}\n".format(
-                        node_id1, node_id2, 1.0))
+# to consider - what other needs will there be for this network?
+class Node(object):
+    """node class"""
 
-        # also save out with hgnc names (for plotting purposes)
-        component_file = "{}.component_{}.pwms.txt".format(prefix, component_idx)
-        with open(component_file, "w") as out:
-            for name in list(component):
-                out.write("{}\t{}\n".format(name_to_id[name], name))
-                
-        # quick back check - look for regions that have these motifs
-        # full check comes when re-scanning with correct thresholds
-        # TODO this selection needs to be a little smarter - may be picking up too much noise
-        pwm_names = [name_to_id[name] for name in list(component)]
-        pwm_hits_pwm_subset_df = (score_df[pwm_names] > 0).astype(int)
+    def __init__(self, name=1, attrs={}):
+        self.name = name
+        self.attrs = attrs
 
-        threshold = 0.75 * pwm_hits_pwm_subset_df.shape[1]
-        pwm_hits_positive_df = pwm_hits_pwm_subset_df.loc[pwm_hits_pwm_subset_df.sum(axis=1) > threshold]
+    def get_tuple(self):
+        return (self.name, self.attrs)
         
-        #pwm_hits_positive_df = pwm_hits_pwm_subset_df.loc[~(pwm_hits_pwm_subset_df==0).any(axis=1)]
-        component_regions_file = "{}.component_{}.regions.txt".format(prefix, component_idx)
-        pwm_hits_positive_df.to_csv(component_regions_file, columns=[], header=False)
+        
+class DirectedEdge(object):
+    """edge class"""
+    
+    def __init__(self, start_node, end_node, attrs={}):
+        self.start_node = start_node
+        self.end_node = end_node
+        self.attrs = attrs
 
-        # make bed file
-        component_regions_bed = "{}.component_{}.regions.bed".format(prefix, component_idx)
-        make_bed = (
-            "cat {0} | "
-            "awk -F ';' '{{ print $3 }}' | "
-            "awk -F '=' '{{ print $2 }}' | "
-            "awk -F ':' '{{ print $1\"\t\"$2 }}' | "
-            "awk -F '-' '{{ print $1\"\t\"$2 }}' | "
-            "sort -k1,1 -k2,2n | "
-            "bedtools merge -i stdin > "
-            "{1}").format(component_regions_file, component_regions_bed)
-        os.system(make_bed)
+    def get_tuple(self):
+        return (self.start_node, self.end_node, self.attrs)
 
-        component_idx += 1
 
-    return None
+class MotifNet(object):
+    """network class for managing a directed motif network"""
+    
+    def __init__(self, nodes=[], edges=[]):
+        """initialize
+        """
+        self.nodes = nodes
+        self.edges = edges
+                
+    def add_node(self, node):
+        """add node
+        """
+        self.nodes.append(node)
+
+    def add_edge(self, edge):
+        """
+        """
+        self.edges.append(edge)
+
+    def get_node_out_edges(self, node_id):
+        """return the edges
+        """
+        node_edges = []
+        for edge in self.edges:
+            if node_id in edge.get_tuple()[0]:
+                node_edges.append(edge)
+
+        return node_edges
+        
+    def get_paths(
+            self,
+            initial_node_id,
+            min_region_count,
+            current_path=([],[]),
+            checked_nodes=[]):
+        """recursive function to find path
+        """
+        paths = []
+        
+        # get node's edges
+        edges = self.get_node_out_edges(initial_node_id)
+        for edge in edges:
+            
+            # get other node
+            other_node = edge.end_node
+
+            # check if already looked at
+            if other_node in checked_nodes:
+                continue
+            checked_nodes.append(other_node)
+            
+            # check for loops, continue if you hit a loop
+            if other_node in current_path:
+                continue
+
+            # get intersect
+            edge_examples = edge.attrs["examples"]
+            shared_examples = current_path[1].intersection(edge_examples)
+            
+            # if intersect is good, append node, save out, and keep going down
+            if len(shared_examples) > min_region_count:
+                new_path = (current_path[0] + [other_node], shared_examples)
+                paths.append(new_path)
+                edge_paths = self.get_paths(
+                    other_node,
+                    min_region_count,
+                    current_path=new_path,
+                    checked_nodes=checked_nodes)
+                paths += edge_paths
+                
+        return paths
+    
+
+
+def get_motif_hierarchies(
+        h5_file,
+        adjacency_mat_key,
+        data_key,
+        metadata_key=DataKeys.SEQ_METADATA,
+        sig_pwms_key=DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL,
+        pwm_names_attr_key=AttrKeys.PWM_NAMES):
+    """extract motif hierarchies
+    """
+    with h5py.File(h5_file, "r") as hf:
+        adjacency_matrix = hf[adjacency_mat_key][:]
+        data = hf[data_key][:]
+        example_metadata = hf[metadata_key][:]
+        sig_pwms = hf[sig_pwms_key][:]
+        pwm_names = hf[adjacency_mat_key].attrs[pwm_names_attr_key]
+
+    # TODO - change this later
+    data = data[:,:,:,np.where(sig_pwms > 0)[0]]
+
+    # set up the nodes
+    # TODO note that there may be different sets in mut and response,
+    # so need to save out both
+    nodes = []
+    for pwm_name in pwm_names:
+        node = Node(pwm_name)
+        nodes.append(node)
+
+    # set up the edges
+    num_mut_motifs = adjacency_matrix.shape[0]
+    num_response_motifs = adjacency_matrix.shape[2]
+    edges = []
+    for mut_idx in xrange(num_mut_motifs):
+        for response_idx in xrange(num_response_motifs):
+
+            if np.sum(adjacency_matrix[mut_idx, :, response_idx] != 0) < 3:
+                continue
+            
+            # set up an edge
+            start_node = pwm_names[mut_idx]
+            end_node = pwm_names[response_idx]
+
+            # get subset
+            sig_in_tasks = np.sum(data[:,mut_idx,:,response_idx] != 0, axis=1)
+            edge_examples = example_metadata[np.where(sig_in_tasks >= 2)[0],0].tolist()
+            attr_dict = {"examples": set(edge_examples)}
+            
+            # attach the list of examples with both 
+            edge = DirectedEdge(start_node, end_node, attrs=attr_dict)
+            edges.append(edge)
+
+    # put into network
+    net = MotifNet(nodes, edges)
+    
+    # run the network to get hierarchical paths
+    # is each path a tuple ([path], [examples])?
+    min_region_count = 600
+    paths = []
+    for node in net.nodes:
+        all_examples = set(example_metadata[:,0].tolist())
+        paths += net.get_paths(
+            node.name,
+            min_region_count,
+            current_path=([node.name], all_examples),
+            checked_nodes=[node.name])
+
+    # for each path, want to write out a BED file (and write a metadata file)
+    metadata_file = "{}.hierarchies.metadata.txt".format(
+        h5_file.split(".h5")[0])
+    for path_idx in xrange(len(paths)):
+        path = paths[path_idx]
+        path_hierarchy = ";".join(path[0])
+        with open(metadata_file, "a") as fp:
+            fp.write("{}\t{}\n".format(path_idx, path_hierarchy))
+        
+        bed_file = "{}.path-{}.bed.gz".format(
+            h5_file.split(".h5")[0],
+            path_idx)
+
+        
+    
+    # and also save the metadata somewhere
+    # use pandas
+
+    import ipdb
+    ipdb.set_trace()
+        
+    return paths
