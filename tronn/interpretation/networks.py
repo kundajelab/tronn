@@ -271,11 +271,10 @@ def get_motif_hierarchies(
                 stop = region.split("-")[1]
                 fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
     
-    # and also save the metadata somewhere
-    # use pandas
-    # resort
+    # and resort metadata
     metadata = pd.read_table(metadata_file)
-    metadata_sorted = metadata.sort_values(["delta_logit"], ascending=False)
+    #metadata_sorted = metadata.sort_values(["delta_logit"], ascending=False)
+    metadata_sorted = metadata.sort_values(["dmim"], ascending=False)
     metadata_sorted_file = "{}.sorted.txt".format(metadata_file.split(".txt")[0])
     metadata_sorted.to_csv(metadata_sorted_file, sep='\t', index=False)
     
