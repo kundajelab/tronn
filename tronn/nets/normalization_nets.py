@@ -24,11 +24,14 @@ def normalize_to_importance_logits(inputs, params):
     features_shape = features.get_shape().as_list()
     outputs = dict(inputs)
 
+    # params
+    task_axis = params.get("task_axis", -1)
+    
     # weights
     weights = tf.gather(
         inputs[params["weight_key"]],
         params["importance_task_indices"],
-        axis=-1) # {N,.., task}
+        axis=task_axis) # {N,.., task}
     weights_shape = weights.get_shape().as_list() # {N, shuf, logit} or {N, logit}
     diff_dims = len(features_shape) - len(weights_shape)
     weights = tf.reshape(weights, weights_shape + [1 for i in xrange(diff_dims)])

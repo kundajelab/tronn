@@ -230,10 +230,12 @@ class FeatureImportanceExtractor(object):
         params.update({"weight_key": DataKeys.LOGITS})
         outputs, params = normalize_to_importance_logits(inputs, params)
         params.update({"weight_key": DataKeys.LOGITS_SHUF})
+        params.update({"task_axis": 1})
         outputs[DataKeys.WEIGHTED_SEQ_SHUF] = normalize_to_importance_logits(
             {DataKeys.FEATURES: outputs[DataKeys.WEIGHTED_SEQ_SHUF],
              DataKeys.LOGITS_SHUF: outputs[DataKeys.LOGITS_SHUF]}, params)[0][DataKeys.FEATURES]
-
+        del params["task_axis"]
+        
         logging.info("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
         
         return outputs, params

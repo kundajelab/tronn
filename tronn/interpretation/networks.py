@@ -265,7 +265,7 @@ def get_motif_hierarchies(
         path_metadata = example_metadata[sorted(path[1]),0].tolist()
         with open(bed_file, "w") as fp:
             for region_metadata in path_metadata:
-                region = region_metadata.split(";")[0].split("=")[1]
+                region = region_metadata.split(";")[1].split("=")[1] # TODO adjust here - just active region
                 chrom = region.split(":")[0]
                 start = region.split(":")[1].split("-")[0]
                 stop = region.split("-")[1]
