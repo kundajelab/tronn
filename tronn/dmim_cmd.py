@@ -219,19 +219,31 @@ def run(args):
         results_h5_file,
         DataKeys.DMIM_SIG_RESULTS)
 
+    # TODO also run sig analysis on the logit output? how to integrate this information?
+
+    
     # and then build hierarcy
-    get_motif_hierarchies(
+    paths = get_motif_hierarchies(
         results_h5_file,
         DataKeys.DMIM_SIG_RESULTS,
-        DataKeys.FEATURES)
-    
-    quit()
+        DataKeys.FEATURES,
+        #extra_keys = [
+        #    "ATAC_SIGNAL",
+        #    "H3K27ac_SIGNAL",
+        #    "H3K4me1_SIGNAL"])
+        extra_keys = [
+            "ATAC_SIGNAL.NORM",
+            "H3K27ac_SIGNAL.NORM",
+            "H3K4me1_SIGNAL.NORM"])
 
+    # TODO figure out how to save out paths (as vectors? adjacency?)
+    # to be able to run the synergy calculations
+    
+    # TODO write another function to extract the top, to do MPRA
+    
+    
     # TODO still do this to show that all motifs have sig effects
-    get_significant_delta_logit_responses(
-        results_h5_file, DataKeys.MANIFOLD_CLUST)
-        
-    import ipdb
-    ipdb.set_trace()
+    #get_significant_delta_logit_responses(
+    #    results_h5_file, DataKeys.MANIFOLD_CLUST)
     
     return None

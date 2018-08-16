@@ -90,7 +90,7 @@ def get_interacting_motifs(
     # save this to the h5 file
     # TODO save out the sig mask also
     with h5py.File(h5_file, "a") as out:
-        del out[out_key]
+        #del out[out_key]
         out.create_dataset(out_key, data=agg_mut_data_sig)
         out[out_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
 
