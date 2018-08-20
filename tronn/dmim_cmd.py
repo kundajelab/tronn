@@ -214,7 +214,6 @@ def run(args):
             DataKeys.MANIFOLD_CLUST,
             DataKeys.DMIM_SIG_RESULTS)
 
-    quit()
     # and plot these out with R
     visualize_interacting_motifs_R(
         results_h5_file,

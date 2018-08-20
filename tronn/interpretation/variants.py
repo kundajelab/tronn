@@ -78,7 +78,8 @@ def get_interacting_motifs(
         #agg_mut_data = np.divide(
         #    np.sum(mut_data, axis=0),
         #    np.sum(mut_data != 0, axis=0))
-        agg_mut_data = np.sum(mut_data, axis=0)
+        #agg_mut_data = np.sum(mut_data, axis=0)
+        agg_mut_data = np.mean(mut_data, axis=0)
     else:
         agg_mut_data = np.sum(mut_data != 0, axis=0)
         

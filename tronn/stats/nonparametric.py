@@ -120,7 +120,7 @@ def run_delta_permutation_test(
         num_shuffles=1000,
         pval_thresh=0.05, # 0.01
         twotailed=True,
-        qvalue=True):
+        qvalue=False):
     """when given an array, randomly
     flip the sign and recalculate the sum (across last axis)
     consider significant if actual sum is above the 

@@ -40,6 +40,11 @@ if (TRUE) {
     data_melted <- melt(data)
 }
 
+# TEMP fix this - check out row norm?
+#data_melted$value <- asinh(data_melted$value)
+
+
+
 # ordering by mutational similarity
 if (TRUE) {
     flattened <- data
