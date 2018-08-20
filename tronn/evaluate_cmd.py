@@ -61,7 +61,9 @@ def run(args):
     # set up dataloader
     dataloader = H5DataLoader(args.model_info["test_files"], fasta=args.fasta)
     test_input_fn = dataloader.build_input_fn(
-        args.batch_size, label_keys=args.model_info["label_keys"])
+        args.batch_size,
+        label_keys=args.model_info["label_keys"],
+        filter_tasks=args.model_info["filter_keys"])
 
     # set up model
     model_manager = ModelManager(

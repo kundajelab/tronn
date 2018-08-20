@@ -55,6 +55,10 @@ def filter_by_labels(inputs, params):
     labels = inputs[labels_key]
     filter_tasks = params.get("filter_tasks")
     batch_size = params["batch_size"]
+
+    # adjust indices as needed
+    if len(filter_tasks) == 0:
+        filter_tasks = range(labels.get_shape()[1])
     
     # set up labels mask for filter tasks
     labels_mask_np = np.zeros((labels.get_shape()[1]))

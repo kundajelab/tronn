@@ -288,6 +288,8 @@ class H5DataLoader(DataLoader):
                     
                 slices[key] = np.concatenate([slice_tmp, slice_pad], axis=0)
 
+            # you're at the end of the file - close out?
+
         # adjust labels - concatenate desired labels and then get task indices
         labels = []
         for key in label_keys:
@@ -404,7 +406,7 @@ class H5DataLoader(DataLoader):
                 converter_out,
                 onehot_batch_array)
 
-            # close pipe if done
+            # close pipe if done, and close handle here?
             if batch_id == max_batches:
                 converter_in.stdout.close()
             

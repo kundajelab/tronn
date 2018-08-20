@@ -241,6 +241,9 @@ def add_train_parser(subparsers):
         "--label_keys", nargs="+", default=[],
         help="which datasets to load as labels")
     group_input.add_argument(
+        "--filter_keys", nargs="+", default=[],
+        help="tasks to filter on") # TODO make sure that filtering is OFF for dreaming
+    group_input.add_argument(
         "--tasks", nargs="+", default=[], type=int,
         help="tasks to train on (default is all)")
     #group_input.add_argument(
@@ -944,6 +947,7 @@ def main():
         from tronn.preprocess_variants_cmd import run
         run(args)
     elif subcommand == 'train':
+        args.filter_keys = _parse_files(args.filter_keys)
         add_model_params(args)
         print 'model args: %s' % args.model
         from tronn.train_cmd import run
