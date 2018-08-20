@@ -32,7 +32,7 @@ dimnames(data) <- data_dimnames
 data_melted <- melt(data)
 
 # normalize
-if (TRUE) {
+if (FALSE) {
     max_cutoff <- quantile(abs(data_melted$value), 0.99)
     data <- data / max_cutoff
     data[data < -1.0] <- -1.0

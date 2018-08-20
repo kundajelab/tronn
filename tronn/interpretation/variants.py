@@ -69,10 +69,9 @@ def get_interacting_motifs(
     # try global first
     # remember that dy/dx is POSITIVE if the feature drops in response to mutation
     # the dy/dx is NEGATIVE if the feature increases in response to the mutation
-    sig_responses = run_delta_permutation_test(dydx) # {mutM, task, M}
+    pvals, sig_responses = run_delta_permutation_test(dydx) # {mutM, task, M}
     #sig_responses = np.ones(dydx.shape[1:])
 
-    
     # get mean for places where this score exists
     if True:
         #agg_mut_data = np.divide(
@@ -93,7 +92,8 @@ def get_interacting_motifs(
     # save this to the h5 file
     # TODO save out the sig mask also
     with h5py.File(h5_file, "a") as out:
-        del out[out_key]
+        if out.get(out_key) is not None:
+            del out[out_key]
         out.create_dataset(out_key, data=agg_mut_data_sig)
         out[out_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
 

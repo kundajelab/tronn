@@ -409,6 +409,8 @@ class H5DataLoader(DataLoader):
             # close pipe if done, and close handle here?
             if batch_id == max_batches:
                 converter_in.stdout.close()
+                converter_out.stdout.close() # CHECK THIS
+                h5_handle.close()
             
             slice_list = []
             for key in keys:
