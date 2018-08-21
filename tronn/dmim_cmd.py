@@ -208,7 +208,7 @@ def run(args):
             args.visualize_multikey_R)
 
     # DMIM ANALYSES
-    if True:
+    if False:
         get_interacting_motifs(
             results_h5_file,
             DataKeys.MANIFOLD_CLUST,
@@ -227,10 +227,6 @@ def run(args):
         results_h5_file,
         DataKeys.DMIM_SIG_RESULTS,
         DataKeys.FEATURES,
-        #extra_keys = [
-        #    "ATAC_SIGNAL",
-        #    "H3K27ac_SIGNAL",
-        #    "H3K4me1_SIGNAL"])
         extra_keys = [
             "ATAC_SIGNAL.NORM",
             "H3K27ac_SIGNAL.NORM",

@@ -88,14 +88,23 @@ class MotifNet(object):
             # get other node
             other_node = edge.end_node
 
-            # check if already looked at
-            if other_node in checked_nodes:
-                continue
-            checked_nodes.append(other_node)
+            # if already seen, continue unless it was the last one (to get self loops)
+            if True:
+                if (other_node in checked_nodes) and (other_node in current_path[0][:-1]):
+                    continue
+                #if other_node not in current_path[:-1]:
+                #    continue
+                checked_nodes.append(other_node)
+                
+            if False:
+                # check if already looked at
+                if other_node in checked_nodes:
+                    continue
+                checked_nodes.append(other_node)
             
-            # check for loops, continue if you hit a loop
-            if other_node in current_path:
-                continue
+                # check for loops, continue if you hit a loop
+                if other_node in current_path[:-1]:
+                    continue
 
             # get intersect
             edge_examples = edge.attrs["examples"]
@@ -165,7 +174,8 @@ def get_motif_hierarchies(
         mut_logits_key=DataKeys.MUT_MOTIF_LOGITS,
         pwm_names_attr_key=AttrKeys.PWM_NAMES,
         extra_keys=[],
-        num_sig_tasks=3):
+        num_sig_tasks=3,
+        min_region_count=500):
     """extract motif hierarchies
     """
     with h5py.File(h5_file, "r") as hf:
@@ -175,7 +185,7 @@ def get_motif_hierarchies(
         sig_pwms = hf[sig_pwms_key][:]
         # TODO need to have mut names attr and pwm names attr
         mut_pwm_names = hf[adjacency_mat_key].attrs[pwm_names_attr_key] 
-        logits = hf[logits_key][:]
+        logits = np.expand_dims( hf[logits_key][:], axis=1)
         mut_logits = hf[mut_logits_key][:]
 
         # also track actual ATAC signal and H3K27ac signal
@@ -186,6 +196,9 @@ def get_motif_hierarchies(
             assert len(extra_data.shape) == 2
             extra_datasets.append(extra_data)
 
+    # set up delta logits
+    delta_logits = np.subtract(mut_logits, logits)
+    
     # TODO - change these later
     data = data[:,:,:,np.where(sig_pwms > 0)[0]]
     response_pwm_names = mut_pwm_names
@@ -215,19 +228,27 @@ def get_motif_hierarchies(
     for mut_idx in xrange(num_mut_motifs):
         for response_idx in xrange(num_response_motifs):
 
+            # TODO fix this (in relation to previous analysis(
             if np.sum(adjacency_matrix[mut_idx, :, response_idx] != 0) < 3:
                 continue
             
             # set up an edge
             start_node = mut_pwm_names[mut_idx]
             end_node = response_pwm_names[response_idx]
+
+            # determine direction
+            overall_edge_effect = np.sum(data[:,mut_idx,:,response_idx])
+            if overall_edge_effect < 0:
+                sig_in_tasks = np.sum(data[:,mut_idx,:,response_idx] < 0, axis=1)
+            else:
+                sig_in_tasks = np.sum(data[:,mut_idx,:,response_idx] > 0, axis=1)
             
             # get subset
-            sig_in_tasks = np.sum(data[:,mut_idx,:,response_idx] != 0, axis=1)
-            #edge_examples = example_metadata[np.where(sig_in_tasks >= 2)[0],0].tolist()
-            # TODO convert this into a param
             edge_examples = np.where(sig_in_tasks >= num_sig_tasks)[0].tolist() # keep as indices until end
-            attr_dict = {"examples": set(edge_examples)}
+
+            # TODO - also filter for mutational effect?
+            # how to do this, this is likely a node attribute to filter on?
+            attr_dict = {"examples": set(edge_examples)}            
             
             # TODO don't add the edge if there isn't mutational output effect on both sides
             # for the subset?
@@ -253,15 +274,24 @@ def get_motif_hierarchies(
     # is each path a tuple ([path], [examples])?
     # TODO keep paths as indices?
     # TODO also keep edges as indices?
-    min_region_count = 600
     paths = []
     for node in net.nodes:
-        all_examples = set(range(example_metadata.shape[0]))
+
+        # add in singletons and where they exist
+        node_idx = node.attrs["mut_idx"]
+        node_mut_effects = np.sum(delta_logits[:,node_idx,:] != 0, axis=1)
+        node_examples = set(np.where(node_mut_effects > 0)[0].tolist())
+        current_path = ([node.name], node_examples)
+
+        if len(node_examples) > min_region_count:
+            paths.append(current_path)
+        
+        #all_examples = set(range(example_metadata.shape[0]))
         #all_examples = set(example_metadata[:,0].tolist())
         paths += net.get_paths(
             node.name,
             min_region_count,
-            current_path=([node.name], all_examples),
+            current_path=current_path,
             checked_nodes=[node.name])
 
     # for each path, want to write out a BED file (and write a metadata file)
@@ -277,9 +307,9 @@ def get_motif_hierarchies(
         path_hierarchy = ";".join(path[0])
         path_indices = sorted(path[1])
         path_data = data[path_indices]
-        path_logits = np.expand_dims(logits[path_indices], axis=1)
+        path_logits = logits[path_indices]
         path_mut_logits = mut_logits[path_indices]
-        path_delta_logits = np.subtract(path_mut_logits, path_logits)
+        path_delta_logits = delta_logits[path_indices]
         
         # get the aggregate effects over the path
         # TODO check the sign on the multiplications
@@ -339,7 +369,7 @@ def get_motif_hierarchies(
         example_logits = get_path_example_logits(
             path[0],
             net,
-            path_logits[:,0,:],
+            path_logits[:,0,:], # TODO change the task here
             path_mut_logits)
             #path_logits[keep_indices,0],
             #path_mut_logits[keep_indices])
