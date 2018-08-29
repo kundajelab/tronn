@@ -43,6 +43,19 @@ def run(args):
     model_manager = ModelManager(
         net_fns[args.model["name"]],
         args.model)
+
+    # save out training info into a json
+    # need: model, model checkpoint (best), label sets.
+    model_info = {
+        "name": args.model["name"],
+        "params": args.model,
+        "checkpoint": None,
+        "label_keys": args.label_keys,
+        "filter_keys": args.filter_keys,
+        "tasks": args.tasks,
+        "train_files": train_files,
+        "valid_files": valid_files,
+        "test_files": test_files}
     
     # train and evaluate
     best_checkpoint = model_manager.train_and_evaluate_with_early_stopping(
@@ -53,20 +66,13 @@ def run(args):
         warm_start_params={
             "skip":["logit"]},
             #"scope_change": ["", "basset/"]},
-        regression=args.regression) # <- this is for larger model - adjust this
+        regression=args.regression,
+        model_info=model_info) # <- this is for larger model - adjust this
     
     # save out training info into a json
     # need: model, model checkpoint (best), label sets.
-    model_info = {
-        "name": args.model["name"],
-        "params": args.model,
-        "checkpoint": best_checkpoint,
-        "label_keys": args.label_keys,
-        "tasks": args.tasks,
-        "train_files": train_files,
-        "valid_files": valid_files,
-        "test_files": test_files}
+    model_info["checkpoint"] = best_checkpoint
     with open("{}/model_info.json".format(args.out_dir), "w") as fp:
         json.dump(model_info, fp, sort_keys=True, indent=4)
-    
+            
     return None
