@@ -365,7 +365,7 @@ def generate_labels(
     # get metadata
     file_metadata = [
         "index={0};file={1}".format(
-            i, os.path.basename(label_bed_files[i]))
+            i, os.path.basename(label_bed_files[i]).split(".bed")[0].split("narrowPeak")[0])
         for i in xrange(len(label_bed_files))]
 
     # for each label bed file
