@@ -162,6 +162,7 @@ def generate_one_hot_sequences(
     return None
 
 
+# TODO make sure to close all these cleanly?
 def sequence_string_to_onehot_converter(fasta):
     """sets up the pipe to convert a sequence string to onehot
     NOTE: you must unbuffer things to make sure they flow through the pipe!
@@ -184,8 +185,18 @@ def sequence_string_to_onehot_converter(fasta):
     # separate all by commas
     split_w_commas_cmd = ["sed", "-u", 's/./,&/g; s/,//']
     pipe_out = subprocess.Popen(split_w_commas_cmd, stdin=replace.stdout, stdout=PIPE)
+
+    # set up close fn
+    def close_fn():
+        pipe_in.stdin.close()
+        pipe_in.wait()
+        get_fasta.wait()
+        to_upper.wait()
+        replace.wait()
+        pipe_out.wait()
     
-    return pipe_in, pipe_out
+    
+    return pipe_in, pipe_out, close_fn
 
 
 def batch_string_to_onehot(array, pipe_in, pipe_out, batch_array):

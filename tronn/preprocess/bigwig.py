@@ -13,7 +13,8 @@ def generate_signal_vals(
         bigwig_files,
         key,
         h5_file,
-        tmp_dir="."):
+        tmp_dir=".",
+        params={}):
     """given a region set (BED file), calculate
     average signal in each region from the bigwigs
     and save out the array to h5.
@@ -22,6 +23,9 @@ def generate_signal_vals(
     num_files = len(bigwig_files)
     logging.info("Found {} bigwig files as annotations".format(num_files))
 
+    # sample?
+    sample_around_center = int(params.get("window", 0))
+    
     # get metadata
     file_metadata = [
         "index={0};file={1}".format(
@@ -40,9 +44,18 @@ def generate_signal_vals(
         out_tmp_file = "{}/{}.signal.tmp".format(
             tmp_dir,
             os.path.basename(bigwig_file))
-        get_average_signal = (
-            "bigWigAverageOverBed {} {} {}").format(
-                bigwig_file, bed_file, out_tmp_file)
+        if sample_around_center == 0:
+            get_average_signal = (
+                "bigWigAverageOverBed {} {} {}").format(
+                    bigwig_file, bed_file, out_tmp_file)
+        else:
+            get_average_signal = (
+                "bigWigAverageOverBed -sampleAroundCenter={} {} {} {}").format(
+                    sample_around_center,
+                    bigwig_file,
+                    bed_file,
+                    out_tmp_file)
+            
         print get_average_signal
         os.system(get_average_signal)
 

@@ -87,7 +87,8 @@ def setup_h5_dataset(
             signal_files,
             key,
             h5_file,
-            tmp_dir=tmp_dir)
+            tmp_dir=tmp_dir,
+            params=signal_params)
 
     # TODO matrix annotations? ie using DESeq2 normalized matrix here?
 
@@ -152,7 +153,7 @@ def setup_h5_dataset_old(
         bin_ext_file.split(".bed")[0])
     fasta_sequences_file = "{}.gz".format(fasta_sequences_file)
     extract_active_centers(bin_active_center_file, fasta_sequences_file)
-    
+
     # generate BED annotations on the active center
     for key in label_sets.keys():
         label_files = label_sets[key][0]
@@ -176,7 +177,8 @@ def setup_h5_dataset_old(
             signal_files,
             key,
             h5_file,
-            tmp_dir=tmp_dir)
+            tmp_dir=tmp_dir,
+            params=signal_params)
 
     # TODO matrix annotations? ie using DESeq2 normalized matrix here?
 
@@ -408,7 +410,7 @@ def generate_h5_datasets(
         normalize_signals=False):
     """generate a full h5 dataset
     """
-    if False:
+    if True:
         # first select negatives
         training_negatives_bed_file, genomewide_negatives_bed_file = setup_negatives(
             positives_bed_file,
@@ -460,7 +462,7 @@ def generate_h5_datasets(
                 ref_fasta,
                 chromsizes,
                 h5_file,
-                label_files,2
+                label_files,
                 signal_files,
                 bin_size,
                 stride,
