@@ -2,6 +2,7 @@
 """
 
 import os
+import json
 import logging
 import h5py
 
@@ -529,7 +530,8 @@ class ModelManager(object):
             epoch_patience=2,
             warm_start=None,
             warm_start_params={},
-            regression=False):
+            regression=False,
+            model_info={}):
         """run full training loop with evaluation for early stopping
         """
         # adjust for regression
@@ -592,7 +594,7 @@ class ModelManager(object):
             else:
                 is_good_epoch = eval_metrics[early_stopping_metric] > best_metric_val
 
-            # if good epoch, save out new metrics
+            # if good epoch, save out new metrics and model info
             if is_good_epoch:
                 best_metric_val = eval_metrics[early_stopping_metric]
                 consecutive_bad_epochs = 0
@@ -601,6 +603,9 @@ class ModelManager(object):
                     fp.write('epoch %d\n'%epoch)
                     fp.write("checkpoint path: {}\n".format(best_checkpoint))
                     fp.write(str(eval_metrics))
+                model_info["checkpoint"] = best_checkpoint
+                with open("{}/model_info.json".format(out_dir), "w") as fp:
+                    json.dump(model_info, fp, sort_keys=True, indent=4)
             else:
                 # break if consecutive bad epochs are too high
                 consecutive_bad_epochs += 1
