@@ -7,6 +7,7 @@ import glob
 import h5py
 import math
 import logging
+import subprocess
 
 import abc
 
@@ -288,8 +289,6 @@ class H5DataLoader(DataLoader):
                     
                 slices[key] = np.concatenate([slice_tmp, slice_pad], axis=0)
 
-            # you're at the end of the file - close out?
-
         # adjust labels - concatenate desired labels and then get task indices
         labels = []
         for key in label_keys:
@@ -355,9 +354,14 @@ class H5DataLoader(DataLoader):
         logging.debug("loading {0} with max batches {1}".format(
             os.path.basename(h5_file), max_batches))
 
+        # set up batch count tracker
+        batch_idx_producer = tf.train.range_input_producer(
+            max_batches, shuffle=False, seed=0, num_epochs=num_epochs)
+        batch_idx = batch_idx_producer.dequeue()
+        
         # set up on-the-fly onehot encoder
         assert fasta is not None
-        converter_in, converter_out = sequence_string_to_onehot_converter(fasta)
+        converter_in, converter_out, converter_close_fn = sequence_string_to_onehot_converter(fasta)
         
         # determine the Tout
         tensor_dtypes = []
@@ -385,7 +389,7 @@ class H5DataLoader(DataLoader):
         onehot_batch_array = np.zeros((batch_size, 1000), dtype=np.uint8)
         
         # function to get examples based on batch_id (for py_func)
-        def batch_id_to_examples(batch_id):
+        def batch_id_to_examples(batch_id, batch_idx):
             """Given a batch ID, get the features, labels, and metadata
             This is an important wrapper to be able to use TensorFlow's pyfunc.
             """
@@ -407,9 +411,9 @@ class H5DataLoader(DataLoader):
                 onehot_batch_array)
 
             # close pipe if done, and close handle here?
-            if batch_id == max_batches:
-                converter_in.stdout.close()
-                converter_out.stdout.close() # CHECK THIS
+            limit = max_batches - 1
+            if batch_idx == limit:
+                converter_close_fn()
                 h5_handle.close()
             
             slice_list = []
@@ -421,7 +425,7 @@ class H5DataLoader(DataLoader):
         # py_func
         inputs = tf.py_func(
             func=batch_id_to_examples,
-            inp=[batch_id],
+            inp=[batch_id, batch_idx],
             Tout=tensor_dtypes,
             stateful=False, name='py_func_batch_id_to_examples')
 
