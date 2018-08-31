@@ -202,7 +202,7 @@ def bin_regions_sharded(
         final_length,
         chromsizes,
         method='naive',
-        max_size=100000): # max size: total num of bins allowed in one file
+        max_size=1000000): # max size: total num of bins allowed in one file
     """Bin regions based on bin size and stride
 
     Args:
@@ -286,7 +286,10 @@ def bin_regions_sharded(
                 filt_bed_file)
         print overlap_check
         os.system(overlap_check)
-    
+
+        # TODO if the file is now empty, throw away...?
+
+        
     return None
 
 
@@ -367,6 +370,10 @@ def generate_labels(
         "index={0};file={1}".format(
             i, os.path.basename(label_bed_files[i]).split(".bed")[0].split("narrowPeak")[0])
         for i in xrange(len(label_bed_files))]
+
+    # check bytes
+    if np.array(file_metadata).nbytes >= 64000:
+        file_metadata = ["metadata too large"]
 
     # for each label bed file
     for i in xrange(len(label_bed_files)):

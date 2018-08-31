@@ -37,10 +37,6 @@ def generate_signal_vals(
         bigwig_file = bigwig_files[i]
 
         # generate signals        
-        #out_tmp_file = "{}/{}_x_{}.signal.tmp".format(
-        #    tmp_dir,
-        #    os.path.basename(bed_file),
-        #    os.path.basename(bigwig_file))
         out_tmp_file = "{}/{}.signal.tmp".format(
             tmp_dir,
             os.path.basename(bigwig_file))
@@ -48,6 +44,7 @@ def generate_signal_vals(
             get_average_signal = (
                 "bigWigAverageOverBed {} {} {}").format(
                     bigwig_file, bed_file, out_tmp_file)
+            mean_col_name = "mean0"
         else:
             get_average_signal = (
                 "bigWigAverageOverBed -sampleAroundCenter={} {} {} {}").format(
@@ -55,6 +52,7 @@ def generate_signal_vals(
                     bigwig_file,
                     bed_file,
                     out_tmp_file)
+            mean_col_name = "mean" # TODO adjust here if using mean of just covered bp
             
         print get_average_signal
         os.system(get_average_signal)
@@ -70,10 +68,10 @@ def generate_signal_vals(
             with h5py.File(h5_file, "a") as hf:
                 all_signals = np.zeros((num_rows, num_files))
                 hf.create_dataset(key, data=all_signals)
-                hf[key][:,i] = bigwig_average_signals["mean0"]
+                hf[key][:,i] = bigwig_average_signals[mean_col_name]
         else:
             with h5py.File(h5_file, "a") as hf:
-                hf[key][:,i] = bigwig_average_signals["mean0"]
+                hf[key][:,i] = bigwig_average_signals[mean_col_name]
                 
         # delete tmp file
         os.system("rm {}".format(out_tmp_file))
@@ -106,7 +104,7 @@ def normalize_signal_vals(positive_h5_files, h5_files, key, new_key):
     for h5_file in h5_files:
         with h5py.File(h5_file, "a") as hf:
             # debug
-            del hf[new_key]
+            #del hf[new_key]
             
             signal_vals = hf[key][:]
             # asinh
