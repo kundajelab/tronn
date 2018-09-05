@@ -9,6 +9,14 @@ import tensorflow as tf
 from tronn.util.tf_ops import restore_variables_op
 
 
+class DataCleanupHook(tf.train.SessionRunHook):
+    """Hook to cleanup data threads as needed"""
+        
+    def end(self, session):
+        close_ops = tf.get_collection("DATACLEANUP")
+        session.run(close_ops)
+
+
 class RestoreHook(tf.train.SessionRunHook):
     """Hook that runs initialization functions at beginning of session"""
 

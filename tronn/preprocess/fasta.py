@@ -188,7 +188,8 @@ def sequence_string_to_onehot_converter(fasta):
 
     # set up close fn
     def close_fn():
-        pipe_in.stdin.close()
+        pipe_in.terminate()
+        #pipe_in.stdin.close()
         pipe_in.wait()
         get_fasta.wait()
         to_upper.wait()

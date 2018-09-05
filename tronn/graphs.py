@@ -27,12 +27,15 @@ from tronn.util.tf_ops import restore_variables_op
 from tronn.util.tf_ops import class_weighted_loss_fn
 from tronn.util.tf_ops import positives_focused_loss_fn
 
+from tronn.util.tf_utils import print_param_count
+
 from tronn.outlayer import H5Handler
 
 from tronn.learn.evaluation import get_global_avg_metrics
 from tronn.learn.evaluation import get_regression_metrics
 
 from tronn.learn.learning import RestoreHook
+from tronn.learn.learning import DataCleanupHook
 
 from tronn.interpretation.interpret import visualize_region
 from tronn.interpretation.dreaming import dream_one_sequence
@@ -374,6 +377,7 @@ class ModelManager(object):
             
             elif mode == tf.estimator.ModeKeys.TRAIN:
                 outputs, loss, train_op = self.build_training_dataflow(inputs, regression=regression)
+                print_param_count()
                 return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
             else:
                 raise Exception, "mode does not exist!"
@@ -401,6 +405,11 @@ class ModelManager(object):
         """train an estimator. if steps is None, goes on forever or until input_fn
         runs out.
         """
+        # if there is a data close fn, add in as hook
+        datacleanup_ops = tf.get_collection("DATACLEANUP")
+        hooks.append(DataCleanupHook())
+        print "appended hook"
+        
         # build estimator and train
         estimator = self.build_estimator(
             config=config, out_dir=out_dir, regression=regression)
@@ -420,13 +429,17 @@ class ModelManager(object):
             regression=False):
         """evaluate a trained estimator
         """
+        datacleanup_ops = tf.get_collection("DATACLEANUP")
+        hooks.append(DataCleanupHook())
+        
         # build evaluation estimator and evaluate
         estimator = self.build_estimator(
             config=config, out_dir=out_dir, regression=regression)
         eval_metrics = estimator.evaluate(
             input_fn=input_fn,
             steps=steps,
-            checkpoint_path=checkpoint)
+            checkpoint_path=checkpoint,
+            hooks=hooks)
         logging.info("EVAL: {}".format(eval_metrics))
 
         return eval_metrics
@@ -443,13 +456,17 @@ class ModelManager(object):
             yield_single_examples=True):
         """predict on a trained estimator
         """
+        datacleanup_ops = tf.get_collection("DATACLEANUP")
+        hooks.append(DataCleanupHook())
+
         # build prediction estimator
         estimator = self.build_estimator(config=config, out_dir=out_dir)
 
         # return prediction generator
         return estimator.predict(
             input_fn=input_fn,
-            checkpoint_path=checkpoint)
+            checkpoint_path=checkpoint,
+            hooks=hooks)
 
     
     def infer(
@@ -465,6 +482,9 @@ class ModelManager(object):
             yield_single_examples=True):
         """infer on a trained estimator
         """
+        datacleanup_ops = tf.get_collection("DATACLEANUP")
+        hooks.append(DataCleanupHook())
+        
         # build inference estimator
         params = {
             "checkpoint": checkpoint,
@@ -481,7 +501,8 @@ class ModelManager(object):
         # return generator
         return estimator.infer(
             input_fn=input_fn,
-            checkpoint_path=checkpoint)
+            checkpoint_path=checkpoint,
+            hooks=hooks)
 
     
     def dream(
@@ -547,6 +568,7 @@ class ModelManager(object):
                 start_epoch, consecutive_bad_epochs =  map(
                     int, [start_epoch, consecutive_bad_epochs])
                 best_metric_val = float(best_metric_val)
+                start_epoch += 1
             if consecutive_bad_epochs >= epoch_patience:
                 # move start epochs to max epoch so training doesn't run
                 start_epoch = max_epochs

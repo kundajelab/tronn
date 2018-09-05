@@ -110,12 +110,12 @@ class DataLoader(object):
                 **kwargs)
             
             # build transform stack
-            master_params = {}
-            master_params.update({"batch_size": batch_size})
+            input_params = {}
+            input_params.update({"batch_size": batch_size})
             for transform_fn, params in transform_stack:
-                master_params.update(params)
+                input_params.update(params)
                 print transform_fn
-                inputs, _ = transform_fn(inputs, master_params)
+                inputs, input_params = transform_fn(inputs, input_params)
             
             # adjust outputs as needed
             if len(keep_keys) > 0:
@@ -135,7 +135,7 @@ class DataLoader(object):
             """
             inputs = self.build_filtered_dataflow(batch_size, **kwargs)
             return inputs, None
-
+            
         return dataflow_fn
 
 
@@ -362,6 +362,11 @@ class H5DataLoader(DataLoader):
         # set up on-the-fly onehot encoder
         assert fasta is not None
         converter_in, converter_out, converter_close_fn = sequence_string_to_onehot_converter(fasta)
+
+        def close_fn(close_val):
+            converter_close_fn()
+            h5_handle.close()
+            return 0
         
         # determine the Tout
         tensor_dtypes = []
@@ -409,12 +414,6 @@ class H5DataLoader(DataLoader):
                 converter_in,
                 converter_out,
                 onehot_batch_array)
-
-            # close pipe if done, and close handle here?
-            limit = max_batches - 1
-            if batch_idx == limit:
-                converter_close_fn()
-                h5_handle.close()
             
             slice_list = []
             for key in keys:
@@ -429,6 +428,16 @@ class H5DataLoader(DataLoader):
             Tout=tensor_dtypes,
             stateful=False, name='py_func_batch_id_to_examples')
 
+        # py func for closing function
+        close_op = tf.py_func(
+            func=close_fn,
+            inp=[0],
+            Tout=tf.int64,
+            stateful=False,
+            name="close_fn")
+        tf.get_collection("DATACLEANUP")
+        tf.add_to_collection("DATACLEANUP", close_op)
+        
         # set shapes
         for i in xrange(len(inputs)):
             if "labels" == keys[i]:
@@ -609,7 +618,6 @@ class H5DataLoader(DataLoader):
                     h5_file, batch_size, task_indices,
                     fasta=self.fasta, label_keys=label_keys, shuffle=True)
                 for h5_file in self.h5_files]
-            # TODO need to adjust this relative to the problem at hand...
             if len(example_slices_list) > 1:
                 min_after_dequeue = 10000
             else:
