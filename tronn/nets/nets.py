@@ -1,8 +1,9 @@
 """Access point for all nets
 """
 
-from tronn.nets.deep_nets import fbasset
 from tronn.nets.deep_nets import basset
+from tronn.nets.deep_nets import fbasset
+from tronn.nets.deep_nets import basset_plus
 from tronn.nets.deep_nets import danq
 from tronn.nets.deep_nets import deepsea
 from tronn.nets.deep_nets import resnet
@@ -19,7 +20,8 @@ from tronn.nets.inference_nets import variants_to_predictions
 
 net_fns = {
     "basset": basset,
-    "fbasset": fbasset, #factorized basset
+    "fbasset": fbasset,
+    "basset_plus": basset_plus,
     "danq": danq,
     "deepsea": deepsea,
     "inception": tfslim_inception,

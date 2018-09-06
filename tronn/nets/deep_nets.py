@@ -256,75 +256,6 @@ def temporal_pred_module(
     return logits
 
 
-def basset_conv_factorized_module(features, is_training=True, width_factor=1):
-    with slim.arg_scope(
-            [slim.batch_norm],
-            center=True,
-            scale=True,
-            activation_fn=tf.nn.relu,
-            is_training=is_training):
-        with slim.arg_scope(
-                [slim.conv2d],
-                activation_fn=None,
-                weights_initializer=layers.variance_scaling_initializer(),
-                biases_initializer=None):
-            net = slim.conv2d(features, int(width_factor*48), [1, 3])
-            net = slim.batch_norm(net)
-	    net = slim.conv2d(net, int(width_factor*64), [1, 3])
-            net = slim.batch_norm(net)
-	    net = slim.conv2d(net, int(width_factor*100), [1, 3])
-            net = slim.batch_norm(net)
-	    net = slim.conv2d(net, int(width_factor*150), [1, 7])
-            net = slim.batch_norm(net)
-            net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
-
-            net = slim.conv2d(net, int(width_factor*200), [1, 7])
-            net = slim.batch_norm(net)
-	    net = slim.conv2d(net, int(width_factor*200), [1, 3])
-            net = slim.batch_norm(net)
-	    net = slim.conv2d(net, int(width_factor*200), [1, 3])
-            net = slim.batch_norm(net) 
-            net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
-
-            net = slim.conv2d(net, int(width_factor*200), [1, 7])
-            net = slim.batch_norm(net)
-            net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
-	 
-    return net
-
-
-def fbasset(features, labels, config, is_training=True):
-    '''
-    Basset - Kelley et al Genome Research 2016
-    '''
-    config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
-    config['temporal'] = config.get('temporal', False)
-    config['final_pool'] = config.get('final_pool', 'flatten')
-    config['fc_layers'] = config.get('fc_layers', 2)
-    config['fc_dim'] = config.get('fc_dim', int(config['width_factor']*1000))
-    config['drop'] = config.get('drop', 0.3)
-
-    net = basset_conv_factorized_module(features, is_training, width_factor=config['width_factor'])
-    net = final_pool(net, config['final_pool'])
-    if config['temporal']:
-        logits = temporal_pred_module(
-            net,
-            int(labels.get_shape()[-1]),
-            share_logistic_weights=True,
-            is_training=is_training)
-    else:
-        logits = mlp_module(
-            net, 
-            num_tasks = int(labels.get_shape()[-1]), 
-            fc_dim = config['fc_dim'], 
-            fc_layers = config['fc_layers'],
-            dropout=config['drop'],
-            is_training=is_training)
-    
-    # Torch7 style maxnorm
-    maxnorm(norm_val=7)
-
-    return logits
 
 
 def lstm_module(features, is_training):
@@ -380,54 +311,177 @@ def basset_conv_module(features, is_training=True, width_factor=1):
     return net
 
 
-def basset_old(features, labels, config, is_training=True, variable_scope="basset"):
-    """Basset - Kelley et al Genome Research 2016
+def basset_conv_factorized_module(features, is_training=True, width_factor=1):
     """
-    config['width_factor'] = config.get('width_factor', 1) # extra config to widen model (NOT deepen)
-    config["recurrent"] = config.get("recurrent", False)
-    config['temporal'] = config.get('temporal', False)
-    config['final_pool'] = config.get('final_pool', 'flatten')
-    config['fc_layers'] = config.get('fc_layers', 2)
-    config['fc_dim'] = config.get('fc_dim', int(config['width_factor']*1000))
-    config['drop'] = config.get('drop', 0.3)
-    config["logit_drop"] = config.get("logit_drop", 0.0)
-    config["split_before"] = config.get("split_before", None)
+    From Wnuk et al 2017 biorxiv
+    """
+    with slim.arg_scope(
+            [slim.batch_norm],
+            center=True,
+            scale=True,
+            activation_fn=tf.nn.relu,
+            is_training=is_training):
+        with slim.arg_scope(
+                [slim.conv2d],
+                activation_fn=None,
+                weights_initializer=layers.variance_scaling_initializer(),
+                biases_initializer=None):
+            # conv1
+            net = slim.conv2d(features, int(width_factor*48), [1, 3])
+            net = slim.batch_norm(net)
+	    net = slim.conv2d(net, int(width_factor*64), [1, 3])
+            net = slim.batch_norm(net)
+	    net = slim.conv2d(net, int(width_factor*100), [1, 3])
+            net = slim.batch_norm(net)
+	    net = slim.conv2d(net, int(width_factor*150), [1, 7])
+            net = slim.batch_norm(net)
+            net = slim.conv2d(net, int(width_factor*300), [1, 7])
+            net = slim.batch_norm(net)
+            net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
 
-    with tf.variable_scope(variable_scope):
-        # convolutional layers
-        net = basset_conv_module(
+            # conv2
+            net = slim.conv2d(net, int(width_factor*200), [1, 7])
+            net = slim.batch_norm(net)
+	    net = slim.conv2d(net, int(width_factor*200), [1, 3])
+            net = slim.batch_norm(net)
+	    net = slim.conv2d(net, int(width_factor*200), [1, 3])
+            net = slim.batch_norm(net) 
+            net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
+
+            # conv3
+            net = slim.conv2d(net, int(width_factor*200), [1, 7])
+            net = slim.batch_norm(net)
+            net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
+	 
+    return net
+
+
+
+def basset_conv_factorized_resnet_module(inputs, is_training=True, width_factor=1):
+    """
+    From Wnuk et al 2017 biorxiv, plus resnet style modifications
+    """
+    # TODO consider switching to He initialization?
+    def standard_conv2d(features, filters, kernel_size, stride):
+        features = tf.layers.conv2d(
             features,
-            is_training,
-            width_factor=config['width_factor'])
+            filters,
+            kernel_size,
+            strides=stride,
+            padding="SAME",
+            kernel_initializer=tf.variance_scaling_initializer(),
+            bias_initializer=None)
+        return features
 
-        # recurrent layers (if any)
-        if config["recurrent"]:
-            net = lstm_module(net, is_training)
-        else:
-            net = final_pool(net, config['final_pool'])
+    
+    def standard_batchnorm(features, is_training):
+        features = tf.layers.batch_normalization(features, training=is_training)
+        return features
 
-        # mlp to logits
-        if config['temporal']:
-            logits = temporal_pred_module(
-                net,
-                int(labels.get_shape()[-1]),
-                share_logistic_weights=True,
-                is_training=is_training)
-        else:
-            logits = mlp_module_v2(
-                net, 
-                num_tasks = int(labels.get_shape()[-1]), 
-                fc_dim = config['fc_dim'], 
-                fc_layers = config['fc_layers'],
-                dropout=config['drop'],
-                logit_dropout=config["logit_drop"],
-                split_before=config["split_before"],
-                is_training=is_training)
 
-        # Torch7 style maxnorm
-        maxnorm(norm_val=7)
+    def standard_conv_stack(features, filters, kernel_size, stride, is_training):
+        """conv, batchnorm, relu
+        """
+        features = standard_conv2d(features, filters, kernel_size, stride)
+        features = standard_batchnorm(features, is_training)
+        features = tf.nn.relu(features)
+        
+        return features
 
-    return logits
+
+    def res_conv_block_1(inputs, is_training):
+        """residual conv block 1
+        """
+        features = standard_conv_stack(inputs, 64, [1,3], [1,1], is_training)
+        
+        features = standard_conv2d(features, 64, [1,3], [1,1])
+        features = standard_batchnorm(features, is_training)
+
+        features = tf.add(inputs, features)
+        features = tf.nn.relu(features)
+        
+        return features
+
+    
+    def res_conv_block_2(inputs, is_training):
+        """residual conv block 2
+        """
+        features = standard_conv_stack(inputs, 128, [1,7], [1,1], is_training)
+        
+        features = standard_conv2d(features, 128, [1,7], [1,1])
+        features = standard_batchnorm(features, is_training)
+
+        features = tf.add(inputs, features)
+        features = tf.nn.relu(features)
+
+        return features
+
+    
+    def res_conv_block_3(inputs, is_training):
+        """residual conv block 3
+        """
+        features = standard_conv_stack(inputs, 200, [1,7], [1,1], is_training)
+
+        features = standard_conv_stack(features, 200, [1,7], [1,1], is_training)
+
+        features = standard_conv2d(features, 200, [1,3], [1,1])
+        features = standard_batchnorm(features, is_training)
+        
+        features = tf.add(inputs, features)
+        features = tf.nn.relu(features)
+
+        return features
+
+    
+    def res_conv_block_4(inputs, is_training):
+        """residual conv block 2
+        """
+        features = standard_conv_stack(inputs, 200, [1,7], [1,1], is_training)
+        
+        features = standard_conv2d(features, 200, [1,7], [1,1])
+        features = standard_batchnorm(features, is_training)
+
+        features = tf.add(inputs, features)
+        features = tf.nn.relu(features)
+
+        return features
+
+    # prelayers
+    features = standard_conv_stack(inputs, 48, [1,3], [1,1], is_training)
+    features = standard_conv_stack(features, 64, [1,3], [1,1], is_training)
+
+    # res blocks 1
+    features = res_conv_block_1(features, is_training)
+    features = res_conv_block_1(features, is_training)
+
+    # 1 to 2
+    features = standard_conv_stack(features, 128, [1,3], [1,1], is_training)
+
+    # res blocks 2
+    features = res_conv_block_2(features, is_training)
+    features = res_conv_block_2(features, is_training)
+
+    features = tf.layers.max_pooling2d(features, [1,3], [1,3])
+    
+    # 2 to 3
+    features = standard_conv_stack(features, 200, [1,3], [1,1], is_training)
+
+    # res blocks 3
+    features = res_conv_block_3(features, is_training)
+    features = res_conv_block_3(features, is_training)
+
+    features = tf.layers.max_pooling2d(features, [1,4], [1,4])
+    
+    # res blocks 4
+    features = res_conv_block_4(features, is_training)
+    features = res_conv_block_4(features, is_training)
+
+    # final conv
+    features = standard_conv_stack(features, 200, [1,7], [1,1], is_training)
+    features = tf.layers.max_pooling2d(features, [1,4], [1,4])
+    
+    return features
+
 
 
 def basset(inputs, params):
@@ -438,11 +492,7 @@ def basset(inputs, params):
     outputs = dict(inputs)
 
     # features
-    #features_key = params["features_key"]
-    #logits_key = params["logits_key"]
-    #labels_key = params["labels_key"]
     features = inputs["features"]
-    #labels = inputs["labels"] # TODO - need to factor this out so that just num tasks exists (put into model info)
     is_training = params.get("is_training", False)
     
     # get params
@@ -497,6 +547,141 @@ def basset(inputs, params):
     outputs["logits"] = logits # store logits
     outputs["final_hidden"] = last_hidden_layer
     
+    return outputs, params
+
+
+
+def fbasset(inputs, params):
+    '''
+    factorized basset
+    '''
+    # set up the needed inputs
+    assert inputs.get("features") is not None
+    outputs = dict(inputs)
+
+    # features
+    features = inputs["features"]
+    is_training = params.get("is_training", False)
+    
+    # get params
+    num_tasks = params["num_tasks"]
+    params['width_factor'] = params.get('width_factor', 1) # extra config to widen model (NOT deepen)
+    params["recurrent"] = params.get("recurrent", False)
+    params['temporal'] = params.get('temporal', False)
+    params['final_pool'] = params.get('final_pool', 'flatten')
+    params['fc_layers'] = params.get('fc_layers', 2)
+    params['fc_dim'] = params.get('fc_dim', int(params['width_factor']*1000))
+    params['drop'] = params.get('drop', 0.3)
+    params["logit_drop"] = params.get("logit_drop", 0.0)
+    params["split_before"] = params.get("split_before", None)
+    
+    # set up model
+    with tf.variable_scope("basset"):
+        # convolutional layers
+        net = basset_conv_factorized_module(
+            features,
+            is_training,
+            width_factor=params['width_factor'])
+
+        # recurrent layers (if any)
+        if params["recurrent"]:
+            net = lstm_module(net, is_training)
+        else:
+            net = final_pool(net, params['final_pool'])
+
+        # mlp to logits
+        if params['temporal']:
+            logits = temporal_pred_module(
+                net,
+                num_tasks,
+                share_logistic_weights=True,
+                is_training=is_training)
+        else:
+            # TODO - here, expose the hidden layer so we can save it to cluster on it
+            logits, last_hidden_layer = mlp_module_v2(
+                net, 
+                num_tasks = num_tasks, #int(labels.get_shape()[-1]), 
+                fc_dim = params['fc_dim'], 
+                fc_layers = params['fc_layers'],
+                dropout=params['drop'],
+                logit_dropout=params["logit_drop"],
+                split_before=params["split_before"],
+                is_training=is_training)
+
+        # Torch7 style maxnorm
+        maxnorm(norm_val=7)
+
+    # store outputs
+    outputs["logits"] = logits # store logits
+    outputs["final_hidden"] = last_hidden_layer
+
+    return outputs, params
+
+
+def basset_plus(inputs, params):
+    '''
+    factorized basset + resnet connections
+    '''
+    # set up the needed inputs
+    assert inputs.get("features") is not None
+    outputs = dict(inputs)
+
+    # features
+    features = inputs["features"]
+    is_training = params.get("is_training", False)
+    
+    # get params
+    num_tasks = params["num_tasks"]
+    params['width_factor'] = params.get('width_factor', 1) # extra config to widen model (NOT deepen)
+    params["recurrent"] = params.get("recurrent", False)
+    params['temporal'] = params.get('temporal', False)
+    params['final_pool'] = params.get('final_pool', 'flatten')
+    params['fc_layers'] = params.get('fc_layers', 2)
+    params['fc_dim'] = params.get('fc_dim', int(params['width_factor']*1000))
+    params['drop'] = params.get('drop', 0.3)
+    params["logit_drop"] = params.get("logit_drop", 0.0)
+    params["split_before"] = params.get("split_before", None)
+    
+    # set up model
+    with tf.variable_scope("basset"):
+        # convolutional layers
+        net = basset_conv_factorized_resnet_module(
+            features,
+            is_training,
+            width_factor=params['width_factor'])
+
+        # recurrent layers (if any)
+        if params["recurrent"]:
+            net = lstm_module(net, is_training)
+        else:
+            net = final_pool(net, params['final_pool'])
+
+        # mlp to logits
+        if params['temporal']:
+            logits = temporal_pred_module(
+                net,
+                num_tasks,
+                share_logistic_weights=True,
+                is_training=is_training)
+        else:
+            # TODO - here, expose the hidden layer so we can save it to cluster on it
+            logits, last_hidden_layer = mlp_module_v2(
+                net, 
+                num_tasks = num_tasks, #int(labels.get_shape()[-1]), 
+                fc_dim = params['fc_dim'], 
+                fc_layers = params['fc_layers'],
+                dropout=params['drop'],
+                logit_dropout=params["logit_drop"],
+                split_before=params["split_before"],
+                is_training=is_training)
+
+        # Torch7 style maxnorm
+        maxnorm(norm_val=7)
+
+    # store outputs
+    outputs["logits"] = logits # store logits
+    outputs["final_hidden"] = last_hidden_layer
+
     return outputs, params
 
 
@@ -759,70 +944,3 @@ def ensemble(features, labels, config, is_training=True):
         tf.stack(all_logits, axis=1), axis=1)
 
     return logits
-
-
-
-def bassetplus_L1_block(inputs, params):
-    """first conv block
-    """
-    assert inputs.get("features") is not None
-    net = inputs["features"]
-    
-    with slim.arg_scope(
-            [slim.batch_norm],
-            center=True,
-            scale=True,
-            activation_fn=tf.nn.relu,
-            is_training=is_training):
-        with slim.arg_scope(
-                [slim.conv2d],
-                activation_fn=None,
-                weights_initializer=layers.variance_scaling_initializer(),
-                biases_initializer=None):
-            net = slim.conv2d(net, 64, [1, 1])
-            
-            
-            
-            net = slim.conv2d(features, int(width_factor*300), [1, 19], scope="Conv")
-            # need to do this for tf_deeplift
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
-            net = slim.batch_norm(net, scope="BatchNorm")
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
-            net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
-
-
-
-    
-    return
-
-
-
-def basset_plus_L2_block(inputs, params):
-    """
-    """
-    
-    return
-
-
-def basset_plus_L3_block(inputs, params):
-    """
-    """
-    
-    return
-
-
-def basset_plus_L4_block(inputs, params):
-    """
-    """
-    
-    return
-
-
-
-def bassetplus(inputs, params):
-    """jacob/surag architecture
-    """
-    
-    
-
-    return
