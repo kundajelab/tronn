@@ -246,9 +246,15 @@ def add_train_parser(subparsers):
     group_input.add_argument(
         "--tasks", nargs="+", default=[], type=int,
         help="tasks to train on (default is all)")
-    #group_input.add_argument(
-    #    "--cvfold", default=0, type=int,
-    #    help="which files to train on [0, 1, 2]") # TODO adjust this
+    group_input.add_argument(
+        "--kfolds", default=10, type=int,
+        help="number of folds to split the data")
+    group_input.add_argument(
+        "--valid_folds", nargs="+", default=[8], type=int,
+        help="which fold to use as validation")
+    group_input.add_argument(
+        "--test_folds", nargs="+", default=[9], type=int,
+        help="which fold to use as test")
     group_input.add_argument(
         '--restore_model_dir', default=None,
         help='restore from last checkpoint in dir')

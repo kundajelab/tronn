@@ -22,7 +22,11 @@ def run(args):
     # set up dataset
     h5_files = setup_h5_files(args.data_dir)
     train_files, valid_files, test_files = setup_train_valid_test(
-        h5_files, 10, regression=args.regression) # TODO provide folds as param
+        h5_files,
+        args.kfolds,
+        valid_folds=args.valid_folds,
+        test_folds=args.test_folds,
+        regression=args.regression) # TODO provide folds as param
     
     # set up dataloader and buid the input functions needed to serve tensor batches
     train_dataloader = H5DataLoader(train_files, fasta=args.fasta)
