@@ -95,7 +95,7 @@ def setup_train_valid_test(
         test_folds = [k - 1]
 
     if len(valid_folds) == 0:
-        valid_folds = [test_folds[-1] - 1]
+        valid_folds = [test_folds[0] - 1]
         assert valid_folds[0] not in test_folds
 
     train_folds = [i for i in xrange(k) if i not in test_folds + valid_folds]
