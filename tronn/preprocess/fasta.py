@@ -176,11 +176,11 @@ def sequence_string_to_onehot_converter(fasta):
 
     # convert to upper with AWK
     to_upper_cmd = ['awk', '{print toupper($2); system("")}']
-    to_upper = subprocess.Popen(to_upper_cmd, stdin=get_fasta.stdout, stdout=PIPE)
+    #to_upper = subprocess.Popen(to_upper_cmd, stdin=get_fasta.stdout, stdout=PIPE)
 
     # replace ACGTN with 01234
-    sed_cmd = ['sed', "-u", 's/A/0/g; s/C/1/g; s/G/2/g; s/T/3/g; s/N/4/g']
-    replace = subprocess.Popen(sed_cmd, stdin=to_upper.stdout, stdout=PIPE)
+    sed_cmd = ['sed', "-u", 's/[Aa]/0/g; s/[Cc]/1/g; s/[Gg]/2/g; s/[Tt]/3/g; s/[Nn]/4/g']
+    replace = subprocess.Popen(sed_cmd, stdin=get_fasta.stdout, stdout=PIPE)
 
     # separate all by commas
     split_w_commas_cmd = ["sed", "-u", 's/./,&/g; s/,//']
@@ -192,7 +192,7 @@ def sequence_string_to_onehot_converter(fasta):
         #pipe_in.stdin.close()
         pipe_in.wait()
         get_fasta.wait()
-        to_upper.wait()
+        #to_upper.wait()
         replace.wait()
         pipe_out.wait()
     
