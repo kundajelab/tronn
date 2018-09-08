@@ -549,6 +549,7 @@ class ModelManager(object):
             max_epochs=20,
             early_stopping_metric="mean_auprc",
             epoch_patience=2,
+            eval_steps=1000,
             warm_start=None,
             warm_start_params={},
             regression=False,
@@ -604,7 +605,7 @@ class ModelManager(object):
             eval_metrics = self.evaluate(
                 eval_input_fn,
                 "{}/eval".format(out_dir),
-                steps=1000,
+                steps=eval_steps,
                 checkpoint=latest_checkpoint,
                 regression=regression)
 
