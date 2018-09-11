@@ -181,7 +181,7 @@ def sequence_string_to_onehot_converter(fasta):
     sed_cmd = [
         'sed',
         "-u",
-        's/^.*[[:space:]]//g; s/[Aa]/0/g; s/[Cc]/1/g; s/[Gg]/2/g; s/[Tt]/3/g; s/[Nn]/4/g; s/./,&/g; s/,//']
+        's/^.*[[:blank:]]//g; s/[Aa]/0/g; s/[Cc]/1/g; s/[Gg]/2/g; s/[Tt]/3/g; s/[Nn]/4/g; s/./,&/g; s/,//']
     pipe_out = subprocess.Popen(sed_cmd, stdin=get_fasta.stdout, stdout=PIPE)
 
     # separate all by commas
@@ -224,11 +224,15 @@ def batch_string_to_onehot(array, pipe_in, pipe_out, batch_array):
             # check
             sequence = pipe_out.stdout.readline().strip()
             sequence = np.fromstring(sequence, dtype=np.uint8, sep=",") # THIS IS CRUCIAL
+
+            # save out
+            batch_array[i,:] = sequence
+            
         except:
             # TODO fix this so that the information is in the metadata?
+            print "sequence information missing"
             sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)
-            
-        batch_array[i,:] = sequence
+            batch_array[i,:] = sequence
 
     return batch_array
 
