@@ -399,14 +399,19 @@ class H5DataLoader(DataLoader):
             This is an important wrapper to be able to use TensorFlow's pyfunc.
             """
             batch_start = batch_id*batch_size
-            slice_array = H5DataLoader.h5_to_slices(
-                h5_handle,
-                batch_start,
-                batch_size,
-                task_indices=task_indices,
-                features_key=features_key,
-                label_keys=label_keys)
 
+            try:
+                slice_array = H5DataLoader.h5_to_slices(
+                    h5_handle,
+                    batch_start,
+                    batch_size,
+                    task_indices=task_indices,
+                    features_key=features_key,
+                    label_keys=label_keys)
+            except ValueError:
+                # deal with closed h5 file
+                raise tf.errors.OutofRangeError
+                
             # onehot encode on the fly
             # TODO keep the string sequence
             slice_array[DataKeys.FEATURES] = batch_string_to_onehot(
