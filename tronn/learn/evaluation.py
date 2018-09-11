@@ -18,14 +18,30 @@ from tronn.util.tf_utils import setup_tensorflow_session
 from tronn.util.tf_utils import close_tensorflow_session
 
 
-def get_global_avg_metrics(labels, probabilities):
+def get_global_avg_metrics(labels, probabilities, num_thresholds=100):
     """Get global metric values: predictions, mean metric values
     Note that the inputs must be tensors!
     """
     predictions = tf.cast(tf.greater(probabilities, 0.5), 'float32')
-    metric_map = {'mean_auroc': tf.metrics.auc(labels, probabilities, curve='ROC', name='mean_auroc'),
-                  'mean_auprc': tf.metrics.auc(labels, probabilities, curve='PR', name='mean_auprc'),
-                  'mean_accuracy': tf.metrics.accuracy(labels, predictions, name='mean_accuracy')}
+    metric_map = {
+        'mean_auroc': tf.metrics.auc(
+            labels,
+            probabilities,
+            num_thresholds=num_thresholds,
+            curve='ROC',
+            name='mean_auroc',
+            summation_method="careful_interpolation"),
+        'mean_auprc': tf.metrics.auc(
+            labels,
+            probabilities,
+            num_thresholds=num_thresholds,
+            curve='PR',
+            name='mean_auprc',
+            summation_method="careful_interpolation"),
+        'mean_accuracy': tf.metrics.accuracy(
+            labels,
+            predictions,
+            name='mean_accuracy')}
     tf.add_to_collection(
         "auprc",
         metric_map["mean_auprc"][0])
