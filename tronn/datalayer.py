@@ -410,7 +410,7 @@ class H5DataLoader(DataLoader):
                     label_keys=label_keys)
             except ValueError:
                 # deal with closed h5 file
-                raise tf.errors.OutOfRangeError
+                raise StopIteration
                 
             # onehot encode on the fly
             # TODO keep the string sequence
