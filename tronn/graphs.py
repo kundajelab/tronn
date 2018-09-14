@@ -250,7 +250,7 @@ class ModelManager(object):
             features_key=DataKeys.FEATURES,
             labels_key=DataKeys.LABELS,
             logits_key=DataKeys.LOGITS,
-            probs_key=DataKeys.PROBS,
+            probs_key=DataKeys.PROBABILITIES,
             regression=False):
         """build evaluation dataflow. links up input tensors
         to the model with is_training as False
@@ -289,9 +289,9 @@ class ModelManager(object):
     def build_prediction_dataflow(
             self,
             inputs,
-            features_key=DataKeys.FEATURES
+            features_key=DataKeys.FEATURES,
             logits_key=DataKeys.LOGITS,
-            probs_key=DataKeys.PROBS,
+            probs_key=DataKeys.PROBABILITIES,
             regression=False):
         """build prediction dataflow. links up input tensors
         to the model with is_training as False
@@ -317,6 +317,8 @@ class ModelManager(object):
             inference_fn,
             inference_params,
             features_key=DataKeys.FEATURES,
+            logits_key=DataKeys.LOGITS,
+            probs_key=DataKeys.PROBABILITIES,
             regression=False):
         """build inference dataflow. links up input tensors
         to the model with is_training as False
@@ -328,6 +330,8 @@ class ModelManager(object):
         outputs = self.build_prediction_dataflow(
             inputs,
             features_key=features_key,
+            logits_key=logits_key,
+            probs_key=probs_key,
             regression=regression)
 
         # get the variables to restore here
