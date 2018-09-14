@@ -241,7 +241,7 @@ def bin_regions_sharded(
                 adjusted_stop = stop + 3 * stride
             # add other binning strategies as needed here
             else:
-                raise Exception
+                raise ValueError
 
             while mark < adjusted_stop:
                 # write out bins

@@ -21,7 +21,7 @@ from tronn.nets.inference_nets import variants_to_predictions
 net_fns = {
     "basset": basset,
     "fbasset": fbasset,
-    "basset_plus": basset_plus,
+    "resbasset": basset_plus,
     "danq": danq,
     "deepsea": deepsea,
     "inception": tfslim_inception,
