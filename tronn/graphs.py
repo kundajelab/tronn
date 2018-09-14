@@ -12,16 +12,12 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
-# tf 1.8 specific, may need to update
-from tensorflow.python.keras import estimator as keras_estimator
-#from tensorflow.python.keras.estimator import _create_keras_model_fn
-#from tensorflow.python.keras.estimator import _any_weight_initialized
-
 from tensorflow.python.estimator import model_fn as model_fn_lib
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import random_seed
 
 from tensorflow.python.keras import models
+from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
 
 from tensorflow.python.training import monitored_session
 from tensorflow.python.training import training
@@ -212,8 +208,10 @@ class ModelManager(object):
                 "learning_rate": 0.002,
                 "decay": 0.98,
                 "momentum": 0.0},
-            features_key="features",
-            labels_key="labels",
+            features_key=DataKeys.FEATURES,
+            labels_key=DataKeys.LABELS,
+            logits_key=DataKeys.LOGITS,
+            probs_key=DataKeys.PROBABILITIES,
             regression=False):
         """builds the training dataflow. links up input tensors
         to the model with is_training as True.
@@ -226,19 +224,22 @@ class ModelManager(object):
         self.model_params.update({"is_training": True})
         outputs, _ = self.model_fn(inputs, self.model_params)
 
-        # add final activation, loss, and train op
-        outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
+        # add final activation + loss
         if regression:
             loss = self._add_loss(
                 outputs[labels_key],
-                outputs["logits"],
+                outputs[logits_key],
                 loss_fn=tf.losses.mean_squared_error)
         else:
-            loss = self._add_loss(outputs[labels_key], outputs["logits"])
-            
+            outputs[probs_key] = self._add_final_activation_fn(
+                outputs[DataKeys.LOGITS])
+            loss = self._add_loss(
+                outputs[labels_key],
+                outputs[logits_key])
+
+        # add train op
         # TODO fix the train op so that doesn't rely on slim
         train_op = self._add_train_op(loss, optimizer_fn, optimizer_params)
-        #train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
         
         return outputs, loss, train_op
 
@@ -246,8 +247,10 @@ class ModelManager(object):
     def build_evaluation_dataflow(
             self,
             inputs,
-            features_key="features",
-            labels_key="labels",
+            features_key=DataKeys.FEATURES,
+            labels_key=DataKeys.LABELS,
+            logits_key=DataKeys.LOGITS,
+            probs_key=DataKeys.PROBS,
             regression=False):
         """build evaluation dataflow. links up input tensors
         to the model with is_training as False
@@ -260,18 +263,25 @@ class ModelManager(object):
         self.model_params.update({"is_training": False})
         outputs, _ = self.model_fn(inputs, self.model_params)
 
-        # add final activation, loss, and metrics
-        outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
-        loss = self._add_loss(outputs[labels_key], outputs["logits"])
-        # TODO - need to adjust for regression
+        # add loss
+        loss = self._add_loss(
+            outputs[labels_key],
+            outputs[logits_key])
+
+        # add final activateion + metrics
         if regression:
             metrics = self._add_metrics(
                 outputs[labels_key],
-                outputs["logits"],
+                outputs[logits_key],
                 loss,
                 metrics_fn=get_regression_metrics)
         else:
-            metrics = self._add_metrics(outputs[labels_key], outputs["probs"], loss)
+            outputs[probs_key] = self._add_final_activation_fn(
+                outputs[logits_key])
+            metrics = self._add_metrics(
+                outputs[labels_key],
+                outputs[probs_key],
+                loss)
 
         return outputs, loss, metrics
 
@@ -279,7 +289,10 @@ class ModelManager(object):
     def build_prediction_dataflow(
             self,
             inputs,
-            features_key="features"):
+            features_key=DataKeys.FEATURES
+            logits_key=DataKeys.LOGITS,
+            probs_key=DataKeys.PROBS,
+            regression=False):
         """build prediction dataflow. links up input tensors
         to the model with is_training as False
         """
@@ -291,7 +304,9 @@ class ModelManager(object):
         outputs, _ = self.model_fn(inputs, self.model_params)
 
         # add final activation
-        outputs["probs"] = self._add_final_activation_fn(outputs["logits"])
+        if not regression:
+            outputs[probs_key] = self._add_final_activation_fn(
+                outputs[logits_key])
         
         return outputs
 
@@ -301,7 +316,8 @@ class ModelManager(object):
             inputs,
             inference_fn,
             inference_params,
-            features_key="features"):
+            features_key=DataKeys.FEATURES,
+            regression=False):
         """build inference dataflow. links up input tensors
         to the model with is_training as False
         """
@@ -309,7 +325,10 @@ class ModelManager(object):
         assert inputs.get(features_key) is not None
         
         # set up prediction dataflow
-        outputs = self.build_prediction_dataflow(inputs, features_key=features_key)
+        outputs = self.build_prediction_dataflow(
+            inputs,
+            features_key=features_key,
+            regression=regression)
 
         # get the variables to restore here
         # TODO remove reliance on slim
@@ -356,9 +375,11 @@ class ModelManager(object):
             if mode == tf.estimator.ModeKeys.PREDICT:
                 inference_mode = params.get("inference_mode", False)
                 if not inference_mode:
-                    outputs = self.build_prediction_dataflow(inputs)
+                    # prediction mode
+                    outputs = self.build_prediction_dataflow(inputs, regression=regression)
                     return tf.estimator.EstimatorSpec(mode, predictions=outputs)
                 else:
+                    # inference mode
                     inference_params = params.get("inference_params", {})
                     model_reuse = params.get("model_reuse", False)
                     inference_params.update({"model_reuse": model_reuse})
@@ -369,7 +390,7 @@ class ModelManager(object):
                     
                     # create custom init fn
                     init_op, init_feed_dict = restore_variables_op(
-                        params["checkpoint"], # this is specific to raw tensorflow, figure out separate out?
+                        params["checkpoint"],
                         skip=["pwm"])
                     def init_fn(scaffold, sess):
                         sess.run(init_op, init_feed_dict)
@@ -384,10 +405,12 @@ class ModelManager(object):
                         scaffold=scaffold)
             
             elif mode == tf.estimator.ModeKeys.EVAL:
+                # evaluation mode
                 outputs, loss, metrics = self.build_evaluation_dataflow(inputs, regression=regression)
                 return tf.estimator.EstimatorSpec(mode, loss=loss, eval_metric_ops=metrics)
             
             elif mode == tf.estimator.ModeKeys.TRAIN:
+                # training mode
                 outputs, loss, train_op = self.build_training_dataflow(inputs, regression=regression)
                 print_param_count()
                 return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
@@ -418,7 +441,6 @@ class ModelManager(object):
         runs out.
         """
         # if there is a data close fn, add in as hook
-        datacleanup_ops = tf.get_collection("DATACLEANUP")
         hooks.append(DataCleanupHook())
         print "appended hook"
         
@@ -441,8 +463,9 @@ class ModelManager(object):
             regression=False):
         """evaluate a trained estimator
         """
-        datacleanup_ops = tf.get_collection("DATACLEANUP")
+        # if there is a data close fn, add in as hook
         hooks.append(DataCleanupHook())
+        print "appended hook"
         
         # build evaluation estimator and evaluate
         estimator = self.build_estimator(
@@ -468,8 +491,9 @@ class ModelManager(object):
             yield_single_examples=True):
         """predict on a trained estimator
         """
-        datacleanup_ops = tf.get_collection("DATACLEANUP")
+        # if there is a data close fn, add in as hook
         hooks.append(DataCleanupHook())
+        print "appended hook"
 
         # build prediction estimator
         estimator = self.build_estimator(config=config, out_dir=out_dir)
@@ -494,8 +518,9 @@ class ModelManager(object):
             yield_single_examples=True):
         """infer on a trained estimator
         """
-        datacleanup_ops = tf.get_collection("DATACLEANUP")
+        # if there is a data close fn, add in as hook
         hooks.append(DataCleanupHook())
+        print "appended hook"
         
         # build inference estimator
         self.model_params["inference_mode"] = True
@@ -677,17 +702,7 @@ class ModelManager(object):
     def _add_loss(self, labels, logits, loss_fn=tf.losses.sigmoid_cross_entropy):
         """add loss
         """
-        if False:
-        #if self.finetune:
-            # adjust which labels and logits go into loss if finetuning
-            labels_unstacked = tf.unstack(labels, axis=1)
-            labels = tf.stack([labels_unstacked[i] for i in self.finetune_tasks], axis=1)
-            logits_unstacked = tf.unstack(logits, axis=1)
-            logits = tf.stack([logits_unstacked[i] for i in self.finetune_tasks], axis=1)
-            print labels.get_shape()
-            print logits.get_shape()
-
-        # split out getting the positive weights so that only the right ones go into the loss function
+        # for finetune - just choose which ones go into loss
 
         if False:
         #if self.class_weighted_loss:
@@ -864,7 +879,8 @@ class KerasModelManager(ModelManager):
         Draws liberally from tf.keras.estimator.model_to_estimator fn
         """
         self.model_dir = model_dir
-        
+
+        # check mutually exclusive
         if not (keras_model or keras_model_path):
             raise ValueError(
                 'Either `keras_model` or `keras_model_path` needs to be provided.')
@@ -873,14 +889,16 @@ class KerasModelManager(ModelManager):
                 'Please specity either `keras_model` or `keras_model_path`, '
                 'but not both.')
 
+        # set up keras model
         if not keras_model:
             self.keras_model = models.load_model(keras_model_path)
+        else:
+            self.keras_model = keras_model
 
         # tf 1.8 - update as needed
         from tensorflow.python.keras._impl.keras.estimator import _create_keras_model_fn as create_keras_model_fn
         from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
-        #from tensorflow.python.keras._impl.keras.estimator import _any_variable_initialized as any_weight_initialized
-            
+        
         # set up model fn
         def keras_estimator_fn(inputs, model_fn_params):
             """wrap up keras model call
@@ -891,33 +909,33 @@ class KerasModelManager(ModelManager):
             
             # for mahfuza models
             features = tf.squeeze(features, axis=1)
-            
+
+            # build keras model
             if model_fn_params.get("is_training", False):
                 mode = model_fn_lib.ModeKeys.TRAIN
             else:
                 mode = model_fn_lib.ModeKeys.PREDICT
             model = build_keras_model(mode, self.keras_model, model_fn_params, features, labels)
-            model.layers.pop() # remove the sigmoid - but check this
+            model.layers.pop() # remove the sigmoid activation
             model = tf.keras.models.Model(model.input, model.layers[-1].output)
-            
-            print [layer.name for layer in model.layers]
+            #print [layer.name for layer in model.layers]
 
-            # build an init fn or init op to run in a KerasInitHook
+            # set up outputs
             outputs.update(dict(zip(model.output_names, model.outputs)))
-            
-            # make sure there is a logit output
             out_layer_key = "dense_3" # is 12 just the layer num?
             outputs[DataKeys.LOGITS] = outputs[out_layer_key]
 
             # add to collection to make sure restored correctly
             is_inference = self.model_params.get("inference_mode", False)
             if not is_inference:
+                # add variables to model variables collection to make
+                # sure they are restored correctly
                 for v in tf.trainable_variables():
                     tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
             else:
-                # for interpretation:
                 # set up a py_func op for now that has the init fn
                 # and set up a hook to restore from there
+                # build an init fn or init op to run in a KerasRestoreHook
                 def init_fn():
                     model.set_weights(self.keras_weights)
                 init_op = tf.py_func(
@@ -937,16 +955,13 @@ class KerasModelManager(ModelManager):
         self.model_params.update({"model_reuse": False})
         
         # set up weights
-        # TODO fix this
-        #if any_weight_initialized():
+        # TODO figure out how to check if weights were even initialized
         self.keras_weights = self.keras_model.get_weights()
-        
-        # TODO make a checkpoint and keep in self.checkpoints
         self.model_checkpoint = self.save_checkpoint_from_keras_model()
         
         # debug check
-        print self.keras_model.input_names
-        print self.keras_model.output_names
+        #print self.keras_model.input_names
+        #print self.keras_model.output_names
 
 
     def save_checkpoint_from_keras_model(self):
@@ -955,35 +970,28 @@ class KerasModelManager(ModelManager):
         draws heavily from _save_first_checkpoint in keras to estimator fn
         from tensorflow 1.8
         """
-        from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
-                
         keras_checkpoint = tf.train.latest_checkpoint(self.model_dir)
         if not keras_checkpoint:
             keras_checkpoint = "{}/keras_model.ckpt".format(self.model_dir)
             with tf.Graph().as_default() as g:
                 tf.train.create_global_step(g)
-                
                 mode = model_fn_lib.ModeKeys.TRAIN
                 model = build_keras_model(
-                    mode,
-                    self.keras_model,
-                    self.model_params)
+                    mode, self.keras_model, self.model_params)
                 with tf.Session() as sess:
-                    print "set weights"
                     model.set_weights(self.keras_weights)
-                    print "done"
+                    # TODO - check if adding to model variables necessary here
                     for v in tf.trainable_variables():
                         tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
-
-                    
-                    print tf.trainable_variables()
-                    print [len(layer.weights) for layer in model.layers]
-                    print sum([len(layer.weights) for layer in model.layers])
-                    print len([layer.name for layer in model.layers])
-                    print len(tf.trainable_variables())
-                    print len(self.keras_weights)
-                    print self.keras_weights[0][:,:,0]
-                    print sess.run(tf.trainable_variables()[0])[:,:,0]
+                    if False:
+                        print tf.trainable_variables()
+                        print [len(layer.weights) for layer in model.layers]
+                        print sum([len(layer.weights) for layer in model.layers])
+                        print len([layer.name for layer in model.layers])
+                        print len(tf.trainable_variables())
+                        print len(self.keras_weights)
+                        print self.keras_weights[0][:,:,0]
+                        print sess.run(tf.trainable_variables()[0])[:,:,0]
                     saver = tf.train.Saver()
                     saver.save(sess, keras_checkpoint)
 
@@ -992,7 +1000,6 @@ class KerasModelManager(ModelManager):
         #keras_checkpoint = "/srv/scratch/dskim89/mahfuza/models/mouse.all.fbasset/test.ckpt"
         with tf.Graph().as_default() as g:
             tf.train.create_global_step(g)
-            
             #mode = model_fn_lib.ModeKeys.TRAIN
             #model = build_keras_model(
             #    mode,
@@ -1000,14 +1007,10 @@ class KerasModelManager(ModelManager):
             #    self.model_params)
             #model.layers.pop() # remove the sigmoid - but check this
             #model = tf.keras.models.Model(model.input, model.layers[-1].output)
-            
             features = tf.placeholder(tf.float32, shape=[64,1,1000,4])
             labels = tf.placeholder(tf.float32, shape=[64,279])
             inputs = {"features": features, "labels": labels}
-            
             self.model_fn(inputs, {})
-
-            
             with tf.Session() as sess:
                 saver = tf.train.Saver()
                 saver.restore(sess, keras_checkpoint)
@@ -1016,6 +1019,7 @@ class KerasModelManager(ModelManager):
 
         return keras_checkpoint
 
+    
     def infer(
             self,
             input_fn,
@@ -1041,95 +1045,6 @@ class KerasModelManager(ModelManager):
             checkpoint=checkpoint,
             hooks=hooks,
             yield_single_examples=yield_single_examples)
-    
-
-    def build_estimator_ignore(
-            self,
-            params=None,
-            config=None,
-            warm_start=None,
-            regression=False,
-            out_dir="."):
-        """build a model fn that will work in the Estimator framework
-        """
-        # adjust config
-        if config is None:
-            config=tf.estimator.RunConfig(
-                save_summary_steps=30,
-                save_checkpoints_secs=None,
-                save_checkpoints_steps=10000000000,
-                keep_checkpoint_max=None)
-
-            
-        # set up the model function to be called in the run
-        def estimator_model_fn_ignore(
-                features,
-                labels,
-                mode,
-                params=None,
-                config=None):
-            """model fn in the Estimator framework
-            """
-            # set up the input dict for model fn
-            # note that all input goes through features (including labels)
-            inputs = features
-            
-            # attach necessary things and return EstimatorSpec
-            if mode == tf.estimator.ModeKeys.PREDICT:
-                inference_mode = params.get("inference_mode", False)
-                if not inference_mode:
-                    outputs = self.build_prediction_dataflow(inputs)
-                    return tf.estimator.EstimatorSpec(mode, predictions=outputs)
-                else:
-                    inference_params = params.get("inference_params", {})
-                    model_reuse = params.get("model_reuse", False)
-                    inference_params.update({"model_reuse": model_reuse})
-                    outputs, variables_to_restore = self.build_inference_dataflow(
-                        inputs,
-                        params["inference_fn"],
-                        inference_params)
-
-                    print len(variables_to_restore)
-                    print len(self.keras_weights)
-                    quit()
-                    
-                    # create custom init fn
-                    # only thing changed?
-                    def init_fn(scaffold, sess):
-                        model.set_weights(self.keras_weights)
-
-                    # custom scaffold to load checkpoint
-                    scaffold = monitored_session.Scaffold(
-                        init_fn=init_fn)
-                    
-                    return tf.estimator.EstimatorSpec(
-                        mode,
-                        predictions=outputs,
-                        scaffold=scaffold)
-            
-            elif mode == tf.estimator.ModeKeys.EVAL:
-                outputs, loss, metrics = self.build_evaluation_dataflow(inputs, regression=regression)
-                return tf.estimator.EstimatorSpec(mode, loss=loss, eval_metric_ops=metrics)
-            
-            elif mode == tf.estimator.ModeKeys.TRAIN:
-                outputs, loss, train_op = self.build_training_dataflow(inputs, regression=regression)
-                print_param_count()
-                return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
-            else:
-                raise Exception, "mode does not exist!"
-            
-            return None
-            
-        # instantiate the custom estimator
-        estimator = TronnEstimator(
-            estimator_model_fn,
-            model_dir=out_dir,
-            params=params,
-            config=config)
-
-        return estimator
-
-
     
     
     
