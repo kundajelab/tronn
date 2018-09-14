@@ -3,7 +3,6 @@ or merging regions as desired
 """
 
 import numpy as np
-import tensorflow as tf
 
 
 class H5Handler(object):
@@ -29,7 +28,6 @@ class H5Handler(object):
         self.skip = skip
         self.direct_transfer = direct_transfer
         self.example_keys = []
-        #del self.h5_handle[group]
         for key in tensor_dict.keys():
             h5_key = "{}/{}".format(self.group, key)
             if key in self.skip:
@@ -67,7 +65,7 @@ class H5Handler(object):
 
             if key == "example_metadata":
                 tmp_arrays[key] = np.empty(dataset_shape, dtype="S100")
-                tmp_arrays[key].fill("false=chrY:0-0")
+                tmp_arrays[key].fill("features=chr1:0-1000")
             elif "features.string" in key:
                 tmp_arrays[key] = np.empty(dataset_shape, dtype="S1000")
                 tmp_arrays[key].fill("NNNN")
