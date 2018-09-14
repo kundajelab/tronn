@@ -914,21 +914,20 @@ class KerasModelManager(ModelManager):
             if not is_inference:
                 for v in tf.trainable_variables():
                     tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
-
-            # TODO(dk)
-            # for interpretation:
-            # set up a py_func op for now that has the init fn
-            # and set up a hook to restore from there
-            def init_fn():
-                model.set_weights(self.keras_weights)
-            init_op = tf.py_func(
-                func=init_fn,
-                inp=[],
-                Tout=[],
-                stateful=False,
-                name="init_keras")
-            tf.get_collection("KERAS_INIT")
-            tf.add_to_collection("KERAS_INIT", init_op)
+            else:
+                # for interpretation:
+                # set up a py_func op for now that has the init fn
+                # and set up a hook to restore from there
+                def init_fn():
+                    model.set_weights(self.keras_weights)
+                init_op = tf.py_func(
+                    func=init_fn,
+                    inp=[],
+                    Tout=[],
+                    stateful=False,
+                    name="init_keras")
+                tf.get_collection("KERAS_INIT")
+                tf.add_to_collection("KERAS_INIT", init_op)
             
             return outputs, model_fn_params
 

@@ -280,7 +280,7 @@ class H5DataLoader(DataLoader):
                 if "metadata" in key:
                     slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                     slice_pad = np.array(
-                        ["false=chrY:0-0" for i in xrange(batch_padding_num)]).reshape(
+                        ["features=chr1:0-1000" for i in xrange(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
                 else:
                     slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)

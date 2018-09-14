@@ -230,7 +230,7 @@ def batch_string_to_onehot(array, pipe_in, pipe_out, batch_array):
             
         except:
             # TODO fix this so that the information is in the metadata?
-            print "sequence information missing"
+            print "sequence information missing, {}".format(feature_interval)
             sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)
             batch_array[i,:] = sequence
 
