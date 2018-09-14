@@ -17,7 +17,11 @@ from tensorflow.python.framework import ops
 from tensorflow.python.framework import random_seed
 
 from tensorflow.python.keras import models
-from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
+# 1.8
+#from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
+
+# 1.9+
+from tensorflow.python.estimator.keras import _clone_and_build_model as build_keras_model
 
 from tensorflow.python.training import monitored_session
 from tensorflow.python.training import training
@@ -898,10 +902,6 @@ class KerasModelManager(ModelManager):
             self.keras_model = models.load_model(keras_model_path)
         else:
             self.keras_model = keras_model
-
-        # tf 1.8 - update as needed
-        from tensorflow.python.keras._impl.keras.estimator import _create_keras_model_fn as create_keras_model_fn
-        from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
         
         # set up model fn
         def keras_estimator_fn(inputs, model_fn_params):
