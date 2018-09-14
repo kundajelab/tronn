@@ -74,22 +74,35 @@ def parse_args():
 def add_model_params(args):
     """Add model configs
     """
-    # parse model configs
-    model_config = {}
-    model_config['name'] = args.model[0]
-    for model_arg in args.model[1:]:
-        if "models" in model_arg:
-            name, models = model_arg.split("=", 1)
-            model_config[name] = models
-        elif '=' in model_arg:
-            name, value = model_arg.split('=', 1)
-            model_config[name] = eval(value)
-        else:
-            model_config[model_arg] = True
-    args.model = model_config
+    if args.model is not None:
+        # parse model configs
+        model_config = {}
+        model_config['name'] = args.model[0]
+        for model_arg in args.model[1:]:
+            if "models" in model_arg:
+                name, models = model_arg.split("=", 1)
+                model_config[name] = models
+            elif '=' in model_arg:
+                name, value = model_arg.split('=', 1)
+                model_config[name] = eval(value)
+            else:
+                model_config[model_arg] = True
+        args.model = model_config
+    else:
+        args.model = {}    
 
     # label key dict - for the ordering?
     args.label_key_dict = _parse_files(args.label_keys)
+    if False:
+        if args.data_dir is not None:
+            data_file = glob.glob("{}/*h5".format(args.data_dir))[0]
+        else:
+            data_file = args.model_info["train_files"][0]
+        args.label_indices = get_absolute_label_indices(
+            args.model_info["label_keys"],
+            args.label_key_dict,
+            args.inference_tasks,
+            data_file)
 
     return 
 
@@ -267,12 +280,15 @@ def add_train_parser(subparsers):
     group_input.add_argument(
         '--transfer_model_checkpoint', default=None,
         help='transfer from desired checkpoint') 
+    group_input.add_argument(
+        "--transfer_keras", default=None,
+        help="transfer from a keras saved model")
     
     # group for model
     group_model = argparser_train.add_argument_group(
         "Model definition")
     group_model.add_argument(
-        '--model', nargs='+', required=True,
+        '--model', nargs='+', required=False,
         help='choose model and provide configs')
     
     # group for parameters
@@ -475,12 +491,17 @@ def _setup_interpretation_options(args):
     """given parsed args, adjust inputs as needed
     matches _add_interpretation_options
     """
+    if args.data_dir is not None:
+        data_file = glob.glob("{}/*h5".format(args.data_dir))[0]
+    else:
+        data_file = args.model_info["train_files"][0]
+    
     # inference tasks
     args.inference_tasks = _parse_files(args.inference_tasks)
     args.inference_task_indices = get_absolute_label_indices(
         args.model_info["label_keys"], 
-        args.inference_tasks, 
-        args.model_info["train_files"][0])
+        args.inference_tasks,
+        data_file)
 
     # filter tasks
     args.filter_tasks = _parse_files(args.filter_tasks)
@@ -489,7 +510,7 @@ def _setup_interpretation_options(args):
         filter_task_indices = get_absolute_label_indices(
             args.model_info["label_keys"],
             {key: args.filter_tasks[key]},
-            args.model_info["train_files"][0])
+            data_file)
         all_filter_task_indices.append(filter_task_indices)
     args.filter_task_indices = all_filter_task_indices
 
@@ -926,7 +947,7 @@ def _setup_model(args):
         with open(args.model_info, "r") as fp:
             model_info = json.load(fp)
         args.model_info = model_info
-    
+        
     return
 
 

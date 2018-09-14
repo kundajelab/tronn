@@ -12,13 +12,16 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+# tf 1.8 specific, may need to update
+from tensorflow.python.keras import estimator as keras_estimator
+#from tensorflow.python.keras.estimator import _create_keras_model_fn
+#from tensorflow.python.keras.estimator import _any_weight_initialized
+
 from tensorflow.python.estimator import model_fn as model_fn_lib
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import random_seed
 
-#from tensorflow.python.ops import control_flow_ops
-#from tensorflow.python.ops import resources
-#from tensorflow.python.ops import variables
+from tensorflow.python.keras import models
 
 from tensorflow.python.training import monitored_session
 from tensorflow.python.training import training
@@ -35,12 +38,15 @@ from tronn.learn.evaluation import get_global_avg_metrics
 from tronn.learn.evaluation import get_regression_metrics
 
 from tronn.learn.learning import RestoreHook
+from tronn.learn.learning import KerasRestoreHook
 from tronn.learn.learning import DataCleanupHook
 
 from tronn.interpretation.interpret import visualize_region
 from tronn.interpretation.dreaming import dream_one_sequence
 
 from tronn.visualization import visualize_debug
+
+from tronn.util.utils import DataKeys
 
 
 # TODO move into learn.estimator
@@ -139,7 +145,7 @@ class TronnEstimator(tf.estimator.Estimator):
 
 
 
-    # TODO deprecate this?
+    # TODO keep this for now as starting code for ensembling
     def build_restore_graph_function_old(self, checkpoints, is_ensemble=False, skip=[], scope_change=None):
         """build the restore function
         """
@@ -179,20 +185,23 @@ class TronnEstimator(tf.estimator.Estimator):
         return None
 
 
-# keep but rename this module...
 class ModelManager(object):
     """Manages the full model pipeline (utilizes Estimator framework)"""
     
     def __init__(
             self,
             model_fn,
-            model_params):
+            model_params,
+            model_checkpoint=None,
+            model_dir=None):
         """Initialization keeps core of the model - inputs (from separate dataloader) 
         and model with necessary params. All other pieces are part of different graphs
         (ie, training, evaluation, prediction, inference)
         """
         self.model_fn = model_fn
         self.model_params = model_params
+        self.model_checkpoint = model_checkpoint
+        self.model_dir = model_dir
         
         
     def build_training_dataflow(
@@ -226,7 +235,7 @@ class ModelManager(object):
                 loss_fn=tf.losses.mean_squared_error)
         else:
             loss = self._add_loss(outputs[labels_key], outputs["logits"])
-
+            
         # TODO fix the train op so that doesn't rely on slim
         train_op = self._add_train_op(loss, optimizer_fn, optimizer_params)
         #train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
@@ -336,7 +345,7 @@ class ModelManager(object):
                 labels,
                 mode,
                 params=None,
-                config=None):
+                config=config):
             """model fn in the Estimator framework
             """
             # set up the input dict for model fn
@@ -350,14 +359,17 @@ class ModelManager(object):
                     outputs = self.build_prediction_dataflow(inputs)
                     return tf.estimator.EstimatorSpec(mode, predictions=outputs)
                 else:
+                    inference_params = params.get("inference_params", {})
+                    model_reuse = params.get("model_reuse", False)
+                    inference_params.update({"model_reuse": model_reuse})
                     outputs, variables_to_restore = self.build_inference_dataflow(
                         inputs,
                         params["inference_fn"],
-                        params.get("inference_params", {}))
+                        inference_params)
                     
                     # create custom init fn
                     init_op, init_feed_dict = restore_variables_op(
-                        params["checkpoint"],
+                        params["checkpoint"], # this is specific to raw tensorflow, figure out separate out?
                         skip=["pwm"])
                     def init_fn(scaffold, sess):
                         sess.run(init_op, init_feed_dict)
@@ -486,11 +498,14 @@ class ModelManager(object):
         hooks.append(DataCleanupHook())
         
         # build inference estimator
+        self.model_params["inference_mode"] = True
         params = {
             "checkpoint": checkpoint,
             "inference_mode": True,
             "inference_fn": inference_fn,
-            "inference_params": inference_params} # TODO pwms etc etc
+            "inference_params": inference_params,
+            "model_reuse": self.model_params.get(
+                "model_reuse", True)} # TODO pwms etc etc
         
         # build estimator
         estimator = self.build_estimator(
@@ -829,6 +844,295 @@ class ModelManager(object):
         
         return None
 
+
+class KerasModelManager(ModelManager):
+    """Model manager for Keras models"""
+
+    def __init__(
+            self,
+            keras_model=None,
+            keras_model_path=None,
+            custom_objects=None,
+            model_dir=None,
+            model_params=None):
+        """extract the keras model fn and keep the model fn, to be called by 
+        tronn estimator. also set up first checkpoint
+        
+        Note that for inference you do not use variable scope because Keras
+        was not built with variable reuse in mind
+
+        Draws liberally from tf.keras.estimator.model_to_estimator fn
+        """
+        self.model_dir = model_dir
+        
+        if not (keras_model or keras_model_path):
+            raise ValueError(
+                'Either `keras_model` or `keras_model_path` needs to be provided.')
+        if keras_model and keras_model_path:
+            raise ValueError(
+                'Please specity either `keras_model` or `keras_model_path`, '
+                'but not both.')
+
+        if not keras_model:
+            self.keras_model = models.load_model(keras_model_path)
+
+        # tf 1.8 - update as needed
+        from tensorflow.python.keras._impl.keras.estimator import _create_keras_model_fn as create_keras_model_fn
+        from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
+        #from tensorflow.python.keras._impl.keras.estimator import _any_variable_initialized as any_weight_initialized
+            
+        # set up model fn
+        def keras_estimator_fn(inputs, model_fn_params):
+            """wrap up keras model call
+            """
+            features = inputs[DataKeys.FEATURES]
+            labels = inputs[DataKeys.LABELS]
+            outputs = dict(inputs)
+            
+            # for mahfuza models
+            features = tf.squeeze(features, axis=1)
+            
+            if model_fn_params.get("is_training", False):
+                mode = model_fn_lib.ModeKeys.TRAIN
+            else:
+                mode = model_fn_lib.ModeKeys.PREDICT
+            model = build_keras_model(mode, self.keras_model, model_fn_params, features, labels)
+            model.layers.pop() # remove the sigmoid - but check this
+            model = tf.keras.models.Model(model.input, model.layers[-1].output)
+            
+            print [layer.name for layer in model.layers]
+
+            # build an init fn or init op to run in a KerasInitHook
+            outputs.update(dict(zip(model.output_names, model.outputs)))
+            
+            # make sure there is a logit output
+            out_layer_key = "dense_3" # is 12 just the layer num?
+            outputs[DataKeys.LOGITS] = outputs[out_layer_key]
+
+            # add to collection to make sure restored correctly
+            is_inference = self.model_params.get("inference_mode", False)
+            if not is_inference:
+                for v in tf.trainable_variables():
+                    tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
+
+            # TODO(dk)
+            # for interpretation:
+            # set up a py_func op for now that has the init fn
+            # and set up a hook to restore from there
+            def init_fn():
+                model.set_weights(self.keras_weights)
+            init_op = tf.py_func(
+                func=init_fn,
+                inp=[],
+                Tout=[],
+                stateful=False,
+                name="init_keras")
+            tf.get_collection("KERAS_INIT")
+            tf.add_to_collection("KERAS_INIT", init_op)
+            
+            return outputs, model_fn_params
+
+        # store fn and params for later
+        self.model_fn = keras_estimator_fn
+        self.model_params = model_params
+        self.model_params.update({"model_reuse": False})
+        
+        # set up weights
+        # TODO fix this
+        #if any_weight_initialized():
+        self.keras_weights = self.keras_model.get_weights()
+        
+        # TODO make a checkpoint and keep in self.checkpoints
+        self.model_checkpoint = self.save_checkpoint_from_keras_model()
+        
+        # debug check
+        print self.keras_model.input_names
+        print self.keras_model.output_names
+
+
+    def save_checkpoint_from_keras_model(self):
+        """create a checkpoint from the keras model
+
+        draws heavily from _save_first_checkpoint in keras to estimator fn
+        from tensorflow 1.8
+        """
+        from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
+                
+        keras_checkpoint = tf.train.latest_checkpoint(self.model_dir)
+        if not keras_checkpoint:
+            keras_checkpoint = "{}/keras_model.ckpt".format(self.model_dir)
+            with tf.Graph().as_default() as g:
+                tf.train.create_global_step(g)
+                
+                mode = model_fn_lib.ModeKeys.TRAIN
+                model = build_keras_model(
+                    mode,
+                    self.keras_model,
+                    self.model_params)
+                with tf.Session() as sess:
+                    print "set weights"
+                    model.set_weights(self.keras_weights)
+                    print "done"
+                    for v in tf.trainable_variables():
+                        tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
+
+                    
+                    print tf.trainable_variables()
+                    print [len(layer.weights) for layer in model.layers]
+                    print sum([len(layer.weights) for layer in model.layers])
+                    print len([layer.name for layer in model.layers])
+                    print len(tf.trainable_variables())
+                    print len(self.keras_weights)
+                    print self.keras_weights[0][:,:,0]
+                    print sess.run(tf.trainable_variables()[0])[:,:,0]
+                    saver = tf.train.Saver()
+                    saver.save(sess, keras_checkpoint)
+
+        # test
+        #keras_checkpoint = "/srv/scratch/dskim89/mahfuza/models/mouse.all.fbasset/train/model.ckpt-1"
+        #keras_checkpoint = "/srv/scratch/dskim89/mahfuza/models/mouse.all.fbasset/test.ckpt"
+        with tf.Graph().as_default() as g:
+            tf.train.create_global_step(g)
+            
+            #mode = model_fn_lib.ModeKeys.TRAIN
+            #model = build_keras_model(
+            #    mode,
+            #    self.keras_model,
+            #    self.model_params)
+            #model.layers.pop() # remove the sigmoid - but check this
+            #model = tf.keras.models.Model(model.input, model.layers[-1].output)
+            
+            features = tf.placeholder(tf.float32, shape=[64,1,1000,4])
+            labels = tf.placeholder(tf.float32, shape=[64,279])
+            inputs = {"features": features, "labels": labels}
+            
+            self.model_fn(inputs, {})
+
+            
+            with tf.Session() as sess:
+                saver = tf.train.Saver()
+                saver.restore(sess, keras_checkpoint)
+                print tf.trainable_variables()
+                print sess.run(tf.trainable_variables()[0])[:,:,0]
+
+        return keras_checkpoint
+
+    def infer(
+            self,
+            input_fn,
+            out_dir,
+            inference_fn,
+            inference_params={},
+            config=None,
+            predict_keys=None,
+            checkpoint=None,
+            hooks=[],
+            yield_single_examples=True):
+        """adjust a few things for keras
+        """
+        hooks.append(KerasRestoreHook())
+        
+        return super(KerasModelManager, self).infer(
+            input_fn,
+            out_dir,
+            inference_fn,
+            inference_params=inference_params,
+            config=config,
+            predict_keys=predict_keys,
+            checkpoint=checkpoint,
+            hooks=hooks,
+            yield_single_examples=yield_single_examples)
+    
+
+    def build_estimator_ignore(
+            self,
+            params=None,
+            config=None,
+            warm_start=None,
+            regression=False,
+            out_dir="."):
+        """build a model fn that will work in the Estimator framework
+        """
+        # adjust config
+        if config is None:
+            config=tf.estimator.RunConfig(
+                save_summary_steps=30,
+                save_checkpoints_secs=None,
+                save_checkpoints_steps=10000000000,
+                keep_checkpoint_max=None)
+
+            
+        # set up the model function to be called in the run
+        def estimator_model_fn_ignore(
+                features,
+                labels,
+                mode,
+                params=None,
+                config=None):
+            """model fn in the Estimator framework
+            """
+            # set up the input dict for model fn
+            # note that all input goes through features (including labels)
+            inputs = features
+            
+            # attach necessary things and return EstimatorSpec
+            if mode == tf.estimator.ModeKeys.PREDICT:
+                inference_mode = params.get("inference_mode", False)
+                if not inference_mode:
+                    outputs = self.build_prediction_dataflow(inputs)
+                    return tf.estimator.EstimatorSpec(mode, predictions=outputs)
+                else:
+                    inference_params = params.get("inference_params", {})
+                    model_reuse = params.get("model_reuse", False)
+                    inference_params.update({"model_reuse": model_reuse})
+                    outputs, variables_to_restore = self.build_inference_dataflow(
+                        inputs,
+                        params["inference_fn"],
+                        inference_params)
+
+                    print len(variables_to_restore)
+                    print len(self.keras_weights)
+                    quit()
+                    
+                    # create custom init fn
+                    # only thing changed?
+                    def init_fn(scaffold, sess):
+                        model.set_weights(self.keras_weights)
+
+                    # custom scaffold to load checkpoint
+                    scaffold = monitored_session.Scaffold(
+                        init_fn=init_fn)
+                    
+                    return tf.estimator.EstimatorSpec(
+                        mode,
+                        predictions=outputs,
+                        scaffold=scaffold)
+            
+            elif mode == tf.estimator.ModeKeys.EVAL:
+                outputs, loss, metrics = self.build_evaluation_dataflow(inputs, regression=regression)
+                return tf.estimator.EstimatorSpec(mode, loss=loss, eval_metric_ops=metrics)
+            
+            elif mode == tf.estimator.ModeKeys.TRAIN:
+                outputs, loss, train_op = self.build_training_dataflow(inputs, regression=regression)
+                print_param_count()
+                return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+            else:
+                raise Exception, "mode does not exist!"
+            
+            return None
+            
+        # instantiate the custom estimator
+        estimator = TronnEstimator(
+            estimator_model_fn,
+            model_dir=out_dir,
+            params=params,
+            config=config)
+
+        return estimator
+
+
+    
+    
     
 class MetaGraphManager(ModelManager):
     """Model manager for metagraphs, uses Estimator framework"""
@@ -868,4 +1172,11 @@ class MetaGraphManager(ModelManager):
             return outputs, params
         
         return metagraph_model_fn
-    
+
+
+# TODO(dk)
+def setup_model_manager():
+    """wrapper to keep things consistent
+    """
+
+    return model_manager

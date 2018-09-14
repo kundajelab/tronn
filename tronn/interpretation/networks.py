@@ -30,6 +30,7 @@ class DirectedEdge(object):
         self.start_node = start_node
         self.end_node = end_node
         self.attrs = attrs
+        self.name = "{}_to_{}".format(start_node, end_node)
 
     def get_tuple(self):
         return (self.start_node, self.end_node, self.attrs)
@@ -87,9 +88,15 @@ class MotifNet(object):
             
             # get other node
             other_node = edge.end_node
+            other_node_examples = self.get_node_by_id(other_node).attrs["examples"]
 
-            # if already seen, continue unless it was the last one (to get self loops)
             if True:
+                if edge.name in checked_nodes:
+                    continue
+                #checked_nodes.append(edge.name)
+            
+            # if already seen, continue unless it was the last one (to get self loops)
+            if False:
                 if (other_node in checked_nodes) and (other_node in current_path[0][:-1]):
                     continue
                 #if other_node not in current_path[:-1]:
@@ -109,16 +116,26 @@ class MotifNet(object):
             # get intersect
             edge_examples = edge.attrs["examples"]
             shared_examples = current_path[1].intersection(edge_examples)
+
+            # also intersect with downstream node
+            # this means that all examples here have to have a delta logit effect
+            # in the right direction as well as delta mutational effect
+            # in the right direction
+            if True:
+                shared_examples = shared_examples.intersection(other_node_examples)
             
             # if intersect is good, append node, save out, and keep going down
             if len(shared_examples) > min_region_count:
                 new_path = (current_path[0] + [other_node], shared_examples)
                 paths.append(new_path)
+
+                edges_seen = checked_nodes + [edge.name]
+                
                 edge_paths = self.get_paths(
                     other_node,
                     min_region_count,
                     current_path=new_path,
-                    checked_nodes=checked_nodes)
+                    checked_nodes=edges_seen)#checked_nodes)
                 paths += edge_paths
                 
         return paths
@@ -175,7 +192,7 @@ def get_motif_hierarchies(
         pwm_names_attr_key=AttrKeys.PWM_NAMES,
         extra_keys=[],
         num_sig_tasks=3,
-        min_region_count=500):
+        min_region_count=300):
     """extract motif hierarchies
     """
     with h5py.File(h5_file, "r") as hf:
@@ -202,12 +219,13 @@ def get_motif_hierarchies(
     # TODO - change these later
     data = data[:,:,:,np.where(sig_pwms > 0)[0]]
     response_pwm_names = mut_pwm_names
-    
+
     # set up the mut nodes
     nodes = []
     for name_idx in xrange(len(mut_pwm_names)):
         pwm_name = mut_pwm_names[name_idx]
-        node = Node(pwm_name, {"mut_idx": name_idx})
+        had_effect = np.where(np.sum(delta_logits[:,name_idx,:] < 0, axis=1) > num_sig_tasks)[0].tolist()
+        node = Node(pwm_name, {"mut_idx": name_idx, "examples": had_effect})
         nodes.append(node)
 
     # set up response nodes
@@ -228,7 +246,7 @@ def get_motif_hierarchies(
     for mut_idx in xrange(num_mut_motifs):
         for response_idx in xrange(num_response_motifs):
 
-            # TODO fix this (in relation to previous analysis(
+            # TODO fix this (in relation to previous analysis)
             if np.sum(adjacency_matrix[mut_idx, :, response_idx] != 0) < 3:
                 continue
             
@@ -252,6 +270,7 @@ def get_motif_hierarchies(
             
             # TODO don't add the edge if there isn't mutational output effect on both sides
             # for the subset?
+            # Note that this is dealt with elsewhere (at the nodes)
             if False:
                 edge_mut_logits = np.subtract(
                     mut_logits[edge_examples,response_idx],
@@ -279,8 +298,11 @@ def get_motif_hierarchies(
 
         # add in singletons and where they exist
         node_idx = node.attrs["mut_idx"]
-        node_mut_effects = np.sum(delta_logits[:,node_idx,:] != 0, axis=1)
-        node_examples = set(np.where(node_mut_effects > 0)[0].tolist())
+        #node_mut_effects = np.sum(delta_logits[:,node_idx,:] != 0, axis=1)
+        #node_examples = set(np.where(node_mut_effects > 0)[0].tolist())
+
+        node_examples = set(node.attrs["examples"])
+        
         current_path = ([node.name], node_examples)
 
         if len(node_examples) > min_region_count:

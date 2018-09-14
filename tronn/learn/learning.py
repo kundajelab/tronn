@@ -44,7 +44,18 @@ class RestoreHook(tf.train.SessionRunHook):
         """
         session.run(self.init_assign_op, self.init_feed_dict)
         print "RESTORED FROM CHECKPOINT"
+        print session.run(tf.trainable_variables()[0])[:,:,0]
 
+
+        
+class KerasRestoreHook(tf.train.SessionRunHook):
+    """Hook that restores Keras saved model variables"""
+
+    def after_create_session(self, session, coord=None):
+        init_ops = tf.get_collection("KERAS_INIT")
+        session.run(init_ops)
+
+        
         
 class EarlyStoppingHook(tf.train.SessionRunHook):
     """Hook that requests stop based on early stopping criteria"""

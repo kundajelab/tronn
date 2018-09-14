@@ -208,7 +208,7 @@ def run(args):
             args.visualize_multikey_R)
 
     # DMIM ANALYSES
-    if False:
+    if True:
         get_interacting_motifs(
             results_h5_file,
             DataKeys.MANIFOLD_CLUST,

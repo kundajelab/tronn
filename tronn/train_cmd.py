@@ -8,6 +8,7 @@ from tronn.datalayer import setup_h5_files
 from tronn.datalayer import H5DataLoader
 
 from tronn.graphs import ModelManager
+from tronn.graphs import KerasModelManager
 
 from tronn.nets.nets import net_fns
 
@@ -18,7 +19,7 @@ def run(args):
     """command to run training
     """
     logging.info("Training...")
-
+    
     # set up dataset
     h5_files = setup_h5_files(args.data_dir)
     train_files, valid_files, test_files = setup_train_valid_test(
@@ -44,16 +45,28 @@ def run(args):
         filter_tasks=args.filter_keys)
     
     # set up model
-    model_manager = ModelManager(
-        net_fns[args.model["name"]],
-        args.model)
+    if args.transfer_keras is not None:
+        args.model["name"] = "keras_transfer"
+        with open(args.transfer_keras) as fp:
+            args.model_info = json.load(fp)
+        model_manager = KerasModelManager(
+            keras_model_path=args.model_info["checkpoint"],
+            model_params=args.model_info.get("params", {}),
+            model_dir=args.out_dir)
+        args.transfer_model_checkpoint = model_manager.model_checkpoint
+        warm_start_params = {}
+    else:
+        model_manager = ModelManager(
+            net_fns[args.model["name"]],
+            args.model)
+        warm_start_params = {"skip": ["logit"]}
 
     # save out training info into a json
     # need: model, model checkpoint (best), label sets.
     model_info = {
         "name": args.model["name"],
-        "params": args.model,
-        "checkpoint": None,
+        "params": model_manager.model_params,
+        "checkpoint": model_manager.model_checkpoint,
         "label_keys": args.label_keys,
         "filter_keys": args.filter_keys,
         "tasks": args.tasks,
@@ -68,9 +81,7 @@ def run(args):
         args.out_dir,
         eval_steps=int(1000. * 512 / args.batch_size),
         warm_start=args.transfer_model_checkpoint,
-        warm_start_params={
-            "skip":["logit"]},
-            #"scope_change": ["", "basset/"]},
+        warm_start_params=warm_start_params,
         regression=args.regression,
         model_info=model_info) # <- this is for larger model - adjust this
     

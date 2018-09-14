@@ -29,7 +29,7 @@ net_fns = {
     "empty_net": empty_net,
     "ensemble": ensemble,
     #"sequence_to_importance_scores": sequence_to_importance_scores,
-    #"sequence_to_motif_scores": sequence_to_motif_scores,
+    "sequence_to_motif_scores": sequence_to_motif_scores_from_regression,
     "sequence_to_motif_scores_from_regression": sequence_to_motif_scores_from_regression,
     "sequence_to_dmim": sequence_to_dmim,
     "variants_to_predictions": variants_to_predictions

@@ -10,6 +10,7 @@ from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
 
 from tronn.graphs import ModelManager
+from tronn.graphs import KerasModelManager
 
 from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
@@ -59,9 +60,16 @@ def run(args):
             label_keys=args.model_info["label_keys"])
 
     # set up model
-    model_manager = ModelManager(
-        net_fns[args.model_info["name"]],
-        args.model_info["params"])
+    if args.model_info.get("model_type") == "keras":
+        model_manager = KerasModelManager(
+            keras_model_path=args.model_info["checkpoint"],
+            model_params=args.model_info.get("params", {}),
+            model_dir=args.out_dir)
+    else:
+        model_manager = ModelManager(
+            net_fns[args.model_info["name"]],
+            args.model_info["params"],
+            model_checkpoint=args.model_info["checkpoint"])
 
     # set up inference generator
     inference_generator = model_manager.infer(
@@ -70,13 +78,14 @@ def run(args):
         net_fns[args.inference_fn],
         inference_params={
             # TODO can we clean this up?
-            "model_fn": net_fns[args.model_info["name"]],
+            "model_fn": model_manager.model_fn,
             "num_tasks": args.model_info["params"]["num_tasks"],
             "use_filtering": False if args.bed_input is not None else True, # TODO do this better
+            #"use_filtering": False,
             "backprop": args.backprop, # change this to importance_method
             "importance_task_indices": args.inference_task_indices,
             "pwms": args.pwm_list},
-        checkpoint=args.model_info["checkpoint"],
+        checkpoint=model_manager.model_checkpoint,
         yield_single_examples=True)
 
     # run inference and save out

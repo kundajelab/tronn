@@ -77,6 +77,18 @@ def setup_kfold_cv(data_dict, k):
         kfolds[fill_k][1] += data_dict[chrom_key][1]
         kfolds[fill_k][2] += data_dict[chrom_key][2]
         examples_per_fold[fill_k] += num_examples_per_file[i]
+
+
+    # debug tool print reduced set
+    if False:
+        kfold_print = {}
+        total_examples = 0
+        for key in kfolds.keys():
+            chroms = list(set([filename.split(".")[-4] for filename in kfolds[key][0]]))
+            kfold_print[key] = (chroms, examples_per_fold[key])
+            total_examples += examples_per_fold[key]
+        print kfold_print
+        print total_examples / float(k)
         
     return kfolds, examples_per_fold
 
