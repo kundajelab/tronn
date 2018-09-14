@@ -13,7 +13,7 @@ import pandas as pd
 from tronn.datalayer import setup_h5_files
 from tronn.datalayer import H5DataLoader
 
-from tronn.graphs import ModelManager
+from tronn.model import ModelManager
 
 from tronn.nets.nets import net_fns
 

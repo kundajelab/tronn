@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-from tronn.graphs import ModelManager
+from tronn.models import ModelManager
 from tronn.datalayer import ArrayDataLoader
 from tronn.nets.nets import net_fns
 

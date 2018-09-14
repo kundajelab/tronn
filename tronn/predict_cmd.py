@@ -16,7 +16,7 @@ from sklearn.metrics import precision_recall_curve
 
 from tronn.preprocess import generate_ordered_single_file_nn_dataset
 
-from tronn.graphs import TronnNeuralNetGraph
+from tronn.models import ModelManager
 from tronn.datalayer import load_data_from_filename_list
 from tronn.nets.nets import net_fns
 from tronn.learn.learning import predict

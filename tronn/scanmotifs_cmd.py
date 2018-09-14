@@ -9,8 +9,8 @@ import logging
 from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
 
-from tronn.graphs import ModelManager
-from tronn.graphs import KerasModelManager
+from tronn.models import ModelManager
+from tronn.models import KerasModelManager
 
 from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold

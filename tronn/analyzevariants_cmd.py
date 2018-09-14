@@ -11,7 +11,7 @@ import tensorflow as tf
 
 from collections import Counter
 
-from tronn.graphs import ModelManager
+from tronn.models import ModelManager
 
 from tronn.datalayer import H5DataLoader
 from tronn.nets.nets import net_fns

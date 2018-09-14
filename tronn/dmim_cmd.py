@@ -10,7 +10,7 @@ import numpy as np
 from tronn.datalayer import H5DataLoader
 from tronn.datalayer import BedDataLoader
 
-from tronn.graphs import ModelManager
+from tronn.models import ModelManager
 
 from tronn.interpretation.clustering import get_cluster_bed_files
 from tronn.interpretation.clustering import visualize_clustered_features_R

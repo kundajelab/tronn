@@ -7,8 +7,8 @@ import logging
 from tronn.datalayer import setup_h5_files
 from tronn.datalayer import H5DataLoader
 
-from tronn.graphs import ModelManager
-from tronn.graphs import KerasModelManager
+from tronn.models import ModelManager
+from tronn.models import KerasModelManager
 
 from tronn.nets.nets import net_fns
 
