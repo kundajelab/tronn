@@ -22,12 +22,22 @@ def run(args):
     
     # set up dataset
     h5_files = setup_h5_files(args.data_dir)
-    train_files, valid_files, test_files = setup_train_valid_test(
-        h5_files,
-        args.kfolds,
-        valid_folds=args.valid_folds,
-        test_folds=args.test_folds,
-        regression=args.regression) # TODO provide folds as param
+    if args.full_train:
+        train_files = []
+        valid_files = []
+        for chrom in sorted(h5_files.keys()):
+            train_files += h5_files[chrom][0]
+            train_files += h5_files[chrom][1]
+            valid_files += h5_files[chrom][0]
+            valid_files += h5_files[chrom][2]
+        test_files = valid_files
+    else:
+        train_files, valid_files, test_files = setup_train_valid_test(
+            h5_files,
+            args.kfolds,
+            valid_folds=args.valid_folds,
+            test_folds=args.test_folds,
+            regression=args.regression)
     
     # set up dataloader and buid the input functions needed to serve tensor batches
     train_dataloader = H5DataLoader(train_files, fasta=args.fasta)
@@ -83,7 +93,8 @@ def run(args):
         warm_start=args.transfer_model_checkpoint,
         warm_start_params=warm_start_params,
         regression=args.regression,
-        model_info=model_info) # <- this is for larger model - adjust this
+        model_info=model_info,
+        early_stopping=not args.full_train)
     
     # save out training info into a json
     # need: model, model checkpoint (best), label sets.

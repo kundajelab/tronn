@@ -29,7 +29,7 @@ from tronn.util.utils import DataKeys
 def setup_h5_files(data_dir):
     """quick helper function to go into h5 directory and organize h5 files
     """
-    chroms = ["chr{}".format(i) for i in xrange(1,22)] + ["chrX", "chrY"]
+    chroms = ["chr{}".format(i) for i in xrange(1,23)] + ["chrX", "chrY"]
 
     # save into a chromosome dict
     data_dict = {}

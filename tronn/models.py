@@ -17,10 +17,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.framework import random_seed
 
 from tensorflow.python.keras import models
-# 1.8
-#from tensorflow.python.keras._impl.keras.estimator import _clone_and_build_model as build_keras_model
 
-# 1.9+
 from tensorflow.python.estimator.keras import _clone_and_build_model as build_keras_model
 
 from tensorflow.python.training import monitored_session
@@ -601,7 +598,8 @@ class ModelManager(object):
             warm_start=None,
             warm_start_params={},
             regression=False,
-            model_info={}):
+            model_info={},
+            early_stopping=True):
         """run full training loop with evaluation for early stopping
         """
         # adjust for regression
@@ -685,7 +683,8 @@ class ModelManager(object):
                         "early stopping triggered "
                         "on epoch {} "
                         "with patience {}".format(epoch, epoch_patience))
-                    break
+                    if early_stopping:
+                        break
 
             # save to stopping log
             with open(stopping_log, 'w') as out:

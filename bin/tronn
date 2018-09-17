@@ -231,9 +231,6 @@ def add_preprocess_variants_parser(subparsers):
     return
 
 
-# TODO add a cvfold selection method
-
-
 def add_train_parser(subparsers):
     """Add argument parser for training
     """
@@ -259,6 +256,9 @@ def add_train_parser(subparsers):
     group_input.add_argument(
         "--tasks", nargs="+", default=[], type=int,
         help="tasks to train on (default is all)")
+    group_input.add_argument(
+        "--full_train", action="store_true",
+        help="ignore early stopping, train for full num epochs")
     group_input.add_argument(
         "--kfolds", default=10, type=int,
         help="number of folds to split the data")
