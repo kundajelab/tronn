@@ -36,6 +36,7 @@ from tronn.learn.evaluation import get_regression_metrics
 
 from tronn.learn.learning import RestoreHook
 from tronn.learn.learning import KerasRestoreHook
+from tronn.learn.learning import DataSetupHook
 from tronn.learn.learning import DataCleanupHook
 
 from tronn.interpretation.interpret import visualize_region
@@ -46,10 +47,13 @@ from tronn.visualization import visualize_debug
 from tronn.util.utils import DataKeys
 
 
+from tronn.datalayer import DataLoader
+
+
 # TODO move into learn.estimator
 class TronnEstimator(tf.estimator.Estimator):
     """Extended estimator to have extra capabilities"""
-
+    
     def infer(
             self,
             input_fn,
@@ -139,9 +143,8 @@ class TronnEstimator(tf.estimator.Estimator):
                         max_iter=1,
                         num_bp_per_iter=10)
                     yield preds_evaluated
-
-
-
+                   
+                    
     # TODO keep this for now as starting code for ensembling
     def build_restore_graph_function_old(self, checkpoints, is_ensemble=False, skip=[], scope_change=None):
         """build the restore function
@@ -217,6 +220,16 @@ class ModelManager(object):
         """builds the training dataflow. links up input tensors
         to the model with is_training as True.
         """
+
+        
+        # onehot encode the batch
+        inputs[DataKeys.FEATURES] = tf.map_fn(
+            DataLoader.encode_onehot_sequence,
+            inputs[DataKeys.FEATURES],
+            dtype=tf.float32)
+
+
+        
         # assertions
         assert inputs.get(features_key) is not None
         assert inputs.get(labels_key) is not None
@@ -446,6 +459,7 @@ class ModelManager(object):
         runs out.
         """
         # if there is a data close fn, add in as hook
+        hooks.append(DataSetupHook())
         hooks.append(DataCleanupHook())
         print "appended hook"
         
@@ -599,7 +613,8 @@ class ModelManager(object):
             warm_start_params={},
             regression=False,
             model_info={},
-            early_stopping=True):
+            early_stopping=True,
+            multi_gpu=False):
         """run full training loop with evaluation for early stopping
         """
         # adjust for regression
@@ -616,7 +631,7 @@ class ModelManager(object):
                     int, [start_epoch, consecutive_bad_epochs])
                 best_metric_val = float(best_metric_val)
                 start_epoch += 1
-            if consecutive_bad_epochs >= epoch_patience:
+            if consecutive_bad_epochs > epoch_patience:
                 # move start epochs to max epoch so training doesn't run
                 start_epoch = max_epochs
         else:
@@ -625,6 +640,13 @@ class ModelManager(object):
             best_metric_val = None
             consecutive_bad_epochs = 0
             best_checkpoint = None
+
+        # distributed training - requires 1.9+
+        if multi_gpu:
+            distribution = tf.contrib.distribute.MirroredStrategy()
+            config = tf.estimator.RunConfig(train_distribute=distribution)
+        else:
+            config = None
 
         # run through epochs
         for epoch in xrange(start_epoch, max_epochs):
@@ -644,6 +666,7 @@ class ModelManager(object):
                 train_input_fn,
                 "{}/train".format(out_dir),
                 steps=None, # TODO here calculate steps?
+                config=config,
                 hooks=training_hooks,
                 regression=regression)
             
@@ -789,7 +812,7 @@ class ModelManager(object):
                 first_example,
                 sample_size,
                 resizable=True,
-                batch_size=4096,
+                batch_size=min(4096, sample_size),
                 is_tensor_input=False)
 
             # and store first outputs

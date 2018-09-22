@@ -13,7 +13,7 @@ import pandas as pd
 from tronn.datalayer import setup_h5_files
 from tronn.datalayer import H5DataLoader
 
-from tronn.model import ModelManager
+from tronn.models import ModelManager
 
 from tronn.nets.nets import net_fns
 
@@ -57,7 +57,19 @@ def run(args):
     """
     logging.info("Evaluating trained model...")
     os.system("mkdir -p {}".format(args.out_dir))
-    
+
+    # adjust data files as needed
+    if args.data_dir is not None:
+        for i in xrange(len(args.model_info["test_files"])):
+            args.model_info["test_files"][i] = "{}/{}".format(
+                args.data_dir,
+                os.path.basename(args.model_info["test_files"][i]))
+
+    # change model dir as needed
+    if args.model_dir is not None:
+        args.model_info["checkpoint"] = "{}/{}".format(
+            args.model_dir, os.path.basename(args.model_info["checkpoint"]))
+            
     # set up dataloader
     dataloader = H5DataLoader(args.model_info["test_files"], fasta=args.fasta)
     test_input_fn = dataloader.build_input_fn(
@@ -77,9 +89,10 @@ def run(args):
         checkpoint=args.model_info["checkpoint"])
 
     # run eval and save to h5
+    sample_size = 5000
     eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)
     if not os.path.isfile(eval_h5_file):
-        model_manager.infer_and_save_to_h5(predictor, eval_h5_file, 1000)
+        model_manager.infer_and_save_to_h5(predictor, eval_h5_file, args.num_evals)
 
     # extract arrays
     with h5py.File(eval_h5_file, "r") as hf:

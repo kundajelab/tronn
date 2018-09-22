@@ -9,6 +9,16 @@ import tensorflow as tf
 from tronn.util.tf_ops import restore_variables_op
 
 
+class DataSetupHook(tf.train.SessionRunHook):
+    """Hook to initialize tf.data.Dataset initializer"""
+    
+    def after_create_session(self, session, coord):
+        initialize_tf_dataset_ops = tf.get_collection("DATASETUP")
+        print len(initialize_tf_dataset_ops)
+        session.run(initialize_tf_dataset_ops)
+        print "initialized dataset"
+    
+
 class DataCleanupHook(tf.train.SessionRunHook):
     """Hook to cleanup data threads as needed"""
         
@@ -55,7 +65,6 @@ class KerasRestoreHook(tf.train.SessionRunHook):
         init_ops = tf.get_collection("KERAS_INIT")
         session.run(init_ops)
 
-        
         
 class EarlyStoppingHook(tf.train.SessionRunHook):
     """Hook that requests stop based on early stopping criteria"""

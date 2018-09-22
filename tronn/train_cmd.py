@@ -53,7 +53,26 @@ def run(args):
         args.batch_size,
         label_keys=args.label_keys,
         filter_tasks=args.filter_keys)
-    
+
+    # dataloader metrics (for classification)
+    if False:
+        if not args.regression:
+            train_dataloader.get_classification_metrics(
+                "{}/dataset.train".format(args.out_dir), label_keys=args.label_keys)
+            validation_dataloader.get_classification_metrics(
+                "{}/dataset.validation".format(args.out_dir), label_keys=args.label_keys)
+            test_dataloader = H5DataLoader(test_files, fasta=args.fasta)
+            test_dataloader.get_classification_metrics(
+                "{}/dataset.test".format(args.out_dir), label_keys=args.label_keys)
+        else:
+            train_dataloader.get_regression_metrics(
+                "{}/dataset.train".format(args.out_dir), label_keys=args.label_keys)
+            validation_dataloader.get_regression_metrics(
+                "{}/dataset.validation".format(args.out_dir), label_keys=args.label_keys)
+            test_dataloader = H5DataLoader(test_files, fasta=args.fasta)
+            test_dataloader.get_regression_metrics(
+                "{}/dataset.test".format(args.out_dir), label_keys=args.label_keys)
+        
     # set up model
     if args.transfer_keras is not None:
         args.model["name"] = "keras_transfer"
@@ -94,7 +113,8 @@ def run(args):
         warm_start_params=warm_start_params,
         regression=args.regression,
         model_info=model_info,
-        early_stopping=not args.full_train)
+        early_stopping=not args.full_train,
+        multi_gpu=args.distributed)
     
     # save out training info into a json
     # need: model, model checkpoint (best), label sets.
