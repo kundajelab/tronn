@@ -10,18 +10,14 @@ import six
 
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
+import tensorflow.contrib.slim as slim # TODO try deprecate!
 
 from tensorflow.python.estimator import model_fn as model_fn_lib
-from tensorflow.python.framework import ops
-from tensorflow.python.framework import random_seed
+from tensorflow.python.estimator.keras import _clone_and_build_model as build_keras_model
 
 from tensorflow.python.keras import models
 
-from tensorflow.python.estimator.keras import _clone_and_build_model as build_keras_model
-
 from tensorflow.python.training import monitored_session
-from tensorflow.python.training import training
 
 from tronn.util.tf_ops import restore_variables_op
 from tronn.util.tf_ops import class_weighted_loss_fn
@@ -30,6 +26,8 @@ from tronn.util.tf_ops import positives_focused_loss_fn
 from tronn.util.tf_utils import print_param_count
 
 from tronn.outlayer import H5Handler
+
+from tronn.learn.estimator import TronnEstimator
 
 from tronn.learn.evaluation import get_global_avg_metrics
 from tronn.learn.evaluation import get_regression_metrics
@@ -45,144 +43,6 @@ from tronn.interpretation.dreaming import dream_one_sequence
 from tronn.visualization import visualize_debug
 
 from tronn.util.utils import DataKeys
-
-
-from tronn.datalayer import DataLoader
-
-
-# TODO move into learn.estimator
-class TronnEstimator(tf.estimator.Estimator):
-    """Extended estimator to have extra capabilities"""
-    
-    def infer(
-            self,
-            input_fn,
-            predict_keys=None,
-            hooks=[],
-            checkpoint_path=None,
-            yield_single_examples=True):
-        """adjust predict function to do inference
-        """
-        with ops.Graph().as_default() as g:
-            random_seed.set_random_seed(self._config.tf_random_seed)
-            self._create_and_assert_global_step(g)
-            features, input_hooks = self._get_features_from_input_fn(
-                input_fn, model_fn_lib.ModeKeys.PREDICT)
-            estimator_spec = self._call_model_fn(
-                features, None, model_fn_lib.ModeKeys.PREDICT, self.config)
-            predictions = self._extract_keys(estimator_spec.predictions, predict_keys)
-            all_hooks = list(input_hooks)
-            all_hooks.extend(hooks)
-            all_hooks.extend(list(estimator_spec.prediction_hooks or []))
-            with training.MonitoredSession(
-                    session_creator=training.ChiefSessionCreator(
-                        checkpoint_filename_with_path=None,  # make sure it doesn't use the checkpoint path
-                        master=self._config.master,
-                        scaffold=estimator_spec.scaffold,
-                        config=self._session_config),
-                    hooks=all_hooks) as mon_sess:
-                print "session created"
-                while not mon_sess.should_stop():
-                    preds_evaluated = mon_sess.run(predictions)
-                    #for key in preds_evaluated.keys():
-                    #    print key, preds_evaluated[key].shape
-                    print "run session"
-                    if not yield_single_examples:
-                        yield preds_evaluated
-                    elif not isinstance(predictions, dict):
-                        for pred in preds_evaluated:
-                            yield pred
-                    else:
-                        for i in range(self._extract_batch_length(preds_evaluated)):
-                            yield {
-                                key: value[i]
-                                for key, value in six.iteritems(preds_evaluated)
-                            }
-
-                            
-    def dream_generator(
-            self,
-            array,
-            input_fn,
-            feed_dict,
-            predict_keys=None,
-            dream_key="dream.results",
-            hooks=[],
-            checkpoint_path=None):
-        """given array of onehot sequences, run dream
-        """
-        num_examples = array.shape[0]
-
-        # set up graph
-        with ops.Graph().as_default() as g:
-            random_seed.set_random_seed(self._config.tf_random_seed)
-            self._create_and_assert_global_step(g)
-            features, input_hooks = self._get_features_from_input_fn(
-                input_fn, model_fn_lib.ModeKeys.PREDICT)
-            estimator_spec = self._call_model_fn(
-                features, None, model_fn_lib.ModeKeys.PREDICT, self.config)
-            predictions = self._extract_keys(estimator_spec.predictions, predict_keys)
-            all_hooks = list(input_hooks)
-            all_hooks.extend(hooks)
-            all_hooks.extend(list(estimator_spec.prediction_hooks or []))
-            with training.MonitoredSession(
-                    session_creator=training.ChiefSessionCreator(
-                        checkpoint_filename_with_path=None,  # make sure it doesn't use the checkpoint path
-                        master=self._config.master,
-                        scaffold=estimator_spec.scaffold,
-                        config=self._session_config),
-                    hooks=all_hooks) as mon_sess:
-                # run through examples
-                for example_idx in xrange(num_examples):
-                    preds_evaluated = dream_one_sequence(
-                        np.expand_dims(array[example_idx][:], axis=0),
-                        mon_sess,
-                        feed_dict,
-                        predictions,
-                        dream_key,
-                        max_iter=1,
-                        num_bp_per_iter=10)
-                    yield preds_evaluated
-                   
-                    
-    # TODO keep this for now as starting code for ensembling
-    def build_restore_graph_function_old(self, checkpoints, is_ensemble=False, skip=[], scope_change=None):
-        """build the restore function
-        """
-        if is_ensemble: # this is really determined by there being more than 1 ckpt - can use as test?
-            def restore_function(sess):
-                # TODO adjust this function to be like below
-                # for ensemble, just need to adjust scoping
-                for i in xrange(len(self.checkpoints)):
-                    new_scope = "model_{}/".format(i)
-                    print new_scope
-                    init_assign_op, init_feed_dict = restore_variables_op(
-                        checkpoints[i],
-                        skip=skip,
-                        include_scope=new_scope,
-                        scope_change=["", new_scope])
-                    sess.run(init_assign_op, init_feed_dict)
-        else:
-            print checkpoints
-            if len(checkpoints) > 0:
-                init_assign_op, init_feed_dict = restore_variables_op(
-                    checkpoints[0], skip=skip, scope_change=scope_change)
-                def restore_function(sess):
-                    sess.run(init_assign_op, init_feed_dict)
-            else:
-                print "WARNING NO CHECKPOINTS USED"
-                
-        return restore_function
-
-    
-    def restore_graph_old(self, sess, checkpoints, is_ensemble=False, skip=[], scope_change=None):
-        """restore saved model from checkpoint into sess
-        """
-        restore_function = self.build_restore_graph_function(
-            checkpoints, is_ensemble=is_ensemble, skip=skip, scope_change=scope_change)
-        restore_function(sess)
-        
-        return None
 
 
 class ModelManager(object):
@@ -220,16 +80,6 @@ class ModelManager(object):
         """builds the training dataflow. links up input tensors
         to the model with is_training as True.
         """
-
-        
-        # onehot encode the batch
-        inputs[DataKeys.FEATURES] = tf.map_fn(
-            DataLoader.encode_onehot_sequence,
-            inputs[DataKeys.FEATURES],
-            dtype=tf.float32)
-
-
-        
         # assertions
         assert inputs.get(features_key) is not None
         assert inputs.get(labels_key) is not None
@@ -458,11 +308,6 @@ class ModelManager(object):
         """train an estimator. if steps is None, goes on forever or until input_fn
         runs out.
         """
-        # if there is a data close fn, add in as hook
-        hooks.append(DataSetupHook())
-        hooks.append(DataCleanupHook())
-        print "appended hook"
-        
         # build estimator and train
         estimator = self.build_estimator(
             config=config, out_dir=out_dir, regression=regression)
@@ -482,10 +327,6 @@ class ModelManager(object):
             regression=False):
         """evaluate a trained estimator
         """
-        # if there is a data close fn, add in as hook
-        hooks.append(DataCleanupHook())
-        print "appended hook"
-        
         # build evaluation estimator and evaluate
         estimator = self.build_estimator(
             config=config, out_dir=out_dir, regression=regression)
@@ -510,10 +351,6 @@ class ModelManager(object):
             yield_single_examples=True):
         """predict on a trained estimator
         """
-        # if there is a data close fn, add in as hook
-        hooks.append(DataCleanupHook())
-        print "appended hook"
-
         # build prediction estimator
         estimator = self.build_estimator(config=config, out_dir=out_dir)
 
@@ -537,9 +374,8 @@ class ModelManager(object):
             yield_single_examples=True):
         """infer on a trained estimator
         """
-        # if there is a data close fn, add in as hook
-        hooks.append(DataCleanupHook())
-        print "appended hook"
+        hooks.append(DataSetupHook())
+
         
         # build inference estimator
         self.model_params["inference_mode"] = True
@@ -619,7 +455,7 @@ class ModelManager(object):
         """
         # adjust for regression
         if regression:
-            early_stopping_metric = "mse"
+            early_stopping_metric = "mse" # TODO eventually move this metric out
         
         # set up stopping conditions
         stopping_log = "{}/stopping.log".format(out_dir)
@@ -641,10 +477,11 @@ class ModelManager(object):
             consecutive_bad_epochs = 0
             best_checkpoint = None
 
-        # distributed training - requires 1.9+
+        # distributed training - requires 1.9+ (prefer 1.11 bc of batch norm issues in 1.9 and 1.10)
         if multi_gpu:
             distribution = tf.contrib.distribute.MirroredStrategy()
             config = tf.estimator.RunConfig(train_distribute=distribution)
+            # TODO adjust the config to save checkpoints at different intervals
         else:
             config = None
 
@@ -686,7 +523,7 @@ class ModelManager(object):
             else:
                 is_good_epoch = eval_metrics[early_stopping_metric] > best_metric_val
 
-            # if good epoch, save out new metrics and model info
+            # if good epoch, save out new metrics
             if is_good_epoch:
                 best_metric_val = eval_metrics[early_stopping_metric]
                 consecutive_bad_epochs = 0
@@ -696,26 +533,30 @@ class ModelManager(object):
                     fp.write("checkpoint path: {}\n".format(best_checkpoint))
                     fp.write(str(eval_metrics))
                 model_info["checkpoint"] = best_checkpoint
-                with open("{}/model_info.json".format(out_dir), "w") as fp:
-                    json.dump(model_info, fp, sort_keys=True, indent=4)
             else:
-                # break if consecutive bad epochs are too high
+                # increase bad epoch count
                 consecutive_bad_epochs += 1
-                if consecutive_bad_epochs > epoch_patience:
-                    logging.info(
-                        "early stopping triggered "
-                        "on epoch {} "
-                        "with patience {}".format(epoch, epoch_patience))
-                    if early_stopping:
-                        break
 
-            # save to stopping log
+            # save out model info
+            with open("{}/model_info.json".format(out_dir), "w") as fp:
+                json.dump(model_info, fp, sort_keys=True, indent=4)
+
+            # save out stopping log
             with open(stopping_log, 'w') as out:
                 out.write("{}\t{}\t{}\t{}".format(
                     epoch,
                     best_metric_val,
                     consecutive_bad_epochs,
                     best_checkpoint))
+
+            # stop if early stopping
+            if early_stopping:
+                if consecutive_bad_epochs > epoch_patience:
+                    logging.info(
+                        "early stopping triggered "
+                        "on epoch {} "
+                        "with patience {}".format(epoch, epoch_patience))
+                    break
 
         return best_checkpoint
 
@@ -828,7 +669,7 @@ class ModelManager(object):
                     example = generator.next()
                     h5_handler.store_example(example)
                     total_examples += 1
-
+                    
                     if debug:
                         # here, generate useful graphs
                         # (2) pwm scores, raw or not (pwm x pos with pwm vector)
