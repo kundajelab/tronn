@@ -49,7 +49,7 @@ def select_pwms_by_permutation_test_and_reduce(
 # TODO move to... stats?
 def aggregate_array(
         array,
-        agg_fn=np.median,
+        agg_fn=np.mean,
         agg_axis=0,
         mask=None):
     """aggregate dataset
@@ -163,6 +163,7 @@ def extract_significant_pwms(
         np.sum(outputs[pwm_sig_clusters_all_key][0])))
     generator = clusters.cluster_mask_generator()
     cluster_idx = 0
+    
     for cluster_id, cluster_mask in generator:
         cluster_data = data[np.where(cluster_mask)[0],:,:]
         agg_data[cluster_idx,:,:] = aggregate_array(
