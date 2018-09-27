@@ -360,9 +360,6 @@ def add_evaluate_parser(subparsers):
         "--data_dir",
         help="h5 file directory")
     group_input.add_argument(
-        "--model_dir",
-        help="ckpt directory")
-    group_input.add_argument(
         "--fasta", required=True,
         help="fasta file for one hot encoding sequence")
     
@@ -953,9 +950,16 @@ def _setup_model(args):
     """
     # model info
     if args.model_info is not None:
+        args.model_dir = os.path.dirname(args.model_info)
         with open(args.model_info, "r") as fp:
             model_info = json.load(fp)
         args.model_info = model_info
+
+    # check the checkpoint
+    checkpoint_dir = os.path.dirname(args.model_info["checkpoint"])
+    if checkpoint_dir != os.path.dirname(args.model_dir):
+        args.model_info["checkpoint"] = "{}/train/{}".format(
+            args.model_dir, os.path.basename(args.model_info["checkpoint"]))
         
     return
 
