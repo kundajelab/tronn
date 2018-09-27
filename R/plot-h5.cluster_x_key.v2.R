@@ -44,7 +44,7 @@ for (cluster_idx in 1:length(cluster_ids)) {
     cluster_data <- get_cluster_data(data, clusters, cluster_id)
     
     # aggregate
-    cluster_data <- apply(cluster_data, 2, median)
+    cluster_data <- apply(cluster_data, 2, mean) # median
     
     # and append
     if (cluster_idx == 1) {
