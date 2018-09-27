@@ -6,49 +6,21 @@ import json
 import h5py
 import logging
 
-
 import numpy as np
 import pandas as pd
 
 from tronn.datalayer import H5DataLoader
-
 from tronn.models import ModelManager
-
 from tronn.nets.nets import net_fns
-
-from tronn.learn.cross_validation import setup_train_valid_test
-
 from tronn.learn.evaluation import auprc
 from tronn.learn.evaluation import make_recall_at_fdr
+from tronn.learn.evaluation import spearman_only_r
+from tronn.learn.evaluation import pearson_only_r
 from tronn.learn.evaluation import run_and_plot_metrics
 from tronn.learn.evaluation import plot_all
 
-from scipy.stats import spearmanr
-from scipy.stats import pearsonr
-
-from sklearn.metrics import auc
-from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import roc_auc_score
-from sklearn.metrics import roc_curve
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score
-
-
-def spearman_only_r(labels, probs):
-    """spearman rank correlation wrapper
-    """
-    results = spearmanr(labels, probs)
-    
-    return results[0]
-
-
-def pearson_only_r(labels, probs):
-    """pearson correlation wrapper
-    """
-    results = pearsonr(labels, probs)
-    
-    return results[0]
-
 
 
 def run(args):
@@ -58,20 +30,17 @@ def run(args):
     os.system("mkdir -p {}".format(args.out_dir))
 
     # adjust data files as needed
+    # TODO resolve this in the main cmd file
     if args.data_dir is not None:
         for i in xrange(len(args.model_info["test_files"])):
             args.model_info["test_files"][i] = "{}/{}".format(
                 args.data_dir,
                 os.path.basename(args.model_info["test_files"][i]))
-
-    # change model dir as needed
-    if args.model_dir is not None:
-        args.model_info["checkpoint"] = "{}/{}".format(
-            args.model_dir, os.path.basename(args.model_info["checkpoint"]))
             
-    # set up dataloader
-    dataloader = H5DataLoader(args.model_info["test_files"], fasta=args.fasta)
-    test_input_fn = dataloader.build_input_fn(
+    # set up test dataloader
+    test_dataloader = H5DataLoader(
+        args.model_info["test_files"], fasta=args.fasta)
+    test_input_fn = test_dataloader.build_input_fn(
         args.batch_size,
         label_keys=args.model_info["label_keys"],
         filter_tasks=args.model_info["filter_keys"])
@@ -79,7 +48,8 @@ def run(args):
     # set up model
     model_manager = ModelManager(
         net_fns[args.model_info["name"]],
-        args.model_info["params"])
+        args.model_info["params"],
+        name=args.model_info["name"])
 
     # evaluate
     predictor = model_manager.predict(
@@ -88,22 +58,30 @@ def run(args):
         checkpoint=args.model_info["checkpoint"])
 
     # run eval and save to h5
-    sample_size = 5000
     eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)
     if not os.path.isfile(eval_h5_file):
-        model_manager.infer_and_save_to_h5(predictor, eval_h5_file, args.num_evals)
+        model_manager.infer_and_save_to_h5(
+            predictor, eval_h5_file, args.num_evals)
 
-    # extract arrays
+    # extract from h5 to numpy arrays
     with h5py.File(eval_h5_file, "r") as hf:
         labels = hf["labels"][:]
         predictions = hf["logits"][:]
         probs = hf["probs"][:]
     assert labels.shape[1] == probs.shape[1]
 
-    # TODO set up different functions for classification vs regression?
+    # set up metrics (different for classification/regression)
     if args.regression:
-        metrics_functions = [mean_squared_error, r2_score, spearman_only_r, pearson_only_r]
-        metrics_functions_names = ["MSE", "R2", "SPEARMANR", "PEARSONR"]
+        metrics_functions = [
+            mean_squared_error,
+            r2_score,
+            spearman_only_r,
+            pearson_only_r]
+        metrics_functions_names = [
+            "MSE",
+            "R2",
+            "SPEARMANR",
+            "PEARSONR"]
         probs = predictions # change probs to the predictions
         
         # setup plotting functions

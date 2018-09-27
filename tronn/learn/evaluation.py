@@ -101,6 +101,22 @@ def get_regression_metrics(labels, probabilities):
     return metric_map
 
 
+def spearman_only_r(labels, probs):
+    """spearman rank correlation wrapper
+    """
+    results = spearmanr(labels, probs)
+    
+    return results[0]
+
+
+def pearson_only_r(labels, probs):
+    """pearson correlation wrapper
+    """
+    results = pearsonr(labels, probs)
+    
+    return results[0]
+
+
 def get_confusion_matrix(labels, predictions, metric="AUPRC", fdr=0.05):
     """Given a set of predictions and not knowing which label set it may
     best predict (ie, unsupervised learning), produce the confusion matrix
