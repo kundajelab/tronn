@@ -444,6 +444,9 @@ def get_pwm_scores(inputs, params):
     
     # features coming out: the summed weighted scores
     outputs[DataKeys.FEATURES] = outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] # {N, task, M}
+
+    # filter for just those with a motif present
+    filter_by_any_motif_present(outputs, params)
     
     return outputs, params
 
@@ -522,10 +525,31 @@ def run_dmim(inputs, params):
     scanner = DeltaMotifImportanceMapper(features_key=DataKeys.FEATURES)
     outputs, params = scanner.scan(inputs, params)
 
-    
+    # filter for just those with a motif present
+    filter_by_any_motif_present(outputs, params)
     
     return outputs, params
 
+
+
+def filter_by_any_motif_present(inputs, params):
+    """check if any motif was marked present to filter out zeros
+    """
+    # features
+    features = inputs[DataKeys.FEATURES] # {N, task, M}
+    
+    # adjust
+    batch_size = features.get_shape().as_list()[0]
+    features = tf.reshape(features, shape=[batch_size, -1]) # {N, task*M}
+    motif_present = tf.not_equal(features, 0)
+    any_motif_present = tf.reduce_any(motif_present, axis=1) # {N}
+    
+    # condition mask
+    inputs["condition_mask"] = any_motif_present
+    params.update({"name": "motif_presence_filter"})
+    outputs, _ = filter_and_rebatch(inputs, params)
+
+    return outputs, params
 
 
 
