@@ -320,6 +320,9 @@ def add_train_parser(subparsers):
     group_output = argparser_train.add_argument_group(
         "Output files and folders")
     add_output_options(group_output, out_dir='model')
+    group_output.add_argument(
+        "--get_dataset_metrics", action="store_true",
+        help="calculate dataset metrics if needed")
 
     return
 
