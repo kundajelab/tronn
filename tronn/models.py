@@ -53,7 +53,8 @@ class ModelManager(object):
             model_fn,
             model_params,
             model_checkpoint=None,
-            model_dir=None):
+            model_dir=None,
+            name="nn_model"):
         """Initialization keeps core of the model - inputs (from separate dataloader) 
         and model with necessary params. All other pieces are part of different graphs
         (ie, training, evaluation, prediction, inference)
@@ -62,7 +63,7 @@ class ModelManager(object):
         self.model_params = model_params
         self.model_checkpoint = model_checkpoint
         self.model_dir = model_dir
-        
+        self.name = name
         
     def build_training_dataflow(
             self,
@@ -453,9 +454,10 @@ class ModelManager(object):
             multi_gpu=False):
         """run full training loop with evaluation for early stopping
         """
-        # adjust for regression
+        # check metric for regression
+        # TODO deprecate this out eventually
         if regression:
-            early_stopping_metric = "mse" # TODO eventually move this metric out
+            assert early_stopping_metric == "mse"
         
         # set up stopping conditions
         stopping_log = "{}/stopping.log".format(out_dir)
