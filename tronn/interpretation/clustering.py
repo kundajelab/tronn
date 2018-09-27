@@ -320,7 +320,8 @@ def summarize_clusters_on_manifold(
     # save out
     with h5py.File(h5_file, "a") as out:
         for key in out_arrays.keys():
-            #del out[key]
+            if out.get(key) is not None:
+                del out[key]
             out.create_dataset(key, data=out_arrays[key])
             out[key].attrs[AttrKeys.CLUSTER_IDS] = clusters.get_active_cluster_ids()
 
