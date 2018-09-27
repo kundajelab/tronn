@@ -4,7 +4,6 @@
 import json
 import logging
 
-from tronn.datalayer import setup_h5_files
 from tronn.datalayer import H5DataLoader
 
 from tronn.models import ModelManager
@@ -21,7 +20,7 @@ def run(args):
     logging.info("Training...")
     
     # set up dataset
-    h5_files = setup_h5_files(args.data_dir)
+    h5_files = H5DataLoader.setup_h5_files(args.data_dir)
     if args.full_train:
         train_files = []
         valid_files = []

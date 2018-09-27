@@ -10,7 +10,6 @@ import logging
 import numpy as np
 import pandas as pd
 
-from tronn.datalayer import setup_h5_files
 from tronn.datalayer import H5DataLoader
 
 from tronn.models import ModelManager
