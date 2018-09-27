@@ -13,11 +13,29 @@ class DataSetupHook(tf.train.SessionRunHook):
     """Hook to initialize tf.data.Dataset initializer"""
     
     def after_create_session(self, session, coord):
-        initialize_tf_dataset_ops = tf.get_collection("DATASETUP")
-        print len(initialize_tf_dataset_ops)
-        session.run(initialize_tf_dataset_ops)
-        print "initialized dataset"
+        
+        initialize_ops = tf.get_collection("DATASETUP")
+        staging_ops = tf.get_collection("STAGING_OPS")
+        print len(initialize_ops)
+        #session.run(initialize_ops)
+        for i, op in enumerate(initialize_ops):
+            print i
+            session.run(initialize_ops[i])
+            session.run(staging_ops[:i])
+        print "initialized datasets"
+
+
+class DataSetupHook_NEW(tf.train.SessionRunHook):
+    """Hook to initialize tf.data.Dataset initializer"""
     
+    def after_create_session(self, session, coord):
+        staging_ops = tf.get_collection("STAGING_OPS")
+        print staging_ops
+        for i, op in enumerate(staging_ops):
+            session.run(staging_ops[i])
+        print "set up stages"
+
+        
 
 class DataCleanupHook(tf.train.SessionRunHook):
     """Hook to cleanup data threads as needed"""
