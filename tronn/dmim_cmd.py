@@ -100,13 +100,15 @@ def run(args):
             args.batch_size,
             label_keys=args.model_info["label_keys"],
             filter_tasks=args.filter_tasks,
-            singleton_filter_tasks=args.inference_task_indices)
+            singleton_filter_tasks=args.inference_task_indices,
+            shuffle=False)
 
     elif args.bed_input is not None:
         dataloader = BedDataLoader(args.bed_input, args.fasta)
         input_fn = dataloader.build_input_fn(
             args.batch_size,
-            label_keys=args.model_info["label_keys"])
+            label_keys=args.model_info["label_keys"],
+            shuffle=False)
         
     # set up model
     if args.processed_inputs:
