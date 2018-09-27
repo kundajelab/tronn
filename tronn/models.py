@@ -385,7 +385,7 @@ class ModelManager(object):
             "inference_mode": True,
             "inference_fn": inference_fn,
             "inference_params": inference_params,
-            "model_reuse": self.model_params.get(
+            "model_reuse": inference_params.get(
                 "model_reuse", True)} # TODO pwms etc etc
         
         # build estimator
