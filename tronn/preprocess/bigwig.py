@@ -109,10 +109,11 @@ def normalize_signal_vals(positive_h5_files, h5_files, key, new_key):
             signal_vals = hf[key][:]
             # asinh
             signal_vals = np.arcsinh(signal_vals)
-            signal_vals = (signal_vals - min_val) / max_val
-            
-            signal_vals[signal_vals < 0.] = 0
-            signal_vals[signal_vals > 1.] = 1.
+
+            # clip
+            #signal_vals = (signal_vals - min_val) / max_val
+            #signal_vals[signal_vals < 0.] = 0
+            #signal_vals[signal_vals > 1.] = 1.
             
             hf.create_dataset(new_key, data=signal_vals)
 
