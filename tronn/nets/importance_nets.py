@@ -126,9 +126,6 @@ class FeatureImportanceExtractor(object):
         layer_key = params.get("layer_key", DataKeys.LOGITS)
         
         reuse = params.get("model_reuse", True) 
-        print reuse 
-        reuse = True # scanmotifs
-        #reuse = False # dmim (processed inputs)
         with tf.variable_scope("", reuse=reuse):
             logging.info("Calling model fn")
             model_outputs, params = self.model_fn(inputs, params)
