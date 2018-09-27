@@ -253,7 +253,9 @@ class MotifScannerWithThresholds(MotifScanner):
         threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
         thresholds = tf.map_fn(
             threshold_fn,
-            shuffles) # {N*M*task}
+            shuffles,
+            back_prop=False,
+            parallel_iterations=1) # {N*M*task}
 
         # readjust shape and save
         thresholds = tf.reshape(

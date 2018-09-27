@@ -47,9 +47,23 @@ def dinucleotide_shuffle(sequence):
     return shuffled_sequence
 
 
-def _build_dinucleotide_shuffle_fn(num_shuffles):
+def _build_dinucleotide_shuffle_fn_NEW(num_shuffles):
     """internal build fn to give to map_fn
     """
+    def shuffle_fn(sequence):
+        def dinuc_fn(val):
+            return dinucleotide_shuffle(sequence)
+        sequences = tf.map_fn(
+            dinuc_fn,
+            tf.range(num_shuffles),
+            dtype=tf.float32,
+            parallel_iterations=1)
+        return sequences
+
+    return shuffle_fn
+
+    
+def _build_dinucleotide_shuffle_fn(num_shuffles):
     def shuffle_fn(sequence):
         sequences = []
         for shuffle_idx in xrange(num_shuffles):
@@ -84,7 +98,9 @@ def generate_dinucleotide_shuffles(inputs, params):
     # call map_fn
     dinuc_shuffles = tf.map_fn(
         shuffle_fn,
-        features)
+        features,
+        back_prop=False,
+        parallel_iterations=4) # TODO see if this is important
     dinuc_shuffles = tf.reshape(
         dinuc_shuffles,
         [batch_size, -1]+features_shape[1:])

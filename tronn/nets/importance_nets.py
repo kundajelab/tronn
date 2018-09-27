@@ -52,7 +52,9 @@ def threshold_w_dinuc_shuffle_null(inputs, params):
     threshold_fn = build_null_distribution_threshold_fn(pval_thresh)
     thresholds = tf.map_fn(
         threshold_fn,
-        shuffles)
+        shuffles,
+        back_prop=False,
+        parallel_iterations=1)
     
     # readjust shape and save
     feature_shape = features.get_shape().as_list()
@@ -123,7 +125,10 @@ class FeatureImportanceExtractor(object):
         logging.debug("LAYER: call model and set up backprop")
         layer_key = params.get("layer_key", DataKeys.LOGITS)
         
-        reuse = params.get("model_reuse", True)
+        reuse = params.get("model_reuse", True) 
+        print reuse 
+        reuse = True # scanmotifs
+        #reuse = False # dmim (processed inputs)
         with tf.variable_scope("", reuse=reuse):
             logging.info("Calling model fn")
             model_outputs, params = self.model_fn(inputs, params)
@@ -667,7 +672,10 @@ def get_task_importances(inputs, params):
     if params.get("use_filtering", True):
         print "using filtering"
         MIN_IMPORTANCE_BP = 10
-        outputs, _ = filter_by_importance(outputs, {"cutoff": MIN_IMPORTANCE_BP, "positive_only": True})
+        outputs, _ = filter_by_importance(
+            outputs,
+            {"cutoff": MIN_IMPORTANCE_BP,
+             "positive_only": True})
         logging.info("OUT: {}".format(outputs[DataKeys.FEATURES].get_shape()))
 
     return outputs, params
