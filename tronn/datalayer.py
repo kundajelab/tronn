@@ -18,9 +18,10 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+from tronn.preprocess.fasta import GenomicIntervalConverter
 from tronn.preprocess.fasta import bed_to_sequence_iterator
-from tronn.preprocess.fasta import sequence_string_to_onehot_converter
-from tronn.preprocess.fasta import batch_string_to_onehot
+from tronn.preprocess.fasta import sequence_string_to_onehot_converter # TODO deprecate
+from tronn.preprocess.fasta import batch_string_to_onehot # TODO deprecate
 
 from tronn.nets.filter_nets import filter_by_labels # TODO deprecate
 from tronn.nets.filter_nets import filter_singleton_labels # TODO deprecate
@@ -29,68 +30,16 @@ from tronn.util.h5_utils import get_absolute_label_indices
 from tronn.util.utils import DataKeys
 
 
-class GenomicIntervalConverter(object):
-    """converts genomic intervals to sequence"""
-
-    def __init__(self, lock, fasta, batch_size, seq_len=1000):
-        """initialize the pipe
-        """
-        # initialize in a thread-safe manner
-        lock.acquire()
-        converter_in, converter_out, converter_close_fn = sequence_string_to_onehot_converter(fasta)
-        lock.release()
-
-        # save
-        self.converter_in = converter_in
-        self.converter_out = converter_out
-        self.close = converter_close_fn
-
-        # set up tmp numpy array so that it's not re-created for every batch
-        self.onehot_batch_array = np.zeros((batch_size, seq_len), dtype=np.uint8)
-
-
-    def convert(self, array):
-        """given a set of intervals, get back sequence info
-        """
-        for i in xrange(array.shape[0]):
-
-            metadata_dict = dict([
-                val.split("=")
-                for val in array[i][0].strip().split(";")])
-            try:
-                feature_interval = metadata_dict["features"].replace(
-                    ":", "\t").replace("-", "\t")
-                feature_interval += "\n"
-                # pipe in and get out onehot
-                self.converter_in.stdin.write(feature_interval)
-                self.converter_in.stdin.flush()
-
-                # check pipe and convert to array
-                sequence = self.converter_out.stdout.readline().strip()
-                sequence = np.fromstring(sequence, dtype=np.uint8, sep=",") # THIS IS CRUCIAL FOR SPEED
-            
-            except:
-                # TODO fix this so that the information is in the metadata?
-                print "sequence information missing, {}".format(feature_interval)
-                sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)
-
-            # save out
-            self.onehot_batch_array[i,:] = sequence
-
-        return self.onehot_batch_array
-    
-
 class DataLoader(object):
     """build the base level dataloader"""
 
     __metaclass__ = abc.ABCMeta
 
-    @abc.abstractmethod
-    def __init__(self):
-        """set up dataloader
-        """
-        pass
-
+    #@abc.abstractmethod
+    #def __init__(self):
+    #    """set up dataloader
+    #    """
+    #    pass
     
     @abc.abstractmethod
     def build_raw_dataflow(self, batch_size, task_indices=[]):
@@ -222,7 +171,7 @@ class DataLoader(object):
         return inputs
     
     
-    def build_input_fn(self, batch_size, **kwargs):
+    def build_input_fn(self, batch_size, shuffle=True, **kwargs):
         """build the dataflow function. will be called later in graph
         """
         def dataflow_fn():
@@ -232,10 +181,11 @@ class DataLoader(object):
             dataset = self.build_filtered_dataflow(batch_size, **kwargs)
             
             # shuffle
-            min_after_dequeue = 1000 #10000
-            capacity = min_after_dequeue + (len(self.h5_files)+10) * (batch_size/16)
-            dataset = dataset.shuffle(capacity) # TODO adjust this as needed
-
+            if shuffle:
+                min_after_dequeue = 1000 #10000
+                capacity = min_after_dequeue + (len(self.h5_files)+10) * (batch_size/16)
+                dataset = dataset.shuffle(capacity) # TODO adjust this as needed
+            
             # batch
             #dataset = dataset.batch(batch_size)
             dataset = dataset.apply(
@@ -372,7 +322,9 @@ class H5DataLoader(DataLoader):
     def get_num_tasks(h5_files, label_keys, label_keys_dict):
         """get number of labels
         """
-        return len(get_absolute_label_indices(label_keys, label_keys_dict, h5_files[0]))
+        num_tasks =  len(get_absolute_label_indices(label_keys, label_keys_dict, h5_files[0]))
+        logging.info("Found {} tasks across label set(s)".format(num_tasks))
+        return num_tasks
 
     
     def get_classification_metrics(self, file_prefix, label_keys=["labels"]):
@@ -505,7 +457,7 @@ class H5DataLoader(DataLoader):
             slices["labels"] = np.concatenate(labels, axis=1)
             
         slices["labels"] = slices["labels"][:,task_indices]
-                
+
         return slices
 
     
