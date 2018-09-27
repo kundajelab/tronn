@@ -7,7 +7,9 @@ import gzip
 import glob
 import h5py
 import math
+import random
 import logging
+import threading
 import subprocess
 
 import abc
@@ -20,33 +22,63 @@ from tronn.preprocess.fasta import bed_to_sequence_iterator
 from tronn.preprocess.fasta import sequence_string_to_onehot_converter
 from tronn.preprocess.fasta import batch_string_to_onehot
 
-# TODO split this out somehow? so that datalayer code is completely separable
-from tronn.nets.filter_nets import filter_by_labels
-from tronn.nets.filter_nets import filter_singleton_labels
+from tronn.nets.filter_nets import filter_by_labels # TODO deprecate
+from tronn.nets.filter_nets import filter_singleton_labels # TODO deprecate
 
 from tronn.util.h5_utils import get_absolute_label_indices
 from tronn.util.utils import DataKeys
 
-# TODO attach as static method to H5DataLoader
-def setup_h5_files(data_dir):
-    """quick helper function to go into h5 directory and organize h5 files
-    """
-    chroms = ["chr{}".format(i) for i in xrange(1,23)] + ["chrX", "chrY"]
 
-    # save into a chromosome dict
-    data_dict = {}
-    for chrom in chroms:
-        positives_files = sorted(glob.glob("{}/*{}[.]*.h5".format(data_dir, chrom)))
-        positives_files = [filename for filename in positives_files if "negative" not in filename]
-        training_negatives_files = sorted(glob.glob("{}/*training-negatives*{}[.]*.h5".format(data_dir, chrom)))
-        global_negatives_files = sorted(glob.glob("{}/*genomewide-negatives*{}[.]*.h5".format(data_dir, chrom)))
-        data_dict[chrom] = (
-            positives_files,
-            training_negatives_files,
-            global_negatives_files)
-        
-    return data_dict
+class GenomicIntervalConverter(object):
+    """converts genomic intervals to sequence"""
 
+    def __init__(self, lock, fasta, batch_size, seq_len=1000):
+        """initialize the pipe
+        """
+        # initialize in a thread-safe manner
+        lock.acquire()
+        converter_in, converter_out, converter_close_fn = sequence_string_to_onehot_converter(fasta)
+        lock.release()
+
+        # save
+        self.converter_in = converter_in
+        self.converter_out = converter_out
+        self.close = converter_close_fn
+
+        # set up tmp numpy array so that it's not re-created for every batch
+        self.onehot_batch_array = np.zeros((batch_size, seq_len), dtype=np.uint8)
+
+
+    def convert(self, array):
+        """given a set of intervals, get back sequence info
+        """
+        for i in xrange(array.shape[0]):
+
+            metadata_dict = dict([
+                val.split("=")
+                for val in array[i][0].strip().split(";")])
+            try:
+                feature_interval = metadata_dict["features"].replace(
+                    ":", "\t").replace("-", "\t")
+                feature_interval += "\n"
+                # pipe in and get out onehot
+                self.converter_in.stdin.write(feature_interval)
+                self.converter_in.stdin.flush()
+
+                # check pipe and convert to array
+                sequence = self.converter_out.stdout.readline().strip()
+                sequence = np.fromstring(sequence, dtype=np.uint8, sep=",") # THIS IS CRUCIAL FOR SPEED
+            
+            except:
+                # TODO fix this so that the information is in the metadata?
+                print "sequence information missing, {}".format(feature_interval)
+                sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)
+
+            # save out
+            self.onehot_batch_array[i,:] = sequence
+
+        return self.onehot_batch_array
+    
 
 class DataLoader(object):
     """build the base level dataloader"""
@@ -66,8 +98,65 @@ class DataLoader(object):
         """
         raise NotImplementedError, "implement in child class!"
 
-    
+
     def build_filtered_dataflow(
+            self,
+            batch_size,
+            label_keys=["labels"],
+            label_tasks=[],
+            filter_tasks=[],
+            singleton_filter_tasks=[],
+            num_dinuc_shuffles=0,
+            num_scaled_inputs=0,
+            keep_keys=[],
+            **kwargs):
+        """add in various filters to the dataset
+        """
+        # build raw dataflow
+        dataset = self.build_raw_dataflow(
+            batch_size,
+            task_indices=label_tasks,
+            label_keys=label_keys,
+            **kwargs)
+
+        if True:
+            # label filter fn
+            def filter_by_labels(labels_key, filter_tasks, filter_type="any"):
+                def filter_fn(features, labels):
+                    mask_array = np.zeros((features[labels_key].get_shape()[0]))
+                    mask_array[filter_tasks] = 1
+                    results = tf.reduce_sum(
+                        tf.multiply(features[labels_key], mask_array))
+                    return tf.greater(results, 0)
+                return filter_fn
+
+            if len(filter_tasks) != 0:
+                # go through the list to subset more finegrained
+                # in a hierarchical way
+                for key in filter_tasks.keys():
+                    print key
+                    print filter_tasks[key][0]
+                    dataset = dataset.filter(
+                        filter_by_labels(key, filter_tasks[key][0]))
+
+            # TODO check this
+            # singletons filter fn
+            def filter_singletons(labels_key, filter_tasks):
+                def filter_fn(features, labels):
+                    tasks = tf.gather(features[labels_key], filter_tasks)
+                    print tasks
+                    results = tf.reduce_sum(tasks)
+                    return tf.greater(results, 1)
+                return filter_fn
+
+            if len(singleton_filter_tasks) != 0:
+                dataset = dataset.filter(
+                    filter_singletons("labels", singleton_filter_tasks))
+
+        return dataset
+    
+    
+    def build_filtered_dataflow_OLD(
             self,
             batch_size,
             label_keys=["labels"],
@@ -87,6 +176,7 @@ class DataLoader(object):
             # go through the list to subset more finegrained
             # in a hierarchical way
             # TODO adjust to only have a queue at the END, so that not wasting a lot of queue space
+            # TODO convert these to dataset.filter
             for key in filter_tasks.keys(): # TODO consider an ordered dict
                 print key
                 print filter_tasks[key][0]
@@ -130,7 +220,7 @@ class DataLoader(object):
                 inputs = new_inputs
                 
         return inputs
-
+    
     
     def build_input_fn(self, batch_size, **kwargs):
         """build the dataflow function. will be called later in graph
@@ -138,25 +228,46 @@ class DataLoader(object):
         def dataflow_fn():
             """dataflow function. must have no args.
             """
-            inputs = self.build_filtered_dataflow(batch_size, **kwargs)
+            # build dataset and filter as needed
+            dataset = self.build_filtered_dataflow(batch_size, **kwargs)
             
-            return inputs
-            
-            # TESTIING
-            # feed into tf.data?
-            #inputs = tf.data.Dataset.from_tensor_slices((inputs, inputs)).batch(batch_size)
+            # shuffle
+            min_after_dequeue = 1000 #10000
+            capacity = min_after_dequeue + (len(self.h5_files)+10) * (batch_size/16)
+            dataset = dataset.shuffle(capacity) # TODO adjust this as needed
 
-            # intialize
-            #iterator = dataset.make_initializable_iterator()
-            #iterator = dataset.make_one_shot_iterator()
-            #inputs = iterator.get_next()
+            # batch
+            #dataset = dataset.batch(batch_size)
+            dataset = dataset.apply(
+                tf.contrib.data.batch_and_drop_remainder(batch_size))
 
-            # add to hook
-            #tf.get_collection("DATASETUP")
-            #tf.add_to_collection("DATASETUP", iterator.initializer)
-            # END TESTING
+            # map (ie convert sequence string to onehot)
+            def make_onehot_sequence(features, labels):
+                features[DataKeys.FEATURES] = tf.map_fn(
+                    DataLoader.encode_onehot_sequence,
+                    features[DataKeys.FEATURES],
+                    dtype=tf.float32)
+                return features, labels
             
-            #return inputs
+            if False:
+                def make_onehot_sequence(features, labels):
+                    features[DataKeys.FEATURES] = DataLoader.encode_onehot_sequence(
+                        features[DataKeys.FEATURES])
+                    return features, labels
+        
+            dataset = dataset.map(
+                make_onehot_sequence,
+                num_parallel_calls=28)
+
+            # batch
+            #dataset = dataset.batch(batch_size)
+            #dataset = dataset.apply(
+            #    tf.contrib.data.batch_and_drop_remainder(batch_size))
+
+            # prefetch
+            dataset = dataset.prefetch(5)
+            
+            return dataset
             
         return dataflow_fn
 
@@ -212,8 +323,29 @@ class H5DataLoader(DataLoader):
         self.fasta = fasta
         self.num_examples = self.get_num_examples(h5_files)
         self.num_examples_per_file = self.get_num_examples_per_file(h5_files)
+
         
+    @staticmethod
+    def setup_h5_files(data_dir):
+        """helper function to go into h5 directory and organize h5 files
+        """
+        chroms = ["chr{}".format(i) for i in xrange(1,23)] + ["chrX", "chrY"]
+
+        # save into a chromosome dict
+        data_dict = {}
+        for chrom in chroms:
+            positives_files = sorted(glob.glob("{}/*{}[.]*.h5".format(data_dir, chrom)))
+            positives_files = [filename for filename in positives_files if "negative" not in filename]
+            training_negatives_files = sorted(glob.glob("{}/*training-negatives*{}[.]*.h5".format(data_dir, chrom)))
+            global_negatives_files = sorted(glob.glob("{}/*genomewide-negatives*{}[.]*.h5".format(data_dir, chrom)))
+            data_dict[chrom] = (
+                positives_files,
+                training_negatives_files,
+                global_negatives_files)
         
+        return data_dict
+
+    
     @staticmethod
     def get_num_examples(h5_files, test_key="example_metadata"):
         """get total num examples in the dataset
@@ -235,6 +367,7 @@ class H5DataLoader(DataLoader):
                 num_examples_per_file.append(hf[test_key].shape[0])
         return num_examples_per_file
 
+    
     @staticmethod
     def get_num_tasks(h5_files, label_keys, label_keys_dict):
         """get number of labels
@@ -315,7 +448,7 @@ class H5DataLoader(DataLoader):
             keys=None,
             features_key=DataKeys.FEATURES,
             label_keys=["labels"],
-            skip_keys=["label_metadata"]):
+            skip_keys=["labels", "features", "label_metadata"]):
         """Get slices from the (open) h5 file back and pad with 
         null sequences as needed to fill the batch.
 
@@ -514,8 +647,7 @@ class H5DataLoader(DataLoader):
             func=close_fn,
             inp=[0],
             Tout=tf.int64,
-            stateful=False,
-            name="close_fn")
+            stateful=False)
         tf.get_collection("DATACLEANUP")
         tf.add_to_collection("DATACLEANUP", close_op)
         
@@ -541,15 +673,10 @@ class H5DataLoader(DataLoader):
         
         return inputs
 
+    
     @staticmethod
-    def h5_to_generator(
-            h5_file,
+    def build_h5_generator(
             batch_size,
-            dtypes,
-            output_shapes,
-            lock=None,
-            converter_in=None,
-            converter_out=None,
             task_indices=[],
             fasta=None,
             keys=None,
@@ -557,23 +684,24 @@ class H5DataLoader(DataLoader):
             features_key="features", # TODO do we need this?
             label_keys=["labels"],
             metadata_key="example_metadata",
-            shuffle=True,
-            num_epochs=1):
+            shuffle=True):
         """make a generator, pulls batches into numpy array from h5
+        only goes through data ONCE
         """
-        # make a convenience class
-        class Generator:
-
-            def __init__(self, converter_in, converter_out):
-                self.lock = lock
-                self.converter_in = converter_in
-                self.converter_out = converter_out
-            
+        assert fasta is not None
+        lock = threading.Lock()
+        
+        # make a convenience class (this is for tf.data.Dataset purposes)
+        class Generator(object):
+                
             def __call__(self, h5_file):
                 """run the generator"""
-                
-                with h5py.File(h5_file, "r") as h5_handle:
 
+                # set up interval to sequence converter
+                converter = GenomicIntervalConverter(lock, fasta, batch_size)
+
+                # open h5 file
+                with h5py.File(h5_file, "r") as h5_handle:
                     test_key = h5_handle.keys()[0]
                     
                     # set up batch id total
@@ -581,81 +709,48 @@ class H5DataLoader(DataLoader):
                     logging.debug("loading {0} with max batches {1}".format(
                         os.path.basename(h5_file), max_batches))
 
-                    if True:
-                        #import time
-                        #time.sleep(5)
-                        # TODO - this part is messing with parallel
-                        # set up on-the-fly onehot encoder
-                        assert fasta is not None
-
-                        # thread safety
-                        self.lock.acquire()
-                        converter_in, converter_out, converter_close_fn = sequence_string_to_onehot_converter(fasta)
-                        self.lock.release()
-                        
-                        def close_fn(close_val):
-                            converter_close_fn()
-                            return 0
+                    # set up shuffled batches
+                    batch_ids = range(max_batches)
+                    if shuffle:
+                        random.shuffle(batch_ids)
                     
-                        # py func for closing function
-                        close_op = tf.py_func(
-                            func=close_fn,
-                            inp=[0],
-                            Tout=tf.int64,
-                            stateful=False,
-                            name="close_fn")
-                        tf.get_collection("DATACLEANUP")
-                        tf.add_to_collection("DATACLEANUP", close_op)
-
-                    # set up tmp numpy array so that it's not re-created for every batch
-                    # TODO adjust seq length
-                    onehot_batch_array = np.zeros((batch_size, 1000), dtype=np.uint8)
-                    
-                    # and go through
-                    for batch_id in xrange(max_batches):
-                        batch_start = batch_id*batch_size
-
-                        try:
+                    # and go through batches
+                    try:
+                        for batch_id in batch_ids:
+                            batch_start = batch_id*batch_size
                             slice_array = H5DataLoader.h5_to_slices(
                                 h5_handle,
                                 batch_start,
                                 batch_size,
+                                keys=keys,
                                 task_indices=task_indices,
                                 features_key=features_key,
                                 label_keys=label_keys)
-                        except ValueError:
-                            print "here"
-                            # deal with closed h5 file
-                            raise StopIteration
 
-                        # onehot encode on the fly
-                        # TODO keep the string sequence
-                        slice_array[DataKeys.FEATURES] = batch_string_to_onehot(
-                            slice_array["example_metadata"],
-                            converter_in,
-                            converter_out,
-                            onehot_batch_array)
+                            # onehot encode on the fly
+                            # TODO keep the string sequence
+                            slice_array[DataKeys.FEATURES] = converter.convert(
+                                slice_array["example_metadata"])
+                            
+                            # yield
+                            for i in xrange(batch_size):
+                                yield ({
+                                    key: value[i]
+                                    for key, value in six.iteritems(slice_array)
+                                }, 1.)
+                            
+                    except ValueError:
+                        logging.info("Stopping {}".format(h5_file))
+                        raise StopIteration
 
-                        slice_list = []
-                        for key in keys:
-                            slice_list.append(slice_array[key])
+                    finally:
+                        converter.close()
+                        print "finished {}".format(h5_file)
+                            
+        # instantiate
+        generator = Generator()
 
-                        for i in xrange(batch_size):
-                            yield ({
-                                key: value[i]
-                                for key, value in six.iteritems(slice_array)
-                            }, 1.)
-                        #yield slice_array #tuple(slice_list)
-
-        # create dataset
-        print "here"
-        dataset = tf.data.Dataset.from_generator(
-            Generator(converter_in, converter_out),
-            (dtypes,tf.int32),
-            output_shapes=(output_shapes,()),
-            args=(h5_file,))
-
-        return dataset
+        return generator
 
 
     def get_tensor_dtypes(
@@ -681,7 +776,7 @@ class H5DataLoader(DataLoader):
             # keys
             keys = sorted(h5_handle.keys())
             keys = [key for key in keys if key not in skip_keys]
-
+            
             # determine the Tout
             tensor_dtypes = []
             dtype_dict = {}
@@ -723,7 +818,7 @@ class H5DataLoader(DataLoader):
             self,
             batch_size,
             task_indices=[],
-            features_key="features",
+            features_key=DataKeys.FEATURES,
             label_keys=["labels"],
             metadata_key="example_metadata",
             shuffle=True,
@@ -731,7 +826,9 @@ class H5DataLoader(DataLoader):
         """build dataflow from files to tf dataset
         """
         logging.info(
-            "loading data for task indices {0} from {1} hdf5_files: {2} examples".format(
+            "loading data for task indices {0} "
+            "from {1} hdf5_files: "
+            "{2} examples".format(
                 task_indices, len(self.h5_files), self.num_examples))
         
         # adjust task indices as needed
@@ -742,97 +839,34 @@ class H5DataLoader(DataLoader):
                     num_labels += hf[key].shape[1]
             task_indices = range(num_labels)
 
-        # add datasets together
-        if False:
-            datasets = [
-                H5DataLoader.h5_to_tfdataset(
-                    h5_file, batch_size, task_indices,
-                    fasta=self.fasta, label_keys=label_keys)
-                for h5_file in self.h5_files]
-            #dataset = tf.data.Dataset.zip(tuple(datasets))
-            dataset_indices = range(len(datasets))
+        # set up dataset run params
+        dtypes, keys, shape_dict = self.get_tensor_dtypes(
+            batch_size, task_indices)
 
-        dtypes, keys, shape_dict = self.get_tensor_dtypes(batch_size, task_indices)
-        min_after_dequeue = 10000
-        capacity = min_after_dequeue + (len(self.h5_files)+10) * batch_size
-        capacity = 10*batch_size
-
-        if False:
-            dataset = tf.data.Dataset.from_tensor_slices(self.h5_files).interleave(
-                lambda h5_file: H5DataLoader.h5_to_generator(
-                    h5_file,
-                    batch_size,
-                    dtypes,
-                    shape_dict,
-                    task_indices=task_indices,
-                    keys=keys,
-                    fasta=self.fasta,
-                    label_keys=label_keys),
-                cycle_length=len(self.h5_files),
-                block_length=1)
-            
-        if True:
-            # set up converters first
-            converters = []
-            #for i in xrange(len(self.h5_files)):
-            if False:
-                print self.fasta
-                quit()
-                converter_in, converter_out, converter_close_fn = sequence_string_to_onehot_converter(
-                    self.fasta)
-                                    
-                def close_fn(close_val):
-                    converter_close_fn()
-                    return 0
-                    
-                # py func for closing function
-                close_op = tf.py_func(
-                    func=close_fn,
-                    inp=[0],
-                    Tout=tf.int64,
-                    stateful=False,
-                    name="close_fn")
-                tf.get_collection("DATACLEANUP")
-                tf.add_to_collection("DATACLEANUP", close_op)
-
-            import threading
-            lock = threading.Lock()
-            
-            dataset = tf.data.Dataset.from_tensor_slices(self.h5_files).apply(
-                tf.contrib.data.parallel_interleave(
-                    lambda h5_file: H5DataLoader.h5_to_generator(
-                        h5_file,
-                        batch_size,
-                        dtypes,
-                        shape_dict,
-                        lock=lock,
-                        #converter_in=converter_in,
-                        #converter_out=converter_out,
-                        task_indices=task_indices,
-                        keys=keys,
-                        fasta=self.fasta,
-                        label_keys=label_keys),
-                    #cycle_length=2))
-                    cycle_length=len(self.h5_files),
-                    #buffer_output_elements=100,
-                    sloppy=True))
-
-            
-        dataset = dataset.batch(batch_size).prefetch(20)
-
-        if False:
-            iterator = dataset.make_one_shot_iterator()
-            inputs = iterator.get_next()
-
-        #tf.get_collection("DATASETUP")
-        #tf.add_to_collection("DATASETUP", iterator.initializer)
+        # set up generator
+        generator = H5DataLoader.build_h5_generator(
+            batch_size,
+            task_indices=task_indices,
+            keys=keys,
+            fasta=self.fasta,
+            label_keys=label_keys)
         
-        if False:
-            # onehot encode the batch
-            inputs[0][DataKeys.FEATURES] = tf.map_fn(
-                DataLoader.encode_onehot_sequence,
-                inputs[0][DataKeys.FEATURES],
-                dtype=tf.float32)
+        # set up dataset
+        dataset = tf.data.Dataset.from_tensor_slices(self.h5_files).apply(
+            tf.contrib.data.parallel_interleave(
+                lambda h5_file: tf.data.Dataset.from_generator(
+                    generator,
+                    (dtypes, tf.int32),
+                    output_shapes=(shape_dict,()),
+                    args=(h5_file,)),
+                cycle_length=len(self.h5_files),
+                sloppy=True))
+        
+        #if False:
+            #iterator = dataset.make_one_shot_iterator()
+            #inputs = iterator.get_next()
+            #tf.get_collection("DATASETUP")
+            #tf.add_to_collection("DATASETUP", iterator.initializer)
 
         return dataset
     

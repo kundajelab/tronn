@@ -173,20 +173,12 @@ def sequence_string_to_onehot_converter(fasta):
     get_fasta_cmd = "bedtools getfasta -tab -fi {} -bed stdin".format(fasta)
     get_fasta = subprocess.Popen(get_fasta_cmd.split(), stdin=pipe_in.stdout, stdout=PIPE)
 
-    # convert to upper with AWK
-    #to_upper_cmd = ['awk', '{print toupper($2); system("")}']
-    #to_upper = subprocess.Popen(to_upper_cmd, stdin=get_fasta.stdout, stdout=PIPE)
-
-    # replace ACGTN with 01234
+    # replace ACGTN with 01234 and separate with commas
     sed_cmd = [
         'sed',
         "-u",
         's/^.*[[:blank:]]//g; s/[Aa]/0/g; s/[Cc]/1/g; s/[Gg]/2/g; s/[Tt]/3/g; s/[Nn]/4/g; s/./,&/g; s/,//']
     pipe_out = subprocess.Popen(sed_cmd, stdin=get_fasta.stdout, stdout=PIPE)
-
-    # separate all by commas
-    #split_w_commas_cmd = ["sed", "-u", 's/./,&/g; s/,//']
-    #pipe_out = subprocess.Popen(split_w_commas_cmd, stdin=replace.stdout, stdout=PIPE)
 
     # set up close fn
     def close_fn():
@@ -194,10 +186,7 @@ def sequence_string_to_onehot_converter(fasta):
         #pipe_in.stdin.close()
         pipe_in.wait()
         get_fasta.wait()
-        #to_upper.wait()
-        #replace.wait()
         pipe_out.wait()
-    
     
     return pipe_in, pipe_out, close_fn
 
