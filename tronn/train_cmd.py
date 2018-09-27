@@ -107,6 +107,7 @@ def run(args):
         train_input_fn,
         validation_input_fn,
         args.out_dir,
+        max_epochs=args.epochs,
         eval_steps=int(1000. * 512 / args.batch_size),
         warm_start=args.transfer_model_checkpoint,
         warm_start_params=warm_start_params,
