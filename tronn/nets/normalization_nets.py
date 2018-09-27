@@ -52,6 +52,12 @@ def normalize_to_importance_logits(inputs, params):
     features = tf.multiply(
         features,
         tf.cast(tf.greater(importance_sums, 1e-7), tf.float32))
+
+    # guard against nan
+    features = tf.where(
+        tf.is_nan(features),
+        tf.zeros_like(features),
+        features)
     
     outputs[DataKeys.FEATURES] = features
 
