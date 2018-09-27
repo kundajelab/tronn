@@ -109,14 +109,16 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     # get importances
     outputs, params = get_task_importances(inputs, params)
 
-    # scan motifs
-    outputs, params = get_pwm_scores(outputs, params)
-    outputs, params = get_motif_densities(outputs, params)
-    # TODO when to relu the scores?
-    #outputs, params = pwm_relu(outputs, params)
+    # move to CPU - GPU mostly needed for gradient calc in model
+    with tf.device("/cpu:0"):
+        # scan motifs
+        outputs, params = get_pwm_scores(outputs, params)
+        outputs, params = get_motif_densities(outputs, params)
+        # TODO when to relu the scores?
+        #outputs, params = pwm_relu(outputs, params)
 
 
-    # convert sequences to strings
+        # convert sequences to strings
     
     print sorted(outputs.keys())
     
