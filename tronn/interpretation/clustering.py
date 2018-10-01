@@ -141,7 +141,7 @@ def run_clustering(
     null_cluster_present = True
     cluster_ids = sorted(list(set(communities)))
     if -1 in cluster_ids:
-        cluster_ids.delete(-1)
+        cluster_ids.remove(-1)
 
     # END CLUSTERING
     # ----------------------------------------------
