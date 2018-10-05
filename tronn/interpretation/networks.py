@@ -31,7 +31,7 @@ class DirectedEdge(object):
         self.start_node_id = start_node_id
         self.end_node_id = end_node_id
         self.attrs = dict(attrs)
-        self.name = "{}_to_{}".format(start_node_id, end_node_id)
+        self.name = "{}_{}".format(start_node_id, end_node_id)
 
     def get_tuple(self):
         return (self.start_node_id, self.end_node_id, self.attrs)
@@ -809,7 +809,7 @@ def get_motif_hierarchies(
     # probably just do a small param search
     k = 3
     init_min_count = 50
-    final_min_count = 300
+    final_min_count = 300 # 300
     max_overlap = 0.3
     
     # collect subgraphs
@@ -863,6 +863,10 @@ def get_motif_hierarchies(
             fract_overlap = len(intersect) / float(len(union))
 
             if fract_overlap > max_overlap:
+                # keep the more specific set
+                if len(subgraphs[i].edges) > len(filtered_subgraphs[j].edges):
+                #if len(examples_i) < len(examples_j):
+                    filtered_subgraphs[j] = subgraphs[i]
                 differs = False
                 break
             
@@ -871,10 +875,8 @@ def get_motif_hierarchies(
     print len(filtered_subgraphs)
     subgraphs = filtered_subgraphs
 
-    import ipdb
-    ipdb.set_trace()
-    
-    if True:
+    # check
+    if False:
         for subgraph in filtered_subgraphs:
             print [node.name for node in subgraph.nodes]
             #for edge in subgraph.edges:
@@ -945,41 +947,75 @@ def get_motif_hierarchies(
                     print ">>>", " ".join(edge.get_tuple()[0:2])
             print ""
 
-                    
-        
-                
-    import ipdb
-    ipdb.set_trace()
+    # save out subgraphs
+    grammar_file = "{}.grammars.txt".format(
+        h5_file.split(".h5")[0])
+    with open(grammar_file, "w") as fp:
+        fp.write(
+            "grammar_idx\t{}\tedges\n".format(
+                "\t".join([node.name for node in graph.nodes])))
 
-    quit()
-
-
-    
-    # additional stricter filter here
-    print len(subgraphs)
-    min_region_count = 400
-    filtered_subgraphs = []
-    for subgraph in subgraphs:
-        upstream_set, downstream_set = subgraph.determine_region_set(
-            [node.name for node in subgraph.nodes])
-        region_set = upstream_set.intersection(downstream_set)
-        print ";".join([node.name for node in subgraph.nodes]),
-        print len(region_set)
-
-        
-        if len(region_set) > min_region_count:
-            filtered_subgraphs.append(subgraph)
-        
-    print len(filtered_subgraphs)
-
+    grammar_idx = 0
     for subgraph in filtered_subgraphs:
-        print ";".join([node.name for node in subgraph.nodes])
+
+        # 1) save out a table of nodes and edges to plot
+        subgraph_node_vector = []
+        for node in graph.nodes:
+            if node in subgraph.nodes:
+                subgraph_node_vector.append("1")
+            else:
+                subgraph_node_vector.append("0")
+        edge_list = []
+        for edge in subgraph.edges:
+            for start_node_idx in xrange(len(graph.nodes)):
+                for end_node_idx in xrange(len(graph.nodes)):
+                    interaction_name = "{}_{}".format(
+                        graph.nodes[start_node_idx].name,
+                        graph.nodes[end_node_idx].name)
+                    if edge.name == interaction_name:
+                        #edge_list.append("{}-{}".format(start_node_idx, end_node_idx))
+                        out_name = "{},{}".format(
+                            graph.nodes[start_node_idx].name,
+                            graph.nodes[end_node_idx].name)
+                        edge_list.append(out_name)
+                        break
+        with open(grammar_file, "a") as fp:
+            fp.write(
+                "{}\t{}\t{}\n".format(
+                    grammar_idx,
+                    "\t".join(subgraph_node_vector),
+                    ";".join(edge_list)))
+
+        # 2) also write out the bed file of examples
+        grammar_examples = sorted(list(subgraph.get_covered_region_set()[1]))
+        bed_file = "{}.grammar-{}.bed".format(
+            h5_file.split(".h5")[0],
+            grammar_idx)
+        grammar_metadata = example_metadata[grammar_examples,0].tolist()
+        with open(bed_file, "w") as fp:
+            for region_metadata in grammar_metadata:
+                region = region_metadata.split(";")[1].split("=")[1] # TODO adjust here - just active region
+                chrom = region.split(":")[0]
+                start = region.split(":")[1].split("-")[0]
+                stop = region.split("-")[1]
+                fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
+
+        # write out the delta effects, need to write out the PAIRWISE
+        # since the tests will have to be pairwise
+        
+        
+        grammar_idx += 1
+
 
     import ipdb
     ipdb.set_trace()
 
     quit()
+    return None
+        
 
+
+def old():
     # TODO make this a seperate function?
     # run the network to get hierarchical paths
     # is each path a tuple ([path], [examples])?
