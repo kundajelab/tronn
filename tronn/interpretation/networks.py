@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 
-from tronn.stats.nonparametric import run_delta_permutation_test
+#from tronn.stats.nonparametric import run_delta_permutation_test
 
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
@@ -54,24 +54,17 @@ class MotifGraph(object):
         """initialize
         note that the nodes and edges are SHALLOW copies
         """
-        # TODO consider also saving as dict? or should it be a set?
         self.name = name
         self.nodes = list(nodes)
-        self.nodes_dict = dict([(node.name, node) for node in self.nodes])
         self.node_names = [node.name for node in self.nodes]
-        
         self.edges = list(edges)
-        self.edges_dict = dict([(edge.name, edge) for edge in self.edges])
-        
         self.propagated = propagated
         self.attrs = {} # graph attributes
         self.node_attrs = {} # "local" copy of attributes to adjust as needed
         self.edge_attrs = {} # "local" copy of attributes to adjust as needed
-
         # copy node attrs from nodes
         for node in self.nodes:
             self.node_attrs[node.name] = copy.deepcopy(node.attrs)
-            
         # copy edge attrs from edges
         for edge in self.edges:
             self.edge_attrs[edge.name] = copy.deepcopy(edge.attrs)
@@ -86,7 +79,6 @@ class MotifGraph(object):
         new_net.attrs = copy.deepcopy(self.attrs)
         new_net.node_attrs = copy.deepcopy(self.node_attrs)
         new_net.edge_attrs = copy.deepcopy(self.edge_attrs)
-        
         return new_net
 
     
@@ -101,17 +93,6 @@ class MotifGraph(object):
         return new_net
 
     
-    def get_node_tuple_DEPRECATE(self, node_name):
-        """get tuple for networkx
-        """
-        cleaned_attrs = {}
-        #for key in self.node_attrs[node_name]:
-        #    if not isinstance(self.node_attrs[node_name][key], (list, set, dict)):
-        #        cleaned_attrs[key] = self.node_attrs[node_name][key]
-                
-        return (node_name, self.node_attrs[node_name])
-    
-    
     def add_edge(self, edge):
         """add edge (shallow copy), makes a new graph object
         """
@@ -120,17 +101,6 @@ class MotifGraph(object):
         new_net.edge_attrs[edge.name] = copy.deepcopy(edge.attrs)
         
         return new_net
-
-    
-    def get_edge_tuple_DEPRECATE(self, edge_name):
-        """for networkx
-        """
-        cleaned_attrs = {}
-        #for key in self.edge_attrs[edge_name]:
-        #    if not isinstance(self.edge_attrs[edge_name][key], (list, set, dict)):
-        #        cleaned_attrs[key] = self.edge_attrs[edge_name][key]
-        
-        return (edge_name, self.edge_attrs[edge_name])
 
     
     def equals(self, other_net):
@@ -152,23 +122,12 @@ class MotifGraph(object):
         return True
 
     
-    def merge_DEPRECATE(self, other_net):
-        """merge two instances 
-        NOTE: this is a copy, but not a deep copy
-        """
-        nodes = list(set(self.nodes + other_net.nodes))
-        edges = list(set(self.edges + other_net.edges))
-        new_net = MotifNet(nodes, edges)
-        return new_net
-
-    
     def get_node_by_id(self, node_name):
         """get the node object by id
         """
-        return self.nodes_dict[node_name]
-        #for node in self.nodes:
-        #    if node.name == node_name:
-        #        return node
+        for node in self.nodes:
+            if node_name == node.name:
+                return node
 
             
     def get_node_out_edges(self, node_name):
@@ -193,6 +152,7 @@ class MotifGraph(object):
         return node_edges
 
 
+    # TODO maybe deprecate this? or adjust - this doesnt serve a purpose anymore
     def get_leaf_nodes(self):
         """extract all nodes with no OUT edges
         """
@@ -237,54 +197,6 @@ class MotifGraph(object):
 
         return None
     
-    def propagate_up_DEPRECATE(
-            self, node_name, transform_fn, seen_nodes=[]):
-        """from a starting node, propagate up and
-        adjust graph attributes
-        """
-        # get parent node ids
-        parent_node_names = []
-        in_edges = self.get_node_in_edges(node_name)
-        for edge in in_edges:
-            parent_node_names.append(edge.start_node_name)
-            # and update edge examples
-
-        for parent_node_name in parent_node_names:
-            if parent_node_name not in seen_nodes:
-                # note that trasnform fn must only take node name
-                transform_fn(parent_node_name)
-                seen_nodes.append(parent_node_name)
-                self.propagate_up(
-                    parent_node_name,
-                    transform_fn,
-                    seen_nodes=seen_nodes)
-
-        return None
-
-    
-    def propagate_down_DEPRECATE(
-            self, node_name, transform_fn, seen_nodes=[]):
-        """from a starting node, propagate up and
-        adjust each node using transform fn
-        """
-        # get parent node ids
-        child_node_names = []
-        out_edges = self.get_node_out_edges(node_name)
-        for edge in out_edges:
-            child_node_names.append(edge.end_node_name)
-
-        for child_node_name in child_node_names:
-            if child_node_name not in seen_nodes:
-                # note that trasnform fn must only take node name
-                transform_fn(child_node_name)
-                seen_nodes.append(child_node_name)
-                self.propagate_down(
-                    child_node_name,
-                    transform_fn,
-                    seen_nodes=seen_nodes)
-                
-        return None
-
     
     def propagate_up(
             self, node_name, examples, seen_nodes=[]):
@@ -297,13 +209,11 @@ class MotifGraph(object):
         for edge in in_edges:
             # update edge examples
             self.update_edge_examples(edge.name, examples)
-
             # update parent node examples
             if edge.start_node_name not in seen_nodes:
                 self.update_node_examples(edge.start_node_name, examples)
                 seen_nodes.append(edge.start_node_name)
                 parent_node_names.append(edge.start_node_name)
-
         # and then propagate
         for parent_node_name in parent_node_names:
             seen_nodes = self.propagate_up(
@@ -325,13 +235,11 @@ class MotifGraph(object):
         for edge in out_edges:
             # update edge examples
             self.update_edge_examples(edge.name, examples)
-
             # update child node examples
             if edge.end_node_name not in seen_nodes:
                 self.update_node_examples(edge.end_node_name, examples)
                 seen_nodes.append(edge.end_node_name)
                 child_node_names.append(edge.end_node_name)
-            
         for child_node_name in child_node_names:
             seen_nodes = self.propagate_down(
                 child_node_name,
@@ -341,107 +249,33 @@ class MotifGraph(object):
         return seen_nodes
 
 
-    def update_examples_and_propagate(self, edge, edge_type="internal_edge"):
+    def update_examples_and_propagate(self, edge, update_type="synergistic"):
         """update the graph based on addition of internal edge
         """
         assert edge.start_node_name in self.node_names
         assert edge.end_node_name in self.node_names
         
-        # setup - get examples that have edge and node effects
-        # from original node/edge sets
-        edge_examples = edge.attrs["examples"]
-        edge_examples = edge_examples.intersection(
-            self.node_attrs[edge.start_node_name]["examples"])
-            #self.get_node_by_id(edge.start_node_name).attrs["examples"])
-        edge_examples = edge_examples.intersection(
-            self.node_attrs[edge.end_node_name]["examples"])
-            #self.get_node_by_id(edge.end_node_name).attrs["examples"])
-        self.update_edge_examples(edge.name, edge_examples)
+        # get examples that have desired effects
+        if update_type == "synergistic":
+            edge_examples = edge.attrs["examples"]
+            edge_examples = edge_examples.intersection(
+                self.node_attrs[edge.start_node_name]["examples"])
+            edge_examples = edge_examples.intersection(
+                self.node_attrs[edge.end_node_name]["examples"])
+        elif update_type == "overlap":
+            edge_examples = self.node_attrs[edge.start_node_name]["examples"].intersection(
+                self.node_attrs[edge.end_node_name]["examples"])
+        else:
+            raise TypeError, "no such update type"
 
-        for node in self.nodes:
-            self.update_node_examples(node.name, edge_examples)
+        # update edges
         for edge in self.edges:
             self.update_edge_examples(edge.name, edge_examples)
 
-        return None
+        # update nodes
+        for node in self.nodes:
+            self.update_node_examples(node.name, edge_examples)
 
-    def old_ish():
-        if False:
-            # get subgraph example sets
-            #start_node_examples = self.node_attrs[edge.start_node_name]["examples"]
-            #end_node_examples = self.node_attrs[edge.end_node_name]["examples"]
-            
-            def get_union(set1, set2):
-                return set1.union(set2)
-
-            def get_intersect(set1, set2):
-                return set1.intersection(set2)
-
-            if edge_type == "internal_edge":
-                # internal edge - union on both
-                upstream_fn = get_union
-                downstream_fn = get_union
-            
-            elif edge_type == "frontier_edge":
-                upstream_fn = get_intersect
-                downstream_fn = get_intersect
-
-            elif edge_type == "out_edge":
-                upstream_fn = get_union
-                downstream_fn = get_intersect
-            
-            elif edge_type == "in_edge":
-                upstream_fn = get_intersect
-                downstream_fn = get_union
-
-            else:
-                print "WRONG"
-                quit()
-
-            
-        # update upstream node
-        #new_upstream_examples = upstream_fn(edge_examples, start_node_examples)
-        self.update_node_examples(edge.start_node_name, edge_examples)
-        
-        # and propagate
-        if False:
-            def transform_fn(node_name):
-                self.update_node_examples(node_name, new_upstream_examples)
-                return None
-            self.propagate_up(edge.start_node_name, transform_fn)
-        else:
-            self.propagate_up(edge.start_node_name, edge_examples)
-        
-        
-        # after updating upstream, update downstream accordingly
-        #new_downstream_examples = new_upstream_examples.intersection(edge_examples)
-
-        # TODO is this where I update the edge examples?
-        #self.update_edge_examples(edge.name, new_downstream_examples)
-        
-        # update downstream node - union
-        #new_downstream_examples = downstream_fn(edge_examples, end_node_examples)
-        #new_downstream_examples = downstream_fn(new_downstream_examples, end_node_examples)
-        self.update_node_examples(edge.end_node_name, edge_examples)
-        
-        # and propagate
-        if False:
-            def transform_fn(node_name):
-                self.update_node_examples(node_name, new_downstream_examples)
-                return None
-            self.propagate_down(edge.end_node_name, transform_fn)
-        else:
-            self.propagate_down(edge.end_node_name, edge_examples)
-    
-            
-        # check
-        if False:
-            print [node.name for node in self.nodes]
-            for node in self.nodes:
-                print "{}\t{}".format(node.name, len(self.attrs["node_examples"][node.name]))
-            region_num, _ = self.get_covered_region_set()
-            print region_num
-        
         return None
 
 
@@ -478,21 +312,16 @@ class MotifGraph(object):
         
         return None
 
-    
-    def get_adjacency_matrix(self, ordered_node_ids):
-        """
-        """
 
-        return
     
-
 def get_subgraphs(
         graph,
         subgraph,
         k=1,
-        min_region_count=50):
+        min_region_count=50,
+        update_type="synergistic"):
     """start from a specific node and get all subgraphs
-    that are size k (or less?)
+    that are size k (or less)
 
     NOTE: everything here is intersect (because any example in the graph
     must fulfill all criteria - node effects and edge effects)
@@ -514,14 +343,12 @@ def get_subgraphs(
     # consider all edges at the same time
     new_subgraphs = []
     for edge in edges:
-        
-        # get edge examples out in prep
         edge_examples = edge.attrs["examples"]
         
         # check if internal and not seen already
         if (edge.start_node_name in subgraph.node_names) and (edge.end_node_name in subgraph.node_names):
             new_subgraph = subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, edge_type="frontier_edge")
+            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
             new_subgraphs.append(new_subgraph)
                 
         # check if edge adds new child node into subgraph
@@ -529,7 +356,7 @@ def get_subgraphs(
             new_subgraph = subgraph.add_node(
                 graph.get_node_by_id(edge.end_node_name))
             new_subgraph = new_subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, edge_type="frontier_edge")
+            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
 
             new_subgraphs.append(new_subgraph)
             new_subgraphs += get_subgraphs(
@@ -540,7 +367,7 @@ def get_subgraphs(
             new_subgraph = subgraph.add_node(
                 graph.get_node_by_id(edge.start_node_name))
             new_subgraph = new_subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, edge_type="frontier_edge")
+            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
             
             new_subgraphs.append(new_subgraph)
             new_subgraphs += get_subgraphs(
@@ -572,11 +399,11 @@ def get_clean_pwm_name(pwm_name):
     
     return pwm_name
 
+
 def merge_subgraphs_and_write_gml(subgraphs, gml_file):
     """merge the list of subgraphs and write out a gml
     """
-    # nodes: go through and get all nodes and update
-    # the num regions attribute
+    # nodes: go through and get all nodes and update example set
     node_dict = {}
     for subgraph in subgraphs:
         if len(subgraph.nodes) <= 1:
@@ -634,63 +461,7 @@ def merge_subgraphs_and_write_gml(subgraphs, gml_file):
     
     return None
 
-    
-def get_path_dmim_effects(path, net, data):
-    """extract the mut effects, multiplicatively
-    """
-    effects = np.ones((data.shape[0], data.shape[2])) # {N, task}
-    for i in xrange(1, len(path)):
-        mut_node_idx = net.get_node_by_id(path[i-1]).attrs["mut_idx"]
-        response_node_idx = net.get_node_by_id(path[i]).attrs["response_idx"]
-        edge_effects = data[:,mut_node_idx,:,response_node_idx] # {N, task}
-        effects *= np.abs(edge_effects)
-    effects = np.mean(effects, axis=0) # {task}
-    
-    return effects
-
-
-def get_path_logit_effects(path, net, data):
-    """extract the logit effects, multiplicatively
-    """
-    effects = np.ones((data.shape[0], data.shape[2]))
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects *= np.abs(data[:,mut_node_idx,:]) # {N, task}
-    effects = np.mean(effects, axis=0) # {task}
-
-    return effects
-
-
-
-def get_path_example_logits(path, net, logits, mut_logits):
-    """go through the path and get the mut results and orig logits
-    """
-    task_idx = 0
-    effects = np.zeros((logits.shape[0], 1+len(path)))
-    effects[:,0] = logits[:,task_idx]
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects[:,i+1] = mut_logits[:,mut_node_idx,task_idx]
-
-    return effects
-
-
-
-def get_mut_effect_results(path, net, delta_logits, out_file, task_idx=0):
-    """get a matrix of effects
-    """
-    effects_df = pd.DataFrame()
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects = delta_logits[:,mut_node_idx,task_idx] # {N}
-
-        # save out
-        effects_df[path[i]] = effects
-
-    effects_df.to_csv(out_file, sep="\t")
-
-    return None
-
+  
 
 def get_motif_hierarchies(
         h5_file,
@@ -703,33 +474,26 @@ def get_motif_hierarchies(
         pwm_names_attr_key=AttrKeys.PWM_NAMES,
         extra_keys=[],
         num_sig_tasks=3,
-        forward_pass_min_region_count=400,
-        min_region_count=600): # 400/600 for early/mid, 200/400 for late
+        max_subgraph_size=3,
+        max_subgraph_overlap=0.3,
+        forward_pass_min_region_count=50,
+        min_region_count=300):
     """extract motif hierarchies
     """
-    # load in datasets
+    # load in necessary data
     with h5py.File(h5_file, "r") as hf:
-        adjacency_matrix = hf[adjacency_mat_key][:]
-        data = hf[data_key][:]
-        example_metadata = hf[metadata_key][:]
+        adjacency_matrix = hf[adjacency_mat_key][:] # for edges
+        data = hf[data_key][:] # node mutational results
+        example_metadata = hf[metadata_key][:] # for BED files
         sig_pwms = hf[sig_pwms_key][:]
+        
         # TODO need to have mut names attr and pwm names attr
         mut_pwm_names = hf[adjacency_mat_key].attrs[pwm_names_attr_key] 
         logits = np.expand_dims( hf[logits_key][:], axis=1)
         mut_logits = hf[mut_logits_key][:]
-        signal = np.expand_dims(hf[logits_key][:], axis=1) # vs ATAC_SIGNAL
-        signal_indices = [0,1,2,3,4,5,6,9,10] #12
-        
-        # also track actual ATAC signal and H3K27ac signal
-        # only allow 2D or 1D matrices
-        extra_datasets = []
-        for key in extra_keys:
-            extra_data = hf[key][:]
-            assert len(extra_data.shape) == 2
-            extra_datasets.append(extra_data)
 
-    # set up delta logits
-    delta_logits = np.subtract(mut_logits, logits)
+        # set up delta logits
+        delta_logits = np.subtract(mut_logits, logits)
     
     # TODO - change these later
     data = data[:,:,:,np.where(sig_pwms > 0)[0]]
@@ -761,9 +525,8 @@ def get_motif_hierarchies(
     edges = []
     for mut_idx in xrange(num_mut_motifs):
         for response_idx in xrange(num_response_motifs):
-
-            # TODO fix this (in relation to previous analysis)
-            if np.sum(adjacency_matrix[mut_idx, :, response_idx] != 0) < 3:
+            # first require effects existed in at least num_sig_tasks
+            if np.sum(adjacency_matrix[mut_idx, :, response_idx] != 0) < num_sig_tasks:
                 continue
             
             # set up an edge
@@ -777,27 +540,10 @@ def get_motif_hierarchies(
             else:
                 sig_in_tasks = np.sum(data[:,mut_idx,:,response_idx] > 0, axis=1)
                 
-            # get subset
-            edge_examples = np.where(sig_in_tasks >= num_sig_tasks)[0].tolist() # keep as indices until end
-
-            # TODO - also filter for mutational effect?
-            # how to do this, this is likely a node attribute to filter on?
+            # get subset and attach to attrs
+            edge_examples = np.where(sig_in_tasks >= num_sig_tasks)[0].tolist()
             attr_dict = {"examples": set(edge_examples)}            
-            
-            # TODO don't add the edge if there isn't mutational output effect on both sides
-            # for the subset?
-            # Note that this is dealt with elsewhere (at the nodes)
-            if False:
-                edge_mut_logits = np.subtract(
-                    mut_logits[edge_examples,response_idx],
-                    logits[edge_examples]) 
-                sig_logits = run_delta_permutation_test(edge_mut_logits)
 
-                if np.any(sig_logits == False):
-                    print "here"
-                    import ipdb
-                    ipdb.set_trace()
-            
             # attach the list of examples with both 
             edge = DirectedEdge(start_node, end_node, attrs=attr_dict)
             edges.append(edge)
@@ -805,33 +551,22 @@ def get_motif_hierarchies(
     # put into network
     graph = MotifGraph(nodes, edges)
 
-    # summary of heuristics used below:
-    # k size subgraphs - 3 <- this one is ok
-    # min region count (init) - 300 <- this one is about compute time, and back-of-envelope says this is fine
-    # min region count (final) - 800 <- this one maybe should be adjusted?
-    # min overlap - 0.5 <- how to choose this... maybe don't do this?
-    # probably just do a small param search
-    k = 3
-    init_min_count = 50
-    final_min_count = 300 # 300
-    max_overlap = 0.3
-    
     # collect subgraphs
     subgraphs = []
     print len(graph.nodes)
     for node in graph.nodes:
         print node.name
-
         seed_subgraph = MotifGraph(nodes=[node], edges=[])
         subgraphs.append(seed_subgraph)
         subgraphs += get_subgraphs(
             graph,
             seed_subgraph,
-            k=k,
-            min_region_count=init_min_count)
-    print len(subgraphs)
+            k=max_subgraph_size,
+            min_region_count=forward_pass_min_region_count)
+    print "Initial subgraphs with k={} and min size {}: {}".format(
+        max_subgraph_size, forward_pass_min_region_count, len(subgraphs))
 
-    # and remove redundant
+    # 1) and remove redundant
     filtered_subgraphs = []
     for i in xrange(len(subgraphs)):
         exists = False
@@ -840,116 +575,41 @@ def get_motif_hierarchies(
                 exists = True
         if not exists:
             filtered_subgraphs.append(subgraphs[i])
-    print len(filtered_subgraphs)
+    print "After removing redundant subgraphs: {}".format(len(filtered_subgraphs))
     subgraphs = filtered_subgraphs
 
-    # now more stringent region number check
+    # 2) now more stringent region number check
     filtered_subgraphs = []
     for subgraph in subgraphs:
         region_num, _ = subgraph.get_covered_region_set()
-        if region_num > final_min_count:
+        if region_num > min_region_count:
             filtered_subgraphs.append(subgraph)
-    print len(filtered_subgraphs)
+    print "After second size filter with size > {}: {}".format(
+        min_region_count, len(filtered_subgraphs))
     subgraphs = filtered_subgraphs
     
-    # and remove those that basically are the same (in terms of region overlap?)
-    # make sure the logic here makes sense
+    # 3) and remove those that basically are the same (in terms of region overlap)
     filtered_subgraphs = []
     for i in xrange(len(subgraphs)):
         differs = True
         for j in xrange(len(filtered_subgraphs)):
+            # get examples
             _, examples_i = subgraphs[i].get_covered_region_set()
             _, examples_j = filtered_subgraphs[j].get_covered_region_set()
-
             # calculate jaccard index
             intersect = examples_i.intersection(examples_j)
             union = examples_i.union(examples_j)
             fract_overlap = len(intersect) / float(len(union))
-
-            if fract_overlap > max_overlap:
-                # keep the more specific set
+            # if high overlap, keep set with more edges (more specific)
+            if fract_overlap > max_subgraph_overlap:
                 if len(subgraphs[i].edges) > len(filtered_subgraphs[j].edges):
-                #if len(examples_i) < len(examples_j):
                     filtered_subgraphs[j] = subgraphs[i]
                 differs = False
                 break
-            
         if differs:
             filtered_subgraphs.append(subgraphs[i])
-    print len(filtered_subgraphs)
+    print "After removing high overlap subgraphs: {}".format(len(filtered_subgraphs))
     subgraphs = filtered_subgraphs
-
-    # check
-    if False:
-        for subgraph in filtered_subgraphs:
-            print [node.name for node in subgraph.nodes]
-            #for edge in subgraph.edges:
-            #    print ">>>", edge.get_tuple()[0:2]
-            
-            if len(subgraph.edges) > 2:
-                print "^more edges"
-
-        print ""
-
-        # upstream centric view
-        print "UPSTREAM"
-        for node in graph.nodes:
-
-            node_centric_subgraphs = []
-            for subgraph in filtered_subgraphs:
-                if node in subgraph.nodes:
-                    for edge in subgraph.edges:
-                        if node.name in edge.get_tuple()[0]:
-                            node_centric_subgraphs.append(subgraph)
-            if len(node_centric_subgraphs) == 0:
-                continue
-            print node.name
-            for subgraph in node_centric_subgraphs:
-                #print " ".join([node.name for node in subgraph.nodes])
-                for edge in subgraph.edges:
-                    print ">>>", " ".join(edge.get_tuple()[0:2])
-            print ""
-        
-        # downstream centric view
-        print "DOWNSTREAM"
-        for node in graph.nodes:
-
-            node_centric_subgraphs = []
-            for subgraph in filtered_subgraphs:
-                if node in subgraph.nodes:
-                    for edge in subgraph.edges:
-                        if node.name in edge.get_tuple()[1]:
-                            node_centric_subgraphs.append(subgraph)
-            if len(node_centric_subgraphs) == 0:
-                continue
-            print node.name
-            for subgraph in node_centric_subgraphs:
-                #print " ".join([node.name for node in subgraph.nodes])
-                for edge in subgraph.edges:
-                    print ">>>", " ".join(edge.get_tuple()[0:2])
-            print ""
-
-        import ipdb
-        ipdb.set_trace()
-            
-        # node centric view
-        for node in graph.nodes:
-
-            node_centric_subgraphs = []
-            for subgraph in filtered_subgraphs:
-                if node in subgraph.nodes:
-                    node_centric_subgraphs.append(subgraph)
-
-            if len(node_centric_subgraphs) == 0:
-                continue
-                    
-            print node.name
-            for subgraph in node_centric_subgraphs:
-                #print " ".join([node.name for node in subgraph.nodes])
-                print "..."
-                for edge in subgraph.edges:
-                    print ">>>", " ".join(edge.get_tuple()[0:2])
-            print ""
 
     # save out subgraphs
     grammar_file = "{}.grammars.txt".format(
@@ -978,7 +638,6 @@ def get_motif_hierarchies(
                         graph.nodes[start_node_idx].name,
                         graph.nodes[end_node_idx].name)
                     if edge.name == interaction_name:
-                        #edge_list.append("{}-{}".format(start_node_idx, end_node_idx))
                         out_name = "{},{}".format(
                             graph.nodes[start_node_idx].name,
                             graph.nodes[end_node_idx].name)
@@ -1004,23 +663,21 @@ def get_motif_hierarchies(
                 start = region.split(":")[1].split("-")[0]
                 stop = region.split("-")[1]
                 fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
-
-        # 3) write out the delta effects, need to write out the PAIRWISE
-        # since the tests will have to be pairwise
-        
         
         grammar_idx += 1
 
     # finally, write out merged gml results
     global_gml = "{}.global.gml".format(
         h5_file.split(".h5")[0])
-    merge_subgraphs_and_write_gml(subgraphs, "test.gml")
+    merge_subgraphs_and_write_gml(subgraphs, global_gml)
 
     # get subsets
     terms = [
         "keratinocyte differentiation",
         "epidermis development",
         "proliferation",
+        "cell cycle arrest",
+        "stem cell proliferation",
         "hair",
         "regulation of cell motility",
         "extracellular matrix",
@@ -1038,8 +695,6 @@ def get_motif_hierarchies(
     import ipdb
     ipdb.set_trace()
 
-    
-    quit()
     return subgraphs
         
 
@@ -1068,6 +723,69 @@ def subset_by_functional_enrichments(subgraphs, terms):
     ipdb.set_trace()
     
     return subsets
+
+
+
+
+
+# TO DELETE - below
+
+def get_mut_effect_results(path, net, delta_logits, out_file, task_idx=0):
+    """get a matrix of effects
+    """
+    effects_df = pd.DataFrame()
+    for i in xrange(len(path)):
+        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
+        effects = delta_logits[:,mut_node_idx,task_idx] # {N}
+
+        # save out
+        effects_df[path[i]] = effects
+
+    effects_df.to_csv(out_file, sep="\t")
+
+    return None
+
+
+  
+def get_path_dmim_effects_DEPRECATE(path, net, data):
+    """extract the mut effects, multiplicatively
+    """
+    effects = np.ones((data.shape[0], data.shape[2])) # {N, task}
+    for i in xrange(1, len(path)):
+        mut_node_idx = net.get_node_by_id(path[i-1]).attrs["mut_idx"]
+        response_node_idx = net.get_node_by_id(path[i]).attrs["response_idx"]
+        edge_effects = data[:,mut_node_idx,:,response_node_idx] # {N, task}
+        effects *= np.abs(edge_effects)
+    effects = np.mean(effects, axis=0) # {task}
+    
+    return effects
+
+
+def get_path_logit_effects_DEPRECATE(path, net, data):
+    """extract the logit effects, multiplicatively
+    """
+    effects = np.ones((data.shape[0], data.shape[2]))
+    for i in xrange(len(path)):
+        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
+        effects *= np.abs(data[:,mut_node_idx,:]) # {N, task}
+    effects = np.mean(effects, axis=0) # {task}
+
+    return effects
+
+
+
+def get_path_example_logits_DEPRECATE(path, net, logits, mut_logits):
+    """go through the path and get the mut results and orig logits
+    """
+    task_idx = 0
+    effects = np.zeros((logits.shape[0], 1+len(path)))
+    effects[:,0] = logits[:,task_idx]
+    for i in xrange(len(path)):
+        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
+        effects[:,i+1] = mut_logits[:,mut_node_idx,task_idx]
+
+    return effects
+
 
 
 
