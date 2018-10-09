@@ -3,6 +3,7 @@
 import re
 import h5py
 import copy
+import glob
 
 import numpy as np
 import pandas as pd
@@ -574,9 +575,6 @@ def get_clean_pwm_name(pwm_name):
 def merge_subgraphs_and_write_gml(subgraphs, gml_file):
     """merge the list of subgraphs and write out a gml
     """
-    import ipdb
-    ipdb.set_trace()
-
     # nodes: go through and get all nodes and update
     # the num regions attribute
     node_dict = {}
@@ -608,9 +606,6 @@ def merge_subgraphs_and_write_gml(subgraphs, gml_file):
             if not isinstance(node_attrs[key], (list, set, dict)):
                 clean_attrs[new_key] = node_attrs[key]
         nodes.append((node_name, clean_attrs))
-                
-    import ipdb
-    ipdb.set_trace()
     
     # edges: collect all and add an attribute based on which subgraph
     edges = []
@@ -628,9 +623,6 @@ def merge_subgraphs_and_write_gml(subgraphs, gml_file):
                 (clean_start_node_name,
                  clean_end_node_name,
                  clean_attrs))
-            
-    import ipdb
-    ipdb.set_trace()
             
     # make graph
     graph = nx.MultiDiGraph()
@@ -1020,14 +1012,63 @@ def get_motif_hierarchies(
         grammar_idx += 1
 
     # finally, write out merged gml results
+    global_gml = "{}.global.gml".format(
+        h5_file.split(".h5")[0])
     merge_subgraphs_and_write_gml(subgraphs, "test.gml")
+
+    # get subsets
+    terms = [
+        "keratinocyte differentiation",
+        "epidermis development",
+        "proliferation",
+        "hair",
+        "regulation of cell motility",
+        "extracellular matrix",
+        "stem cell"]
+    subsets = subset_by_functional_enrichments(
+        subgraphs, terms)
+    
+    # and save out
+    for term in terms:
+        out_file = "{}.{}.gml".format(
+            h5_file.split(".h5")[0],
+            term.replace(" ", "_").replace(".", "_"))
+        merge_subgraphs_and_write_gml(subsets[term], out_file)
         
     import ipdb
     ipdb.set_trace()
 
+    
     quit()
-    return None
+    return subgraphs
         
+
+def subset_by_functional_enrichments(subgraphs, terms):
+    """get subsets by functional enrichment
+    """
+    # run functional enrichment tool
+    # ie, rgreat
+
+    enrichment_dir = "test.great.mid"
+    enrichment_files = glob.glob("{}/*Biol*txt".format(enrichment_dir))
+    # then, for each subgraph, check
+    subsets = {}
+    for term in terms:
+        subsets[term] = []
+        for subgraph in subgraphs:
+            for enrichment_file in enrichment_files:
+                if ".{}.".format(subgraph.name) in enrichment_file:
+                    # read
+                    with open(enrichment_file, "r") as fp:
+                        data = " ".join(fp.readlines()[0:11])
+                    if term in data:
+                        subsets[term].append(subgraph)
+                        
+    import ipdb
+    ipdb.set_trace()
+    
+    return subsets
+
 
 
 def old():
