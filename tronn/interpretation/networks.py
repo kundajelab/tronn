@@ -1,5 +1,6 @@
 # description: code for doing network analyses
 
+import os
 import re
 import h5py
 import copy
@@ -8,8 +9,6 @@ import glob
 import numpy as np
 import pandas as pd
 import networkx as nx
-
-#from tronn.stats.nonparametric import run_delta_permutation_test
 
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
@@ -390,6 +389,79 @@ def get_subgraphs(
     return filtered_subgraphs
 
 
+def get_subgraphs_and_filter(
+        graph,
+        max_subgraph_size,
+        forward_pass_min_region_count,
+        min_region_count,
+        max_subgraph_overlap):
+    """get subgraphs and filter to get unique subgraphs
+    """
+    # collect subgraphs
+    subgraphs = []
+    print len(graph.nodes)
+    for node in graph.nodes:
+        print node.name
+        seed_subgraph = MotifGraph(nodes=[node], edges=[])
+        subgraphs.append(seed_subgraph)
+        subgraphs += get_subgraphs(
+            graph,
+            seed_subgraph,
+            k=max_subgraph_size,
+            min_region_count=forward_pass_min_region_count)
+    print "Initial subgraphs with k={} and min size {}: {}".format(
+        max_subgraph_size, forward_pass_min_region_count, len(subgraphs))
+
+    # 1) and remove redundant
+    filtered_subgraphs = []
+    for i in xrange(len(subgraphs)):
+        exists = False
+        for j in xrange(len(filtered_subgraphs)):
+            if subgraphs[i].equals(filtered_subgraphs[j]):
+                exists = True
+        if not exists:
+            filtered_subgraphs.append(subgraphs[i])
+    print "After removing redundant subgraphs: {}".format(len(filtered_subgraphs))
+    subgraphs = filtered_subgraphs
+
+    # 2) now more stringent region number check
+    filtered_subgraphs = []
+    for subgraph in subgraphs:
+        region_num, _ = subgraph.get_covered_region_set()
+        if region_num > min_region_count:
+            filtered_subgraphs.append(subgraph)
+    print "After second size filter with size > {}: {}".format(
+        min_region_count, len(filtered_subgraphs))
+    subgraphs = filtered_subgraphs
+    
+    # 3) and remove those that basically are the same (in terms of region overlap)
+    filtered_subgraphs = []
+    for i in xrange(len(subgraphs)):
+        differs = True
+        for j in xrange(len(filtered_subgraphs)):
+            # get examples
+            _, examples_i = subgraphs[i].get_covered_region_set()
+            _, examples_j = filtered_subgraphs[j].get_covered_region_set()
+            # calculate jaccard index
+            intersect = examples_i.intersection(examples_j)
+            union = examples_i.union(examples_j)
+            fract_overlap = len(intersect) / float(len(union))
+            # if high overlap, keep set with more edges (more specific)
+            if fract_overlap > max_subgraph_overlap:
+                if len(subgraphs[i].edges) > len(filtered_subgraphs[j].edges):
+                    filtered_subgraphs[j] = subgraphs[i]
+                differs = False
+                break
+        if differs:
+            filtered_subgraphs.append(subgraphs[i])
+    print "After removing high overlap subgraphs: {}".format(len(filtered_subgraphs))
+    subgraphs = filtered_subgraphs
+
+    return subgraphs
+
+
+
+
 def get_clean_pwm_name(pwm_name):
     """convenience function
     """
@@ -400,14 +472,15 @@ def get_clean_pwm_name(pwm_name):
     return pwm_name
 
 
-def merge_subgraphs_and_write_gml(subgraphs, gml_file):
+def merge_subgraphs_and_write_gml(subgraphs, gml_file, ignore_singles=True):
     """merge the list of subgraphs and write out a gml
     """
     # nodes: go through and get all nodes and update example set
     node_dict = {}
     for subgraph in subgraphs:
-        if len(subgraph.nodes) <= 1:
-            continue
+        if ignore_singles:
+            if len(subgraph.nodes) <= 1:
+                continue
         for node_name in subgraph.node_names:
             clean_node_name = get_clean_pwm_name(node_name)
             node_examples = set(subgraph.node_attrs[node_name]["examples"])
@@ -551,66 +624,14 @@ def get_motif_hierarchies(
     # put into network
     graph = MotifGraph(nodes, edges)
 
-    # collect subgraphs
-    subgraphs = []
-    print len(graph.nodes)
-    for node in graph.nodes:
-        print node.name
-        seed_subgraph = MotifGraph(nodes=[node], edges=[])
-        subgraphs.append(seed_subgraph)
-        subgraphs += get_subgraphs(
-            graph,
-            seed_subgraph,
-            k=max_subgraph_size,
-            min_region_count=forward_pass_min_region_count)
-    print "Initial subgraphs with k={} and min size {}: {}".format(
-        max_subgraph_size, forward_pass_min_region_count, len(subgraphs))
-
-    # 1) and remove redundant
-    filtered_subgraphs = []
-    for i in xrange(len(subgraphs)):
-        exists = False
-        for j in xrange(len(filtered_subgraphs)):
-            if subgraphs[i].equals(filtered_subgraphs[j]):
-                exists = True
-        if not exists:
-            filtered_subgraphs.append(subgraphs[i])
-    print "After removing redundant subgraphs: {}".format(len(filtered_subgraphs))
-    subgraphs = filtered_subgraphs
-
-    # 2) now more stringent region number check
-    filtered_subgraphs = []
-    for subgraph in subgraphs:
-        region_num, _ = subgraph.get_covered_region_set()
-        if region_num > min_region_count:
-            filtered_subgraphs.append(subgraph)
-    print "After second size filter with size > {}: {}".format(
-        min_region_count, len(filtered_subgraphs))
-    subgraphs = filtered_subgraphs
-    
-    # 3) and remove those that basically are the same (in terms of region overlap)
-    filtered_subgraphs = []
-    for i in xrange(len(subgraphs)):
-        differs = True
-        for j in xrange(len(filtered_subgraphs)):
-            # get examples
-            _, examples_i = subgraphs[i].get_covered_region_set()
-            _, examples_j = filtered_subgraphs[j].get_covered_region_set()
-            # calculate jaccard index
-            intersect = examples_i.intersection(examples_j)
-            union = examples_i.union(examples_j)
-            fract_overlap = len(intersect) / float(len(union))
-            # if high overlap, keep set with more edges (more specific)
-            if fract_overlap > max_subgraph_overlap:
-                if len(subgraphs[i].edges) > len(filtered_subgraphs[j].edges):
-                    filtered_subgraphs[j] = subgraphs[i]
-                differs = False
-                break
-        if differs:
-            filtered_subgraphs.append(subgraphs[i])
-    print "After removing high overlap subgraphs: {}".format(len(filtered_subgraphs))
-    subgraphs = filtered_subgraphs
-
+    # get subgraphs
+    subgraphs = get_subgraphs_and_filter(
+        graph,
+        max_subgraph_size,
+        forward_pass_min_region_count,
+        min_region_count,
+        max_subgraph_overlap)
+   
     # save out subgraphs
     grammar_file = "{}.grammars.txt".format(
         h5_file.split(".h5")[0])
@@ -618,11 +639,12 @@ def get_motif_hierarchies(
         fp.write(
             "grammar_idx\t{}\tedges\n".format(
                 "\t".join([node.name for node in graph.nodes])))
-
+        
     grammar_idx = 0
     for subgraph in subgraphs:
         subgraph.name = "grammar-{}".format(grammar_idx)
 
+        # TODO see if this is obsolete now (probably not)
         # 1) save out a table of nodes and edges to plot
         subgraph_node_vector = []
         for node in graph.nodes:
@@ -630,6 +652,7 @@ def get_motif_hierarchies(
                 subgraph_node_vector.append("1")
             else:
                 subgraph_node_vector.append("0")
+                
         edge_list = []
         for edge in subgraph.edges:
             for start_node_idx in xrange(len(graph.nodes)):
@@ -643,6 +666,7 @@ def get_motif_hierarchies(
                             graph.nodes[end_node_idx].name)
                         edge_list.append(out_name)
                         break
+                    
         with open(grammar_file, "a") as fp:
             fp.write(
                 "{}\t{}\t{}\n".format(
@@ -651,10 +675,10 @@ def get_motif_hierarchies(
                     ";".join(edge_list)))
 
         # 2) also write out the bed file of examples
-        grammar_examples = sorted(list(subgraph.get_covered_region_set()[1]))
         bed_file = "{}.grammar-{}.bed".format(
             h5_file.split(".h5")[0],
             grammar_idx)
+        grammar_examples = sorted(list(subgraph.get_covered_region_set()[1]))
         grammar_metadata = example_metadata[grammar_examples,0].tolist()
         with open(bed_file, "w") as fp:
             for region_metadata in grammar_metadata:
@@ -669,7 +693,10 @@ def get_motif_hierarchies(
     # finally, write out merged gml results
     global_gml = "{}.global.gml".format(
         h5_file.split(".h5")[0])
-    merge_subgraphs_and_write_gml(subgraphs, global_gml)
+    merge_subgraphs_and_write_gml(subgraphs, global_gml, ignore_singles=True)
+
+    import ipdb
+    ipdb.set_trace()
 
     # get subsets
     terms = [
@@ -682,15 +709,18 @@ def get_motif_hierarchies(
         "regulation of cell motility",
         "extracellular matrix",
         "stem cell"]
+    
     subsets = subset_by_functional_enrichments(
-        subgraphs, terms)
+        subgraphs, terms, os.path.dirname(h5_file), "test.great.early")
     
     # and save out
     for term in terms:
+        if len(subsets[term]) == 0:
+            continue
         out_file = "{}.{}.gml".format(
             h5_file.split(".h5")[0],
             term.replace(" ", "_").replace(".", "_"))
-        merge_subgraphs_and_write_gml(subsets[term], out_file)
+        merge_subgraphs_and_write_gml(subsets[term], out_file, ignore_singles=True)
         
     import ipdb
     ipdb.set_trace()
@@ -698,15 +728,23 @@ def get_motif_hierarchies(
     return subgraphs
         
 
-def subset_by_functional_enrichments(subgraphs, terms):
+def subset_by_functional_enrichments(subgraphs, terms, bed_dir, out_dir):
     """get subsets by functional enrichment
     """
     # run functional enrichment tool
     # ie, rgreat
+    if False:
+        bed_files = sorted(glob.glob("{}/*grammar*bed".format(bed_dir)))
+        for bed_file in bed_files:
+            run_cmd = "run_rgreat.R {} {}/{}".format(
+                bed_file,
+                out_dir,
+                os.path.basename(bed_file).split(".bed")[0])
+            print run_cmd
+            os.system(run_cmd)
 
-    enrichment_dir = "test.great.mid"
-    enrichment_files = glob.glob("{}/*Biol*txt".format(enrichment_dir))
-    # then, for each subgraph, check
+    # then, for each subgraph, check enrichments
+    enrichment_files = glob.glob("{}/*Biol*txt".format(out_dir))
     subsets = {}
     for term in terms:
         subsets[term] = []
@@ -723,6 +761,28 @@ def subset_by_functional_enrichments(subgraphs, terms):
     ipdb.set_trace()
     
     return subsets
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
