@@ -144,15 +144,15 @@ class H5Handler(object):
             batch_end = defined_batch_end
         else:
             for batch_end in xrange(self.tmp_arrays["example_metadata"].shape[0]):
-                if self.tmp_arrays["example_metadata"][batch_end][0].rstrip("\0") == "features=chrY:0-1000":
+                if self.tmp_arrays["example_metadata"][batch_end][0].rstrip("\0") == "features=chr1:0-1000":
                     break
         self.batch_end = self.batch_start + batch_end
 
         # check if smaller than batch size
-        test_key = self.example_keys[0]
-        if self.h5_handle[test_key][self.batch_start:self.batch_end].shape[0] < batch_end:
-            batch_end = self.h5_handle[test_key][self.batch_start:self.batch_end].shape[0]
-            self.batch_end = self.batch_start + batch_end
+        #test_key = self.example_keys[0]
+        #if self.h5_handle[test_key][self.batch_start:self.batch_end].shape[0] < batch_end:
+        #    batch_end = self.h5_handle[test_key][self.batch_start:self.batch_end].shape[0]
+        #    self.batch_end = self.batch_start + batch_end # TODO something up with this
         
         # save out
         for key in self.example_keys:
