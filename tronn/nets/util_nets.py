@@ -92,9 +92,9 @@ def attach_auxiliary_tensors(inputs, params):
         [-1]+main_features_shape[1:])
     
     outputs[DataKeys.FEATURES] = features
-
+    
     # and pad correctly
-    params.update({"num_aux_features": num_aux_examples})
+    params.update({"num_aux_examples": num_aux_examples})
     params.update({"ignore_keys": [DataKeys.FEATURES]})
     outputs, _ = pad_inputs(outputs, params)
     
@@ -153,7 +153,7 @@ def pad_inputs(inputs, params):
     # backcheck work
     final_batch_size = inputs[params["ignore_keys"][0]].get_shape().as_list()[0]
     for key in outputs.keys():
-        assert outputs[key].get_shape().as_list()[0] == final_batch_size
+        assert outputs[key].get_shape().as_list()[0] == final_batch_size, key
 
     return outputs, params
 
@@ -186,7 +186,10 @@ def detach_auxiliary_tensors(inputs, params):
     new_batch_size = len(main_indices)
     
     outputs = {}
+    seen_keys = []
     for key in inputs.keys():
+        if key in seen_keys:
+            continue
 
         # gather examples
         outputs[key] = tf.gather(inputs[key], main_indices)
@@ -198,7 +201,8 @@ def detach_auxiliary_tensors(inputs, params):
                 aux_batch,
                 [new_batch_size, -1] + inputs[key].get_shape().as_list()[1:])
             outputs[save_aux[key]] = aux_batch
-
+            seen_keys.append(save_aux[key])
+            
     # finally rebatch
     if False:
         outputs, _ = rebatch(outputs, {"name": filter_name, "batch_size": final_batch_size})
