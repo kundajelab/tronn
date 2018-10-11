@@ -11,6 +11,7 @@ import pandas as pd
 import networkx as nx
 
 from tronn.util.h5_utils import AttrKeys
+from tronn.util.h5_utils import copy_h5_dataset_slices
 from tronn.util.utils import DataKeys
 
 
@@ -639,7 +640,8 @@ def get_motif_hierarchies(
         fp.write(
             "grammar_idx\t{}\tedges\n".format(
                 "\t".join([node.name for node in graph.nodes])))
-        
+    grammar_example_masks = np.zeros((data.shape[0], len(subgraphs)))
+    
     grammar_idx = 0
     for subgraph in subgraphs:
         subgraph.name = "grammar-{}".format(grammar_idx)
@@ -687,16 +689,43 @@ def get_motif_hierarchies(
                 start = region.split(":")[1].split("-")[0]
                 stop = region.split("-")[1]
                 fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
+
+        # 3) write out h5 file of subset, to go into downstream analyses
+        # should i actually just put this into dmim file?
+        grammar_example_masks[grammar_examples, grammar_idx] = 1
+
+        # 4) also need to write out manifold...
+        # use subgraph nodes and mut idx
+        sig_pwm_indices = np.where(sig_pwms != 0)[0]
+        grammar_indices = []
+        for node in subgraph.nodes:
+            grammar_indices.append(node.attrs["mut_idx"])
+        grammar_indices = sorted(grammar_indices)
+        grammar_indices = sig_pwm_indices[grammar_indices]
+        grammar_pwm_mask = np.zeros(sig_pwms.shape)
+        grammar_pwm_mask[grammar_indices] = 1
         
+        grammar_manifold_file = "{}.grammar-{}.manifold.h5".format(
+            h5_file.split(".h5")[0],
+            grammar_idx)
+        with h5py.File(grammar_manifold_file, "w") as out:
+            out.create_dataset(sig_pwms_key, data=grammar_pwm_mask)
+            out[sig_pwms_key].attrs[pwm_names_attr_key] = mut_pwm_names
+
+        # update idx
         grammar_idx += 1
 
+    # save out grammar mask to h5 results file
+    with h5py.File(h5_file, "a") as hf:
+        if hf.get(DataKeys.GRAMMAR_LABELS) is not None:
+            del hf[DataKeys.GRAMMAR_LABELS]
+        hf.create_dataset(
+            DataKeys.GRAMMAR_LABELS, data=grammar_example_masks)
+    
     # finally, write out merged gml results
     global_gml = "{}.global.gml".format(
         h5_file.split(".h5")[0])
     merge_subgraphs_and_write_gml(subgraphs, global_gml, ignore_singles=True)
-
-    import ipdb
-    ipdb.set_trace()
 
     # get subsets
     terms = [
@@ -711,7 +740,7 @@ def get_motif_hierarchies(
         "stem cell"]
     
     subsets = subset_by_functional_enrichments(
-        subgraphs, terms, os.path.dirname(h5_file), "test.great.early")
+        subgraphs, terms, os.path.dirname(h5_file), "test.great.mid")
     
     # and save out
     for term in terms:
