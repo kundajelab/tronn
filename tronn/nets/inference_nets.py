@@ -22,6 +22,7 @@ from tronn.nets.mutate_nets import delta_logits
 from tronn.nets.mutate_nets import blank_motif_sites
 
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites
+from tronn.nets.mutate_nets import mutate_weighted_motif_sites_combinatorially
 
 # TODO move this out
 from tronn.nets.sequence_nets import onehot_to_string
@@ -153,6 +154,27 @@ def sequence_to_dmim(inputs, params):
         outputs, params = run_dmim(outputs, params)
         
     return outputs, params
+
+
+def sequence_to_synergy(inputs, params):
+    """For a grammar, get back the delta deeplift results on motifs, another way
+    to extract dependencies at the motif level
+    """
+    # here - assume sequence to motif scores has already been run
+    # if not set up in another fn
+    outputs = dict(inputs)
+    
+    # mutate
+    with tf.device("/cpu:1"):
+        outputs, params = mutate_weighted_motif_sites_combinatorially(outputs, params)
+
+    # run model
+    outputs, params = run_dfim(outputs, params)
+    
+    return outputs, params
+
+
+
 
 
 def variants_to_predictions(inputs, params):

@@ -2,6 +2,7 @@
 """
 
 import h5py
+import itertools
 
 import numpy as np
 import tensorflow as tf
@@ -198,6 +199,84 @@ class Mutagenizer(object):
         return inputs, params
 
 
+
+class SynergyMutagenizer(Mutagenizer):
+    """Generates sequences for synergy scores"""
+
+    
+    def mutagenize_multiple_motifs(self, inputs, params):
+        """change this from the Mutagenizer class
+        """
+        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] is not None # {N, mut_M, k}
+        outputs = dict(inputs)
+        
+        # for each motif, run map fn to mutagenize
+        features = inputs[DataKeys.ORIG_SEQ] # {N, 1, 1000, 4}
+        orig_seq_len = features.get_shape().as_list()[2]
+        LEFT_CLIP = 420 # TODO fix this
+        position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
+        inputs["test.position_indices"] = position_indices
+        motif_present = inputs[DataKeys.MUT_MOTIF_PRESENT] # {N, mut_M}
+        all_motifs_present = tf.reduce_all(motif_present, axis=1) # {N}
+        
+        # choose what kind of mutagenesis
+        if self.mutation_type == "point":
+            mutagenize_fn = self.point_mutagenize_example
+        else:
+            mutagenize_fn = self.shuffle_mutagenize_example
+
+        all_mut_sequences = []
+        all_mut_positions = []
+
+        assert position_indices.get_shape().as_list()[2] == 1
+        
+        # now generate all sorts of mutation combinations (mutM, 2**mutM)
+        num_mut_motifs = motif_present.get_shape().as_list()[1]
+        mut_combinations = np.zeros((num_mut_motifs, 2**num_mut_motifs)) # {mutM, 2**mutM}
+        mut_switch = [[0,1]]*num_mut_motifs
+        i = 0
+        for combo in itertools.product(*mut_switch):
+            mut_combinations[:,i] = combo
+            i += 1 
+        mut_combinations = np.expand_dims(mut_combinations, axis=0) # {1, mutM, 2**mutM}
+        
+        # and then elementwise multiply
+        position_combinations = tf.multiply(position_indices, mut_combinations) # {N, mutM, 2**mutM}
+
+        # and flip
+        position_combinations = tf.transpose(position_combinations, perm=[0,2,1]) # {N, 2**mutM, mutM}
+
+        # set up a vector to zero out the 0th spot
+        position_shape = position_combinations.get_shape().as_list()
+        zero_positions = tf.zeros([position_shape[0], 1], dtype=tf.int32)
+        zero_positions = tf.one_hot(zero_positions, orig_seq_len) # {N, k, 1000}
+        zero_positions = tf.reduce_max(zero_positions, axis=1) # {N, 1000}
+        zero_mask = tf.cast(tf.equal(zero_positions, 0), tf.float32)
+        
+        # and then generate all
+        for mut_i in xrange(position_combinations.get_shape().as_list()[1]):
+            
+            mut_positions = position_combinations[:,mut_i,:] # {N, k}
+            mut_positions = tf.one_hot(mut_positions, orig_seq_len) # {N, k, 1000}
+            mut_positions = tf.reduce_max(mut_positions, axis=1) # {N, 1000}
+            mut_positions = tf.multiply(mut_positions, zero_mask) # IMPORTANT TO MASK NON REAL MUTS
+            mut_positions = tf.expand_dims(mut_positions, axis=2) # {N, 1000, 1}
+            mut_positions = tf.expand_dims(mut_positions, axis=1) # {N, 1, 1000, 1}
+            mut_motif_present = all_motifs_present # {N}
+            mut_sequences, mut_positions = tf.map_fn(
+                mutagenize_fn,
+                [features, mut_motif_present, mut_positions],
+                dtype=(tf.float32, tf.float32)) # {N, 1, 1000, 4}
+            all_mut_sequences.append(mut_sequences)
+            all_mut_positions.append(mut_positions)
+            
+        outputs[DataKeys.MUT_MOTIF_ORIG_SEQ] = tf.stack(all_mut_sequences, axis=1) # {N, mut_M, 1, 1000, 4}
+        outputs[DataKeys.MUT_MOTIF_POS] = tf.stack(all_mut_positions, axis=1) # {N, mutM, 1, 1000, 1}
+        
+        return outputs, params
+
+
+    
 def mutate_weighted_motif_sites(inputs, params):
     """ mutate
     """
@@ -205,7 +284,17 @@ def mutate_weighted_motif_sites(inputs, params):
     outputs, params = mutagenizer.mutagenize(inputs, params)
 
     return outputs, params
-    
+
+
+def mutate_weighted_motif_sites_combinatorially(inputs, params):
+    """mutate combinatorially
+    """
+    mutagenizer = SynergyMutagenizer(mutation_type="shuffle")
+    outputs, params = mutagenizer.mutagenize(inputs, params)
+
+    return outputs, params
+
+
 
 
 def blank_mutation_site(inputs, params):
