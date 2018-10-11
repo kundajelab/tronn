@@ -98,6 +98,10 @@ class DataKeys(object):
     DMIM_ROOT = "{}.{}".format(DFIM_SCORES, PWM_SCORES_ROOT)
     DMIM_SIG_RESULTS = "{}.agg.sig".format(DMIM_ROOT)
 
+    # grammar keys
+    GRAMMAR_ROOT = "grammar"
+    GRAMMAR_LABELS = "{}.labels".format(GRAMMAR_ROOT)
+    
     # split
     TASK_IDX_ROOT = "taskidx"
     
