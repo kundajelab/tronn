@@ -43,6 +43,9 @@ def parse_args():
 
     # command for dmim scan
     add_dmim_parser(subparsers)
+
+    # command for synergy scan
+    add_synergy_parser(subparsers)
     
     # command for activation maximization
     add_dream_parser(subparsers)
@@ -501,7 +504,9 @@ def _setup_interpretation_options(args):
     matches _add_interpretation_options
     """
     if args.data_dir is not None:
-        data_file = glob.glob("{}/*h5".format(args.data_dir))[0]
+        data_files = glob.glob("{}/*h5".format(args.data_dir))
+        data_files = [h5_file for h5_file in data_files if "manifold" not in h5_file]
+        data_file = data_files[0]
     else:
         data_file = args.model_info["train_files"][0]
     
@@ -621,6 +626,41 @@ def add_dmim_parser(subparsers):
     """
     cmd_argparser = subparsers.add_parser(
         "dmim",
+        help="score sequences for grammars")
+    
+    # group for input files
+    group_input = cmd_argparser.add_argument_group(
+    	"Input files and folders")
+    _add_interpretation_inputs(group_input)
+        
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    _add_interpretation_options(group_interpret)
+    _add_visualization_options(group_interpret)
+
+    # group for cmd specific functions
+    group_other = cmd_argparser.add_argument_group(
+        "Misc params")
+    group_other.add_argument(
+        "--manifold_file", help="manifold h5 file")
+    
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    add_output_options(group_output, out_dir="dmim")
+    group_output.add_argument(
+        '--tmp_dir',
+        help='temporary scratch directory')
+    
+    return
+
+
+def add_synergy_parser(subparsers):
+    """scan grammars from a grammar file
+    """
+    cmd_argparser = subparsers.add_parser(
+        "synergy",
         help="score sequences for grammars")
     
     # group for input files
@@ -1014,6 +1054,12 @@ def main():
         _setup_interpretation_options(args)
         _setup_visualization_options(args)
         from tronn.dmim_cmd import run
+        run(args)
+    elif subcommand == "synergy":
+        _setup_model(args)
+        _setup_interpretation_options(args)
+        _setup_visualization_options(args)
+        from tronn.synergy_cmd import run
         run(args)
     elif subcommand == "dream":
         _setup_model(args)
