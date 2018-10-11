@@ -95,3 +95,27 @@ def copy_h5_datasets(in_h5_file, out_h5_file, keys=[]):
                     out[key].attrs[attr_key] = val
     
     return None
+
+
+def copy_h5_dataset_slices(in_h5_file, out_h5_file, keys=[], indices=[], test_key=DataKeys.LABELS):
+    """copy slices by indices into output h5
+    """
+    assert len(keys) != 0
+    assert len(indices) != 0
+    # first check shape
+    with h5py.File(in_h5_file, "r") as hf:
+        num_examples = hf[test_key].shape[0]
+    
+    for key in keys:
+        with h5py.File(in_h5_file, "r") as hf:
+            with h5py.File(out_h5_file, "a") as out:
+                # copy over data
+                if hf[key].shape[0] == num_examples:
+                    out.create_dataset(key, data=hf[key][indices])
+                else:
+                    out.create_dataset(key, data=hf[key][:])
+                # and copy all attributes
+                for attr_key, val in hf[key].attrs.iteritems():
+                    out[key].attrs[attr_key] = val
+
+    return None
