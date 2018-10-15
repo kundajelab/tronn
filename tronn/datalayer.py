@@ -68,7 +68,7 @@ class DataLoader(object):
             label_keys=label_keys,
             **kwargs)
 
-        if True:
+        if False:
             # label filter fn
             def filter_by_labels(labels_key, filter_tasks, filter_type="any"):
                 def filter_fn(features, labels):
@@ -88,7 +88,7 @@ class DataLoader(object):
                     dataset = dataset.filter(
                         filter_by_labels(key, filter_tasks[key][0]))
 
-            # TODO check this
+            # only use this if you have more than one singleton task
             # singletons filter fn
             def filter_singletons(labels_key, filter_tasks):
                 def filter_fn(features, labels):
@@ -98,7 +98,7 @@ class DataLoader(object):
                     return tf.greater(results, 1)
                 return filter_fn
 
-            if len(singleton_filter_tasks) != 0:
+            if len(singleton_filter_tasks) > 1:
                 dataset = dataset.filter(
                     filter_singletons("labels", singleton_filter_tasks))
 
