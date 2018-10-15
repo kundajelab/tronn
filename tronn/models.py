@@ -221,11 +221,14 @@ class ModelManager(object):
         """
         # adjust config
         if config is None:
-            config=tf.estimator.RunConfig(
+            session_config = tf.ConfigProto()
+            session_config.gpu_options.allow_growth = True
+            config = tf.estimator.RunConfig(
                 save_summary_steps=30,
                 save_checkpoints_secs=None,
                 save_checkpoints_steps=10000000000,
-                keep_checkpoint_max=None)
+                keep_checkpoint_max=None,
+                session_config=session_config)
 
         # set up the model function to be called in the run
         def estimator_model_fn(
@@ -256,22 +259,24 @@ class ModelManager(object):
                         inputs,
                         params["inference_fn"],
                         inference_params)
-                    
-                    # create custom init fn
-                    init_op, init_feed_dict = restore_variables_op(
-                        params["checkpoint"],
-                        skip=["pwm"])
-                    def init_fn(scaffold, sess):
-                        sess.run(init_op, init_feed_dict)
 
-                    # custom scaffold to load checkpoint
-                    scaffold = monitored_session.Scaffold(
-                        init_fn=init_fn)
-                    
-                    return tf.estimator.EstimatorSpec(
-                        mode,
-                        predictions=outputs,
-                        scaffold=scaffold)
+                    if params["checkpoint"] is None:
+                        print "WARNING: NO CHECKPOINT BEING USED"
+                        return tf.estimator.EstimatorSpec(mode, predictions=outputs)
+                    else:
+                        # create custom init fn
+                        init_op, init_feed_dict = restore_variables_op(
+                            params["checkpoint"],
+                            skip=["pwm"])
+                        def init_fn(scaffold, sess):
+                            sess.run(init_op, init_feed_dict)
+                        # custom scaffold to load checkpoint
+                        scaffold = monitored_session.Scaffold(
+                            init_fn=init_fn)
+                        return tf.estimator.EstimatorSpec(
+                            mode,
+                            predictions=outputs,
+                            scaffold=scaffold)
             
             elif mode == tf.estimator.ModeKeys.EVAL:
                 # evaluation mode
@@ -957,6 +962,69 @@ class MetaGraphManager(ModelManager):
         return metagraph_model_fn
 
 
+class PyTorchModelManager(ModelManager):
+    """Model manager for pytorch models"""
+
+    def __init__(
+            self,
+            model_fn,
+            model_params={},
+            model_checkpoint=None,
+            model_dir=None,
+            name="pytorch_model"):
+        """Initialization keeps core of the model - inputs (from separate dataloader) 
+        and model with necessary params. All other pieces are part of different graphs
+        (ie, training, evaluation, prediction, inference)
+        """
+        model = model_fn()
+        
+        def converted_model_fn(inputs, params):
+            outputs = dict(inputs)
+            seq = inputs[DataKeys.FEATURES]
+            seq = tf.squeeze(seq)
+            
+            max_batch_size = seq.get_shape().as_list()[0]
+            if True:
+                rna = np.ones((max_batch_size, 1630))
+            else:
+                rna = inputs["FEATURES.RNA"]
+
+            # run model through pyfunc and set shape
+            pytorch_inputs = [seq, rna, max_batch_size]
+            Tout = tf.float32
+            outputs[DataKeys.LOGITS] = tf.py_func(
+                model.output,
+                pytorch_inputs,
+                Tout,
+                stateful="False",
+                name="pytorch_model")
+            outputs[DataKeys.LOGITS].set_shape(
+                (max_batch_size, 1))
+            
+            # also get gradients and set shape
+            pytorch_inputs = [seq, rna, False, max_batch_size]
+            outputs[DataKeys.IMPORTANCE_GRADIENTS] = tf.py_func(
+                model.importance_score,
+                pytorch_inputs,
+                Tout,
+                stateful="False",
+                name="pytorch_model")
+            outputs[DataKeys.IMPORTANCE_GRADIENTS].set_shape(
+                seq.get_shape())
+            outputs[DataKeys.IMPORTANCE_GRADIENTS] = tf.expand_dims(
+                outputs[DataKeys.IMPORTANCE_GRADIENTS],
+                axis=1)
+            
+            return outputs, params
+            
+        self.model_fn = converted_model_fn
+        self.model_params = model_params
+        self.model_checkpoint = model_checkpoint
+        self.model_dir = model_dir
+        self.name = name
+
+
+    
 # TODO(dk)
 def setup_model_manager():
     """wrapper to keep things consistent

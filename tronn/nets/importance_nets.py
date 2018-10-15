@@ -334,6 +334,28 @@ class InputxGrad(FeatureImportanceExtractor):
         return outputs, params
 
     
+class PyTorchInputxGrad(FeatureImportanceExtractor):
+    """Runs input x grad"""
+
+    @staticmethod
+    def get_singletask_feature_importances(inputs, params):
+
+        # TODO this is not generalizable to multitask, fix later
+        # probably pass in the index or something
+        
+        # inputs
+        features = inputs[DataKeys.FEATURES]
+        anchor = inputs["anchor"]
+        outputs = dict(inputs)
+        
+        # input x grad
+        outputs[DataKeys.FEATURES] = tf.multiply(
+            features,
+            inputs[DataKeys.IMPORTANCE_GRADIENTS], 'input_x_grad')
+
+        return outputs, params
+
+    
 class IntegratedGradients(InputxGrad):
     """Run integrated gradients"""
 
@@ -617,6 +639,14 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # TODO figure out how to fix this
         if True:
             mut_motif_present = tf.cast(outputs[DataKeys.MUT_MOTIF_PRESENT], tf.float32)
+
+            # this is for synergy scores
+            if True:
+                mut_motif_present = outputs[DataKeys.MUT_MOTIF_PRESENT]
+                mut_motif_present = tf.cast(
+                    tf.reduce_all(mut_motif_present, axis=1, keepdims=True),
+                    tf.float32) # {N, 1}
+            
             mut_motif_shape = mut_motif_present.get_shape().as_list()
             feature_shape = outputs[DataKeys.DFIM_SCORES].get_shape().as_list()
             mut_motif_present = tf.reshape(
@@ -652,6 +682,8 @@ def get_task_importances(inputs, params):
     # all this should be is a wrapper
     if backprop == "input_x_grad":
         extractor = InputxGrad(params["model_fn"])
+    elif backprop == "pytorch_input_x_grad":
+        extractor = PyTorchInputxGrad(params["model_fn"])
     elif backprop == "integrated_gradients":
         extractor = IntegratedGradients(params["model_fn"])
     elif backprop == "deeplift":
