@@ -740,7 +740,7 @@ def filter_singles(inputs, params):
     # and mask
     feature_mask = tf.cast(tf.greater_equal(feature_counts_in_window, min_features), tf.float32)
     features = tf.multiply(features, feature_mask)
-    outputs[DataKeys.FEATURES] = features
+    outputs[DataKeys.FEATURES] = tf.greater(features, 0)
     
     return outputs, params
 
@@ -758,10 +758,14 @@ def filter_singles_twotailed(inputs, params):
     pos_features = tf.cast(tf.greater(features, 0), tf.float32)
     neg_features = tf.cast(tf.less(features, 0), tf.float32)
 
+    # reduce to put all bases in one dimension
+    pos_features = tf.reduce_sum(pos_features, axis=3, keepdims=True)
+    neg_features = tf.reduce_sum(pos_features, axis=3, keepdims=True)
+
     # get masks
     pos_mask = filter_singles({DataKeys.FEATURES: pos_features}, params)[0][DataKeys.FEATURES]
     neg_mask = filter_singles({DataKeys.FEATURES: neg_features}, params)[0][DataKeys.FEATURES]
-    keep_mask = tf.add(pos_mask, neg_mask)
+    keep_mask = tf.cast(tf.logical_or(pos_mask, neg_mask), tf.float32)
 
     # mask features
     features = tf.multiply(features, keep_mask)
