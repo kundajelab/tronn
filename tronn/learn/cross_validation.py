@@ -5,39 +5,12 @@ import h5py
 
 import numpy as np
 
-# figure out how to build better cross validation sets
 
-from tronn.datalayer import H5DataLoader
-
-
-# todo - build leave one out
-# todo - build k fold
-# todo - build fractional
-# todo - build manual
-
-def _get_chrom_size_ordered(data_dict, positives_only=False):
-    """returns an ordered list of chrom keys 
-    based on size of files
-    """
-    chrom_keys = []
-    num_examples_per_chrom = []
-    for chrom in sorted(data_dict.keys()):
-        chrom_keys.append(chrom)
-        num_positives = H5DataLoader.get_num_examples(data_dict[chrom][0])
-        training_negatives = H5DataLoader.get_num_examples(data_dict[chrom][1])
-        #global_negatives = H5DataLoader.get_num_examples(data_dict[chrom][2])
-        num_examples_per_chrom.append(num_positives + training_negatives)
-        
-    # order in descending example total
-    num_examples_per_chrom = np.array(num_examples_per_chrom)
-    indices = np.argsort(num_examples_per_chrom)[::-1]
-    ordered_chrom_keys = np.array(chrom_keys)[indices]
-    ordered_num_examples = num_examples_per_chrom[indices]
-
-    return ordered_chrom_keys, ordered_num_examples
-
-
-def setup_kfold_cv(data_dict, k):
+def setup_kfolds(
+        data_dict,
+        ordered_chrom_keys,
+        num_examples_per_file,
+        k):
     """given k, split the files as equally as possible across k
     """
     # set up kfolds dict
@@ -46,9 +19,6 @@ def setup_kfold_cv(data_dict, k):
     for k_idx in xrange(k):
         kfolds[k_idx] = [[], [], []]
         examples_per_fold[k_idx] = 0
-        
-    # reorder according to biggest file first
-    ordered_chrom_keys, num_examples_per_file = _get_chrom_size_ordered(data_dict)
     
     # now initialize with first files
     for k_idx in xrange(k):
@@ -78,7 +48,6 @@ def setup_kfold_cv(data_dict, k):
         kfolds[fill_k][2] += data_dict[chrom_key][2]
         examples_per_fold[fill_k] += num_examples_per_file[i]
 
-
     # debug tool print reduced set
     if False:
         kfold_print = {}
@@ -94,13 +63,20 @@ def setup_kfold_cv(data_dict, k):
 
 
 def setup_train_valid_test(
-        h5_files, k,
+        chrom_file_dict,
+        ordered_chrom_keys,
+        num_examples_per_chrom,
+        k,
         valid_folds=[],
         test_folds=[],
         regression=False):
     """set up folds
     """
-    kfolds, examples_per_fold = setup_kfold_cv(h5_files, k)
+    kfolds, examples_per_fold = setup_kfolds(
+        chrom_file_dict,
+        ordered_chrom_keys,
+        num_examples_per_chrom,
+        k)
     
     # fill in folds as needed
     if len(test_folds) == 0:
@@ -137,31 +113,3 @@ def setup_train_valid_test(
                 test_files += kfolds[i][1]
             
     return train_files, valid_files, test_files
-
-
-
-
-def setup_cv(data_files, cvfold=0):
-    """Helper function to choose good CV folds
-    Just hard-coded 3 cv folds
-    """
-    # never train with chrY
-    data_files = sorted([data_file for data_file in data_files if "chrY" not in data_file])
-
-    # 1 for validation, 2 for test, never chrX
-    cv_start_indices = [19, 1, 7, 4, 16]
-    cv_start_idx = cv_start_indices[cvfold]
-
-    # set up splits
-    train_files = list(data_files)
-    del train_files[cv_start_idx:cv_start_idx+3]
-    valid_files = [data_files[cv_start_idx]]
-    test_files = data_files[cv_start_idx+1:cv_start_idx+3]
-
-    # logging
-    print "Train:", [filename.split(".")[-2] for filename in train_files]
-    print "Validation:", [filename.split(".")[-2] for filename in valid_files]
-    print "Test:", [filename.split(".")[-2] for filename in test_files]
-    
-    return train_files, valid_files, test_files
-
