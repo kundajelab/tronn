@@ -231,7 +231,7 @@ def select_negatives_from_region_set(
     """
     select_negs = (
         "bedtools intersect -v -a {0} -b {1} | "
-        "shuf -n {2} | "
+        "shuf -n {2} --random-source={1} | "
         "awk '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
         "gzip -c > {3}").format(
             positives_bed_file,
@@ -276,7 +276,7 @@ def select_random_negatives(
     while random_neg_left > 0:
         random_negs_to_select = min(random_neg_left, num_positive_regions)
         select_negs = (
-            "bedtools shuffle -i {0} -excl {0} -g {1} | "
+            "bedtools shuffle -i {0} -excl {0} -g {1} -seed 42 | "
             "head -n {2} | "
             "gzip -c >> {3}").format(
                 positives_bed_file,
