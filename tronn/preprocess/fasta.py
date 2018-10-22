@@ -204,7 +204,9 @@ class GenomicIntervalConverter(object):
         sed_cmd = [
             'sed',
             "-u",
-            's/^.*[[:blank:]]//g; s/[Aa]/0/g; s/[Cc]/1/g; s/[Gg]/2/g; s/[Tt]/3/g; s/[Nn]/4/g; s/./,&/g; s/,//']
+            #'s/^.*[[:blank:]]//g; s/[Aa]/0/g; s/[Cc]/1/g; s/[Gg]/2/g; s/[Tt]/3/g; s/[Nn]/4/g; s/./,&/g; s/,//']
+            's/^.*[[:blank:]]//; s/A/0/Ig; s/C/1/Ig; s/G/2/Ig; s/T/3/Ig; s/N/4/Ig; s/./,&/g; s/,//']
+            #'s/^.*[[:blank:]]//; /[Aa]/ s//0/g; /[Cc]/ s//1/g; /[Gg]/ s//2/g; /[Tt]/ s//3/g; /[Nn]/ s//4/g; s/./,&/g; s/,//']
         pipe_out = subprocess.Popen(
             sed_cmd,
             stdin=get_fasta.stdout, stdout=PIPE)
@@ -220,7 +222,7 @@ class GenomicIntervalConverter(object):
         return pipe_in, pipe_out, close_fn
 
 
-    def convert(self, array):
+    def convert(self, array, seq_len=1000):
         """given a set of intervals, get back sequence info
         """
         for i in xrange(array.shape[0]):
@@ -240,12 +242,13 @@ class GenomicIntervalConverter(object):
                 sequence = self.converter_out.stdout.readline().strip()
 
                 # convert to array - this is the crucial speed step
+                # must separate with commas, otherwise will not be read in correctly
                 sequence = np.fromstring(sequence, dtype=np.uint8, sep=",")
             
             except:
                 # exceptions shouldn't exist, if preprocessed correctly
                 print "sequence information missing, {}".format(feature_interval)
-                sequence = np.array([4 for j in xrange(1000)], dtype=np.uint8)
+                sequence = np.array([4 for j in xrange(seq_len)], dtype=np.uint8)
 
             # save out
             self.onehot_batch_array[i,:] = sequence
