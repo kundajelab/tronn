@@ -12,8 +12,6 @@ from tronn.nets.deep_nets import tfslim_resnet
 from tronn.nets.deep_nets import empty_net
 from tronn.nets.deep_nets import ensemble
 
-#from tronn.nets.inference_nets import sequence_to_importance_scores
-#from tronn.nets.inference_nets import sequence_to_motif_scores
 from tronn.nets.inference_nets import sequence_to_motif_scores_from_regression
 from tronn.nets.inference_nets import sequence_to_dmim
 from tronn.nets.inference_nets import sequence_to_synergy
@@ -29,9 +27,7 @@ net_fns = {
     "resnet": tfslim_resnet,
     "empty_net": empty_net,
     "ensemble": ensemble,
-    #"sequence_to_importance_scores": sequence_to_importance_scores,
     "sequence_to_motif_scores": sequence_to_motif_scores_from_regression,
-    "sequence_to_motif_scores_from_regression": sequence_to_motif_scores_from_regression,
     "sequence_to_dmim": sequence_to_dmim,
     "sequence_to_synergy": sequence_to_synergy,
     "variants_to_predictions": variants_to_predictions
