@@ -45,6 +45,24 @@ class DataLoader(object):
 
     
     @staticmethod
+    def build_target_select_function(target_indices, target_key=DataKeys.LABELS):
+        """build a function to gather selected indices from dataset
+        
+        Args:
+          target indices: list of indices to index the final label set
+          target_key: use in case the label tensor is not named "labels"
+
+        Returns:
+          map_fn: function to slice the labels
+        """
+        def map_fn(features, labels):
+            features[target_key] = tf.gather(features[target_key], target_indices, axis=-1)
+            return features, labels
+        
+        return map_fn
+
+    
+    @staticmethod
     def build_target_filter_function(target_key, target_indices, filter_type="any"):
         """build a function for filtering examples based on whether the
         target is positive (in classification, positive label)
@@ -99,8 +117,9 @@ class DataLoader(object):
             shuffle=True,
             filter_targets=[],
             singleton_filter_targets=[],
+            target_indices=[],
             encode_onehot_features=True,
-            num_threads=28,
+            num_threads=16,
             num_to_prefetch=5,
             deterministic=False,
             shuffle_min=1000,
@@ -136,20 +155,22 @@ class DataLoader(object):
                 args=(filename,))
             # filter on specific keys and indices
             if len(filter_targets) != 0:
-                for key in filter_tasks.keys():
+                for key, indices in filter_targets:
                     dataset = dataset.filter(
                         DataLoader.build_target_filter_function(
-                            key, filter_targets[key][0]))
+                            key, indices))
             # filter singletons
-            if len(singleton_filter_targets) > 1:
+            if len(singleton_filter_targets) >= 1:
                 dataset = dataset.filter(
                     DataLoader.build_singleton_filter_function(
-                        DataKeys.LABELS, singleton_filter_targets))
+                        singleton_filter_targets[0][0],
+                        singleton_filter_targets[0][1]))
             # add onehot sequence
             if encode_onehot_features:
-                dataset = dataset.map(
-                    DataLoader.encode_onehot_sequence_single,
-                    num_parallel_calls=1)
+                pass
+                #dataset = dataset.map(
+                #    DataLoader.encode_onehot_sequence_single,
+                #    num_parallel_calls=1)
             return dataset
             
         # set up interleaved datasets
@@ -157,7 +178,10 @@ class DataLoader(object):
             tf.contrib.data.parallel_interleave(
                 lambda filename: from_generator(filename),
                 cycle_length=num_threads,
-                prefetch_input_elements=batch_size,
+                #block_length=batch_size,
+                #cycle_length=len(self.data_files),
+                #prefetch_input_elements=batch_size,
+                buffer_output_elements=batch_size,
                 sloppy=deterministic))
 
         # shuffle
@@ -166,8 +190,15 @@ class DataLoader(object):
             dataset = dataset.shuffle(capacity)
 
         # batch
-        dataset = dataset.apply(
-            tf.contrib.data.batch_and_drop_remainder(batch_size))
+        if False:
+            dataset = dataset.apply(
+                tf.contrib.data.batch_and_drop_remainder(batch_size))
+        else:
+            dataset = dataset.apply(
+                tf.contrib.data.map_and_batch(
+                    map_func=DataLoader.encode_onehot_sequence_single,
+                    batch_size=batch_size,
+                    drop_remainder=True))
 
         # prefetch
         dataset = dataset.prefetch(num_to_prefetch)
@@ -425,10 +456,9 @@ class H5DataLoader(DataLoader):
         return num_examples_per_file
 
     
-    @staticmethod
     def get_num_targets(
-            h5_files,
-            targets,
+            self,
+            targets=[(DataKeys.LABELS, [])],
             target_indices=[],
             test_file_idx=0):
         """get number of labels
@@ -436,7 +466,7 @@ class H5DataLoader(DataLoader):
         if len(target_indices) == 0:
             # need to manually figure out what the joint target set looks like
             num_targets = 0
-            with h5py.File(h5_files[test_file_idx], "r") as hf:
+            with h5py.File(self.h5_files[test_file_idx], "r") as hf:
                 for key, indices in targets:
                     if len(indices) != 0:
                         num_targets += len(indices)
@@ -450,7 +480,7 @@ class H5DataLoader(DataLoader):
             "Found {} targets across target set(s) {}, finally indexed with {}.".format(
                 num_targets,
                 ";".join([target[0] for target in targets]),
-                ",".join(target_indices)))
+                target_indices))
         
         return num_targets
 
@@ -462,8 +492,7 @@ class H5DataLoader(DataLoader):
             batch_size,
             keys_to_load=None,
             targets=[(DataKeys.LABELS, [])],
-            target_indices=[],
-            skip_keys=["labels", "features", "label_metadata"]): # TODO deprecate this, handle outside?
+            target_indices=[]):
         """Get slices from the (open) h5 file back and pad with 
         null sequences as needed to fill the batch.
 
@@ -481,15 +510,10 @@ class H5DataLoader(DataLoader):
           slices of data
         """
         # TODO set up predefined numpy arrays?
+        #assert tmp_arrays is not None
         
         # calculate end idx
         end_idx = start_idx + batch_size
-        
-        # get keys
-        if keys_to_load is None:
-            keys_to_load = sorted([key for key in h5_handle.keys() if key not in skip_keys])
-        else:
-            keys_to_load = [key for key in keys_to_load if key not in skip_keys]
             
         # if end is within the file, extract out slice. otherwise, pad and pass out full batch
         slices = {}
@@ -603,8 +627,8 @@ class H5DataLoader(DataLoader):
         """
         keys.append(DataKeys.LABELS)
         dtypes_dict[DataKeys.LABELS] = tf.float32
-        shapes_dict[DataKeys.LABELS] = H5DataLoader.get_num_targets(
-            self.h5_files, targets, target_indices=target_indices)
+        shapes_dict[DataKeys.LABELS] = [self.get_num_targets(
+            targets=targets, target_indices=target_indices)]
         
         return keys, dtypes_dict, shapes_dict
 
@@ -621,18 +645,18 @@ class H5DataLoader(DataLoader):
         if DataKeys.FEATURES not in keys:
             keys.append(DataKeys.FEATURES)
             dtypes_dict[DataKeys.FEATURES] = tf.uint8
-            shapes_dict[DataKeys.FEATURES] = seq_len
+            shapes_dict[DataKeys.FEATURES] = [seq_len]
         else:
             # replace
             dtypes_dict[DataKeys.FEATURES] = tf.uint8
-            shapes_dict[DataKeys.FEATURES] = seq_len
+            shapes_dict[DataKeys.FEATURES] = [seq_len]
         
         return keys, dtypes_dict, shapes_dict
     
 
     def build_generator(
             self,
-            batch_size=256, #256
+            batch_size=128, #256
             task_indices=[],
             keys=[],
             skip_keys=["label_metadata"],
@@ -651,12 +675,12 @@ class H5DataLoader(DataLoader):
         lock = threading.Lock()
 
         # get clean keys
-        clean_keys, skip_keys = self._get_clean_keys(keys, skip_keys)
+        clean_keys_to_load, skip_keys = self._get_clean_keys(keys, skip_keys)
 
         # set up dtype and shape dicts
-        dtypes_dict, shapes_dict = self._get_dtypes_and_shapes(clean_keys)
+        dtypes_dict, shapes_dict = self._get_dtypes_and_shapes(clean_keys_to_load)
         clean_keys, dtypes_dict, shapes_dict = self._add_targets_dtype_and_shape(
-            clean_keys, dtypes_dict, shapes_dict, targets, target_indices=task_indices)
+            list(clean_keys_to_load), dtypes_dict, shapes_dict, targets, target_indices=task_indices)
         clean_keys, dtypes_dict, shapes_dict = self._add_onehot_features_dtype_and_shape(
             clean_keys, dtypes_dict, shapes_dict, seq_len=seq_len)
 
@@ -673,6 +697,17 @@ class H5DataLoader(DataLoader):
                 # set up interval to sequence converter
                 converter = GenomicIntervalConverter(lock, fasta, batch_size)
 
+
+                # set up tmp numpy arrays
+                if False:
+                    tmp_arrays = {}
+                    for key in clean_keys:
+                        if dtypes_dict[key] == tf.string:
+                            tmp_arrays[key] = np.empty([batch_size] + list(shapes_dict[key]), dtype="S1000")
+                            tmp_arrays[key].fill("features=chr1:0-1000")
+                        else:
+                            tmp_arrays[key] = np.zeros([batch_size] + list(shapes_dict[key]))
+                
                 # open h5 file
                 with h5py.File(h5_file, "r") as h5_handle:
                     test_key = h5_handle.keys()[0]
@@ -689,13 +724,15 @@ class H5DataLoader(DataLoader):
                     
                     # and go through batches
                     try:
+                        assert len(clean_keys_to_load) != 0
+                        
                         for batch_id in batch_ids:
                             batch_start = batch_id*batch_size
                             slice_array = H5DataLoader.h5_to_slices(
                                 h5_handle,
                                 batch_start,
                                 batch_size,
-                                keys_to_load=clean_keys,
+                                keys_to_load=clean_keys_to_load,
                                 targets=targets,
                                 target_indices=target_indices)
 
@@ -795,6 +832,18 @@ class H5DataLoader(DataLoader):
             for split in splits]
 
         return split_dataloaders
+
+
+    def setup_positives_only_dataloader(self):
+        """only work with positives
+        """
+        positives_files = [
+            h5_file for h5_file in self.data_files
+            if "negative" not in h5_file]
+        new_dataloader = H5DataLoader(
+            self.data_dir, data_files=positives_files, fasta=self.fasta)
+        
+        return new_dataloader
 
     
     def get_classification_metrics(
@@ -897,6 +946,15 @@ class ArrayDataLoader(DataLoader):
         self.feed_dict = feed_dict
         self.array_names = array_names
         self.array_types = array_types
+
+
+
+    def build_generator(self):
+        """go from array to individual exapmles?
+        """
+        pass
+
+        
 
         
     def build_raw_dataflow(self, batch_size, task_indices=[]):
@@ -1011,3 +1069,35 @@ class BedDataLoader(DataLoader):
         print inputs["features"]
         
         return inputs
+
+
+class VcfDataLoader(DataLoader):
+    """Loads data from VCF file to run variants"""
+
+    def build_generator():
+        pass
+
+    
+    
+def setup_data_loader(args):
+    """wrapper function to deal with dataloading 
+    from different formats
+
+    If making a custom dataloader, note that
+    data must come in through either:
+      args.data_dir
+      args.data_files
+      args.dataset_json
+    """
+    if args.data_format == "hdf5":
+        data_loader = H5DataLoader(
+            data_dir=args.data_dir,
+            data_files=args.data_files,
+            dataset_json=args.dataset_json,
+            fasta=args.fasta)
+    elif args.data_format == "bed":
+        raise ValueError, "implement!"
+    else:
+        raise ValueError, "unrecognized data format!"
+
+    return data_loader
