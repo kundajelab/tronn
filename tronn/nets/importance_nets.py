@@ -780,7 +780,6 @@ def filter_singles_twotailed(inputs, params):
 
     # save desired outputs
     outputs[DataKeys.FEATURES] = features
-    outputs["positive_importance_bp_sum"] = num_positive_features # TODO this number is deceptive, change
 
     return outputs, params
 
@@ -809,7 +808,8 @@ def filter_by_importance(inputs, params):
                 tf.cast(tf.not_equal(features, 0), tf.float32),
                 axis=[2, 3]),
             axis=1) # shape {N}
-
+        
+    inputs["positive_importance_bp_sum"] = feature_sums
     inputs["condition_mask"] = tf.greater(feature_sums, cutoff)
     params.update({"name": "importances_filter"})
     outputs, _ = filter_and_rebatch(inputs, params)
