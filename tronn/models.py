@@ -37,12 +37,19 @@ from tronn.learn.learning import KerasRestoreHook
 from tronn.learn.learning import DataSetupHook
 from tronn.learn.learning import DataCleanupHook
 
+from tronn.nets.nets import net_fns
+
 from tronn.interpretation.interpret import visualize_region
 from tronn.interpretation.dreaming import dream_one_sequence
 
 from tronn.visualization import visualize_debug
 
 from tronn.util.utils import DataKeys
+from tronn.util.formats import write_to_json
+
+        
+_TRAIN_PHASE = "train"
+_EVAL_PHASE = "eval"
 
 
 class ModelManager(object):
@@ -50,8 +57,7 @@ class ModelManager(object):
     
     def __init__(
             self,
-            model_fn,
-            model_params,
+            model_dict,
             model_checkpoint=None,
             model_dir=None,
             name="nn_model"):
@@ -59,11 +65,37 @@ class ModelManager(object):
         and model with necessary params. All other pieces are part of different graphs
         (ie, training, evaluation, prediction, inference)
         """
-        self.model_fn = model_fn
-        self.model_params = model_params
-        self.model_checkpoint = model_checkpoint
+        # set up from model dict
+        self.name = model_dict["name"]
+        self.model_fn = net_fns[self.name]
+        self.model_params = model_dict["params"]
+        self.model_checkpoint = model_dict.get("checkpoint")
+        
+        # add in checkpoint if present
+        if model_checkpoint is not None:
+            self.model_checkpoint = model_checkpoint
+        
+        # adjust model dir (and checkpoint) as desired
         self.model_dir = model_dir
-        self.name = name
+        if (self.model_dir is not None) and (self.model_checkpoint is not None):
+            self.model_checkpoint = "{}/{}".format(
+                self.model_dir,
+                os.path.basename(self.model_checkpoint))
+
+        
+    def describe(self):
+        """return a dictionary that can be saved out to json
+        for future loading
+        """
+        model = {
+            "name": self.name,
+            "params": self.model_params,
+            "model_dir": self.model_dir,
+            "checkpoint": self.model_checkpoint
+        }
+        
+        return model
+        
         
     def build_training_dataflow(
             self,
@@ -222,7 +254,7 @@ class ModelManager(object):
         # adjust config
         if config is None:
             session_config = tf.ConfigProto()
-            session_config.gpu_options.allow_growth = True
+            session_config.gpu_options.allow_growth = False #True
             config = tf.estimator.RunConfig(
                 save_summary_steps=30,
                 save_checkpoints_secs=None,
@@ -373,6 +405,7 @@ class ModelManager(object):
             out_dir,
             inference_fn,
             inference_params={},
+            logit_indices=[], # TODO integrate this in!
             config=None,
             predict_keys=None,
             checkpoint=None,
@@ -442,59 +475,98 @@ class ModelManager(object):
             predict_keys=predict_keys)
 
     
-    def train_and_evaluate_with_early_stopping(
+    @staticmethod
+    def _setup_train_summary(train_summary):
+        """maintain a dictionary that summarizes training
+        
+        Args:
+          train_summary: dictionary (may be empty) of training status
+
+        Returns:
+          train_summary: filled out dictionary covering missing gaps
+        """
+        train_summary.update({
+            "start_epoch": train_summary.get("start_epoch", 0),
+            "best_metric_val": train_summary.get("best_metric_val"),
+            "consecutive_bad_epochs": int(train_summary.get("consecutive_bad_epochs", 0)),
+            "best_checkpoint": train_summary.get("best_checkpoint"),
+            "last_phase": train_summary.get("last_phase", _EVAL_PHASE)
+        })
+        
+        if train_summary["best_metric_val"] is not None:
+            train_summary["best_metric_val"] == float(train_summary["best_metric_val"])
+        
+        return train_summary
+    
+    
+    def train_and_evaluate(
             self,
             train_input_fn,
             eval_input_fn,
             out_dir,
-            max_epochs=20,
+            max_epochs=30,
             early_stopping_metric="mean_auprc",
-            epoch_patience=2,
+            epoch_patience=3,
+            train_steps=None,
             eval_steps=1000,
             warm_start=None,
             warm_start_params={},
             regression=False,
-            model_info={},
+            model_summary_file=None,
+            train_summary_file=None,
             early_stopping=True,
             multi_gpu=False):
         """run full training loop with evaluation for early stopping
         """
-        # check metric for regression
-        # TODO deprecate this out eventually
-        if regression:
-            assert early_stopping_metric == "mse"
-        
-        # set up stopping conditions
-        stopping_log = "{}/stopping.log".format(out_dir)
-        if os.path.isfile(stopping_log):
-            # if there is a stopping log, restart using the info in the log
-            with open(stopping_log, "r") as fp:
-                start_epoch, best_metric_val, consecutive_bad_epochs, best_checkpoint = fp.readline().strip().split()
-                start_epoch, consecutive_bad_epochs =  map(
-                    int, [start_epoch, consecutive_bad_epochs])
-                best_metric_val = float(best_metric_val)
-                start_epoch += 1
-            if consecutive_bad_epochs > epoch_patience:
-                # move start epochs to max epoch so training doesn't run
-                start_epoch = max_epochs
-        else:
-            # fresh run
-            start_epoch = 0
-            best_metric_val = None
-            consecutive_bad_epochs = 0
-            best_checkpoint = None
+        # assertions
+        assert model_summary_file is not None
+        assert train_summary_file is not None
 
-        # distributed training - requires 1.9+ (prefer 1.11 bc of batch norm issues in 1.9 and 1.10)
+        # pull in train summary if it exists
+        if os.path.isfile(train_summary_file):
+            with open(train_summary_file, "r") as fp:
+                train_summary = json.load(fp)
+            print train_summary
+        else:
+            train_summary = {}
+
+        # fill out as needed
+        train_summary = ModelManager._setup_train_summary(train_summary)
+
+        # pull out needed variables
+        start_epoch = train_summary["start_epoch"]
+        best_metric_val = train_summary["best_metric_val"]
+        consecutive_bad_epochs = train_summary["consecutive_bad_epochs"]
+        best_checkpoint = train_summary["best_checkpoint"]
+        last_phase = train_summary["last_phase"]
+        
+        # update model summary and training summary
+        self.model_checkpoint = best_checkpoint
+        write_to_json(self.describe(), model_summary_file)
+        write_to_json(train_summary, train_summary_file)
+        
+        # if early stopping and criterion met, don't run training
+        if early_stopping and (consecutive_bad_epochs >= epoch_patience):
+            return best_checkpoint
+            
+        # set up run config
+        # requires 1.9+ (prefer 1.11 bc of batch norm issues in 1.9 and 1.10)
         if multi_gpu:
             distribution = tf.contrib.distribute.MirroredStrategy()
-            config = tf.estimator.RunConfig(train_distribute=distribution)
-            # TODO adjust the config to save checkpoints at different intervals
+            config = tf.estimator.RunConfig(
+                save_summary_steps=30,
+                save_checkpoints_secs=None,
+                save_checkpoints_steps=10000000000,
+                keep_checkpoint_max=None,
+                train_distribute=distribution)
         else:
             config = None
 
         # run through epochs
         for epoch in xrange(start_epoch, max_epochs):
             logging.info("EPOCH {}".format(epoch))
+            train_summary["start_epoch"] = epoch
+            write_to_json(train_summary, train_summary_file)
             
             # restore from transfer as needed
             training_hooks = []
@@ -506,21 +578,33 @@ class ModelManager(object):
                 training_hooks.append(restore_hook)
 
             # train
-            latest_checkpoint = self.train(
-                train_input_fn,
-                "{}/train".format(out_dir),
-                steps=None, # TODO here calculate steps?
-                config=config,
-                hooks=training_hooks,
-                regression=regression)
+            if last_phase == _EVAL_PHASE:
+                self.train(
+                    train_input_fn,
+                    "{}/train".format(out_dir),
+                    steps=train_steps,
+                    config=config,
+                    hooks=training_hooks,
+                    regression=regression)
+                
+                last_phase = _TRAIN_PHASE
+                train_summary["last_phase"] = last_phase
+                write_to_json(train_summary, train_summary_file)
             
             # eval
-            eval_metrics = self.evaluate(
-                eval_input_fn,
-                "{}/eval".format(out_dir),
-                steps=eval_steps,
-                checkpoint=latest_checkpoint,
-                regression=regression)
+            if last_phase == _TRAIN_PHASE:
+                latest_checkpoint = tf.train.latest_checkpoint(
+                    "{}/train".format(out_dir))
+                eval_metrics = self.evaluate(
+                    eval_input_fn,
+                    "{}/eval".format(out_dir),
+                    steps=eval_steps,
+                    checkpoint=latest_checkpoint,
+                    regression=regression)
+
+                last_phase = _EVAL_PHASE
+                train_summary["last_phase"] = last_phase
+                write_to_json(train_summary, train_summary_file)
 
             # determine if epoch of training was good
             if best_metric_val is None:
@@ -535,30 +619,22 @@ class ModelManager(object):
                 best_metric_val = eval_metrics[early_stopping_metric]
                 consecutive_bad_epochs = 0
                 best_checkpoint = latest_checkpoint
-                with open(os.path.join(out_dir, 'best.log'), 'w') as fp:
-                    fp.write('epoch %d\n'%epoch)
-                    fp.write("checkpoint path: {}\n".format(best_checkpoint))
-                    fp.write(str(eval_metrics))
-                model_info["checkpoint"] = best_checkpoint
+                train_summary["best_metric_val"] = best_metric_val
+                train_summary["consecutive_bad_epochs"] = consecutive_bad_epochs
+                train_summary["best_checkpoint"] = best_checkpoint
+                train_summary["metrics"] = eval_metrics
+                self.model_checkpoint = best_checkpoint
             else:
                 # increase bad epoch count
                 consecutive_bad_epochs += 1
 
-            # save out model info
-            with open("{}/model_info.json".format(out_dir), "w") as fp:
-                json.dump(model_info, fp, sort_keys=True, indent=4)
-
-            # save out stopping log
-            with open(stopping_log, 'w') as out:
-                out.write("{}\t{}\t{}\t{}".format(
-                    epoch,
-                    best_metric_val,
-                    consecutive_bad_epochs,
-                    best_checkpoint))
-
+            # save out model summary and train summary
+            write_to_json(self.describe(), model_summary_file)
+            write_to_json(train_summary, train_summary_file)
+            
             # stop if early stopping
             if early_stopping:
-                if consecutive_bad_epochs > epoch_patience:
+                if consecutive_bad_epochs >= epoch_patience:
                     logging.info(
                         "early stopping triggered "
                         "on epoch {} "
@@ -651,7 +727,7 @@ class ModelManager(object):
         # generate first set of outputs to know shapes
         print "starting inference"
         first_example = generator.next()
-
+        
         # set up the saver
         with h5py.File(h5_file, "w") as hf:
 
@@ -996,9 +1072,10 @@ class PyTorchModelManager(ModelManager):
                 model.output,
                 pytorch_inputs,
                 Tout,
-                stateful="False",
-                name="pytorch_model")
-            outputs[DataKeys.LOGITS].set_shape(
+                #stateful="False",
+                name="pytorch_model_logits")
+            outputs[DataKeys.LOGITS] = tf.reshape(
+                outputs[DataKeys.LOGITS],
                 (max_batch_size, 1))
             
             # also get gradients and set shape
@@ -1007,9 +1084,10 @@ class PyTorchModelManager(ModelManager):
                 model.importance_score,
                 pytorch_inputs,
                 Tout,
-                stateful="False",
-                name="pytorch_model")
-            outputs[DataKeys.IMPORTANCE_GRADIENTS].set_shape(
+                #stateful="False",
+                name="pytorch_model_gradients")
+            outputs[DataKeys.IMPORTANCE_GRADIENTS] = tf.reshape(
+                outputs[DataKeys.IMPORTANCE_GRADIENTS],
                 seq.get_shape())
             outputs[DataKeys.IMPORTANCE_GRADIENTS] = tf.expand_dims(
                 outputs[DataKeys.IMPORTANCE_GRADIENTS],
@@ -1024,10 +1102,33 @@ class PyTorchModelManager(ModelManager):
         self.name = name
 
 
-    
-# TODO(dk)
-def setup_model_manager():
-    """wrapper to keep things consistent
+        
+def setup_model_manager(args):
+    """wrapper function to make loading
+    models from different sources consistent
     """
+    if args.model_framework == "tronn":
+        model_manager = ModelManager(
+            model_dict=args.model,
+            model_checkpoint=args.model_checkpoint,
+            model_dir=args.model_dir)
+    elif args.model_framework == "keras":
 
+        args.model["name"] = "keras_transfer"
+        with open(args.transfer_keras) as fp:
+            args.model_info = json.load(fp)
+            model_manager = KerasModelManager(
+                keras_model_path=args.model_info["checkpoint"],
+                model_params=args.model_info.get("params", {}),
+                model_dir=args.out_dir)
+            args.transfer_model_checkpoint = model_manager.model_checkpoint
+            warm_start_params = {}
+
+        
+        model_manager = KerasModelManager(model_dict=args.model)
+    elif args.model_framework == "pytorch":
+        model_manager = PyTorchModelManager(model_dict=args.model)
+    else:
+        raise ValueError, "unrecognized deep learning framework!"
+    
     return model_manager
