@@ -5,14 +5,15 @@
 
 import os
 import sys
-import h5py
 import json
 import glob
 import logging
 import argparse
 import pkg_resources
 
+# ideally deprecate this
 from tronn.util.h5_utils import get_absolute_label_indices # better way to handle this?
+
 from tronn.util.pwms import MotifSetManager # TODO move this?
 
 
@@ -25,9 +26,6 @@ def parse_args():
 
     # command for preprocessing data
     add_preprocess_parser(subparsers)
-
-    # command for preprocessing variants
-    add_preprocess_variants_parser(subparsers)
     
     # command for training
     add_train_parser(subparsers)
@@ -56,11 +54,6 @@ def parse_args():
     # TODO command for variant predictions
     add_analyzevariants_parser(subparsers)
     
-    # TODO:    
-    # modisco?
-    # add_modisco_parser(subparsers)
-    # DONT develop this here, use Av's package
-    
     # baseline model
     add_baseline_parser(subparsers)
     
@@ -73,45 +66,8 @@ def parse_args():
     return args
 
 
-# TODO(dk) fix this to add more options to model param setup
-def add_model_params(args):
-    """Add model configs
-    """
-    if args.model is not None:
-        # parse model configs
-        model_config = {}
-        model_config['name'] = args.model[0]
-        for model_arg in args.model[1:]:
-            if "models" in model_arg:
-                name, models = model_arg.split("=", 1)
-                model_config[name] = models
-            elif '=' in model_arg:
-                name, value = model_arg.split('=', 1)
-                model_config[name] = eval(value)
-            else:
-                model_config[model_arg] = True
-        args.model = model_config
-    else:
-        args.model = {}    
-
-    # label key dict - for the ordering?
-    args.label_key_dict = _parse_files(args.label_keys)
-    if False:
-        if args.data_dir is not None:
-            data_file = glob.glob("{}/*h5".format(args.data_dir))[0]
-        else:
-            data_file = args.model_info["train_files"][0]
-        args.label_indices = get_absolute_label_indices(
-            args.model_info["label_keys"],
-            args.label_key_dict,
-            args.inference_tasks,
-            data_file)
-
-    return 
-
-
-def add_output_options(parser, out_dir="./"):
-    """Add an output directory and prefix if desired
+def _add_output_args(parser, out_dir="./"):
+    """Add output directory and prefix args to parser
     """
     parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
@@ -121,7 +77,66 @@ def add_output_options(parser, out_dir="./"):
         '--prefix', required=True,
         help='prefix to attach onto file names')
 
-    return
+    return None
+
+
+def _setup_annotations(args):
+    """load annotation files from json and replace the json
+    file with the dictionary
+    """
+    with open(args.annotations, "r") as fp:
+        annotations = json.load(fp)
+    args.annotations = annotations
+    
+    return None
+
+
+def _parse_files(dataset_key_strings):
+    """given an arg string list, parse out into a dict
+    assumes a format of: key=file1,file2,..::param1=val,param2=val,...
+    """
+    if dataset_key_strings is None:
+        return {}
+
+    key_dict = {}
+    for dataset_key_string in dataset_key_strings:
+        # first split on "::" then on "="
+        key_and_params = dataset_key_string.split("::")
+        
+        # set up key and key items (filenames or indices)
+        key_string = key_and_params[0]
+        key_and_items = key_string.split("=")
+        key = key_and_items[0]
+        if len(key_and_items) == 1:
+            key_items = []
+        else:
+            item_string = key_and_items[1]
+            key_items = [
+                int(val) if _is_integer(val) else val
+                for val in item_string.split(",")]
+            
+        # set up params
+        if len(key_and_params) == 1:
+            params = {}
+        else:
+            param_string = key_and_params[1]
+            params = dict(
+                [param.split("=")
+                 for param in param_string.split(",")])
+            
+        # combine
+        key_dict[key] = (key_items, params)
+    
+    return key_dict
+
+
+def _setup_preprocess(args):
+    """load preprocess files
+    """
+    args.labels = _parse_files(args.labels)
+    args.signals = _parse_files(args.signals)
+
+    return None
 
 
 def add_preprocess_parser(subparsers):
@@ -139,10 +154,10 @@ def add_preprocess_parser(subparsers):
         help="json file of annotation files")
     group_input.add_argument(
         "--labels", nargs='+', required=True,
-        help='list of key=files_separated_by_commas;params, files are in BED/narrowPeak format')
+        help='list of key=files_separated_by_commas::params, files are in BED/narrowPeak format')
     group_input.add_argument(
         "--signals", nargs='+',
-        help='list of key=files_separated_by_commas;params, files are in bigwig format')
+        help='list of key=files_separated_by_comma::params, files are in bigwig format')
     group_input.add_argument(
         "--master_label_keys", nargs="+", default=[],
         help="subset of label files to use to make master regions file")
@@ -156,173 +171,219 @@ def add_preprocess_parser(subparsers):
     group_opts.add_argument(
         "--rc", action="store_true",
         help='Reverse complement')
-    #group_opts.add_argument(
-    #    "--no_flank_negs", action="store_true",
-    #    help="turn off flank negatives")
-    #group_opts.add_argument(
-    #    "--no_dhs_negs", action="store_true",
-    #    help="turn off flank negatives")
-    #group_opts.add_argument(
-    #    "--random_negs", action="store_true",
-    #    help="add random negatives")
-    #group_opts.add_argument(
-    #    "--univ_neg_num", type=int,
-    #    help='number of universal negatives to grab from univ DHS regions')
     group_opts.add_argument(
         "--genomewide", action="store_true",
         help='build examples across whole genome')
     group_opts.add_argument(
         "--parallel", default=12, type=int,
         help='Number of parallel threads to use')
-    #group_opts.add_argument(
-    #    "--kmerize", action='store_true',
-    #    help="generate kmer datasets also")
     
     # group for output files
     group_output = argparser_preprocess.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir="dataset")
+    _add_output_args(group_output, out_dir="./datasets/dataset")
     group_output.add_argument(
         "--tmp_dir", help="directory for tmp files")
 
     return
 
 
-def add_preprocess_variants_parser(subparsers):
-    """Add data generation function argument parser
+def _add_dataset_args(parser):
+    """add dataset args
     """
-    argparser_preprocess = subparsers.add_parser(
-        "preprocess_variants",
-        help="Preprocess data into TRONN formats")
+    parser.add_argument(
+        "--data_format", default="hdf5",
+        help="dataset storage format (hdf5, bed, custom)")
+    parser.add_argument(
+        "--data_dir",
+        help="h5 file directory")
+    parser.add_argument(
+        "--data_files", nargs="+", default=[],
+        help="dataset files")
+    parser.add_argument(
+        "--fasta",
+        help="fasta file")
+    parser.add_argument(
+        "--dataset_json",
+        help="use a json as input instead. other data args will supersede this json if requested")
+    parser.add_argument(
+        "--targets", nargs="+", default=[],
+        help="which datasets to load as targets (ordered). Expected format: data_key=indices_list_with_commas")
+    parser.add_argument(
+        "--filter_targets", nargs="+", default=[],
+        help="at least 1 of these targets must be POSITIVE. Format: data_key=indices_list_with_commas")
+    parser.add_argument(
+        "--singleton_filter_targets", nargs="+", default=[],
+        help="2 or more of these targets must be POSITIVE. Format: data_key=indices_list_with_commas")
+    parser.add_argument(
+        "--target_indices", nargs="+", default=[], type=int,
+        help="after collection of labels, which of those to finally select. Format: indices_list_with_commas")
 
-    # group for input files
-    group_input = argparser_preprocess.add_argument_group(
-        "Input files and folders")
-    group_input.add_argument(
-        "--annotations", required=True,
-        help="json file of annotation files")
-    group_input.add_argument(
-        "--labels", nargs='+', required=True,
-        help='list of key=files_separated_by_commas;params, files are in BED/narrowPeak format')
-    group_input.add_argument(
-        "--signals", nargs='+',
-        help='list of key=files_separated_by_commas;params, files are in bigwig format')
-    group_input.add_argument(
-        "--master_label_keys", nargs="+", default=[],
-        help="subset of label files to use to make master regions file")
-    group_input.add_argument(
-        "--vcf_file",
-        help="vcf file with ref/alt")
+    return None
 
-    # group for options
-    group_opts = argparser_preprocess.add_argument_group(
-        "Data generation options")
-    group_opts.add_argument(
-        "--rc", action="store_true",
-        help='Reverse complement')
-    group_opts.add_argument(
-        "--parallel", default=12, type=int,
-        help='Number of parallel threads to use')
+
+def _parse_to_key_and_indices(key_strings):
+    """given an arg string list, parse out into a dict
+    assumes a format of: key=indices
     
-    # group for output files
-    group_output = argparser_preprocess.add_argument_group(
-        "Output files and folders")
-    add_output_options(group_output, out_dir="dataset")
-    group_output.add_argument(
-        "--tmp_dir", help="directory for tmp files")
+    NOTE: this is for smart indexing into tensor dicts (mostly label sets)
 
-    return
+    Returns:
+      list of tuples, where tuple is (dataset_key, indices_list)
+    """
+    ordered_keys = []
+    for key_string in key_strings:
+        key_and_indices = key_string.split("=")
+        key = key_and_indices[0]
+        if len(key_and_indices) > 1:
+            indices = [int(i) for i in key_and_indices[1].split(",")]
+        else:
+            indices = []
+        ordered_keys.append((key, indices))
+    
+    return ordered_keys
+
+
+def _setup_dataset_args(args):
+    """set up dataset options
+    """
+    args.targets = _parse_to_key_and_indices(
+        args.targets)
+    args.filter_targets = _parse_to_key_and_indices(
+        args.filter_targets)
+    args.singleton_filter_targets = _parse_to_key_and_indices(
+        args.singleton_filter_targets)
+
+    # TODO - here, should i make into a data dict?
+    return None
+
+
+def _add_model_args(parser):
+    """add model args
+    """
+    parser.add_argument(
+        "--model_framework", default="tronn",
+        help="deep learning framework (tensorflow(tronn), keras, pytorch)")
+    parser.add_argument(
+        "--model", nargs="+",
+        help="net function")
+    parser.add_argument(
+        "--model_json",
+        help="use json as input instead")
+    parser.add_argument(
+        "--model_dir",
+        help="model directory (if you want to update path)")
+    parser.add_argument(
+        "--model_checkpoint",
+        help="model checkpoint (if you want to update checkpoint)")
+    parser.add_argument(
+        "--logit_indices", nargs="+", default=[], type=int,
+        help="which logits from net to load")
+
+    return None
+
+
+def _setup_model_args(args):
+    """set up model options that came in through cmd line
+    assumes a format of: model_name param=val,param=val,...
+
+    Returns:
+      converts args.model to dict of params.
+    """
+    assert (args.model is not None) or (args.model_json is not None)
+
+    # set up everything through args.model
+    if args.model is not None:
+        model = {
+            "name": args.model[0],
+            "params": {}}
+        for model_arg in args.model[1:]:
+            if "models" in model_arg:
+                # take care of ensembling
+                key, models = model_arg.split("=", 1)
+                model["ensemble"] = models
+            elif '=' in model_arg:
+                # other params
+                key, value = model_arg.split('=', 1)
+                model["params"][key] = eval(value)
+            else:
+                # action store true
+                model["params"][model_arg] = True
+        args.model = model
+    else:
+        with open(args.model_json, "r") as fp:
+            args.model = json.load(fp)
+
+    print args.model
+    
+    return None
 
 
 def add_train_parser(subparsers):
     """Add argument parser for training
     """
-    argparser_train = subparsers.add_parser(
+    cmd_argparser = subparsers.add_parser(
         "train",
-        help="Train a TRONN model")
+        help="Train a NN model")
     
-    # group for input files
-    group_input = argparser_train.add_argument_group(
-        "Input files and folders")
-    group_input.add_argument(
-        "--data_dir", required=True,
-        help="h5 file directory")
-    group_input.add_argument(
-        "--fasta", required=True,
-        help="fasta file")
-    group_input.add_argument(
-        "--label_keys", nargs="+", default=[],
-        help="which datasets to load as labels")
-    group_input.add_argument(
-        "--filter_keys", nargs="+", default=[],
-        help="tasks to filter on") # TODO make sure that filtering is OFF for dreaming
-    group_input.add_argument(
-        "--tasks", nargs="+", default=[], type=int,
-        help="tasks to train on (default is all)")
-    group_input.add_argument(
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    
+    # group for cross validation params
+    group_cv = cmd_argparser.add_argument_group(
+        "Cross validation params")
+    group_cv.add_argument(
         "--full_train", action="store_true",
         help="ignore early stopping, train for full num epochs")
-    group_input.add_argument(
+    group_cv.add_argument(
         "--kfolds", default=10, type=int,
         help="number of folds to split the data")
-    group_input.add_argument(
-        "--valid_folds", nargs="+", default=[8], type=int,
+    group_cv.add_argument(
+        "--valid_folds", nargs="+", default=[0], type=int,
         help="which fold to use as validation")
-    group_input.add_argument(
-        "--test_folds", nargs="+", default=[9], type=int,
+    group_cv.add_argument(
+        "--test_folds", nargs="+", default=[1], type=int,
         help="which fold to use as test")
-    group_input.add_argument(
-        '--restore_model_dir', default=None,
-        help='restore from last checkpoint in dir')
-    group_input.add_argument(
-        '--restore_model_checkpoint', default=None,
-        help='restore from desired checkpoint')
-    group_input.add_argument(
-        '--transfer_model_dir', default=None,
-        help='transfer from last checkpoint in dir')
-    group_input.add_argument(
+
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
+    group_model.add_argument(
         '--transfer_model_checkpoint', default=None,
         help='transfer from desired checkpoint') 
-    group_input.add_argument(
-        "--transfer_keras", default=None,
-        help="transfer from a keras saved model")
-    
-    # group for model
-    group_model = argparser_train.add_argument_group(
-        "Model definition")
-    group_model.add_argument(
-        '--model', nargs='+', required=False,
-        help='choose model and provide configs')
     
     # group for parameters
-    group_params = argparser_train.add_argument_group(
-        "Training hyperparameters")
+    group_params = cmd_argparser.add_argument_group(
+        "Training arguments")
     group_params.add_argument(
-        '--epochs', default=20, type=int,
+        '--epochs', default=30, type=int,
         help='number of epochs')
     group_params.add_argument(
-        '--batch_size', default=128, type=int,
+        '--batch_size', default=256, type=int,
         help='batch size')
     group_params.add_argument(
-        '--metric', default='mean_auprc', type=str,
+        '--early_stopping_metric', default='mean_auprc', type=str,
         help='metric to use for early stopping')
     group_params.add_argument(
-        '--patience', default=2, type=int,
+        '--patience', default=3, type=int,
         help='metric to use for early stopping')
-    group_params.add_argument(
-        '--finetune_tasks', nargs="+", default=[],
-        help="tasks to finetune")
     group_params.add_argument(
         "--regression", action="store_true",
         help="run regression instead of classification")
     group_params.add_argument(
         "--distributed", action="store_true",
         help="run on multi gpus")
+    group_params.add_argument(
+        '--finetune_targets', nargs="+", default=[],
+        help="tasks to finetune")
 
     # group for output files
-    group_output = argparser_train.add_argument_group(
+    group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir='model')
+    _add_output_args(group_output, out_dir='model')
     group_output.add_argument(
         "--get_dataset_metrics", action="store_true",
         help="calculate dataset metrics if needed")
@@ -330,65 +391,40 @@ def add_train_parser(subparsers):
     return
 
 
-# TODO deprecate in favor of json loading
-def add_trained_nn_model_options(parser, required=True):
-    """Set up standard necessary args for a trained NN model
-    """
-    parser.add_argument(
-        '--model', nargs='+', required=required,
-        help='choose model and provide configs')
-    parser.add_argument(
-        '--model_dir', default=None,
-        help='restore from last checkpoint')
-    parser.add_argument(
-        "--model_checkpoints", nargs="+", default=[],
-        help="restore from specific checkpoints (they are loaded in order)")
-    
-    return
-
-
 def add_evaluate_parser(subparsers):
     """Add argument parser for test-time evaluation
     """
-    argparser_test = subparsers.add_parser(
+    cmd_argparser = subparsers.add_parser(
         "evaluate",
-        help="Evaluate TRONN model")
+        help="Evaluate model")
 
-    # group for input files
-    group_input = argparser_test.add_argument_group(
-        "Input files and folders")
-    # TODO add an option for different eval set?
-    # but better to force user to pre-define test set
-    group_input.add_argument(
-        "--model_info", required=True,
-        help="json with training info")
-    group_input.add_argument(
-        "--data_dir",
-        help="h5 file directory")
-    group_input.add_argument(
-        "--fasta", required=True,
-        help="fasta file for one hot encoding sequence")
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
     
     # group for parameters
-    group_params = argparser_test.add_argument_group(
+    group_params = cmd_argparser.add_argument_group(
         "Parameters")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
     group_params.add_argument(
     	"--regression", action="store_true",
     	help="evaluate regression")
     group_params.add_argument(
     	"--num_evals", default=64000, type=int,
     	help="Number of steps to run for prediction")
-    group_params.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
-    #group_params.add_argument(
-    #    "--single_task", default=None, type=int,
-    #    help="Evaluate ALL predictions on ONE task (give idx here)")
     
     # group for output files
-    group_output = argparser_test.add_argument_group(
+    group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir='evaluation')
+    _add_output_args(group_output, out_dir='evaluation')
     
     return
 
@@ -396,94 +432,52 @@ def add_evaluate_parser(subparsers):
 def add_predict_parser(subparsers):
     """Add argument parser for predicting with trained models
     """
-    argparser_predict = subparsers.add_parser(
+    cmd_argparser = subparsers.add_parser(
         "predict",
         help="Predict with trained model")
 
-    # group for input files
-    group_input = argparser_predict.add_argument_group(
-        "Input files and folders")
-    group_input.add_argument(
-        "--data_dir", required=False,
-        help="hdf5 file directory")
-    group_input.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
-    group_input.add_argument(
-        "--model_info", required=True,
-        help="json with training info")
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
 
-    group_input.add_argument(
-        "--input_bed", default=None,
-        help="give an input BED file for prediction")
-    group_input.add_argument(
-        "--input_labels", nargs='+', default=[],
-        help='list of label file peak sets (BED/narrowPeak). MUST MATCH INITIAL LABEL SET')
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
 
     # group for parameters
-    group_params = argparser_predict.add_argument_group(
+    group_params = cmd_argparser.add_argument_group(
         "Parameters")
+    group_params.add_argument(
+        '--batch_size', default=128, type=int,
+        help='batch size')
+    group_params.add_argument(
+    	"--regression", action="store_true",
+    	help="evaluate regression")
     group_params.add_argument(
     	"--num_evals", default=1000, type=int,
     	help="Number of steps to run for prediction")
-    #group_params.add_argument(
-   # 	"--reconstruct_regions", action="store_true",
-   # 	help="Produce files where values are merged")
-    group_params.add_argument(
-        "--single_task", default=None, type=int,
-        help="Get ALL predictions on ONE task (give idx here)")
 
     # group for output files
-    group_output = argparser_predict.add_argument_group(
+    group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir='prediction')
+    _add_output_args(group_output, out_dir='prediction')
     
     return
 
 
-def _add_interpretation_inputs(parser):
-    """set up interpretation inputs
-    """
-    parser.add_argument(
-        "--data_dir",
-        help="h5 data directory for inference")
-    parser.add_argument(
-        "--bed_input",
-        help="BED file of regions for analysis")
-    parser.add_argument(
-        "--fasta",
-        help="FASTA file to interpret BED regions")
-    parser.add_argument(
-        '--batch_size', default=256, type=int,
-        help='batch size')
-    parser.add_argument(
-        "--model_info", required=True,
-        help="json with training info")
-    parser.add_argument(
-        "--processed_inputs", action="store_true",
-        help="inputs are already preprocessed through some inference stack")
-    
-    return
-
-
-def _add_interpretation_options(parser):
+def _add_interpretation_args(parser, inference_fn="sequence_to_motif_scores"):
     """set up trained model info
     """
-    # REMEMBER important that inference tasks are strong predictor tasks
-    # TODO: consider set up like --inference_tasks ATAC_labels=0,1,2,3,4,5,6,9,10,12 tf_labels
-    # this requires downstream conversion into correct indices
-    
     parser.add_argument(
-        "--inference_tasks", nargs="+", required=True,
-        help="tasks to extract importance scores")
-    parser.add_argument(
-        "--filter_tasks", nargs="+", default=[],
-        help="tasks to filter on") # TODO make sure that filtering is OFF for dreaming
+        "--inference_targets", nargs="+", required=True, type=int,
+        help="tasks to extract importance scores - must be global indices") 
     parser.add_argument(
         "--backprop", default="input_x_grad",
         help="what method to use for interpretation")
     parser.add_argument(
-        "--inference_fn",
+        "--inference_fn", default=inference_fn,
         help="inference stack")
     parser.add_argument(
         "--pwm_file", default=None,
@@ -494,12 +488,11 @@ def _add_interpretation_options(parser):
     parser.add_argument(
         "--debug", action="store_true",
         help="visualize outputs to help debug. NOTE: use small sample size!")
-
     
     return
 
 
-def _setup_interpretation_options(args):
+def _setup_interpretation_args(args):
     """given parsed args, adjust inputs as needed
     matches _add_interpretation_options
     """
@@ -510,25 +503,14 @@ def _setup_interpretation_options(args):
     else:
         data_file = args.model_info["train_files"][0]
     
-    # inference tasks
-    args.inference_tasks = _parse_files(args.inference_tasks)
-    args.inference_task_indices = get_absolute_label_indices(
-        args.model_info["label_keys"], 
-        args.inference_tasks,
-        data_file)
+    # inference tasks <- assume everything coming through is going to be inferred?
+    #args.inference_targets = _parse_files(args.inference_targets)
+    #args.inference_task_indices = get_absolute_label_indices(
+    #    args.model_info["label_keys"], 
+    #    args.inference_tasks,
+    #    data_file)
 
-    # filter tasks
-    args.filter_tasks = _parse_files(args.filter_tasks)
-    all_filter_task_indices = []
-    for key in args.filter_tasks.keys():
-        filter_task_indices = get_absolute_label_indices(
-            args.model_info["label_keys"],
-            {key: args.filter_tasks[key]},
-            data_file)
-        all_filter_task_indices.append(filter_task_indices)
-    args.filter_task_indices = all_filter_task_indices
-
-    # pwm file
+    # pwm file <- keep this
     args.pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
     args.pwm_names = [pwm.name for pwm in args.pwm_list]
     args.pwm_dict = MotifSetManager.read_pwm_file(args.pwm_file, as_dict=True)
@@ -536,7 +518,7 @@ def _setup_interpretation_options(args):
     return
 
 
-def _add_visualization_options(parser):
+def _add_visualization_args(parser):
     """set up visualization after interpretation options
     """
     parser.add_argument(
@@ -545,19 +527,11 @@ def _add_visualization_options(parser):
     parser.add_argument(
         "--visualize_multikey_R", nargs="+", default=[],
         help="visualize with R scripts")
-
-    
-    #parser.add_argument(
-    #    "--visualize_tasks", nargs="+", default=[],
-    #    help="label files")
-    #parser.add_argument(
-    #    "--visualize_signals", nargs="+", default=[],
-    #    help="signal files with corresponding label sets")
     
     return
 
 
-def _setup_visualization_options(args):
+def _setup_visualization_args(args):
     """given parsed args, adjust visualization inputs as needed
     matches _add_visualization_options
     """
@@ -565,19 +539,6 @@ def _setup_visualization_options(args):
         args.visualize_R = _parse_files(args.visualize_R)
     if args.visualize_multikey_R is not None:
         args.visualize_multikey_R = _parse_files(args.visualize_multikey_R)
-
-    # visualize tasks
-    #if args.visualize_tasks is not None:
-    #    args.visualize_tasks = _parse_files(args.visualize_tasks)
-    #    args.visualize_task_indices = get_absolute_label_indices(
-    #        args.model_info["label_keys"], 
-    #        args.visualize_tasks, 
-    #        args.model_info["train_files"][0],
-    #        list_of_lists=True)
-
-    # visualize signals
-    #if args.visualize_signals is not None:
-    #    args.visualize_signals = _parse_files(args.visualize_signals)
 
     return
 
@@ -588,21 +549,34 @@ def add_scanmotifs_parser(subparsers):
     cmd_argparser = subparsers.add_parser(
         "scanmotifs",
         help="Scan sequence with motifs from a PWM file")
-    
-    # group for input, input filtering, and model
-    group_input = cmd_argparser.add_argument_group(
-    	"Input files and folders")
-    _add_interpretation_inputs(group_input)
+
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    group_dataset.add_argument(
+        "--processed_inputs", action="store_true",
+        help="inputs are already preprocessed through some inference stack")
+
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
     
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
-    _add_interpretation_options(group_interpret)
-    _add_visualization_options(group_interpret)
+    group_interpret.add_argument(
+        "--batch_size", default=48, type=int,
+        help="batch size")
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="sequence_to_motif_scores") # adjust for defaults
+    _add_visualization_args(group_interpret)
 
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
-        "Misc params")
+        "Other options")
     group_other.add_argument(
         "--cluster", action="store_true",
         help="run clustering")
@@ -613,7 +587,7 @@ def add_scanmotifs_parser(subparsers):
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir="motifs")
+    _add_output_args(group_output, out_dir="motifs")
     group_output.add_argument(
         '--tmp_dir',
         help='temporary scratch directory as needed')
@@ -627,17 +601,27 @@ def add_dmim_parser(subparsers):
     cmd_argparser = subparsers.add_parser(
         "dmim",
         help="score sequences for grammars")
-    
-    # group for input files
-    group_input = cmd_argparser.add_argument_group(
-    	"Input files and folders")
-    _add_interpretation_inputs(group_input)
+
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    group_dataset.add_argument(
+        "--processed_inputs", action="store_true",
+        help="inputs are already preprocessed through some inference stack")
+
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
         
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
-    _add_interpretation_options(group_interpret)
-    _add_visualization_options(group_interpret)
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="sequence_to_dmim")
+    _add_visualization_args(group_interpret)
 
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
@@ -648,7 +632,7 @@ def add_dmim_parser(subparsers):
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir="dmim")
+    _add_output_args(group_output, out_dir="dmim")
     group_output.add_argument(
         '--tmp_dir',
         help='temporary scratch directory')
@@ -663,16 +647,26 @@ def add_synergy_parser(subparsers):
         "synergy",
         help="score sequences for grammars")
     
-    # group for input files
-    group_input = cmd_argparser.add_argument_group(
-    	"Input files and folders")
-    _add_interpretation_inputs(group_input)
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    group_dataset.add_argument(
+        "--processed_inputs", action="store_true",
+        help="inputs are already preprocessed through some inference stack")
+
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
         
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
-    _add_interpretation_options(group_interpret)
-    _add_visualization_options(group_interpret)
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="sequence_to_synergy")
+    _add_visualization_args(group_interpret)
 
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
@@ -683,7 +677,7 @@ def add_synergy_parser(subparsers):
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir="dmim")
+    _add_output_args(group_output, out_dir="dmim")
     group_output.add_argument(
         '--tmp_dir',
         help='temporary scratch directory')
@@ -697,21 +691,16 @@ def add_dream_parser(subparsers):
     cmd_argparser = subparsers.add_parser(
         "dream",
         help="use activation maximization to generate novel synthetic sequences")
-
-    # inputs
-    group_input = cmd_argparser.add_argument_group(
-    	"Input files and folders")
-    group_input.add_argument(
-        "--sequence_file",
-        help="sequence file of starting points with activation patterns")
-    group_input.add_argument(
-        "--model_info", required=True,
-        help="json with training info")
+    
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset) # use BED input? or array input
 
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
-    _add_interpretation_options(group_interpret)
+    _add_interpretation_args(group_interpret)
 
     # group for parameters
     group_params = cmd_argparser.add_argument_group(
@@ -726,7 +715,7 @@ def add_dream_parser(subparsers):
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir="dream")
+    _add_output_args(group_output, out_dir="dream")
     group_output.add_argument(
         "--plot", action="store_true",
         help="show development of sequence across time")
@@ -740,21 +729,29 @@ def add_analyzevariants_parser(subparsers):
     cmd_argparser = subparsers.add_parser(
         "analyzevariants",
         help="Scan sequence with motifs from a PWM file")
-    
-    # group for input files
-    group_input = cmd_argparser.add_argument_group(
-    	"Input files and folders")
-    _add_interpretation_inputs(group_input)
+
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    group_dataset.add_argument(
+        "--processed_inputs", action="store_true",
+        help="inputs are already preprocessed through some inference stack")
+
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
 
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
-    _add_interpretation_options(group_interpret)
+    _add_interpretation_args(group_interpret)
 
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir="motifs")
+    _add_output_args(group_output, out_dir="motifs")
     group_output.add_argument(
         '--tmp_dir',
         help='temporary scratch directory as needed')
@@ -785,7 +782,7 @@ def add_vizimpts_parser(subparsers):
     # group for model
     group_model = argparser_multitask.add_argument_group(
         "Model definition")
-    add_trained_nn_model_options(group_model)
+    #add_trained_nn_model_options(group_model)
 
     # group for parameters
     group_params = argparser_multitask.add_argument_group(
@@ -797,7 +794,7 @@ def add_vizimpts_parser(subparsers):
     # group for output files
     group_output = argparser_multitask.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir="importances")
+    _add_output_args(group_output, out_dir="importances")
     group_output.add_argument(
         '--tmp_dir', default='importances_tmp',
         help='temporary scratch directory')
@@ -848,7 +845,7 @@ def add_baseline_parser(subparsers):
 
     # group for output files
     group_output = argparser_baseline.add_argument_group("Output files and folders")
-    add_output_options(group_output, out_dir='baseline')
+    _add_output_args(group_output, out_dir='baseline')
 
     return
 
@@ -875,7 +872,7 @@ def add_extract_params_parser(subparsers):
     # group for output files
     group_output = argparser_extractparams.add_argument_group(
         "Output files and folders")
-    add_output_options(group_output, out_dir='params')
+    _add_output_args(group_output, out_dir='params')
     
     return
 
@@ -884,7 +881,7 @@ def track_runs(args):
     """track command and github commit
     """
     # keeps track of restores (or different commands) in folder
-    num_restores = len(glob.glob('{0}/{1}.command'.format(args.out_dir, args.subcommand_name)))
+    num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, args.subcommand_name)))
     logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, args.subcommand_name, num_restores)
     
     # track github commit
@@ -908,7 +905,7 @@ def _setup_logs(args):
     reload(logging)
     logging.basicConfig(
         filename=logging_file,
-        level=logging.DEBUG, # ADJUST BACK AT END WHEN RELEASING
+        level=logging.DEBUG, # TODO ADJUST BEFORE RELEASE
         format='%(message)s')
     logging.getLogger().addHandler(logging.StreamHandler())
     for arg in sorted(vars(args)):
@@ -926,86 +923,8 @@ def _is_integer(val):
         return True
     except ValueError:
         return False
-
     
-def _parse_files(dataset_key_strings):
-    """given an arg string, parse out into a dict
-    assumes a format of: key=file1,file2,..::param1=val,param2=val,...
-    """
-    if dataset_key_strings is None:
-        return {}
-
-    key_dict = {}
-    for dataset_key_string in dataset_key_strings:
-        # first split on "::" then on "="
-        key_and_params = dataset_key_string.split("::")
-        
-        # set up key and key items (filenames or indices)
-        key_string = key_and_params[0]
-        key_and_items = key_string.split("=")
-        key = key_and_items[0]
-        if len(key_and_items) == 1:
-            key_items = []
-        else:
-            item_string = key_and_items[1]
-            key_items = [
-                int(val) if _is_integer(val) else val
-                for val in item_string.split(",")]
-            
-        # set up params
-        if len(key_and_params) == 1:
-            params = {}
-        else:
-            param_string = key_and_params[1]
-            params = dict(
-                [param.split("=")
-                 for param in param_string.split(",")])
-            
-        # combine
-        key_dict[key] = (key_items, params)
     
-    return key_dict
-
-
-def _setup_annotations(args):
-    """load annotation files
-    """
-    # annotations
-    with open(args.annotations, "r") as fp:
-        annotations = json.load(fp)
-    args.annotations = annotations
-    
-    return
-
-
-def _setup_preprocess(args):
-    """load preprocess files
-    """
-    args.labels = _parse_files(args.labels)
-    args.signals = _parse_files(args.signals)
-
-    return None
-
-
-def _setup_model(args):
-    """for specific inputs, if they exist, read in
-    from json
-    """
-    # model info
-    if args.model_info is not None:
-        args.model_dir = os.path.dirname(args.model_info)
-        with open(args.model_info, "r") as fp:
-            model_info = json.load(fp)
-        args.model_info = model_info
-
-    # check the checkpoint
-    checkpoint_dir = os.path.dirname(args.model_info["checkpoint"])
-    if checkpoint_dir != os.path.dirname(args.model_dir):
-        args.model_info["checkpoint"] = "{}/train/{}".format(
-            args.model_dir, os.path.basename(args.model_info["checkpoint"]))
-        
-    return
-
 
 def main():
     """Main function for running TRoNN functions
@@ -1030,47 +949,54 @@ def main():
         from tronn.preprocess_variants_cmd import run
         run(args)
     elif subcommand == 'train':
-        args.filter_keys = _parse_files(args.filter_keys)
-        add_model_params(args)
-        print 'model args: %s' % args.model
+        _setup_dataset_args(args)
+        _setup_model_args(args)
         from tronn.train_cmd import run
         run(args)
     elif subcommand == "evaluate":
-        _setup_model(args)
+        _setup_dataset_args(args)
+        _setup_model_args(args)
         from tronn.evaluate_cmd import run
         run(args)
     elif subcommand == "predict":
-        _setup_model(args)
+        _setup_dataset_args(args)
+        _setup_model_args(args)
         from tronn.predict_cmd import run
         run(args)
     elif subcommand == "scanmotifs":
-        _setup_model(args)
-        _setup_interpretation_options(args)
-        _setup_visualization_options(args)
+        _setup_dataset_args(args)
+        _setup_model_args(args)
+        _setup_interpretation_args(args)
+        _setup_visualization_args(args)
         from tronn.scanmotifs_cmd import run
         run(args)
     elif subcommand == "dmim":
-        _setup_model(args)
-        _setup_interpretation_options(args)
-        _setup_visualization_options(args)
+        _setup_dataset_args(args)
+        _setup_model_args(args)
+        _setup_interpretation_args(args)
+        _setup_visualization_args(args)
         from tronn.dmim_cmd import run
         run(args)
     elif subcommand == "synergy":
-        _setup_model(args)
-        _setup_interpretation_options(args)
-        _setup_visualization_options(args)
+        _setup_dataset_args(args)
+        _setup_model_args(args)
+        _setup_interpretation_args(args)
+        _setup_visualization_args(args)
         from tronn.synergy_cmd import run
         run(args)
     elif subcommand == "dream":
-        _setup_model(args)
+        _setup_dataset_args(args)
+        _setup_model_args(args)
         _setup_interpretation_options(args)
         from tronn.dream_cmd import run
         run(args)
     elif subcommand == "analyzevariants":
+        _setup_dataset_args(args)
         _setup_model(args)
         from tronn.analyzevariants_cmd import run
         run(args)
     elif subcommand == "baseline":
+        _setup_dataset_args(args)
         from tronn.run_tensorforest import run
         run(args)
     elif subcommand == "extractparams":
