@@ -1,138 +1,122 @@
 """Contains the run function for training a model
 """
 
-import json
 import logging
 
-from tronn.datalayer import H5DataLoader
-from tronn.models import ModelManager
-from tronn.models import KerasModelManager
-from tronn.nets.nets import net_fns
-from tronn.learn.cross_validation import setup_train_valid_test
+from tronn.datalayer import setup_data_loader
+from tronn.models import setup_model_manager
+from tronn.util.formats import write_to_json
+from tronn.util.utils import DataKeys
 
 
 def run(args):
     """command to run training
     """
-    logging.info("Training...")
+    # set up
+    logger = logging.getLogger(__name__)
+    logger.info("Training...")
     
-    # set up dataset: lists of h5 files
-    h5_files = H5DataLoader.setup_h5_files(args.data_dir)
+    train_dataset_log = "{}/dataset.train_split.json".format(args.out_dir)
+    valid_dataset_log = "{}/dataset.validation_split.json".format(args.out_dir)
+    test_dataset_log = "{}/dataset.test_split.json".format(args.out_dir)
+    model_log = "{}/model.json".format(args.out_dir)
+    train_log = "{}/train_summary.json".format(args.out_dir)
+    
+    # set up dataloader
+    data_loader = setup_data_loader(args)
+
+    # either run cross validation or full train
     if args.full_train:
-        # put all files into train, test, and valid
-        train_files = []
-        valid_files = []
-        for chrom in sorted(h5_files.keys()):
-            train_files += h5_files[chrom][0]
-            train_files += h5_files[chrom][1]
-            valid_files += h5_files[chrom][0]
-            valid_files += h5_files[chrom][2]
-        test_files = valid_files
+        train_data_loader = data_loader
+        validation_data_loader = data_loader
+        test_data_loader = data_loader
     else:
-        # if cross validation, split by chromosomes
-        train_files, valid_files, test_files = setup_train_valid_test(
-            h5_files,
-            args.kfolds,
+        split_data_loaders = data_loader.setup_cross_validation_dataloaders(
+            kfolds=args.kfolds,
             valid_folds=args.valid_folds,
             test_folds=args.test_folds,
             regression=args.regression)
-
-    # get num tasks from dataset
-    args.model["num_tasks"] = H5DataLoader.get_num_tasks(
-        train_files, args.label_keys, args.label_key_dict)
+        train_data_loader = split_data_loaders[0]
+        validation_data_loader = split_data_loaders[1]
+        test_data_loader = split_data_loaders[2]
         
-    # set up train dataloader and input fn
-    train_dataloader = H5DataLoader(train_files, fasta=args.fasta)
-    train_input_fn = train_dataloader.build_input_fn(
+    # save out dataset summaries (use the test json in eval)
+    dataset_summary = {
+        "targets": args.targets,
+        "target_indices": args.target_indices,
+        "filter_targets": args.filter_targets}
+    write_to_json(
+        dict(train_data_loader.describe(), **dataset_summary),
+        train_dataset_log)
+    write_to_json(
+        dict(validation_data_loader.describe(), **dataset_summary),
+        valid_dataset_log)
+    write_to_json(
+        dict(test_data_loader.describe(), **dataset_summary),
+        test_dataset_log)
+        
+    # set up train input fn
+    train_input_fn = train_data_loader.build_input_fn(
         args.batch_size,
-        label_keys=args.label_keys,
-        filter_tasks=args.filter_keys)
+        targets=args.targets,
+        target_indices=args.target_indices,
+        filter_targets=args.filter_targets)
     
-    # set up valid dataloader and input fn
-    validation_dataloader = H5DataLoader(valid_files, fasta=args.fasta)
-    validation_input_fn = validation_dataloader.build_input_fn(
+    # set up validation input fn
+    validation_input_fn = validation_data_loader.build_input_fn(
         args.batch_size,
-        label_keys=args.label_keys,
-        filter_tasks=args.filter_keys)
+        targets=args.targets,
+        target_indices=args.target_indices,
+        filter_targets=args.filter_targets)
     
     # if requested, get dataset metrics
+    # TODO move this out
     if args.get_dataset_metrics:
+        split_names = ["train", "validation", "test"]
         if not args.regression:
-            train_dataloader.get_classification_metrics(
-                "{}/dataset.train".format(args.out_dir),
-                label_keys=args.label_keys)
-            validation_dataloader.get_classification_metrics(
-                "{}/dataset.validation".format(args.out_dir),
-                label_keys=args.label_keys)
-            test_dataloader = H5DataLoader(
-                test_files, fasta=args.fasta)
-            test_dataloader.get_classification_metrics(
-                "{}/dataset.test".format(args.out_dir),
-                label_keys=args.label_keys)
+            for i in xrange(len(split_data_loaders)):
+                split_data_loaders[i].get_classification_metrics(
+                    "{}/dataset.{}".format(args.out_dir, split_names[i]),
+                    targets=args.targets)
         else:
-            train_dataloader.get_regression_metrics(
-                "{}/dataset.train".format(args.out_dir),
-                label_keys=args.label_keys)
-            validation_dataloader.get_regression_metrics(
-                "{}/dataset.validation".format(args.out_dir),
-                label_keys=args.label_keys)
-            test_dataloader = H5DataLoader(
-                test_files, fasta=args.fasta)
-            test_dataloader.get_regression_metrics(
-                "{}/dataset.test".format(args.out_dir),
-                label_keys=args.label_keys)
-        
-    # set up model (either a keras transfer or tensorflow model)
-    if args.transfer_keras is not None:
-        args.model["name"] = "keras_transfer"
-        with open(args.transfer_keras) as fp:
-            args.model_info = json.load(fp)
-        model_manager = KerasModelManager(
-            keras_model_path=args.model_info["checkpoint"],
-            model_params=args.model_info.get("params", {}),
-            model_dir=args.out_dir)
-        args.transfer_model_checkpoint = model_manager.model_checkpoint
-        warm_start_params = {}
-    else:
-        model_manager = ModelManager(
-            net_fns[args.model["name"]],
-            args.model,
-            name=args.model["name"])
-        warm_start_params = {"skip": ["logit"]}
+            for i in xrange(len(split_data_loaders)):
+                split_data_loaders[i].get_regression_metrics(
+                    "{}/dataset.{}".format(args.out_dir, split_names[i]),
+                    targets=args.targets)
 
-    # create a model info json and save out initial state
-    # TODO - remove other logs and condense to this log
-    model_info = {
-        "name": model_manager.name,
-        "params": model_manager.model_params,
-        "checkpoint": model_manager.model_checkpoint,
-        "label_keys": args.label_keys,
-        "filter_keys": args.filter_keys,
-        "tasks": args.tasks,
-        "train_files": train_files,
-        "valid_files": valid_files,
-        "test_files": test_files}
-    with open("{}/model_info.json".format(args.out_dir), "w") as fp:
-        json.dump(model_info, fp, sort_keys=True, indent=4)
-    
+    # extract the num targets from the dataset (to pass to model)
+    num_targets = train_data_loader.get_num_targets(
+        targets=args.targets,
+        target_indices=args.target_indices)
+                
+    # set up model (either a keras transfer or tensorflow model)
+    # get num tasks from dataset
+    args.model["params"]["num_tasks"] = num_targets
+    model_manager = setup_model_manager(args)
+    warm_start_params = {"skip": [DataKeys.LOGITS]}
+
+    # save out model summary
+    write_to_json(model_manager.describe(), model_log)
+
+    # adjust for regression
+    if args.regression:
+        args.metric = "mse"
+        
     # train and evaluate
-    best_checkpoint = model_manager.train_and_evaluate_with_early_stopping(
+    best_checkpoint = model_manager.train_and_evaluate(
         train_input_fn,
         validation_input_fn,
         args.out_dir,
         max_epochs=args.epochs,
-        early_stopping_metric=args.metric,
+        early_stopping_metric=args.early_stopping_metric,
+        train_steps=None,
         eval_steps=int(1000. * 512 / args.batch_size),
         warm_start=args.transfer_model_checkpoint,
         warm_start_params=warm_start_params,
         regression=args.regression,
-        model_info=model_info,
+        model_summary_file=model_log,
+        train_summary_file=train_log,
         early_stopping=not args.full_train,
         multi_gpu=args.distributed)
-
-    # do a final save (in case no epochs were run)
-    model_info["checkpoint"] = best_checkpoint
-    with open("{}/model_info.json".format(args.out_dir), "w") as fp:
-        json.dump(model_info, fp, sort_keys=True, indent=4)
             
     return None
