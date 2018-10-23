@@ -668,7 +668,8 @@ class ModelManager(object):
             else:
                 # increase bad epoch count
                 consecutive_bad_epochs += 1
-
+                train_summary["consecutive_bad_epochs"] = consecutive_bad_epochs
+                
             # save out model summary and train summary
             write_to_json(self.describe(), model_summary_file)
             write_to_json(train_summary, train_summary_file)
