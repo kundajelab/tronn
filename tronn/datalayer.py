@@ -56,7 +56,8 @@ class DataLoader(object):
           map_fn: function to slice the labels
         """
         def map_fn(features, labels):
-            features[target_key] = tf.gather(features[target_key], target_indices, axis=-1)
+            features[target_key] = tf.gather(
+                features[target_key], target_indices, axis=-1)
             return features, labels
         
         return map_fn
@@ -165,12 +166,13 @@ class DataLoader(object):
                     DataLoader.build_singleton_filter_function(
                         singleton_filter_targets[0][0],
                         singleton_filter_targets[0][1]))
-            # add onehot sequence
-            if encode_onehot_features:
-                pass
-                #dataset = dataset.map(
-                #    DataLoader.encode_onehot_sequence_single,
-                #    num_parallel_calls=1)
+
+            # gather labels as needed
+            if len(target_indices) > 0:
+                dataset = dataset.map(
+                    DataLoader.build_target_select_function(
+                        target_indices))
+
             return dataset
             
         # set up interleaved datasets
