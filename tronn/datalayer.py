@@ -19,6 +19,7 @@ import tensorflow as tf
 
 from tronn.learn.cross_validation import setup_train_valid_test
 from tronn.preprocess.fasta import GenomicIntervalConverter
+from tronn.nets.util_nets import rebatch
 from tronn.util.utils import DataKeys
 
 
@@ -261,6 +262,36 @@ class DataLoader(object):
         return inputs
 
     
+    @staticmethod
+    def _queue_filter(inputs, filter_fn, name, batch_size):
+        """takes in inputs and filter function
+        and filters, puts back into a queue
+        """
+        # wrap the filter fn because only using features (not labels)
+        def filter_fn_wrapper(inputs):
+            return filter_fn(inputs, inputs)
+
+        # get condition mask
+        passes_filter = tf.map_fn(
+            filter_fn_wrapper,
+            inputs,
+            dtype=tf.bool)
+
+        # gather in place
+        keep_indices = tf.reshape(tf.where(passes_filter), [-1])
+        for key in inputs.keys():
+            inputs[key] = tf.gather(inputs[key], keep_indices)
+
+        # rebatch
+        inputs, _ = rebatch(
+            inputs,
+            {"name": name,
+             "batch_size": batch_size,
+             "num_queue_threads": 1})
+        
+        return inputs
+    
+    
     def build_queue_dataflow(
             self,
             batch_size,
@@ -305,9 +336,34 @@ class DataLoader(object):
             enqueue_many=True,
             name='batcher')
 
-        # TODO if filtering, add in here
-        
-        
+        # filter on specific keys and indices
+        if len(filter_targets) != 0:
+            filter_idx = 0
+            for key, indices in filter_targets:
+                inputs = DataLoader._queue_filter(
+                    inputs,
+                    DataLoader.build_target_filter_function(
+                        key, indices),
+                    "targets_filter_{}".format(filter_idx),
+                    batch_size)
+                filter_idx += 1
+
+        # filter singletons
+        if len(singleton_filter_targets) >= 1:
+            filter_idx = 0
+            inputs = DataLoader._queue_filter(
+                inputs,
+                DataLoader.build_singleton_filter_function(
+                    singleton_filter_targets[0][0],
+                    singleton_filter_targets[0][1]),
+                "singleton_filter_{}".format(filter_idx),
+                batch_size)
+
+        # gather labels as needed
+        if len(target_indices) > 0:
+            inputs[DataKeys.LABELS] = tf.gather(
+                inputs[DataKeys.LABELS], axis=1)
+
         # onehot encode the batch
         inputs[DataKeys.FEATURES] = tf.map_fn(
             DataLoader.encode_onehot_sequence,
