@@ -72,7 +72,7 @@ class RestoreHook(tf.train.SessionRunHook):
         """
         session.run(self.init_assign_op, self.init_feed_dict)
         print "RESTORED FROM CHECKPOINT"
-        print session.run(tf.trainable_variables()[0])[:,:,0]
+        #print session.run(tf.trainable_variables()[0])[:,:,0]
 
 
         
