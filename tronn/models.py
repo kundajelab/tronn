@@ -525,6 +525,7 @@ class ModelManager(object):
             "start_epoch": train_summary.get("start_epoch", 0),
             "best_metric_val": train_summary.get("best_metric_val"),
             "consecutive_bad_epochs": int(train_summary.get("consecutive_bad_epochs", 0)),
+            "best_epoch": train_summary.get("best_epoch"),
             "best_checkpoint": train_summary.get("best_checkpoint"),
             "last_phase": train_summary.get("last_phase", _EVAL_PHASE)
         })
@@ -660,6 +661,7 @@ class ModelManager(object):
                 best_checkpoint = latest_checkpoint
                 train_summary["best_metric_val"] = best_metric_val
                 train_summary["consecutive_bad_epochs"] = consecutive_bad_epochs
+                train_summary["best_epoch"] = epoch
                 train_summary["best_checkpoint"] = best_checkpoint
                 train_summary["metrics"] = eval_metrics
                 self.model_checkpoint = best_checkpoint
