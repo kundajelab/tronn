@@ -60,14 +60,16 @@ def run(args):
         args.batch_size,
         targets=args.targets,
         target_indices=args.target_indices,
-        filter_targets=args.filter_targets)
+        filter_targets=args.filter_targets,
+        use_queues=True)
     
     # set up validation input fn
     validation_input_fn = validation_data_loader.build_input_fn(
         args.batch_size,
         targets=args.targets,
         target_indices=args.target_indices,
-        filter_targets=args.filter_targets)
+        filter_targets=args.filter_targets,
+        use_queues=True)
     
     # if requested, get dataset metrics
     # TODO move this out
