@@ -7,10 +7,8 @@ import logging
 
 import numpy as np
 
-from tronn.datalayer import H5DataLoader
-from tronn.datalayer import BedDataLoader
-
-from tronn.models import ModelManager
+from tronn.datalayer import setup_data_loader
+from tronn.models import setup_model_manager
 
 from tronn.interpretation.clustering import get_cluster_bed_files
 from tronn.interpretation.clustering import visualize_clustered_features_R
@@ -88,56 +86,42 @@ def run(args):
     else:
         args.tmp_dir = args.out_dir
 
-    # TODO need to better handle input of one file
-    # set up dataloader and input function
-    if args.data_dir is not None:
-        data_files = glob.glob('{}/*.h5'.format(args.data_dir))
-        data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
-        data_files = [h5_file for h5_file in data_files if "manifold" not in h5_file]
-        logging.info("Found {} chrom files".format(len(data_files)))
-        dataloader = H5DataLoader(data_files, fasta=args.fasta)
-        input_fn = dataloader.build_input_fn(
-            args.batch_size,
-            label_keys=args.model_info["label_keys"],
-            filter_tasks=args.filter_tasks,
-            singleton_filter_tasks=args.inference_task_indices,
-            shuffle=False)
-
-    elif args.bed_input is not None:
-        dataloader = BedDataLoader(args.bed_input, args.fasta)
-        input_fn = dataloader.build_input_fn(
-            args.batch_size,
-            label_keys=args.model_info["label_keys"],
-            shuffle=False)
+    # set up dataloader and input fn
+    data_loader = setup_data_loader(args)
+    data_loader = data_loader.setup_positives_only_dataloader()
+    input_fn = data_loader.build_input_fn(
+        args.batch_size,
+        targets=args.targets,
+        target_indices=args.target_indices,
+        filter_targets=args.filter_targets,
+        singleton_filter_targets=args.singleton_filter_targets,
+        shuffle=False)
         
     # set up model
+    model_manager = setup_model_manager(args)
     if args.processed_inputs:
-        model_fn = net_fns["empty_net"]
+        args.model["name"] = "empty_net"
         reuse = False
     else:
-        model_fn = net_fns[args.model_info["name"]]
         reuse = True
-    
-    model_manager = ModelManager(
-        model_fn,
-        args.model_info["params"])
+    input_model_manager = setup_model_manager(args)
 
     # set up inference generator
-    inference_generator = model_manager.infer(
+    inference_generator = input_model_manager.infer(
         input_fn,
         args.out_dir,
         net_fns[args.inference_fn],
         inference_params={
             # TODO can we clean this up?
-            "model_fn": net_fns[args.model_info["name"]],
+            "model_fn": model_manager.model_fn,
             "model_reuse": reuse,
-            "num_tasks": args.model_info["params"]["num_tasks"],
+            "num_tasks": args.model["params"]["num_tasks"],
             "backprop": args.backprop,
             "importances_fn": args.backprop, # TODO fix this
-            "importance_task_indices": args.inference_task_indices,
+            "importance_task_indices": args.inference_targets,
             "pwms": args.pwm_list,
             "manifold": args.manifold_file},
-        checkpoint=args.model_info["checkpoint"],
+        checkpoint=model_manager.model_checkpoint,
         yield_single_examples=True)
 
     # run inference and save out
@@ -210,16 +194,17 @@ def run(args):
             args.visualize_multikey_R)
 
     # DMIM ANALYSES
-    if True:
+    if False:
         get_interacting_motifs(
             results_h5_file,
             DataKeys.MANIFOLD_CLUST,
             DataKeys.DMIM_SIG_RESULTS)
 
     # and plot these out with R
-    visualize_interacting_motifs_R(
-        results_h5_file,
-        DataKeys.DMIM_SIG_RESULTS)
+    if False:
+        visualize_interacting_motifs_R(
+            results_h5_file,
+            DataKeys.DMIM_SIG_RESULTS)
 
     # TODO also run sig analysis on the logit output? how to integrate this information?
 

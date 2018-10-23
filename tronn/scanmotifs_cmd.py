@@ -6,11 +6,8 @@ import h5py
 import glob
 import logging
 
-from tronn.datalayer import H5DataLoader
-from tronn.datalayer import BedDataLoader
-
-from tronn.models import ModelManager
-from tronn.models import KerasModelManager
+from tronn.datalayer import setup_data_loader
+from tronn.models import setup_model_manager
 
 from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
@@ -23,6 +20,7 @@ from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.nets.nets import net_fns
+#from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
@@ -40,36 +38,19 @@ def run(args):
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
         args.tmp_dir = args.out_dir
-        
-    # set up dataloader and input function
-    if args.data_dir is not None:
-        data_files = glob.glob('{}/*.h5'.format(args.data_dir))
-        data_files = [h5_file for h5_file in data_files if "negative" not in h5_file]
-        logger.info("Found {} chrom files".format(len(data_files)))
-        dataloader = H5DataLoader(data_files, fasta=args.fasta)
-        input_fn = dataloader.build_input_fn(
-            args.batch_size,
-            label_keys=args.model_info["label_keys"],
-            filter_tasks=args.filter_tasks,
-            singleton_filter_tasks=args.inference_task_indices)
-        
-    elif args.bed_input is not None:
-        dataloader = BedDataLoader(args.bed_input, args.fasta)
-        input_fn = dataloader.build_input_fn(
-            args.batch_size,
-            label_keys=args.model_info["label_keys"])
+
+    # set up dataloader and input fn
+    data_loader = setup_data_loader(args)
+    data_loader = data_loader.setup_positives_only_dataloader()
+    input_fn = data_loader.build_input_fn(
+        args.batch_size,
+        targets=args.targets,
+        target_indices=args.target_indices,
+        filter_targets=args.filter_targets,
+        singleton_filter_targets=args.singleton_filter_targets)
 
     # set up model
-    if args.model_info.get("model_type") == "keras":
-        model_manager = KerasModelManager(
-            keras_model_path=args.model_info["checkpoint"],
-            model_params=args.model_info.get("params", {}),
-            model_dir=args.out_dir)
-    else:
-        model_manager = ModelManager(
-            net_fns[args.model_info["name"]],
-            args.model_info["params"],
-            model_checkpoint=args.model_info["checkpoint"])
+    model_manager = setup_model_manager(args)
 
     # set up inference generator
     inference_generator = model_manager.infer(
@@ -79,11 +60,11 @@ def run(args):
         inference_params={
             # TODO can we clean this up?
             "model_fn": model_manager.model_fn,
-            "num_tasks": args.model_info["params"]["num_tasks"],
-            "use_filtering": False if args.bed_input is not None else True, # TODO do this better
+            "num_tasks": args.model["params"]["num_tasks"],
+            "use_filtering": False if args.data_format is not "hdf5" else True, # TODO do this better
             #"use_filtering": False,
             "backprop": args.backprop, # change this to importance_method
-            "importance_task_indices": args.inference_task_indices,
+            "importance_task_indices": args.inference_targets, #args.inference_task_indices,
             "pwms": args.pwm_list},
         checkpoint=model_manager.model_checkpoint,
         yield_single_examples=True)
