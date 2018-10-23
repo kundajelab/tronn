@@ -68,7 +68,7 @@ class ModelManager(object):
         # set up from model dict
         self.name = model_dict["name"]
         self.model_fn = net_fns[self.name]
-        self.model_params = model_dict["params"]
+        self.model_params = model_dict.get("params", {})
         self.model_checkpoint = model_dict.get("checkpoint")
         
         # add in checkpoint if present
@@ -109,7 +109,8 @@ class ModelManager(object):
             labels_key=DataKeys.LABELS,
             logits_key=DataKeys.LOGITS,
             probs_key=DataKeys.PROBABILITIES,
-            regression=False):
+            regression=False,
+            logit_indices=[]):
         """builds the training dataflow. links up input tensors
         to the model with is_training as True.
         """
@@ -121,6 +122,10 @@ class ModelManager(object):
         self.model_params.update({"is_training": True})
         outputs, _ = self.model_fn(inputs, self.model_params)
 
+        # if adjusting logits, need to be done here, before feeding into loss
+        if len(logit_indices) > 0:
+            outputs[logits_key] = tf.gather(outputs[logits_key], logit_indices, axis=1)
+        
         # add final activation + loss
         if regression:
             loss = self._add_loss(
@@ -148,7 +153,8 @@ class ModelManager(object):
             labels_key=DataKeys.LABELS,
             logits_key=DataKeys.LOGITS,
             probs_key=DataKeys.PROBABILITIES,
-            regression=False):
+            regression=False,
+            logit_indices=[]):
         """build evaluation dataflow. links up input tensors
         to the model with is_training as False
         """
@@ -159,6 +165,10 @@ class ModelManager(object):
         # build model
         self.model_params.update({"is_training": False})
         outputs, _ = self.model_fn(inputs, self.model_params)
+        
+        # if adjusting logits, need to be done here, before feeding into loss
+        if len(logit_indices) > 0:
+            outputs[logits_key] = tf.gather(outputs[logits_key], logit_indices, axis=1)
 
         # add loss
         loss = self._add_loss(
@@ -189,7 +199,8 @@ class ModelManager(object):
             features_key=DataKeys.FEATURES,
             logits_key=DataKeys.LOGITS,
             probs_key=DataKeys.PROBABILITIES,
-            regression=False):
+            regression=False,
+            logit_indices=[]):
         """build prediction dataflow. links up input tensors
         to the model with is_training as False
         """
@@ -199,6 +210,10 @@ class ModelManager(object):
         # build model
         self.model_params.update({"is_training": False})
         outputs, _ = self.model_fn(inputs, self.model_params)
+
+        # if adjusting logits, need to be done here
+        if len(logit_indices) > 0:
+            outputs[logits_key] = tf.gather(outputs[logits_key], logit_indices, axis=1)
 
         # add final activation
         if not regression:
@@ -216,7 +231,8 @@ class ModelManager(object):
             features_key=DataKeys.FEATURES,
             logits_key=DataKeys.LOGITS,
             probs_key=DataKeys.PROBABILITIES,
-            regression=False):
+            regression=False,
+            logit_indices=[]):
         """build inference dataflow. links up input tensors
         to the model with is_training as False
         """
@@ -229,7 +245,8 @@ class ModelManager(object):
             features_key=features_key,
             logits_key=logits_key,
             probs_key=probs_key,
-            regression=regression)
+            regression=regression,
+            logit_indices=logit_indices)
 
         # get the variables to restore here
         # TODO remove reliance on slim
@@ -248,6 +265,7 @@ class ModelManager(object):
             config=None,
             warm_start=None,
             regression=False,
+            logit_indices=[],
             out_dir="."):
         """build a model fn that will work in the Estimator framework
         """
@@ -280,7 +298,8 @@ class ModelManager(object):
                 inference_mode = params.get("inference_mode", False)
                 if not inference_mode:
                     # prediction mode
-                    outputs = self.build_prediction_dataflow(inputs, regression=regression)
+                    outputs = self.build_prediction_dataflow(
+                        inputs, regression=regression, logit_indices=logit_indices)
                     return tf.estimator.EstimatorSpec(mode, predictions=outputs)
                 else:
                     # inference mode
@@ -290,7 +309,9 @@ class ModelManager(object):
                     outputs, variables_to_restore = self.build_inference_dataflow(
                         inputs,
                         params["inference_fn"],
-                        inference_params)
+                        inference_params,
+                        regression=regression,
+                        logit_indices=logit_indices)
 
                     if params["checkpoint"] is None:
                         print "WARNING: NO CHECKPOINT BEING USED"
@@ -312,12 +333,14 @@ class ModelManager(object):
             
             elif mode == tf.estimator.ModeKeys.EVAL:
                 # evaluation mode
-                outputs, loss, metrics = self.build_evaluation_dataflow(inputs, regression=regression)
+                outputs, loss, metrics = self.build_evaluation_dataflow(
+                    inputs, regression=regression, logit_indices=logit_indices)
                 return tf.estimator.EstimatorSpec(mode, loss=loss, eval_metric_ops=metrics)
             
             elif mode == tf.estimator.ModeKeys.TRAIN:
                 # training mode
-                outputs, loss, train_op = self.build_training_dataflow(inputs, regression=regression)
+                outputs, loss, train_op = self.build_training_dataflow(
+                    inputs, regression=regression, logit_indices=logit_indices)
                 print_param_count()
                 return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
             else:
@@ -342,13 +365,17 @@ class ModelManager(object):
             config=None,
             steps=None,
             hooks=[],
-            regression=False):
+            regression=False,
+            logit_indices=[]):
         """train an estimator. if steps is None, goes on forever or until input_fn
         runs out.
         """
         # build estimator and train
         estimator = self.build_estimator(
-            config=config, out_dir=out_dir, regression=regression)
+            config=config,
+            out_dir=out_dir,
+            regression=regression,
+            logit_indices=logit_indices)
         estimator.train(input_fn=input_fn, max_steps=steps, hooks=hooks)
         
         return tf.train.latest_checkpoint(out_dir)
@@ -362,12 +389,16 @@ class ModelManager(object):
             steps=None,
             checkpoint=None,
             hooks=[],
-            regression=False):
+            regression=False,
+            logit_indices=[]):
         """evaluate a trained estimator
         """
         # build evaluation estimator and evaluate
         estimator = self.build_estimator(
-            config=config, out_dir=out_dir, regression=regression)
+            config=config,
+            out_dir=out_dir,
+            regression=regression,
+            logit_indices=logit_indices)
         eval_metrics = estimator.evaluate(
             input_fn=input_fn,
             steps=steps,
@@ -386,11 +417,15 @@ class ModelManager(object):
             predict_keys=None,
             checkpoint=None,
             hooks=[],
-            yield_single_examples=True):
+            yield_single_examples=True,
+            logit_indices=[]):
         """predict on a trained estimator
         """
         # build prediction estimator
-        estimator = self.build_estimator(config=config, out_dir=out_dir)
+        estimator = self.build_estimator(
+            config=config,
+            out_dir=out_dir,
+            logit_indices=logit_indices)
 
         # return prediction generator
         return estimator.predict(
@@ -405,12 +440,12 @@ class ModelManager(object):
             out_dir,
             inference_fn,
             inference_params={},
-            logit_indices=[], # TODO integrate this in!
             config=None,
             predict_keys=None,
             checkpoint=None,
             hooks=[],
-            yield_single_examples=True):
+            yield_single_examples=True,
+            logit_indices=[]):
         """infer on a trained estimator
         """
         hooks.append(DataSetupHook())
@@ -430,7 +465,8 @@ class ModelManager(object):
         estimator = self.build_estimator(
             params=params,
             config=config,
-            out_dir=out_dir)
+            out_dir=out_dir,
+            logit_indices=logit_indices)
 
         # return generator
         return estimator.infer(
@@ -515,7 +551,8 @@ class ModelManager(object):
             model_summary_file=None,
             train_summary_file=None,
             early_stopping=True,
-            multi_gpu=False):
+            multi_gpu=False,
+            logit_indices=[]):
         """run full training loop with evaluation for early stopping
         """
         # assertions
@@ -585,7 +622,8 @@ class ModelManager(object):
                     steps=train_steps,
                     config=config,
                     hooks=training_hooks,
-                    regression=regression)
+                    regression=regression,
+                    logit_indices=logit_indices)
                 
                 last_phase = _TRAIN_PHASE
                 train_summary["last_phase"] = last_phase
@@ -600,7 +638,8 @@ class ModelManager(object):
                     "{}/eval".format(out_dir),
                     steps=eval_steps,
                     checkpoint=latest_checkpoint,
-                    regression=regression)
+                    regression=regression,
+                    logit_indices=logit_indices)
 
                 last_phase = _EVAL_PHASE
                 train_summary["last_phase"] = last_phase
