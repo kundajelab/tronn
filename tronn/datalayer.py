@@ -22,31 +22,6 @@ from tronn.preprocess.fasta import GenomicIntervalConverter
 from tronn.util.utils import DataKeys
 
 
-
-class threadsafe_iter:
-    """Takes an iterator/generator and makes it thread-safe by
-    serializing call to the `next` method of given iterator/generator.
-    """
-    def __init__(self, it):
-        self.it = it
-        self.lock = threading.Lock()
-                                
-    def __iter__(self):
-        return self
-    
-    def next(self):
-        with self.lock:
-            return self.it.next()
-
-        
-def threadsafe_generator(f):
-    """A decorator that takes a generator function and makes it thread-safe.
-    """
-    def g(*a, **kw):
-        return threadsafe_iter(f(*a, **kw))
-    return g
-        
-
 class DataLoader(object):
     """build the base level dataloader"""
 
@@ -137,7 +112,7 @@ class DataLoader(object):
         return filter_fn
 
             
-    def build_raw_dataflow(
+    def build_dataset_dataflow(
             self,
             batch_size,
             shuffle=True,
@@ -149,6 +124,7 @@ class DataLoader(object):
             num_to_prefetch=5,
             deterministic=False,
             shuffle_min=10000,
+            lock=threading.Lock(),
             **kwargs):
         """build dataflow from generator(s) to tf Dataset
 
@@ -166,60 +142,62 @@ class DataLoader(object):
         Returns:
           tf.data.Dataset instance.
         """
-        # set up generator along with dtypes and shapes
-        generator, dtypes_dict, shapes_dict = self.build_generator(
-            shuffle=shuffle, **kwargs)
+        # build a different generator object for each data file
+        generators = [
+            self.build_generator(
+                batch_size=batch_size,
+                shuffle=shuffle,
+                lock=lock,
+                **kwargs)[0](data_file)
+            for data_file in self.data_files]
+            
+        # get dtypes and shapes
+        _, dtypes_dict, shapes_dict = self.build_generator(
+            batch_size=batch_size, shuffle=shuffle, lock=lock, **kwargs)
 
-        # make a function for each file, to carry out all downstream functions
-        # together before parallel interleaving
-        def from_generator(filename):
-            """generator to tf dataset"""
+        # convert to dataset
+        def from_generator(i):
             dataset = tf.data.Dataset.from_generator(
-                self.build_generator(shuffle=shuffle, **kwargs)[0],
-                #generator,
+                lambda i: generators[i],
                 (dtypes_dict, tf.int32),
                 output_shapes=(shapes_dict, ()),
-                args=(filename,))
-            # filter on specific keys and indices
-            if len(filter_targets) != 0:
-                for key, indices in filter_targets:
-                    dataset = dataset.filter(
-                        DataLoader.build_target_filter_function(
-                            key, indices))
-            # filter singletons
-            if len(singleton_filter_targets) >= 1:
-                dataset = dataset.filter(
-                    DataLoader.build_singleton_filter_function(
-                        singleton_filter_targets[0][0],
-                        singleton_filter_targets[0][1]))
-            # gather labels as needed
-            if len(target_indices) > 0:
-                dataset = dataset.map(
-                    DataLoader.build_target_select_function(
-                        target_indices))
-
+                args=(i,))
             return dataset
-            
+        
         # set up interleaved datasets
-        dataset = tf.data.Dataset.from_tensor_slices(self.data_files).apply(
+        dataset = tf.data.Dataset.from_tensor_slices(range(len(self.data_files))).apply(
             tf.contrib.data.parallel_interleave(
-                lambda filename: from_generator(filename),
+                lambda file_idx: from_generator(file_idx),
+                #lambda filename: from_generator(filename),
                 cycle_length=num_threads,
                 #block_length=batch_size, # all of these seem to slow it down
                 #cycle_length=len(self.data_files),
                 #prefetch_input_elements=batch_size,
                 buffer_output_elements=1, 
                 sloppy=deterministic))
-
-        # testing
-        if False:
-            # this slows it down
-            dataset = dataset.prefetch(
-                shuffle_min + (len(self.data_files)+10) * (batch_size))
+        
+        # filter on specific keys and indices
+        if len(filter_targets) != 0:
+            for key, indices in filter_targets:
+                dataset = dataset.filter(
+                    DataLoader.build_target_filter_function(
+                        key, indices))
+                
+        # filter singletons
+        if len(singleton_filter_targets) >= 1:
+            dataset = dataset.filter(
+                DataLoader.build_singleton_filter_function(
+                    singleton_filter_targets[0][0],
+                    singleton_filter_targets[0][1]))
+            
+        # gather labels as needed
+        if len(target_indices) > 0:
+            dataset = dataset.map(
+                DataLoader.build_target_select_function(
+                    target_indices))
         
         # shuffle
         if shuffle:
-            #capacity = shuffle_min #+ (len(self.data_files)+10) * (batch_size / 16)
             dataset = dataset.shuffle(shuffle_min)
 
         # batch
@@ -244,51 +222,38 @@ class DataLoader(object):
             h5_file,
             batch_size,
             shuffle=True,
-            filter_targets=[],
-            singleton_filter_targets=[],
             target_indices=[],
-            encode_onehot_features=True,
-            num_threads=16,
-            num_to_prefetch=5,
-            deterministic=False,
-            shuffle_min=10000,
             lock=threading.Lock(),
             **kwargs):
         """take one generator and get tensors through py_func
         """
-        # set up generator
+        # set up generator and ordered keys, dtypes
         generator, dtypes_dict, shapes_dict = self.build_generator(
             batch_size=batch_size, shuffle=shuffle, lock=lock, **kwargs)
         ordered_keys = dtypes_dict.keys()
+        ordered_dtypes = [dtypes_dict[key] for key in ordered_keys]
         h5_to_generator = generator(h5_file, yield_single_examples=False)
-            
-        # dummy batch id producer to drive the dataset
-        batch_id_producer = tf.train.range_input_producer(
-            100, shuffle=shuffle, seed=0, num_epochs=None)
-        batch_id = batch_id_producer.dequeue()
             
         # wrapper function to get generator into py func
         def h5_to_tensors(batch_id):
-            slice_array = h5_to_generator.next()
+            slice_array, _ = h5_to_generator.next()
             results = []
             for key in ordered_keys:
                 results.append(slice_array[key])
             return results
-
-        # set up ordered dtypes
-        ordered_dtypes = [dtypes_dict[key] for key in ordered_keys]
         
         # py func
         inputs = tf.py_func(
             func=h5_to_tensors,
-            inp=[batch_id],
+            inp=[0], #[batch_id]
             Tout=ordered_dtypes,
             stateful=True,
             name='py_func_batch_id_to_examples')
         
         # set shape
         for i in xrange(len(ordered_keys)):
-            inputs[i].set_shape([batch_size]+list(shapes_dict[ordered_keys[i]]))
+            inputs[i].set_shape(
+                [batch_size]+list(shapes_dict[ordered_keys[i]]))
                 
         # back to dict
         inputs = dict(zip(ordered_keys, inputs))
@@ -308,38 +273,24 @@ class DataLoader(object):
             num_to_prefetch=5,
             deterministic=False,
             shuffle_min=10000,
+            lock=threading.Lock(),
             **kwargs):
         """wrap the generator with py_func
         """
-        # set up generator along with dtypes and shapes
-        #generator, dtypes_dict, shapes_dict = self.build_generator(
-        #    batch_size=batch_size, shuffle=shuffle, **kwargs)
-
-        lock = threading.Lock()
-        
         # set up py_func on top of generator for each file
-        example_slices_list = []
         example_slices_list = [
             self._generator_to_tensors(
                 data_file,
                 batch_size,
-                shuffle=True,
-                filter_targets=[],
-                singleton_filter_targets=[],
-                target_indices=[],
-                encode_onehot_features=True,
-                num_threads=16,
-                num_to_prefetch=5,
-                deterministic=False,
-                shuffle_min=10000,
+                shuffle=shuffle,
+                target_indices=target_indices,
                 lock=lock,
                 **kwargs)
             for data_file in self.data_files]
-
-        #quit()
-        # determine capacity
+        
+        # determine min to shuffle, capacity
         if len(example_slices_list) > 1:
-            min_after_dequeue = 10000
+            min_after_dequeue = shuffle_min
         else:
             min_after_dequeue = batch_size * 3
         capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
@@ -354,18 +305,24 @@ class DataLoader(object):
             enqueue_many=True,
             name='batcher')
 
+        # TODO if filtering, add in here
+        
+        
         # onehot encode the batch
         inputs[DataKeys.FEATURES] = tf.map_fn(
             DataLoader.encode_onehot_sequence,
-            inputs["features"],
+            inputs[DataKeys.FEATURES],
             dtype=tf.float32)
         
         return inputs, None
     
     
-    def build_input_fn(self, batch_size, **kwargs):
+    def build_input_fn(self, batch_size, use_queues=True, **kwargs):
         """build the function that will be called later after 
-        graph is instantiated
+        graph is instantiated. Note that there are two options, 
+        can either build using tf Dataset or use queues.
+        Queues are currently faster, though filtering is not
+        yet implemented on the queues.
 
         Args:
           batch_size: batch size for tensors going into graph
@@ -377,8 +334,11 @@ class DataLoader(object):
         def input_fn():
             """data flow fn. must have no args.
             """
-            #return self.build_raw_dataflow(batch_size, **kwargs)
-            return self.build_queue_dataflow(batch_size, **kwargs)
+            if use_queues:
+                return self.build_queue_dataflow(batch_size, **kwargs)
+            else:
+                return self.build_dataset_dataflow(batch_size, **kwargs)
+
         
         return input_fn
         
@@ -816,7 +776,7 @@ class H5DataLoader(DataLoader):
 
     def build_generator(
             self,
-            batch_size=256, #256
+            batch_size=256, #256, #256
             task_indices=[],
             keys=[],
             skip_keys=["label_metadata"],
@@ -851,7 +811,7 @@ class H5DataLoader(DataLoader):
         # explicitly designed this way to work with tf Dataset
         class Generator(object):
 
-            @threadsafe_generator
+            #@threadsafe_generator
             def __call__(self, h5_file, yield_single_examples=True):
                 """run the generator"""
 
@@ -903,14 +863,14 @@ class H5DataLoader(DataLoader):
                                 slice_array["example_metadata"])
 
                             # yield
-                            if yield_single_examples:
+                            if yield_single_examples: # NOTE: this is the most limiting step
                                 for i in xrange(batch_size):
                                     yield ({
                                         key: value[i]
                                         for key, value in six.iteritems(slice_array)
                                     }, 1.)
                             else:
-                                yield slice_array    
+                                yield (slice_array, 1.)
                             
                     except ValueError:
                         logging.info("Stopping {}".format(h5_file))
