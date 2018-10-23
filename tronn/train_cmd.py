@@ -84,23 +84,27 @@ def run(args):
                     "{}/dataset.{}".format(args.out_dir, split_names[i]),
                     targets=args.targets)
 
-    # extract the num targets from the dataset (to pass to model)
-    num_targets = train_data_loader.get_num_targets(
-        targets=args.targets,
-        target_indices=args.target_indices)
-                
-    # set up model (either a keras transfer or tensorflow model)
-    # get num tasks from dataset
-    args.model["params"]["num_tasks"] = num_targets
-    model_manager = setup_model_manager(args)
-    warm_start_params = {"skip": [DataKeys.LOGITS]}
+    # if model does not have num_tasks, infer from dataset
+    if args.model["params"].get("num_tasks") is None:
+        num_targets = train_data_loader.get_num_targets(
+            targets=args.targets,
+            target_indices=args.target_indices)
+        args.model["params"]["num_tasks"] = num_targets
 
-    # save out model summary
+    # set up model and save summary
+    model_manager = setup_model_manager(args)
     write_to_json(model_manager.describe(), model_log)
 
     # adjust for regression
     if args.regression:
-        args.metric = "mse"
+        logging.info("regression - switching metric to MSE")
+        args.early_stopping_metric = "mse"
+
+    # adjust for warm start as needed
+    if args.transfer_model_checkpoint is not None:
+        warm_start_params = {"skip": [DataKeys.LOGITS]}
+    else:
+        warm_start_params = {}
         
     # train and evaluate
     best_checkpoint = model_manager.train_and_evaluate(
@@ -117,6 +121,7 @@ def run(args):
         model_summary_file=model_log,
         train_summary_file=train_log,
         early_stopping=not args.full_train,
-        multi_gpu=args.distributed)
+        multi_gpu=args.distributed,
+        logit_indices=args.logit_indices)
             
     return None
