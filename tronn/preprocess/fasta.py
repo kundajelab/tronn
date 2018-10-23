@@ -204,8 +204,8 @@ class GenomicIntervalConverter(object):
         sed_cmd = [
             'sed',
             "-u",
-            #'s/^.*[[:blank:]]//g; s/[Aa]/0/g; s/[Cc]/1/g; s/[Gg]/2/g; s/[Tt]/3/g; s/[Nn]/4/g; s/./,&/g; s/,//']
-            's/^.*[[:blank:]]//; s/A/0/Ig; s/C/1/Ig; s/G/2/Ig; s/T/3/Ig; s/N/4/Ig; s/./,&/g; s/,//']
+            's/^.*[[:blank:]]//g; s/[Aa]/0/g; s/[Cc]/1/g; s/[Gg]/2/g; s/[Tt]/3/g; s/[Nn]/4/g; s/./,&/g; s/,//']
+            #'s/^.*[[:blank:]]//; s/A/0/Ig; s/C/1/Ig; s/G/2/Ig; s/T/3/Ig; s/N/4/Ig; s/./,&/g; s/,//']
             #'s/^.*[[:blank:]]//; /[Aa]/ s//0/g; /[Cc]/ s//1/g; /[Gg]/ s//2/g; /[Tt]/ s//3/g; /[Nn]/ s//4/g; s/./,&/g; s/,//']
         pipe_out = subprocess.Popen(
             sed_cmd,
