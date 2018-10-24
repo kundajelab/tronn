@@ -480,13 +480,11 @@ class H5DataLoader(DataLoader):
         assert (len(data_files) == 0) or (dataset_json is None)
 
         # set up
-        if dataset_json is not None:
+        if len(dataset_json) is not None:
             # use json and adjust data as needed
-            with open(data_json, "r") as fp:
-                dataset = json.load(fp)
-            self.data_dir = dataset["data_dir"]
-            self.h5_files = dataset.get("data_files")
-            self.fasta = dataset["fasta"]
+            self.data_dir = dataset_json["data_dir"]
+            self.h5_files = dataset_json.get("data_files")
+            self.fasta = dataset_json["fasta"]
             
             # override/update as needed
             if data_dir is not None:
