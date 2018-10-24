@@ -254,7 +254,20 @@ def _setup_dataset_args(args):
     args.singleton_filter_targets = _parse_to_key_and_indices(
         args.singleton_filter_targets)
 
-    # TODO - here, should i make into a data dict?
+    if args.dataset_json is not None:
+        with open(args.dataset_json, "r") as fp:
+            args.dataset_json = json.load(fp)
+    else:
+        args.dataset_json = {}
+
+    # and adjust as needed
+    args.targets = args.dataset_json.get(
+        "targets", args.targets)
+    args.filter_targets = args.dataset_json.get(
+        "filter_targets", args.filter_targets)
+    args.singleton_filter_targets = args.dataset_json.get(
+        "singleton_filter_targets", args.singleton_filter_targets)
+    
     return None
 
 
