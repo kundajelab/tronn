@@ -33,7 +33,7 @@ def run(args):
 
     # set up data loader
     test_data_loader = setup_data_loader(args)
-    test_input_fn = test_dataloader.build_input_fn(
+    test_input_fn = test_data_loader.build_input_fn(
         args.batch_size,
         targets=args.targets,
         target_indies=args.target_indices,
