@@ -482,7 +482,7 @@ class H5DataLoader(DataLoader):
         # set up
         if dataset_json is not None:
             # use json and adjust data as needed
-            with open(data_json, "r") as fp:
+            with open(dataset_json, "r") as fp:
                 dataset = json.load(fp)
             self.data_dir = dataset["data_dir"]
             self.h5_files = dataset.get("data_files")
