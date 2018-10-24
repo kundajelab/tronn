@@ -21,6 +21,7 @@ from tronn.learn.evaluation import pearson_only_r
 from tronn.learn.evaluation import run_and_plot_metrics
 from tronn.learn.evaluation import plot_all
 
+from sklearn.metrics import roc_auc_score
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score
 
