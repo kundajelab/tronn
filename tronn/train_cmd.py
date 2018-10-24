@@ -27,9 +27,9 @@ def run(args):
 
     # either run cross validation or full train
     if args.full_train:
-        train_data_loader = data_loader
-        validation_data_loader = data_loader
-        test_data_loader = data_loader
+        train_data_loader = data_loader.remove_genomewide_negatives()
+        validation_data_loader = data_loader.remove_genomewide_negatives()
+        test_data_loader = data_loader.remove_training_negatives()
     else:
         split_data_loaders = data_loader.setup_cross_validation_dataloaders(
             kfolds=args.kfolds,

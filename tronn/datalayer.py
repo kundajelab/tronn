@@ -1025,6 +1025,30 @@ class H5DataLoader(DataLoader):
         
         return new_dataloader
 
+
+    def remove_genomewide_negatives(self):
+        """dataloader without genomewide negatives
+        """
+        new_files = [
+            h5_file for h5_file in self.data_files
+            if "genomewide-negatives" not in h5_file]
+        new_dataloader = H5DataLoader(
+            self.data_dir, data_files=new_files, fasta=self.fasta)
+        
+        return new_dataloader
+
+
+    def remove_training_negatives(self):
+        """dataloader without genomewide negatives
+        """
+        new_files = [
+            h5_file for h5_file in self.data_files
+            if "training-negatives" not in h5_file]
+        new_dataloader = H5DataLoader(
+            self.data_dir, data_files=new_files, fasta=self.fasta)
+        
+        return new_dataloader
+    
     
     def get_classification_metrics(
             self,
