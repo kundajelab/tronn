@@ -94,11 +94,11 @@ def normalize_signal_vals(positive_h5_files, h5_files, key, new_key):
     signal_vals = np.concatenate(signal_vals)
 
     # asinh
-    signal_vals = np.arcsinh(signal_vals)
+    #signal_vals = np.arcsinh(signal_vals)
     
     # rescale according to 0.01 - 0.98 percentiles
-    min_val = np.percentile(signal_vals, 1)
-    max_val = np.percentile(signal_vals, 90)
+    #min_val = np.percentile(signal_vals, 1)
+    #max_val = np.percentile(signal_vals, 90)
     
     # then for each h5 file, adjust to have values between 0 to 1
     for h5_file in h5_files:
@@ -108,12 +108,19 @@ def normalize_signal_vals(positive_h5_files, h5_files, key, new_key):
             
             signal_vals = hf[key][:]
             # asinh
-            signal_vals = np.arcsinh(signal_vals)
+            #signal_vals = np.arcsinh(signal_vals) # TODO adjust to log2
 
+            # use log2 for easy interpretability
+            signal_vals = np.log2(signal_vals)
+            signal_vals[signal_vals < 0] = 0 # anything that is not FC > 1 should be zero
+            signal_vals[~np.isfinite(signal_vals)] = 0
+            
             # clip
             #signal_vals = (signal_vals - min_val) / max_val
             #signal_vals[signal_vals < 0.] = 0
             #signal_vals[signal_vals > 1.] = 1.
+            if hf.get(new_key) is not None:
+                del hf[new_key]
             
             hf.create_dataset(new_key, data=signal_vals)
 
