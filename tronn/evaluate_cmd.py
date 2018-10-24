@@ -9,7 +9,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from tronn.datalayer import setup_data_laoder
+from tronn.datalayer import setup_data_loader
 
 from tronn.models import setup_model_manager
 
