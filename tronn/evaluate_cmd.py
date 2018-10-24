@@ -36,7 +36,7 @@ def run(args):
     test_input_fn = test_data_loader.build_input_fn(
         args.batch_size,
         targets=args.targets,
-        target_indies=args.target_indices,
+        target_indices=args.target_indices,
         filter_targets=args.filter_targets)
 
     # set up model
