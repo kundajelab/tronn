@@ -9,8 +9,10 @@ import logging
 import numpy as np
 import pandas as pd
 
-from tronn.datalayer import H5DataLoader
-from tronn.models import ModelManager
+from tronn.datalayer import setup_data_laoder
+
+from tronn.models import setup_model_manager
+
 from tronn.nets.nets import net_fns
 from tronn.learn.evaluation import auprc
 from tronn.learn.evaluation import make_recall_at_fdr
@@ -29,33 +31,22 @@ def run(args):
     logging.info("Evaluating trained model...")
     os.system("mkdir -p {}".format(args.out_dir))
 
-    # adjust data files as needed
-    # TODO resolve this in the main cmd file
-    if args.data_dir is not None:
-        for i in xrange(len(args.model_info["test_files"])):
-            args.model_info["test_files"][i] = "{}/{}".format(
-                args.data_dir,
-                os.path.basename(args.model_info["test_files"][i]))
-            
-    # set up test dataloader
-    test_dataloader = H5DataLoader(
-        args.model_info["test_files"], fasta=args.fasta)
+    # set up data loader
+    test_data_loader = setup_data_loader(args)
     test_input_fn = test_dataloader.build_input_fn(
         args.batch_size,
-        label_keys=args.model_info["label_keys"],
-        filter_tasks=args.model_info["filter_keys"])
+        targets=args.targets,
+        target_indies=args.target_indices,
+        filter_targets=args.filter_targets)
 
     # set up model
-    model_manager = ModelManager(
-        net_fns[args.model_info["name"]],
-        args.model_info["params"],
-        name=args.model_info["name"])
-
+    model_manager = setup_model_manager(args)
+    
     # evaluate
     predictor = model_manager.predict(
         test_input_fn,
         args.out_dir,
-        checkpoint=args.model_info["checkpoint"])
+        checkpoint=model_manager.model_checkpoint)
 
     # run eval and save to h5
     eval_h5_file = "{}/{}.eval.h5".format(args.out_dir, args.prefix)
