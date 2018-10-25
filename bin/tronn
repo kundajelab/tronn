@@ -632,7 +632,7 @@ def add_dmim_parser(subparsers):
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
     group_interpret.add_argument(
-        "--batch_size", default=16, type=int,
+        "--batch_size", default=8, type=int,
         help="batch size")
     _add_interpretation_args(
         group_interpret,
