@@ -467,7 +467,7 @@ class H5DataLoader(DataLoader):
             data_dir=None,
             data_files=[],
             fasta=None,
-            dataset_json=None,
+            dataset_json={},
             **kwargs):
         """initialize with data files
         
@@ -477,10 +477,10 @@ class H5DataLoader(DataLoader):
           fasta: fasta file for getting sequence from BED intervals on the fly
         """
         # assertions
-        assert (len(data_files) == 0) or (dataset_json is None)
+        assert (len(data_files) == 0) or (len(dataset_json) == 0)
 
         # set up
-        if len(dataset_json) is not None:
+        if len(dataset_json) != 0:
             # use json and adjust data as needed
             self.data_dir = dataset_json["data_dir"]
             self.h5_files = dataset_json.get("data_files")

@@ -30,6 +30,10 @@ def run(args):
         train_data_loader = data_loader.remove_genomewide_negatives()
         validation_data_loader = data_loader.remove_genomewide_negatives()
         test_data_loader = data_loader.remove_training_negatives()
+        if args.regression:
+            train_data_loader = train_data_loader.setup_positives_only_dataloader()
+            validation_data_loader = validation_data_loader.setup_positives_only_dataloader()
+            test_data_loader = test_data_loader.setup_positives_only_dataloader()
     else:
         split_data_loaders = data_loader.setup_cross_validation_dataloaders(
             kfolds=args.kfolds,
