@@ -95,6 +95,7 @@ def run(args):
         target_indices=args.target_indices,
         filter_targets=args.filter_targets,
         singleton_filter_targets=args.singleton_filter_targets,
+        use_queues=True,
         shuffle=False)
         
     # set up model

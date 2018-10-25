@@ -47,7 +47,8 @@ def run(args):
         targets=args.targets,
         target_indices=args.target_indices,
         filter_targets=args.filter_targets,
-        singleton_filter_targets=args.singleton_filter_targets)
+        singleton_filter_targets=args.singleton_filter_targets,
+        use_queues=True)
 
     # set up model
     model_manager = setup_model_manager(args)
