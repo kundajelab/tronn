@@ -372,6 +372,9 @@ class DeltaMotifImportanceMapper(MotifScanner):
             outputs[key] = tf.gather(inputs[key], [0])
 
         # TODO save out as extra aux tensor
+
+        # rebatch
+        outputs, _ = rebatch(outputs, params)
         
         return outputs, params
     
@@ -526,7 +529,9 @@ def run_dmim(inputs, params):
     outputs, params = scanner.scan(inputs, params)
 
     # filter for just those with a motif present
-    filter_by_any_motif_present(outputs, params)
+    # TODO consider wrapping everything in variable scopes to be utterly safe
+    with tf.variable_scope("dmim"):
+        outputs, _ = filter_by_any_motif_present(outputs, params)
     
     return outputs, params
 
@@ -546,7 +551,7 @@ def filter_by_any_motif_present(inputs, params):
     
     # condition mask
     inputs["condition_mask"] = any_motif_present
-    params.update({"name": "motif_presence_filter"})
+    params.update({"name": "motif_presence_filter", "use_queue": True})
     outputs, _ = filter_and_rebatch(inputs, params)
 
     return outputs, params
