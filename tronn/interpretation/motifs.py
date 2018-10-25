@@ -3,6 +3,7 @@
 
 import os
 import h5py
+import logging
 
 import numpy as np
 
@@ -49,7 +50,7 @@ def select_pwms_by_permutation_test_and_reduce(
 # TODO move to... stats?
 def aggregate_array(
         array,
-        agg_fn=np.mean,
+        agg_fn=np.sum, #np.mean,
         agg_axis=0,
         mask=None):
     """aggregate dataset
@@ -196,7 +197,7 @@ def visualize_significant_pwms_R(
             h5_file,
             pwm_scores_agg_clusters_key,
             pwm_names_attr_key)
-    print r_cmd
+    logging.info(r_cmd)
     os.system(r_cmd)
     
     return None
