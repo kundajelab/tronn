@@ -29,6 +29,7 @@ class TronnEstimator(tf.estimator.Estimator):
             random_seed.set_random_seed(self._config.tf_random_seed)
             self._create_and_assert_global_step(g)
             if False:
+                print "USING QUEUES FOR DATA LOADING"
                 features, input_hooks = self._get_features_from_input_fn(
                     input_fn, model_fn_lib.ModeKeys.PREDICT)
             else:
