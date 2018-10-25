@@ -78,7 +78,10 @@ class DataLoader(object):
           filter_fn: function to feed to tf.Dataset.filter
         """
         def filter_fn(features, labels):
-            filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            if len(target_indices) != 0:
+                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            else:
+                filter_targets = features[target_key]
             if filter_type == "any":
                 reduce_fn = tf.reduce_any
             else:
@@ -104,7 +107,10 @@ class DataLoader(object):
           filter_fn: function to feed to tf.Dataset.filter
         """
         def filter_fn(features, labels):
-            filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            if len(target_indices) != 0:
+                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            else:
+                filter_targets = features[target_key]
             passes_filter = tf.greater_equal(
                 tf.reduce_sum(filter_targets),
                 min_count)
