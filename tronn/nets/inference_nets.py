@@ -136,8 +136,8 @@ def sequence_to_dmim(inputs, params):
     # if not set up in another fn
     outputs = dict(inputs)
 
-    with tf.device("/cpu:1"):
-
+    with tf.device("/cpu:0"):
+        
         # filtering
         outputs, params = filter_for_significant_pwms(inputs, params)
         outputs, params = score_distances_on_manifold(outputs, params)
@@ -149,7 +149,7 @@ def sequence_to_dmim(inputs, params):
     # run dfim
     outputs, params = run_dfim(outputs, params)
 
-    with tf.device("/cpu:2"):
+    with tf.device("/cpu:0"):
         # and then run dmim
         outputs, params = run_dmim(outputs, params)
         
