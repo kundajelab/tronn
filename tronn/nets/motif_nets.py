@@ -449,7 +449,7 @@ def get_pwm_scores(inputs, params):
     outputs[DataKeys.FEATURES] = outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] # {N, task, M}
 
     # filter for just those with a motif present
-    filter_by_any_motif_present(outputs, params)
+    outputs, _ = filter_by_any_motif_present(outputs, params)
     
     return outputs, params
 
@@ -530,8 +530,9 @@ def run_dmim(inputs, params):
 
     # filter for just those with a motif present
     # TODO consider wrapping everything in variable scopes to be utterly safe
-    with tf.variable_scope("dmim"):
-        outputs, _ = filter_by_any_motif_present(outputs, params)
+    if True:
+        with tf.variable_scope("dmim"):
+            outputs, _ = filter_by_any_motif_present(outputs, params) # {N, mutM, task, resM}
     
     return outputs, params
 
@@ -545,15 +546,17 @@ def filter_by_any_motif_present(inputs, params):
     
     # adjust
     batch_size = features.get_shape().as_list()[0]
-    features = tf.reshape(features, shape=[batch_size, -1]) # {N, task*M}
-    motif_present = tf.not_equal(features, 0)
-    any_motif_present = tf.reduce_any(motif_present, axis=1) # {N}
+
+    # see if any hits
+    any_motif_present = tf.reduce_any(
+        tf.not_equal(features, 0),
+        axis=range(len(features.get_shape()))[1:])
     
     # condition mask
     inputs["condition_mask"] = any_motif_present
     params.update({"name": "motif_presence_filter", "use_queue": True})
     outputs, _ = filter_and_rebatch(inputs, params)
-
+    
     return outputs, params
 
 
