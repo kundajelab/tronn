@@ -134,6 +134,7 @@ def sequence_to_dmim(inputs, params):
     """
     # here - assume sequence to motif scores has already been run
     # if not set up in another fn
+    print "WARNING ASSUMES PROCESSED INPUTS"
     outputs = dict(inputs)
 
     with tf.device("/cpu:0"):
