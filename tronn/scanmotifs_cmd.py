@@ -20,7 +20,6 @@ from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.nets.nets import net_fns
-#from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
