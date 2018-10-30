@@ -11,9 +11,6 @@ import logging
 import argparse
 import pkg_resources
 
-# ideally deprecate this
-from tronn.util.h5_utils import get_absolute_label_indices # better way to handle this?
-
 from tronn.util.pwms import MotifSetManager # TODO move this?
 
 
@@ -275,7 +272,7 @@ def _add_model_args(parser):
     """add model args
     """
     parser.add_argument(
-        "--model_framework", default="tronn",
+        "--model_framework", default="tensorflow",
         help="deep learning framework (tensorflow(tronn), keras, pytorch)")
     parser.add_argument(
         "--model", nargs="+",
@@ -301,11 +298,9 @@ def _setup_model_args(args):
     assumes a format of: model_name param=val,param=val,...
 
     Returns:
-      converts args.model to dict of params.
+      converts args.model to dict of all model inputs
     """
-    assert (args.model is not None) or (args.model_json is not None)
-
-    # set up everything through args.model
+    # first set up everything through args.model
     if args.model is not None:
         model = {
             "name": args.model[0],
@@ -327,7 +322,21 @@ def _setup_model_args(args):
         with open(args.model_json, "r") as fp:
             args.model = json.load(fp)
 
-    print args.model
+    # update checkpoint if needed
+    if args.model_checkpoint is not None:
+        args.model["checkpoint"] = args.model_checkpoint
+        
+    # update model dir (and checkpoint location) if needed
+    if args.model_dir is not None:
+        args.model["model_dir"] = args.model_dir
+        if args.model.get("checkpoint") is not None:
+            args.model["checkpoint"] = "{}/{}".format(
+                args.model_dir,
+                os.path.basename(args.model["checkpoint"]))
+
+    # if model dir is still none, use out_dir
+    if args.model.get("model_dir") is None:
+        args.model["model_dir"] = args.out_dir
     
     return None
 
@@ -509,24 +518,28 @@ def _setup_interpretation_args(args):
     """given parsed args, adjust inputs as needed
     matches _add_interpretation_options
     """
-    if args.data_dir is not None:
-        data_files = glob.glob("{}/*h5".format(args.data_dir))
-        data_files = [h5_file for h5_file in data_files if "manifold" not in h5_file]
-        data_file = data_files[0]
-    else:
-        data_file = args.model_info["train_files"][0]
-    
-    # inference tasks <- assume everything coming through is going to be inferred?
-    #args.inference_targets = _parse_files(args.inference_targets)
-    #args.inference_task_indices = get_absolute_label_indices(
-    #    args.model_info["label_keys"], 
-    #    args.inference_tasks,
-    #    data_file)
-
-    # pwm file <- keep this
+    # pwm file
     args.pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
     args.pwm_names = [pwm.name for pwm in args.pwm_list]
     args.pwm_dict = MotifSetManager.read_pwm_file(args.pwm_file, as_dict=True)
+
+    # set up inference dict
+    args.inference_params = {
+        "inference_mode": True, # for estimator framework
+        "model_reuse": True if args.model_framework == "tensorflow" else False,
+        "inference_fn": args.inference_fn,
+        "importance_task_indices": args.inference_targets,
+        "backprop": args.backprop,
+        "pwms": args.pwm_list}
+    
+    return
+
+
+def _setup_scanmotifs_args(args):
+    """given parsed args, adjust inputs as needed
+    """
+    args.background_filter_targets = _parse_to_key_and_indices(
+        args.background_filter_targets)
 
     return
 
@@ -590,6 +603,9 @@ def add_scanmotifs_parser(subparsers):
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
         "Other options")
+    group_other.add_argument(
+        "--background_filter_targets", nargs="+", default=[],
+        help="targets to filter for background set of regions")
     group_other.add_argument(
         "--cluster", action="store_true",
         help="run clustering")
@@ -984,6 +1000,7 @@ def main():
         _setup_model_args(args)
         _setup_interpretation_args(args)
         _setup_visualization_args(args)
+        _setup_scanmotifs_args(args)
         from tronn.scanmotifs_cmd import run
         run(args)
     elif subcommand == "dmim":
