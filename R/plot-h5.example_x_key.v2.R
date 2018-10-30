@@ -39,7 +39,13 @@ data <- order_by_clusters(data, clusters)
 # ----------------------------------------
 # plot data
 # ----------------------------------------
+old_dims <- dim(data)
+print(old_dims)
 data_sample <- get_ordered_sample(data)
+dim(data_sample) <- c(dim(data_sample)[1], old_dims[2:length(old_dims)])
+
+#print(dim(data_sample))
+#quit()
 
 # visualize
 if (three_dims) {
