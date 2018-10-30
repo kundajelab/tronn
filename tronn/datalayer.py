@@ -118,6 +118,35 @@ class DataLoader(object):
         
         return filter_fn
 
+    
+    @staticmethod
+    def build_fract_accessible_filter_function(target_key, target_indices, max_fract=0.15):
+        """build a function for filtering examples based on whether the
+        example is positive in more than one task. only applies in 
+        multi-task situations
+
+        Args:
+          target_key: the key to the target tensor
+          target_indices: list of indices of targets of interest
+          min_count: how many targets must be positive to pass filter
+
+        Returns:
+          filter_fn: function to feed to tf.Dataset.filter
+        """
+        def filter_fn(features, labels):
+            if len(target_indices) != 0:
+                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            else:
+                filter_targets = features[target_key]
+                
+            passes_filter = tf.less_equal(
+                tf.reduce_mean(filter_targets),
+                max_fract)
+            return passes_filter
+        
+        return filter_fn
+    
+    
             
     def build_dataset_dataflow(
             self,
@@ -363,6 +392,18 @@ class DataLoader(object):
                     singleton_filter_targets[0][0],
                     singleton_filter_targets[0][1]),
                 "singleton_filter_{}".format(filter_idx),
+                batch_size)
+
+        # FOR SURAG MODELS
+        if False:
+            filter_idx = 0
+            inputs = DataLoader._queue_filter(
+                inputs,
+                DataLoader.build_fract_accessible_filter_function(
+                    "DNASE_LABELS",
+                    [],
+                    max_fract=0.05),
+                "cell_type_specific_filter_{}".format(filter_idx),
                 batch_size)
 
         # gather labels as needed
