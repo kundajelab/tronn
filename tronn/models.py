@@ -442,7 +442,7 @@ class ModelManager(object):
 
         # convert inference fn
         inference_params["inference_fn"] = net_fns[
-            inference_params["inference_fn"]]
+            inference_params["inference_fn_name"]]
         
         # build estimator
         estimator = self.build_estimator(
