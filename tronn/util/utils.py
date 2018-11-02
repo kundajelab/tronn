@@ -27,6 +27,7 @@ class DataKeys(object):
     # clipping
     ORIG_SEQ_ACTIVE = "{}.active".format(ORIG_SEQ)
     WEIGHTED_SEQ_ACTIVE = "{}.active".format(WEIGHTED_SEQ)
+    GC_CONTENT = "{}.gc_fract".format(ORIG_SEQ_ACTIVE)
     
     # for shuffles (generated for null models)
     SHUFFLE_SUFFIX = "shuffles"
