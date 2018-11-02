@@ -322,7 +322,7 @@ class DataLoader(object):
             inputs,
             {"name": name,
              "batch_size": batch_size,
-             "num_queue_threads": 1})
+             "num_queue_threads": 4})
         
         return inputs
     
