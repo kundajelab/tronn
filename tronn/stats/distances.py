@@ -18,9 +18,9 @@ def generalized_jaccard_similarity(a, b):
 
     # divide sum(min) by sum(max)
     if np.sum(max_vals) != 0:
-        similarity = np.sum(min_vals) / np.sum(max_vals)
+        similarity = np.sum(min_vals) / float(np.sum(max_vals))
     else:
-        similarity = 0
+        similarity = 0.
         
     return similarity
 
