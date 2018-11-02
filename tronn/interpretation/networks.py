@@ -550,8 +550,8 @@ def get_motif_hierarchies(
         num_sig_tasks=3,
         max_subgraph_size=3,
         max_subgraph_overlap=0.3,
-        forward_pass_min_region_count=50,
-        min_region_count=300):
+        forward_pass_min_region_count=100, # this is too manual still, need to adjust
+        min_region_count=500): # 100/500 for mid, 50/400 for early, 
     """extract motif hierarchies
     """
     # load in necessary data
@@ -730,17 +730,21 @@ def get_motif_hierarchies(
     # get subsets
     terms = [
         "keratinocyte differentiation",
+        "epithelial cell proliferation",
+        "epidermal cell division",
         "epidermis development",
         "proliferation",
         "cell cycle arrest",
+        "negative regulation of cell cycle",
         "stem cell proliferation",
         "hair",
+        "junction assembly",
         "regulation of cell motility",
         "extracellular matrix",
         "stem cell"]
     
     subsets = subset_by_functional_enrichments(
-        subgraphs, terms, os.path.dirname(h5_file), "test.great.mid")
+        subgraphs, terms, os.path.dirname(h5_file), "{}/great".format(os.path.dirname(h5_file)))
     
     # and save out
     for term in terms:
@@ -760,6 +764,9 @@ def get_motif_hierarchies(
 def subset_by_functional_enrichments(subgraphs, terms, bed_dir, out_dir):
     """get subsets by functional enrichment
     """
+    import ipdb
+    ipdb.set_trace()
+    
     # run functional enrichment tool
     # ie, rgreat
     if False:
