@@ -110,9 +110,9 @@ def threshold_by_qvalues(
     pvals_flattened = np.sort(pvals.flatten())
     num_pvals_per_bin, pval_bins = np.histogram(
         pvals_flattened, bins=num_bins)
-
+    
     # get baseline
-    baseline = np.mean(num_pvals_per_bin[-2:])
+    baseline = np.mean(num_pvals_per_bin[-3:-1])
     
     # then get the cumulative sum of pvalue dist
     p_cumsum = np.cumsum(num_pvals_per_bin)
