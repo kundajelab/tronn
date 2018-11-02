@@ -376,6 +376,9 @@ def add_train_parser(subparsers):
     group_model.add_argument(
         '--transfer_model_checkpoint', default=None,
         help='transfer from desired checkpoint') 
+    group_model.add_argument(
+        '--restore_model_checkpoint', default=None,
+        help='restore from desired checkpoint (in new dir)') 
     
     # group for parameters
     group_params = cmd_argparser.add_argument_group(
@@ -527,7 +530,7 @@ def _setup_interpretation_args(args):
     args.inference_params = {
         "inference_mode": True, # for estimator framework
         "model_reuse": True if args.model_framework == "tensorflow" else False,
-        "inference_fn": args.inference_fn,
+        "inference_fn_name": args.inference_fn,
         "importance_task_indices": args.inference_targets,
         "backprop": args.backprop,
         "pwms": args.pwm_list}
@@ -538,6 +541,12 @@ def _setup_interpretation_args(args):
 def _setup_scanmotifs_args(args):
     """given parsed args, adjust inputs as needed
     """
+    args.foreground_targets = _parse_to_key_and_indices(
+        args.foreground_targets)
+        
+    args.background_targets = _parse_to_key_and_indices(
+        args.background_targets)
+    
     args.background_filter_targets = _parse_to_key_and_indices(
         args.background_filter_targets)
 
@@ -580,7 +589,9 @@ def add_scanmotifs_parser(subparsers):
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
     _add_dataset_args(group_dataset)
-    group_dataset.add_argument(
+    # placeholder right now (to make downstream processing in interp equal)
+    # figure out how to remove?
+    group_dataset.add_argument( 
         "--processed_inputs", action="store_true",
         help="inputs are already preprocessed through some inference stack")
 
@@ -603,9 +614,21 @@ def add_scanmotifs_parser(subparsers):
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
         "Other options")
+    
+    group_other.add_argument(
+        "--foreground_targets", nargs="+",
+        help="which targets to use as foreground for calling motif enrichment")
+    group_other.add_argument(
+        "--background_targets", nargs="+",
+        help="which targets to use as background for calling motif enrichment. MUST MATCH FOREGROUND ORDER EXACTLY")
     group_other.add_argument(
         "--background_filter_targets", nargs="+", default=[],
-        help="targets to filter for background set of regions")
+        help="targets to filter for background set of regions") # these need to match exactly?
+    group_other.add_argument(
+        "--background_sample_multiplier", default=2,
+        help="Multiplicative factor for num examples in background to collect (ie, 2X the number of foreground)")
+    
+
     group_other.add_argument(
         "--cluster", action="store_true",
         help="run clustering")
