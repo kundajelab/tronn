@@ -86,39 +86,50 @@ def generate_signal_vals(
 def normalize_signal_vals(positive_h5_files, h5_files, key, new_key):
     """run some form of normalization to get values between 0 to 1
     """
-    # take a random set of positive h5 files to get signal range
-    signal_vals = []
+    # extract all positives and concat
+    full_signal_vals = []
     for h5_file in positive_h5_files:
         with h5py.File(h5_file, "r") as hf:
-            signal_vals.append(hf[key][:].flatten())
-    signal_vals = np.concatenate(signal_vals)
+            full_signal_vals.append(hf[key][:]) # {N, task}
+    full_signal_vals = np.concatenate(full_signal_vals, axis=0) # {N, task}
 
-    # asinh
-    #signal_vals = np.arcsinh(signal_vals)
+    # set up sorted mean and originals to interpolate
+    full_signal_vals = np.sort(full_signal_vals, axis=0)
+    full_signal_val_means = np.mean(full_signal_vals, axis=1)
     
-    # rescale according to 0.01 - 0.98 percentiles
-    #min_val = np.percentile(signal_vals, 1)
-    #max_val = np.percentile(signal_vals, 90)
-    
-    # then for each h5 file, adjust to have values between 0 to 1
+    # now use ranks to adjust values
     for h5_file in h5_files:
         with h5py.File(h5_file, "a") as hf:
-            # debug
-            #del hf[new_key]
-            
+            print h5_file
             signal_vals = hf[key][:]
-            # asinh
-            #signal_vals = np.arcsinh(signal_vals) # TODO adjust to log2
+            
+            # interpolate for each task
+            for i in xrange(signal_vals.shape[1]):
+                signal_vals[:,i] = np.interp(
+                    signal_vals[:,i],
+                    full_signal_vals[:,i],
+                    full_signal_val_means)
 
-            # use log2 for easy interpretability
+            if False:
+                # DEPRECATE LATER
+                
+                # sort and get average
+                new_signal_vals = np.mean(
+                    np.sort(signal_vals, axis=0), axis=1) # {N}
+            
+                # get indices sorted
+                sorted_indices = np.argsort(signal_vals, axis=0)
+            
+                # adjust values using the sorted indices to make life easy
+                signal_vals[sorted_indices, np.arange(signal_vals.shape[1])] = new_signal_vals[
+                    :, np.newaxis]
+
+            # and then log2
             signal_vals = np.log2(signal_vals)
             signal_vals[signal_vals < 0] = 0 # anything that is not FC > 1 should be zero
             signal_vals[~np.isfinite(signal_vals)] = 0
-            
-            # clip
-            #signal_vals = (signal_vals - min_val) / max_val
-            #signal_vals[signal_vals < 0.] = 0
-            #signal_vals[signal_vals > 1.] = 1.
+
+            # and save out
             if hf.get(new_key) is not None:
                 del hf[new_key]
             
