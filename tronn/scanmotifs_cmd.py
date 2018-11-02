@@ -17,9 +17,10 @@ from tronn.interpretation.clustering import visualize_clustered_outputs_R
 from tronn.interpretation.clustering import visualize_multikey_outputs_R
 
 from tronn.interpretation.motifs import extract_significant_pwms
+from tronn.interpretation.motifs import run_hypergeometric_test_on_motif_hits
+from tronn.interpretation.motifs import run_bootstrap_differential_score_test
+from tronn.interpretation.motifs import threshold_and_save_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
-
-from tronn.nets.nets import net_fns
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
@@ -52,20 +53,14 @@ def run(args):
     # set up model
     model_manager = setup_model_manager(args)
 
+    # add model to inference params
+    args.inference_params.update({"model": model_manager})
+    
     # set up inference generator
     inference_generator = model_manager.infer(
         input_fn,
         args.out_dir,
-        net_fns[args.inference_fn],
-        inference_params={
-            # TODO can we clean this up?
-            "model_fn": model_manager.model_fn,
-            "num_tasks": args.model["params"]["num_tasks"],
-            "use_filtering": False if args.data_format is not "hdf5" else True, # TODO do this better
-            #"use_filtering": False,
-            "backprop": args.backprop, # change this to importance_method
-            "importance_task_indices": args.inference_targets, #args.inference_task_indices,
-            "pwms": args.pwm_list},
+        args.inference_params,
         checkpoint=model_manager.model_checkpoint,
         yield_single_examples=True)
 
@@ -85,6 +80,104 @@ def run(args):
             results_h5_file,
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
+
+    # somewhere here need to run another file of negatives?
+    # a set of regions that are NOT positive in the desired set
+    # and match the number of regions that were extracted...
+    # add an arg to reuse a background if it was already generated
+    # --background_targets ATAC_LABELS=3,4,5,6
+    # background_sample_size = 4*sample_size
+    background_h5_file = "{0}/{1}.background.h5".format(
+        args.out_dir, args.prefix)
+    if not os.path.isfile(background_h5_file):
+        # set up new input fn
+        input_fn = data_loader.build_input_fn(
+            args.batch_size,
+            targets=args.targets,
+            target_indices=args.target_indices,
+            filter_targets=args.background_targets + args.background_filter_targets,
+            singleton_filter_targets=args.singleton_filter_targets,
+            use_queues=True)
+
+        # set up inference generator
+        inference_generator = model_manager.infer(
+            input_fn,
+            args.out_dir,
+            args.inference_params,
+            checkpoint=model_manager.model_checkpoint,
+            yield_single_examples=True)
+
+        # determine desired sample size
+        with h5py.File(results_h5_file, "r") as hf:
+            background_sample_size = args.background_sample_multiplier * hf[DataKeys.FEATURES].shape[0]
+        
+        # infer
+        model_manager.infer_and_save_to_h5(
+            inference_generator,
+            background_h5_file,
+            background_sample_size,
+            debug=args.debug)
+
+        # add in PWM names to the datasets
+        add_pwm_names_to_h5(
+            background_h5_file,
+            [pwm.name for pwm in args.pwm_list],
+            other_keys=[DataKeys.FEATURES])
+
+    # then bootstrap from the background set (GC matched) to get
+    # probability that summed motif hits in foreground is due to random chance
+    if False:
+        run_hypergeometric_test_on_motif_hits(
+            results_h5_file,
+            background_h5_file,
+            "TRAJ_LABELS",
+            #[0,7,8,9,10,11])
+            [12,13,14,1])
+
+    if True:
+        for i in xrange(len(args.foreground_targets)):
+
+            from tronn.interpretation.motifs import save_subset_patterns_to_txt
+
+            if True:
+                save_subset_patterns_to_txt(
+                    results_h5_file,
+                    args.foreground_targets[i])
+            
+            # get sig pwms
+            pvals = run_bootstrap_differential_score_test(
+                results_h5_file,
+                background_h5_file,
+                args.foreground_targets[i][0],
+                args.foreground_targets[i][1],
+                args.background_targets[i][0],
+                args.background_targets[i][1])
+
+            import ipdb
+            ipdb.set_trace()
+            
+            for traj_i in xrange(pvals.shape[0]):
+                out_pwm_file = "{}/{}.{}-{}.pwms.txt".format(
+                    args.out_dir,
+                    args.prefix,
+                    args.foreground_targets[i][0],
+                    args.foreground_targets[i][1][traj_i])
+                print out_pwm_file
+                threshold_and_save_pwms(
+                    pvals[traj_i],
+                    args.pwm_list,
+                    out_pwm_file,
+                    pval_thresh=0.05)
+            
+            # save out
+            import ipdb
+            ipdb.set_trace()
+    
+    quit()
+    
+
+    # return a PWM file with just significant PWMs for further analysis.
+    
         
     # run clustering analysis
     if args.cluster and not args.debug:
@@ -172,11 +265,11 @@ def run(args):
         pass
 
     # save out additional info to model json
-    args.model_info["pwm_file"] = args.pwm_file
-    args.model_info["inference_tasks"] = args.inference_tasks
-    args.model_info["backprop"] = args.backprop
+    args.model["pwm_file"] = args.pwm_file
+    args.model["inference_tasks"] = args.inference_tasks
+    args.model["backprop"] = args.backprop
     with open("{}/model_info.json".format(args.out_dir), "w") as fp:
-        json.dump(args.model_info, fp, sort_keys=True, indent=4)
+        json.dump(args.model, fp, sort_keys=True, indent=4)
 
     return None
 
