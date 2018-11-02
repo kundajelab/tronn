@@ -107,8 +107,13 @@ def run(args):
     # adjust for warm start as needed
     if args.transfer_model_checkpoint is not None:
         warm_start_params = {"skip": [DataKeys.LOGITS]}
+        warm_start_checkpoint = args.transfer_model_checkpoint
+    elif args.restore_model_checkpoint is not None:
+        warm_start_params = {}
+        warm_start_checkpoint = args.restore_model_checkpoint
     else:
         warm_start_params = {}
+        warm_start_checkpoint = None
         
     # train and evaluate
     best_checkpoint = model_manager.train_and_evaluate(
@@ -119,7 +124,7 @@ def run(args):
         early_stopping_metric=args.early_stopping_metric,
         train_steps=None,
         eval_steps=int(1000. * 512 / args.batch_size),
-        warm_start=args.transfer_model_checkpoint,
+        warm_start=warm_start_checkpoint,
         warm_start_params=warm_start_params,
         regression=args.regression,
         model_summary_file=model_log,
