@@ -13,6 +13,6 @@ if __name__== "__main__":
         license="MIT",
         install_requires=["numpy", "tensorflow-gpu", "six"],
         packages=find_packages(),
-        package_data={"tronn":"data/*.json"},
-        scripts=['bin/tronn'] + glob.glob("R/*.R")
+        #package_data={"tronn":"data/*.json"},
+        scripts=['bin/tronn'] + glob.glob("R/*.R") + glob.glob("scripts/*py")
     )
