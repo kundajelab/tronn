@@ -49,6 +49,9 @@ from tronn.visualization import visualize_debug
 from tronn.util.utils import DataKeys
 from tronn.util.formats import write_to_json
 
+from tronn.util.tf_utils import setup_tensorflow_session
+from tronn.util.tf_utils import close_tensorflow_session
+
         
 _TRAIN_PHASE = "train"
 _EVAL_PHASE = "eval"
@@ -835,6 +838,67 @@ class ModelManager(object):
         finally:
             h5_handler.flush()
             h5_handler.chomp_datasets()
+        
+        return None
+
+    
+    def extract_model_variables(
+            self,
+            input_fn,
+            out_dir,
+            prefix,
+            skip=["logit", "out"]):
+        """extract params from existing model fn and checkpoint into npz
+        """
+        with tf.Graph().as_default():
+
+            # set up inputs
+            inputs = input_fn()[0]
+            
+            # build model fn
+            self.model_params.update({"is_training": False})
+            outputs, _ = self.model_fn(inputs, self.model_params)
+
+            # get trainable variables (ie, the model variables)
+            all_trainable_variables = tf.trainable_variables()
+            
+            # choose which variables to extract
+            trainable_variables = []
+            for v in all_trainable_variables:
+                skip_var = False
+                for skip_expr in skip:
+                    if skip_expr in v.name:
+                        skip_var = True
+                if not skip_var:
+                    trainable_variables.append(v)
+
+            # run a session
+            sess, coord, threads = setup_tensorflow_session()
+
+            # load model back into graph
+            init_assign_op, init_feed_dict = restore_variables_op(
+                self.model_checkpoint, skip=skip)
+            sess.run(init_assign_op, init_feed_dict)
+            
+            # and extract params
+            trainable_variables_numpy = sess.run(trainable_variables)
+            
+            # close session
+            close_tensorflow_session(coord, threads)
+
+        # set up as dictionary
+        variables_dict = {}
+        variables_order = []
+        for v_idx in xrange(len(trainable_variables)):
+            variable_name = "{}.{}".format(v_idx, trainable_variables[v_idx].name)
+            variables_dict[variable_name] = trainable_variables_numpy[v_idx]
+            variables_order.append(variable_name)
+        variables_dict["variables_order"] = np.array(variables_order)
+
+        # and save out to numpy array
+        np.savez(
+            "{}/{}.model_variables.npz".format(out_dir, prefix),
+            **variables_dict)
         
         return None
 
