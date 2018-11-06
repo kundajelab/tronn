@@ -7,6 +7,7 @@ import math
 import logging
 
 import numpy as np
+import pandas as pd
 
 from numpy.random import RandomState
 
@@ -167,6 +168,9 @@ def save_subset_patterns_to_txt(
         pwm_names_key=AttrKeys.PWM_NAMES):
     """save out trajectory patterns to txt file (for filtering and vis)
     """
+    # use h5 file to prefix the outputs
+    prefix = results_h5_file.split(".h5")[0]
+    
     with h5py.File(results_h5_file, "r") as hf:
         targets = hf[subset_targets[0]][:]
         pwm_scores = hf[pwm_scores_key][:]
@@ -178,32 +182,22 @@ def save_subset_patterns_to_txt(
 
     if len(subset_targets[1]) != 0:
         targets = targets[:,subset_targets[1]]
-
-    import ipdb
-    ipdb.set_trace()
         
     for subset_idx in xrange(targets.shape[1]):
         # filter
         subset_indices = np.where(targets[:,subset_idx] > 0)[0]
+        subset_scores = np.sum(
+            pwm_scores[subset_indices], axis=0).transpose()
+        scores_df = pd.DataFrame(
+            data=subset_scores,
+            index=pwm_names)
 
-        subset_scores = pwm_scores[subset_indices]
-        subset_hits = pwm_hits[subset_indices]
-
-        subset_scores_norm = np.mean(
-            np.divide(
-                subset_scores,
-                subset_hits,
-                out=np.zeros_like(subset_scores),
-                where=subset_hits!=0),
-            axis=0)
-
-        # use h5 file to prefix the outputs
-        
-    import ipdb
-    ipdb.set_trace()
-        
-    # score - score per hit?
-
+        # save out
+        out_file = "{}.{}-{}.pwm_scores.txt".format(
+            prefix,
+            subset_targets[0],
+            subset_targets[1][subset_idx])
+        scores_df.to_csv(out_file, sep="\t")
     
     return
 
@@ -246,6 +240,7 @@ def run_bootstrap_differential_score_test(
     raw_pvals = np.ones([foreground_targets.shape[1]] + list(foreground_hits.shape[1:]))
     positive_hits_summary = np.zeros(raw_pvals.shape)
     for foreground_idx in xrange(foreground_targets.shape[1]):
+        print "Running foreground {}".format(foreground_idx)
         
         # get foreground and foreground GC
         current_foreground_indices = np.where(
@@ -256,7 +251,8 @@ def run_bootstrap_differential_score_test(
         # now here need to drop down another level to get different backgrounds
         # per cell state
         for task_idx in xrange(current_foreground_hits.shape[1]):
-
+            print "Running task {}".format(task_idx)
+            
             # get subset
             task_foreground_hits = current_foreground_hits[:,task_idx] # {N, M}
             
@@ -292,10 +288,16 @@ def run_bootstrap_differential_score_test(
 
             # and then determine how often the diff is 0 or less
             raw_pvals[foreground_idx, task_idx] = np.mean(score_minus_background <= 0, axis=0)
-
-        import ipdb
-        ipdb.set_trace()
             
+    # and save the pvals to the h5 file
+    with h5py.File(foreground_h5_file, "a") as hf:
+        out_key = "{}/{}".format(DataKeys.PWM_PVALS, foreground_targets_key)
+        if hf.get(out_key) is not None:
+            del hf[out_key]
+        hf.create_dataset(out_key, data=raw_pvals)
+        hf[out_key].attrs[AttrKeys.TASK_INDICES] = foreground_targets_indices
+        hf[DataKeys.PWM_PVALS].attrs[AttrKeys.PWM_NAMES] = pwm_names
+    
     return raw_pvals
 
 
