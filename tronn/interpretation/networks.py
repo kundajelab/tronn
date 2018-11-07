@@ -5,6 +5,7 @@ import re
 import h5py
 import copy
 import glob
+import logging
 
 import numpy as np
 import pandas as pd
@@ -24,8 +25,9 @@ class Node(object):
         if "examples" in self.attrs.keys():
             self.attrs["num_examples"] = len(self.attrs["examples"])
 
-        
+            
     def get_tuple(self):
+        # important for conversion to gml
         return (self.name, self.attrs)
 
     
@@ -43,6 +45,7 @@ class DirectedEdge(object):
 
         
     def get_tuple(self):
+        # import for conversion to gml
         return (self.start_node_name, self.end_node_name, self.attrs)
 
     
@@ -60,8 +63,21 @@ class MotifGraph(object):
         self.edges = list(edges)
         self.propagated = propagated
         self.attrs = {} # graph attributes
+
+        # update attrs with initial example set across nodes and edges
+        self.attrs["examples"] = nodes[0].attrs.get("examples", set())
+        for node in self.nodes:
+            self.attrs["examples"] = self.attrs["examples"].intersection(
+                node.attrs["examples"])
+        for edge in self.edges:
+            self.attrs["examples"] = self.attrs["examples"].intersection(
+                edge.attrs["examples"])
+            
+        # keep these! update local copies of examples,
+        # that way when combining can just sum each.
         self.node_attrs = {} # "local" copy of attributes to adjust as needed
         self.edge_attrs = {} # "local" copy of attributes to adjust as needed
+        
         # copy node attrs from nodes
         for node in self.nodes:
             self.node_attrs[node.name] = copy.deepcopy(node.attrs)
@@ -152,19 +168,24 @@ class MotifGraph(object):
         return node_edges
 
 
-    # TODO maybe deprecate this? or adjust - this doesnt serve a purpose anymore
-    def get_leaf_nodes(self):
-        """extract all nodes with no OUT edges
+    def update_examples(self, examples):
+        """update across graph
         """
-        leaf_node_names = []
-        for node in self.nodes:
-            edges = self.get_node_out_edges(node.name)
-            if len(edges) == 0:
-                leaf_node_names.append(node.name)
-                
-        return leaf_node_names
+        # update the graph
+        self.attrs["examples"] = examples
 
+        # update node attrs
+        for node_name in self.node_attrs.keys():
+            self.node_attrs[node_name]["examples"] = examples
 
+        # update edge attrs
+        for edge_name in self.edge_attrs.keys():
+            self.edge_attrs[edge_name]["examples"] = examples
+
+        return None
+            
+    
+    # deprecate this
     def get_covered_region_set(self):
         """for the corrected (all info fully propagated) graph,
         go to leafs and collect all regions
@@ -179,7 +200,7 @@ class MotifGraph(object):
             
         return region_num, region_set
 
-
+    
     def update_node_examples(self, node_name, examples):
         """update node attrs
         """
@@ -188,7 +209,7 @@ class MotifGraph(object):
 
         return None
 
-    
+
     def update_edge_examples(self, edge_name, examples):
         """update node attrs
         """
@@ -197,7 +218,7 @@ class MotifGraph(object):
 
         return None
     
-    
+    # deprecate this
     def propagate_up(
             self, node_name, examples, seen_nodes=[]):
         """from a starting node, propagate up and
@@ -223,7 +244,7 @@ class MotifGraph(object):
 
         return seen_nodes
 
-    
+    # deprecate this
     def propagate_down(
             self, node_name, examples, seen_nodes=[]):
         """from a starting node, propagate up and
@@ -248,7 +269,7 @@ class MotifGraph(object):
                 
         return seen_nodes
 
-
+    # deprecate this
     def update_examples_and_propagate(self, edge, update_type="synergistic"):
         """update the graph based on addition of internal edge
         """
@@ -313,6 +334,152 @@ class MotifGraph(object):
         return None
 
 
+def build_nodes(
+        sig_pwms,
+        pwm_names,
+        nodes=[],
+        effects_mat=None,
+        indexing_key="driver_idx"):
+    """helper function to build a nodes list
+    use to build perturb nodes and response nodes
+    
+    Args:
+      sig_pwms: np bool vector of whether the pwm is significant or not {M}
+      pwm_names: list of the pwm names
+      effects_mat: np array of effects per example {N, M}
+      nodes: node list, if it already exists
+    
+    Returns:
+      nodes: updated list of nodes
+    """
+    assert sig_pwms.shape[0] == len(pwm_names)
+    
+    # go through pwms
+    pwm_indices = np.where(sig_pwms !=0)[0]
+    for pwm_idx in pwm_indices:
+        pwm_name = pwm_names[pwm_idx]
+        
+        # first create node or find it as needed
+        if pwm_name not in [node.name for node in nodes]:
+            node = Node(pwm_name, {indexing_key: pwm_idx})
+            nodes.append(node)
+        else:
+            for old_node_idx in xrange(len(nodes)):
+                if nodes[old_node_idx].name == pwm_name:
+                    node = nodes[old_node_idx]
+                    break
+                
+        # update node
+        node.attrs[indexing_key] = pwm_idx
+        if effects_mat is not None:
+            node.attrs["examples"] = set(np.where(effects_mat[:,pwm_idx] != 0)[0].tolist())
+
+    return nodes
+
+
+    
+def build_co_occurrence_graph(
+        h5_file,
+        sig_pwms_key,
+        targets_key,
+        target_idx,
+        data_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
+        sig_pwms_h5_file=None,
+        sig_only=True,
+        min_positive=2,
+        min_co_occurring_num=500,
+        min_co_occurring_fract=0.15):
+    """
+    """
+    # load in sig pwms
+    if sig_pwms_h5_file is None:
+        sig_pwms_h5_file = h5_file
+    with h5py.File(sig_pwms_h5_file, "r") as hf:
+        sig_pwms = hf[sig_pwms_key][:] # {M}
+        
+    # load in scores
+    with h5py.File(h5_file, "r") as hf:
+        scores = hf[data_key][:] # {N, task, M}
+        targets = hf[targets_key][:] # {N, task}
+        pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
+    
+    # set up effects mat
+    score_indices = np.where(targets[:,target_idx] > 0)[0] # NOTE this has to be used for everything!
+    scores = scores[score_indices]
+    effects_mat = np.sum(scores > 0, axis=1) >= min_positive
+
+    # first set up driver nodes
+    num_drivers = np.sum(sig_pwms)
+    nodes = build_nodes(
+        sig_pwms,
+        pwm_names,
+        nodes=[],
+        effects_mat=effects_mat,
+        indexing_key="driver_idx")
+    
+    # then set up response nodes
+    num_responders = np.sum(sig_pwms)
+    if sig_only:
+        nodes = build_nodes(
+            sig_pwms,
+            pwm_names,
+            nodes=nodes,
+            indexing_key="responder_idx")
+
+    logging.info("Built {} nodes".format(len(nodes)))
+
+    # edges go through nodes and see if co-occurring motifs in a min number of regions
+    edges = []
+    #min_co_occurring_num = max(
+    #    int(min_co_occurring_fract * scores.shape[0]),
+    #    min_co_occurring_num)
+    for driver_node in nodes:
+        if driver_node.attrs.get("driver_idx") is None:
+            continue
+        
+        for responder_node in nodes:
+            if responder_node.attrs.get("responder_idx") is None:
+                continue
+
+            # do not add if the reverse already exists (undirected graph)
+            edge_exists = False
+            for edge in edges:
+                if "{}_{}".format(responder_node.name, driver_node.name) in edge.name:
+                    edge_exists = True
+            if edge_exists:
+                continue
+
+            # do not add if same node
+            if driver_node.name == responder_node.name:
+                continue
+                
+            # get overlap
+            co_occurring_examples = driver_node.attrs["examples"].intersection(
+                responder_node.attrs["examples"])
+
+            # check that conditions met
+            if len(co_occurring_examples) < min_co_occurring_num:
+                continue
+            
+            # build edge with co-occurrence info
+            edge = DirectedEdge(
+                driver_node.name,
+                responder_node.name,
+                attrs={"examples": co_occurring_examples})
+            edges.append(edge)
+            
+    logging.info("Built {} edges with min support {} regions each".format(
+        len(edges), min_co_occurring_num))
+            
+    # and put together into a graph
+    graph = MotifGraph(nodes, edges)
+
+    # save out edge support info
+    graph.attrs["min_edge_support"] = min_co_occurring_num
+
+    return graph
+
+    
     
 def get_subgraphs(
         graph,
@@ -330,7 +497,7 @@ def get_subgraphs(
     if k == 1:
         return []
 
-    # get relevant edges
+    # get edges that can connect to subgraph but do not yet exist
     edges = []
     for edge in graph.edges:
         if edge in subgraph.edges:
@@ -339,16 +506,24 @@ def get_subgraphs(
             edges.append(edge)
         elif edge.end_node_name in subgraph.node_names:
             edges.append(edge)
-    
-    # consider all edges at the same time
+            
+    # go through each edge and add
     new_subgraphs = []
     for edge in edges:
+
+        # extract examples and intersect
         edge_examples = edge.attrs["examples"]
+        intersected_examples = subgraph.attrs["examples"].intersection(
+            edge_examples)
+
+        # check conditions
+        if len(intersected_examples) < min_region_count:
+            continue
         
         # check if internal and not seen already
         if (edge.start_node_name in subgraph.node_names) and (edge.end_node_name in subgraph.node_names):
             new_subgraph = subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
+            new_subgraph.update_examples(intersected_examples)
             new_subgraphs.append(new_subgraph)
                 
         # check if edge adds new child node into subgraph
@@ -356,9 +531,9 @@ def get_subgraphs(
             new_subgraph = subgraph.add_node(
                 graph.get_node_by_id(edge.end_node_name))
             new_subgraph = new_subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
-
+            new_subgraph.update_examples(intersected_examples)
             new_subgraphs.append(new_subgraph)
+            
             new_subgraphs += get_subgraphs(
                 graph, new_subgraph, k-1, min_region_count=min_region_count)
 
@@ -367,9 +542,9 @@ def get_subgraphs(
             new_subgraph = subgraph.add_node(
                 graph.get_node_by_id(edge.start_node_name))
             new_subgraph = new_subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
-            
+            new_subgraph.update_examples(intersected_examples)
             new_subgraphs.append(new_subgraph)
+            
             new_subgraphs += get_subgraphs(
                 graph, new_subgraph, k-1, min_region_count=min_region_count)
 
@@ -383,7 +558,7 @@ def get_subgraphs(
     # now check to make sure they pass criteria
     filtered_subgraphs = []
     for subgraph in new_subgraphs:
-        region_num, _ = subgraph.get_covered_region_set()
+        region_num = len(subgraph.attrs["examples"])
         if region_num > min_region_count:
             filtered_subgraphs.append(subgraph)
 
@@ -428,7 +603,7 @@ def get_subgraphs_and_filter(
     # 2) now more stringent region number check
     filtered_subgraphs = []
     for subgraph in subgraphs:
-        region_num, _ = subgraph.get_covered_region_set()
+        region_num = len(subgraph.attrs["examples"])
         if region_num > min_region_count:
             filtered_subgraphs.append(subgraph)
     print "After second size filter with size > {}: {}".format(
@@ -441,8 +616,8 @@ def get_subgraphs_and_filter(
         differs = True
         for j in xrange(len(filtered_subgraphs)):
             # get examples
-            _, examples_i = subgraphs[i].get_covered_region_set()
-            _, examples_j = filtered_subgraphs[j].get_covered_region_set()
+            examples_i = subgraphs[i].attrs["examples"]
+            examples_j = filtered_subgraphs[j].attrs["examples"]
             # calculate jaccard index
             intersect = examples_i.intersection(examples_j)
             union = examples_i.union(examples_j)
@@ -625,6 +800,8 @@ def get_motif_hierarchies(
     # put into network
     graph = MotifGraph(nodes, edges)
 
+    # split here?
+    
     # get subgraphs
     subgraphs = get_subgraphs_and_filter(
         graph,

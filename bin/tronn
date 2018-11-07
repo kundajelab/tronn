@@ -38,6 +38,10 @@ def parse_args():
 
     # command for dmim scan
     add_dmim_parser(subparsers)
+    
+    # command for network analysis
+    # NOTE: this applies to stuff coming from scanmotifs and dmim
+    add_buildgrammars_parser(subparsers)
 
     # command for synergy scan
     add_synergy_parser(subparsers)
@@ -543,12 +547,14 @@ def _setup_scanmotifs_args(args):
     """
     args.foreground_targets = _parse_to_key_and_indices(
         args.foreground_targets)
-        
-    args.background_targets = _parse_to_key_and_indices(
-        args.background_targets)
-    
-    args.background_filter_targets = _parse_to_key_and_indices(
-        args.background_filter_targets)
+
+    if args.background_targets is not None:
+        args.background_targets = _parse_to_key_and_indices(
+            args.background_targets)
+
+    if args.background_filter_targets is not None:
+        args.background_filter_targets = _parse_to_key_and_indices(
+            args.background_filter_targets)
 
     return
 
@@ -619,6 +625,11 @@ def add_scanmotifs_parser(subparsers):
         "--foreground_targets", nargs="+",
         help="which targets to use as foreground for calling motif enrichment")
     group_other.add_argument(
+        "--background_scores",
+        help="h5 file of background scores")
+
+    
+    group_other.add_argument(
         "--background_targets", nargs="+",
         help="which targets to use as background for calling motif enrichment. MUST MATCH FOREGROUND ORDER EXACTLY")
     group_other.add_argument(
@@ -644,6 +655,44 @@ def add_scanmotifs_parser(subparsers):
         '--tmp_dir',
         help='temporary scratch directory as needed')
 
+    return
+
+
+def add_buildgrammars_parser(subparsers):
+    """build grammars from motif scores or mutational results
+    """
+    cmd_argparser = subparsers.add_parser(
+        "buildgrammars",
+        help="build grammars from scanning results (motif or mutational)")
+
+    # group for type
+    group_analysis = cmd_argparser.add_argument_group(
+        "Grammar build type")
+    group_analysis.add_argument(
+        "--scan_type", default="dmim",
+        help="type of results being used")
+    
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    group_dataset.add_argument(
+        "--scan_file", required=True,
+        help="h5 file of scan results")
+    group_dataset.add_argument(
+        "--scan_key",
+        help="dataset key with scores") # either motifs {N, task, M} or dmim {N, mutM, task, M}, with dmim need to consider outputs logits {N, mutM, logits}
+    group_dataset.add_argument(
+        "--sig_pwms_file",
+        help="if this arg is used, pvals will be used from here and not from scan file")
+    group_dataset.add_argument(
+        "--sig_pwms_key",
+        help="which dataset group has the sig pwm vectors")
+    
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    _add_output_args(group_output, out_dir="grammars")
+    
     return
 
 
@@ -1033,6 +1082,9 @@ def main():
         _setup_interpretation_args(args)
         _setup_visualization_args(args)
         from tronn.dmim_cmd import run
+        run(args)
+    elif subcommand == "buildgrammars":
+        from tronn.buildgrammars_cmd import run
         run(args)
     elif subcommand == "synergy":
         _setup_dataset_args(args)
