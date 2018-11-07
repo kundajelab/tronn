@@ -161,46 +161,6 @@ def run_hypergeometric_test_on_motif_hits(
     return pvals
 
 
-def save_subset_patterns_to_txt(
-        results_h5_file,
-        subset_targets,
-        pwm_scores_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
-        pwm_names_key=AttrKeys.PWM_NAMES):
-    """save out trajectory patterns to txt file (for filtering and vis)
-    """
-    # use h5 file to prefix the outputs
-    prefix = results_h5_file.split(".h5")[0]
-    
-    with h5py.File(results_h5_file, "r") as hf:
-        targets = hf[subset_targets[0]][:]
-        pwm_scores = hf[pwm_scores_key][:]
-        pwm_hits = pwm_scores > 0
-        pwm_names = hf[pwm_scores_key].attrs[pwm_names_key]
-
-        logits = hf["logits"][:]
-        labels = hf["ATAC_SIGNALS.NORM"][:]
-
-    if len(subset_targets[1]) != 0:
-        targets = targets[:,subset_targets[1]]
-        
-    for subset_idx in xrange(targets.shape[1]):
-        # filter
-        subset_indices = np.where(targets[:,subset_idx] > 0)[0]
-        subset_scores = np.sum(
-            pwm_scores[subset_indices], axis=0).transpose()
-        scores_df = pd.DataFrame(
-            data=subset_scores,
-            index=pwm_names)
-
-        # save out
-        out_file = "{}.{}-{}.pwm_scores.txt".format(
-            prefix,
-            subset_targets[0],
-            subset_targets[1][subset_idx])
-        scores_df.to_csv(out_file, sep="\t")
-    
-    return
-
 def run_bootstrap_differential_score_test(
         foreground_h5_file,
         background_h5_file,
@@ -221,7 +181,8 @@ def run_bootstrap_differential_score_test(
     with h5py.File(background_h5_file, "r") as hf:
         background_targets = hf[background_targets_key][:]
         background_gc = hf[gc_key][:]
-        background_hits = (hf[pwm_hits_key][:] != 0).astype(int)
+        #background_hits = (hf[pwm_hits_key][:] != 0).astype(int)
+        background_hits = hf[pwm_hits_key][:]
     if len(background_targets_indices) != 0:
         background_targets = background_targets[:,background_targets_indices]
         
@@ -229,7 +190,8 @@ def run_bootstrap_differential_score_test(
     with h5py.File(foreground_h5_file, "r") as hf:
         foreground_targets = hf[foreground_targets_key][:]
         foreground_gc = hf[gc_key][:]
-        foreground_hits = (hf[pwm_hits_key][:] != 0).astype(int)
+        #foreground_hits = (hf[pwm_hits_key][:] != 0).astype(int)
+        foreground_hits = hf[pwm_hits_key][:]
         pwm_names = hf[pwm_hits_key].attrs[pwm_names_key]
     if len(foreground_targets_indices) != 0:
         foreground_targets = foreground_targets[:,foreground_targets_indices]
@@ -256,7 +218,7 @@ def run_bootstrap_differential_score_test(
             # get subset
             task_foreground_hits = current_foreground_hits[:,task_idx] # {N, M}
             
-            # set up background set
+            # set up background set - only draw from positives!
             task_background_indices = np.where(
                 background_targets[:,task_idx] > 0)[0]
             task_background_hits = background_hits[task_background_indices][:,task_idx] # {N, M}
@@ -299,25 +261,6 @@ def run_bootstrap_differential_score_test(
         hf[DataKeys.PWM_PVALS].attrs[AttrKeys.PWM_NAMES] = pwm_names
     
     return raw_pvals
-
-
-
-def threshold_and_save_pwms(pvals, pwm_list, out_file, pval_thresh=0.05, qval_thresh=0.05):
-    """assumes you're taking in a reduced set, produces ONE pwm file
-    """
-    pass_qval_thresh = threshold_by_qvalues(
-        pvals, qval_thresh=qval_thresh, num_bins=50)
-    pass_qval_thresh = np.any(pass_qval_thresh, axis=0) # {M}
-
-    import ipdb
-    ipdb.set_trace()
-    
-    for i in xrange(len(pwm_list)):
-        if pass_qval_thresh[i]:
-            pwm_list[i].to_motif_file(out_file)
-    
-    return None
-
 
 
 def select_pwms_by_permutation_test_and_reduce(
