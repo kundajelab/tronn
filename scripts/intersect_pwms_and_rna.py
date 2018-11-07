@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from scipy.stats import pearsonr
+from scipy.stats import spearmanr
 
 from tronn.stats.nonparametric import threshold_by_qvalues
 
@@ -56,8 +57,11 @@ def parse_args():
         "--pwm_metadata_hgnc_col_key", default="expressed_hgnc",
         help="which column has the TF presence information")
     parser.add_argument(
-        "--qval_thresh", default=0.05,
+        "--qval_thresh", default=0.05, type=float,
         help="qval threshold")
+    parser.add_argument(
+        "--cor_thresh", default=0.70, type=float,
+        help="pwm score/rna expression correlation threshold")
     
     # for second stage
     parser.add_argument(
@@ -244,7 +248,10 @@ def main():
             pwms_for_matching["pwm_names"] = pwms_for_matching.index
 
             # filter for those that are sig
-            passes_sig_filter = np.all(pass_expr_filter[foreground_idx], axis=0)
+            if False:
+                passes_sig_filter = np.all(pass_expr_filter[foreground_idx], axis=0) # this is from previous step, separate?
+            else:
+                passes_sig_filter = np.any(pass_expr_filter[foreground_idx], axis=0) # this is from previous step, separate?
             pass_indices = np.where(passes_sig_filter)[0]
             pwms_for_matching = pwms_for_matching.iloc[pass_indices]
             
@@ -286,12 +293,23 @@ def main():
             for i in xrange(pwm_rna_correlations.shape[0]):
                 corr_coef, pval = pearsonr(
                     pwm_patterns.values[i], matched_rna.values[i])
+                #corr_coef, pval = spearmanr(
+                #    pwm_patterns.values[i], matched_rna.values[i])
                 pwm_rna_correlations[i] = corr_coef
 
+            # filter for correlation
+            if args.cor_thresh is not None:
+                good_cor = pwm_rna_correlations >= args.cor_thresh
+
+                pwm_patterns = pwm_patterns.iloc[good_cor]
+                matched_rna = matched_rna.iloc[good_cor]
+                pwms_for_matching_expanded = pwms_for_matching_expanded.iloc[good_cor]
+                pwm_rna_correlations = pwm_rna_correlations[good_cor]
+            
             # and make a sig pwms vector
             sig_pwms = np.zeros((pwm_scores.shape[2])).astype(int)
             sig_pwms[pwms_for_matching_expanded["original_indices"].values] = 1
-                
+            
             # finally, all of this needs to be saved out
             _PREFIX_KEY = "{}/{}".format(_CORR_GROUP_KEY, prefix)
             _PWM_SIG_KEY = "{}/pwms.sig".format(_PREFIX_KEY)
