@@ -797,12 +797,18 @@ class H5DataLoader(DataLoader):
             num_examples = h5_handle[example_key].shape[0]
             
             for key in keys:
+                # check if actually a dataset (vs hdf5 group)
+                if not isinstance(h5_handle[key], h5py.Dataset):
+                    skip_keys.append(key)
+                    continue
                 # check if scalar
                 if h5_handle[key].shape == 0:
                     skip_keys.append(key)
+                    continue
                 # check if different shape
                 if h5_handle[key].shape[0] != num_examples:
                     skip_keys.append(key)
+                    continue
             # filter the keys
             clean_keys = [
                 key for key in sorted(h5_handle.keys())
