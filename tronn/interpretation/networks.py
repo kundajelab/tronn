@@ -45,7 +45,7 @@ class DirectedEdge(object):
 
         
     def get_tuple(self):
-        # import for conversion to gml
+        # important for conversion to gml
         return (self.start_node_name, self.end_node_name, self.attrs)
 
     
@@ -183,122 +183,7 @@ class MotifGraph(object):
             self.edge_attrs[edge_name]["examples"] = examples
 
         return None
-            
     
-    # deprecate this
-    def get_covered_region_set(self):
-        """for the corrected (all info fully propagated) graph,
-        go to leafs and collect all regions
-        """
-        leaf_node_names = self.get_leaf_nodes()
-        region_set = set([])
-        for node_name in leaf_node_names:
-            region_set = region_set.union(
-                self.node_attrs[node_name]["examples"])
-
-        region_num = len(region_set)
-            
-        return region_num, region_set
-
-    
-    def update_node_examples(self, node_name, examples):
-        """update node attrs
-        """
-        self.node_attrs[node_name]["examples"] = set(examples)
-        self.node_attrs[node_name]["num_examples"] = len(examples)
-
-        return None
-
-
-    def update_edge_examples(self, edge_name, examples):
-        """update node attrs
-        """
-        self.edge_attrs[edge_name]["examples"] = set(examples)
-        self.edge_attrs[edge_name]["num_examples"] = len(examples)
-
-        return None
-    
-    # deprecate this
-    def propagate_up(
-            self, node_name, examples, seen_nodes=[]):
-        """from a starting node, propagate up and
-        adjust graph attributes
-        """
-        # get parent node ids
-        parent_node_names = []
-        in_edges = self.get_node_in_edges(node_name)
-        for edge in in_edges:
-            # update edge examples
-            self.update_edge_examples(edge.name, examples)
-            # update parent node examples
-            if edge.start_node_name not in seen_nodes:
-                self.update_node_examples(edge.start_node_name, examples)
-                seen_nodes.append(edge.start_node_name)
-                parent_node_names.append(edge.start_node_name)
-        # and then propagate
-        for parent_node_name in parent_node_names:
-            seen_nodes = self.propagate_up(
-                parent_node_name,
-                examples,
-                seen_nodes=seen_nodes)
-
-        return seen_nodes
-
-    # deprecate this
-    def propagate_down(
-            self, node_name, examples, seen_nodes=[]):
-        """from a starting node, propagate up and
-        adjust each node using transform fn
-        """
-        # get parent node ids
-        child_node_names = []
-        out_edges = self.get_node_out_edges(node_name)
-        for edge in out_edges:
-            # update edge examples
-            self.update_edge_examples(edge.name, examples)
-            # update child node examples
-            if edge.end_node_name not in seen_nodes:
-                self.update_node_examples(edge.end_node_name, examples)
-                seen_nodes.append(edge.end_node_name)
-                child_node_names.append(edge.end_node_name)
-        for child_node_name in child_node_names:
-            seen_nodes = self.propagate_down(
-                child_node_name,
-                examples,
-                seen_nodes=seen_nodes)
-                
-        return seen_nodes
-
-    # deprecate this
-    def update_examples_and_propagate(self, edge, update_type="synergistic"):
-        """update the graph based on addition of internal edge
-        """
-        assert edge.start_node_name in self.node_names
-        assert edge.end_node_name in self.node_names
-        
-        # get examples that have desired effects
-        if update_type == "synergistic":
-            edge_examples = edge.attrs["examples"]
-            edge_examples = edge_examples.intersection(
-                self.node_attrs[edge.start_node_name]["examples"])
-            edge_examples = edge_examples.intersection(
-                self.node_attrs[edge.end_node_name]["examples"])
-        elif update_type == "overlap":
-            edge_examples = self.node_attrs[edge.start_node_name]["examples"].intersection(
-                self.node_attrs[edge.end_node_name]["examples"])
-        else:
-            raise TypeError, "no such update type"
-
-        # update edges
-        for edge in self.edges:
-            self.update_edge_examples(edge.name, edge_examples)
-
-        # update nodes
-        for node in self.nodes:
-            self.update_node_examples(node.name, edge_examples)
-
-        return None
-
 
     def write_gml(self, gml_file):
         """write out the gml file
@@ -334,11 +219,40 @@ class MotifGraph(object):
         return None
 
 
+def write_to_bed(
+        subgraph,
+        example_metadata,
+        bed_file,
+        interval_key="active"):
+    """convenience function to take indices, convert to regions,
+    and save out as a bed file.
+
+    NOTE THAT INDICES MUST MATCH THE EXAMPLE METADATA ORDER
+    """
+    subgraph_examples = sorted(list(subgraph.attrs["examples"]))
+    grammar_metadata = example_metadata[grammar_examples,0].tolist()
+    with open(bed_file, "w") as fp:
+        for region_metadata in grammar_metadata:
+            interval_types = region_metadata.split(";")
+            interval_types = dict([
+                interval_type.split("=")[0:1]
+                for interval_type in interval_types])
+            interval_string = interval_types[interval_key]
+            
+            chrom = interval_string.split(":")[0]
+            start = interval_string.split(":")[1].split("-")[0]
+            stop = interval_string.split("-")[1]
+            fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
+    
+    return None
+    
+
 def build_nodes(
         sig_pwms,
         pwm_names,
         nodes=[],
         effects_mat=None,
+        original_indices=None,
         indexing_key="driver_idx"):
     """helper function to build a nodes list
     use to build perturb nodes and response nodes
@@ -372,71 +286,24 @@ def build_nodes(
         # update node
         node.attrs[indexing_key] = pwm_idx
         if effects_mat is not None:
-            node.attrs["examples"] = set(np.where(effects_mat[:,pwm_idx] != 0)[0].tolist())
+            indices_from_effects = np.where(effects_mat[:,pwm_idx] != 0)[0]
+            true_indices = original_indices[indices_from_effects]
+            node.attrs["examples"] = set(true_indices.tolist())
+
+    logging.info("Built {} nodes".format(len(nodes)))
 
     return nodes
 
 
-    
-def build_co_occurrence_graph(
-        h5_file,
-        sig_pwms_key,
-        targets_key,
-        target_idx,
-        data_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
-        sig_pwms_h5_file=None,
-        sig_only=True,
-        min_positive=2,
-        min_co_occurring_num=500,
-        min_co_occurring_fract=0.15):
+def build_edges_by_example_intersect(
+        nodes,
+        min_co_occurring_num):
+    """build co-occurrence edges
     """
-    """
-    # load in sig pwms
-    if sig_pwms_h5_file is None:
-        sig_pwms_h5_file = h5_file
-    with h5py.File(sig_pwms_h5_file, "r") as hf:
-        sig_pwms = hf[sig_pwms_key][:] # {M}
-        
-    # load in scores
-    with h5py.File(h5_file, "r") as hf:
-        scores = hf[data_key][:] # {N, task, M}
-        targets = hf[targets_key][:] # {N, task}
-        pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
-    
-    # set up effects mat
-    score_indices = np.where(targets[:,target_idx] > 0)[0] # NOTE this has to be used for everything!
-    scores = scores[score_indices]
-    effects_mat = np.sum(scores > 0, axis=1) >= min_positive
-
-    # first set up driver nodes
-    num_drivers = np.sum(sig_pwms)
-    nodes = build_nodes(
-        sig_pwms,
-        pwm_names,
-        nodes=[],
-        effects_mat=effects_mat,
-        indexing_key="driver_idx")
-    
-    # then set up response nodes
-    num_responders = np.sum(sig_pwms)
-    if sig_only:
-        nodes = build_nodes(
-            sig_pwms,
-            pwm_names,
-            nodes=nodes,
-            indexing_key="responder_idx")
-
-    logging.info("Built {} nodes".format(len(nodes)))
-
-    # edges go through nodes and see if co-occurring motifs in a min number of regions
     edges = []
-    #min_co_occurring_num = max(
-    #    int(min_co_occurring_fract * scores.shape[0]),
-    #    min_co_occurring_num)
     for driver_node in nodes:
         if driver_node.attrs.get("driver_idx") is None:
             continue
-        
         for responder_node in nodes:
             if responder_node.attrs.get("responder_idx") is None:
                 continue
@@ -470,12 +337,65 @@ def build_co_occurrence_graph(
             
     logging.info("Built {} edges with min support {} regions each".format(
         len(edges), min_co_occurring_num))
-            
+
+    return edges
+
+
+def build_co_occurrence_graph(
+        h5_file,
+        targets_key,
+        target_idx,
+        sig_pwms_h5_file,
+        sig_pwms_key,
+        data_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
+        sig_only=True,
+        min_positive=2,
+        min_co_occurring_num=500):
+    """build co-occurrence based graph
+    """
+    # load in sig pwms vector
+    with h5py.File(sig_pwms_h5_file, "r") as hf:
+        sig_pwms = hf[sig_pwms_key][:] # {M}
+        
+    # load in scores
+    with h5py.File(h5_file, "r") as hf:
+        scores = hf[data_key][:] # {N, task, M}
+        targets = hf[targets_key][:] # {N, task}
+        pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
+    
+    # set up effects mat and original indices
+    original_indices = np.arange(scores.shape[0])
+    score_indices = np.where(targets[:,target_idx] > 0)[0]
+    scores = scores[score_indices]
+    original_indices = original_indices[score_indices]
+    effects_mat = np.sum(scores > 0, axis=1) >= min_positive
+    
+    # first set up driver nodes
+    num_drivers = np.sum(sig_pwms)
+    nodes = build_nodes(
+        sig_pwms,
+        pwm_names,
+        nodes=[],
+        effects_mat=effects_mat,
+        original_indices=original_indices,
+        indexing_key="driver_idx")
+    
+    # then set up response nodes
+    num_responders = np.sum(sig_pwms)
+    if sig_only:
+        nodes = build_nodes(
+            sig_pwms,
+            pwm_names,
+            nodes=nodes,
+            indexing_key="responder_idx")
+
+    # build edges
+    edges = build_edges_by_example_intersect(
+        nodes,
+        min_co_occurring_num)
+    
     # and put together into a graph
     graph = MotifGraph(nodes, edges)
-
-    # save out edge support info
-    graph.attrs["min_edge_support"] = min_co_occurring_num
 
     return graph
 
@@ -553,7 +473,6 @@ def get_subgraphs(
             print "something wrong!"
             import ipdb
             ipdb.set_trace()
-
     
     # now check to make sure they pass criteria
     filtered_subgraphs = []
@@ -633,8 +552,36 @@ def get_subgraphs_and_filter(
     print "After removing high overlap subgraphs: {}".format(len(filtered_subgraphs))
     subgraphs = filtered_subgraphs
 
+
     return subgraphs
 
+
+def sort_subgraphs_by_output_strength(subgraphs, h5_file, target_key):
+    """given a subgraph set, re-rank the order based on summed output strength
+    this gives a nice way to cut the subgraphs to only keep a manageable set
+    
+    extract the MAX val.
+
+    """
+    summed_outputs = np.zeros((len(subgraphs)))
+    
+    with h5py.File(h5_file, "r") as hf:
+        outputs = hf[target_key][:] # {N, task}
+    
+    for i in xrange(len(subgraphs)):
+        subgraph_examples = sorted(list(subgraphs[i].attrs["examples"]))
+        subgraph_outputs = outputs[subgraph_examples]
+        summed_outputs[i] = np.mean(np.amax(subgraph_outputs, axis=1))
+        subgraphs[i].attrs["logit_mean"] = summed_outputs[i]
+
+        # separately (consider whether to factor this out),
+        # also attach the pattern to the subgraph (to visualize later)
+        subgraphs[i].attrs["logits"] = np.mean(subgraph_outputs, axis=0)
+        
+    sort_indices = np.argsort(-summed_outputs) # negative to reverse the sort
+    sorted_subgraphs = np.array(subgraphs)[sort_indices].tolist()
+    
+    return sorted_subgraphs
 
 
 
@@ -646,6 +593,22 @@ def get_clean_pwm_name(pwm_name):
     pwm_name = re.sub(r"\d+$", "", pwm_name)
     
     return pwm_name
+
+
+def write_summary_metadata_file(subgraphs, metadata_file):
+    """
+    """
+    with open(summary_metadata_file, "w") as fp:
+        fp.write("grammar_index\t{}\tedges\n".format(
+            "\t".join([node.name for node in graph.nodes])))
+    for i in xrange(len(sorted_subgraphs)):
+        with open(summary_metadata_file, "w") as fp:
+            # write code to make a node vector
+            # code to make edge string
+            pass
+
+    return
+
 
 
 def merge_subgraphs_and_write_gml(subgraphs, gml_file, ignore_singles=True):
@@ -799,8 +762,6 @@ def get_motif_hierarchies(
 
     # put into network
     graph = MotifGraph(nodes, edges)
-
-    # split here?
     
     # get subgraphs
     subgraphs = get_subgraphs_and_filter(
@@ -809,7 +770,10 @@ def get_motif_hierarchies(
         forward_pass_min_region_count,
         min_region_count,
         max_subgraph_overlap)
-   
+
+
+    # currently HERE in refactoring
+    
     # save out subgraphs
     grammar_file = "{}.grammars.txt".format(
         h5_file.split(".h5")[0])
@@ -974,348 +938,3 @@ def subset_by_functional_enrichments(subgraphs, terms, bed_dir, out_dir):
     ipdb.set_trace()
     
     return subsets
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# TO DELETE - below
-
-def get_mut_effect_results(path, net, delta_logits, out_file, task_idx=0):
-    """get a matrix of effects
-    """
-    effects_df = pd.DataFrame()
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects = delta_logits[:,mut_node_idx,task_idx] # {N}
-
-        # save out
-        effects_df[path[i]] = effects
-
-    effects_df.to_csv(out_file, sep="\t")
-
-    return None
-
-
-  
-def get_path_dmim_effects_DEPRECATE(path, net, data):
-    """extract the mut effects, multiplicatively
-    """
-    effects = np.ones((data.shape[0], data.shape[2])) # {N, task}
-    for i in xrange(1, len(path)):
-        mut_node_idx = net.get_node_by_id(path[i-1]).attrs["mut_idx"]
-        response_node_idx = net.get_node_by_id(path[i]).attrs["response_idx"]
-        edge_effects = data[:,mut_node_idx,:,response_node_idx] # {N, task}
-        effects *= np.abs(edge_effects)
-    effects = np.mean(effects, axis=0) # {task}
-    
-    return effects
-
-
-def get_path_logit_effects_DEPRECATE(path, net, data):
-    """extract the logit effects, multiplicatively
-    """
-    effects = np.ones((data.shape[0], data.shape[2]))
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects *= np.abs(data[:,mut_node_idx,:]) # {N, task}
-    effects = np.mean(effects, axis=0) # {task}
-
-    return effects
-
-
-
-def get_path_example_logits_DEPRECATE(path, net, logits, mut_logits):
-    """go through the path and get the mut results and orig logits
-    """
-    task_idx = 0
-    effects = np.zeros((logits.shape[0], 1+len(path)))
-    effects[:,0] = logits[:,task_idx]
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects[:,i+1] = mut_logits[:,mut_node_idx,task_idx]
-
-    return effects
-
-
-
-
-def old():
-    # TODO make this a seperate function?
-    # run the network to get hierarchical paths
-    # is each path a tuple ([path], [examples])?
-    # TODO keep paths as indices?
-    # TODO also keep edges as indices?
-    paths = []
-    for node in net.nodes:
-
-        # add in singletons and where they exist
-        node_idx = node.attrs["mut_idx"]
-        #node_mut_effects = np.sum(delta_logits[:,node_idx,:] != 0, axis=1)
-        #node_examples = set(np.where(node_mut_effects > 0)[0].tolist())
-
-        node_examples = set(node.attrs["examples"])
-        
-        current_path = ([node.name], node_examples)
-
-        if len(node_examples) > min_region_count:
-            paths.append(current_path)
-        
-        #all_examples = set(range(example_metadata.shape[0]))
-        #all_examples = set(example_metadata[:,0].tolist())
-        paths += net.get_paths(
-            node.name,
-            forward_pass_min_region_count,
-            current_path=current_path,
-            checked_nodes=[node.name])
-
-    # TODO saving paths out - separate function out?
-    # for each path, want to write out a BED file (and write a metadata file)
-    metadata_file = "{}.hierarchies.metadata.txt".format(
-        h5_file.split(".h5")[0])
-    with open(metadata_file, "w") as fp:
-        fp.write(
-            "path_idx\tpath_hierarchy\tnum_regions\tdmim\tdelta_logit\t{}\n".format(
-                "\t".join(extra_keys)))
-
-    timepoints_file = "{}.hierarchies.LOGITS.txt".format(
-        h5_file.split(".h5")[0])
-
-    global_path_id = 0
-    for path_idx in xrange(len(paths)):
-        path = paths[path_idx]
-        path_hierarchy = "->".join(path[0])
-        path_indices = sorted(path[1]) # TODO save this out in the h5 file
-        path_data = data[path_indices]
-        path_logits = logits[path_indices]
-        path_mut_logits = mut_logits[path_indices]
-        path_delta_logits = delta_logits[path_indices]
-
-        if len(path_indices) < min_region_count:
-            # do not write out
-            continue
-        
-        # get the aggregate effects over the path
-        # TODO check the sign on the multiplications
-        path_dmim_effects = get_path_dmim_effects(path[0], net, path_data)
-        path_delta_logits_effects = get_path_logit_effects(path[0], net, path_delta_logits)
-
-        # testing
-        mut_effects_file = "{}.path-{}.effects_per_example.txt".format(
-            h5_file.split(".h5")[0],
-            global_path_id)
-        get_mut_effect_results(path[0], net, path_delta_logits, mut_effects_file, task_idx=0)
-
-        # TODO just choose max val?
-        # TODO save out dy/dx
-        path_dmim_max = path_dmim_effects[
-            np.argmax(np.abs(path_dmim_effects))]
-        path_delta_logits_max = path_delta_logits_effects[
-            np.argmax(np.abs(path_delta_logits_effects))]
-
-        # for key in extra keys
-        path_extra_results = []
-        path_extra_results_examples = []
-        for key_idx in xrange(len(extra_keys)):
-            key = extra_keys[key_idx]
-            extra_data = extra_datasets[key_idx][path_indices]
-            #extra_data_summary = np.mean(np.amax(extra_data, axis=1) > 0.5)
-            #print extra_data_summary.shape
-            extra_data_summary = np.median(np.amax(extra_data, axis=1))
-            path_extra_results.append(extra_data_summary)
-            path_extra_results_examples.append(np.amax(extra_data, axis=1))
-            
-        # write out to file
-        with open(metadata_file, "a") as fp:
-            fp.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(
-                global_path_id,
-                path_hierarchy,
-                len(path[1]),
-                path_dmim_max,
-                path_delta_logits_max,
-                "\t".join([str(val)
-                           for val in path_extra_results])))
-        
-        bed_file = "{}.path-{}.bed".format(
-            h5_file.split(".h5")[0],
-            global_path_id)
-
-        # TODO for each region, keep track of extra information
-        # ie ATAC signal, H3K27ac, dmim score, etc
-        # this is for filtering regions later
-        path_metadata = example_metadata[sorted(path[1]),0].tolist()
-        with open(bed_file, "w") as fp:
-            for region_metadata in path_metadata:
-                region = region_metadata.split(";")[1].split("=")[1] # TODO adjust here - just active region
-                chrom = region.split(":")[0]
-                start = region.split(":")[1].split("-")[0]
-                stop = region.split("-")[1]
-                fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
-
-        # write out the logit trajectory too
-        path_signal = signal[path_indices]
-        path_logits_mean = np.mean(
-            path_signal[:,0,signal_indices],
-            axis=0).tolist()
-
-        with open(timepoints_file, "a") as fp:
-            fp.write("{}\t{}\t{}\n".format(
-                global_path_id,
-                path_hierarchy,
-                "\t".join([str(val) for val in path_logits_mean])))
-                
-        global_path_id += 1
-
-
-    # TODO - now do a merge_paths run through? to find things that work together....
-    total_new = 0
-    for path1_idx in xrange(len(paths)):
-        path1 = paths[path1_idx]
-        path1_hierarchy = path1[0] # list of names
-        path1_indices = path1[1]
-
-        if len(path1_hierarchy) <= 1:
-            continue
-
-        for subpath1_idx in xrange(len(path1_hierarchy)-1, 0, -1):
-            subpath1 = path1_hierarchy[subpath1_idx:]
-            
-            # starting at BOTTOM of path, see if any other paths have same bottom path
-            for path2_idx in xrange(len(paths)):
-                if path2_idx <= path1_idx:
-                    continue
-                path2 = paths[path2_idx]
-                path2_hierarchy = path2[0] # list of names
-                #print path2_hierarchy
-
-                if len(path2_hierarchy) <= 1:
-                    continue
-                
-                for subpath2_idx in xrange(len(path2_hierarchy)-1, 0, -1):
-                    subpath2 = path2_hierarchy[subpath2_idx:]
-
-                    if subpath1 == subpath2:
-                        # merge paths!
-                        path2_indices = path2[1]
-                        merged_path_indices = sorted(list(
-                            set(path1_indices).union(set(path2_indices))))
-
-                        if len(merged_path_indices) < min_region_count:
-                            continue
-                        
-                        path1_start = path1_hierarchy[:subpath1_idx]
-                        path2_start = path2_hierarchy[:subpath2_idx]
-                        #print path1_hierarchy
-                        #print path2_hierarchy
-                        path_hierarchy = "({};{})>{}".format(
-                            "->".join(path1_start),
-                            "->".join(path2_start),
-                            "->".join(subpath2))
-                        print ">>>", path_hierarchy, len(merged_path_indices)
-                        total_new += 1
-
-                        # write out to file
-                        with open(metadata_file, "a") as fp:
-                            fp.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(
-                                global_path_id,
-                                path_hierarchy,
-                                len(merged_path_indices),
-                                path_dmim_max,
-                                path_delta_logits_max,
-                                "\t".join([str(val)
-                                           for val in path_extra_results])))
-
-                        bed_file = "{}.path-{}.bed".format(
-                            h5_file.split(".h5")[0],
-                            global_path_id)
-
-                        # TODO for each region, keep track of extra information
-                        # ie ATAC signal, H3K27ac, dmim score, etc
-                        # this is for filtering regions later
-                        path_metadata = example_metadata[sorted(merged_path_indices),0].tolist()
-                        with open(bed_file, "w") as fp:
-                            for region_metadata in path_metadata:
-                                region = region_metadata.split(";")[1].split("=")[1] # TODO adjust here - just active region
-                                chrom = region.split(":")[0]
-                                start = region.split(":")[1].split("-")[0]
-                                stop = region.split("-")[1]
-                                fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
-
-                        # write out the logit trajectory too
-                        path_signal = signal[merged_path_indices]
-                        path_logits_mean = np.mean(
-                            path_signal[:,0,signal_indices],
-                            axis=0).tolist()
-
-                        with open(timepoints_file, "a") as fp:
-                            fp.write("{}\t{}\t{}\n".format(
-                                global_path_id,
-                                path_hierarchy,
-                                "\t".join([str(val) for val in path_logits_mean])))
-
-                        # check out the mutational effects
-                        path_delta_logits = delta_logits[sorted(path1_indices)]
-                        mut_effects_file = "{}.path-{}.effects_per_example.txt".format(
-                            h5_file.split(".h5")[0],
-                            global_path_id)
-                        get_mut_effect_results(path1_hierarchy, net, path_delta_logits, mut_effects_file, task_idx=0)
-
-                        global_path_id += 1
-
-    print total_new
-    print global_path_id
-
-    import ipdb
-    ipdb.set_trace()
-
-    if False:
-        # get path logits
-        # TODO add in filters as needed
-        # TODO split this out into separate function
-        #keep_indices = np.where(path_extra_results_examples[1] > 0.7)[0]
-        # TODO remove this, not being used
-        example_logits = get_path_example_logits(
-            path[0],
-            net,
-            path_logits[:,0,:], # TODO change the task here
-            path_mut_logits)
-            #path_logits[keep_indices,0],
-            #path_mut_logits[keep_indices])
-
-        #from scipy.stats import describe
-        #print describe(example_logits[:,0])
-        #print describe(example_logits[:,1])
-        #print describe(example_logits[:,2])
-        #import ipdb
-        #ipdb.set_trace()
-        
-    # and resort metadata
-    metadata = pd.read_table(metadata_file)
-    #metadata_sorted = metadata.sort_values(["dmim"], ascending=False)
-    metadata_sorted = metadata.sort_values([extra_keys[1]], ascending=False)
-    metadata_sorted_file = "{}.sorted.txt".format(metadata_file.split(".txt")[0])
-    metadata_sorted.to_csv(metadata_sorted_file, sep='\t', index=False)
-        
-    return paths
