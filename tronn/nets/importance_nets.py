@@ -285,11 +285,15 @@ class FeatureImportanceExtractor(object):
             # (1) clip edges
             outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES] # save out from features
-            outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
+            outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[
+                DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
             
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-            outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[
+                DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+            outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[
+                DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+            params.update({"left_clip": LEFT_CLIP, "right_clip": RIGHT_CLIP})
+            
             # add in GC content info
             gc_total= tf.reduce_sum(
                 outputs[DataKeys.ORIG_SEQ_ACTIVE][:,:,:,1:3], axis=(1,2,3))
