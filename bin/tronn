@@ -548,13 +548,34 @@ def _setup_scanmotifs_args(args):
     args.foreground_targets = _parse_to_key_and_indices(
         args.foreground_targets)
 
-    if args.background_targets is not None:
-        args.background_targets = _parse_to_key_and_indices(
-            args.background_targets)
+    args.background_targets = _parse_to_key_and_indices(
+        args.background_targets)
 
+    # TODO deprecate
     if args.background_filter_targets is not None:
         args.background_filter_targets = _parse_to_key_and_indices(
             args.background_filter_targets)
+
+    return
+
+def _setup_dmim_args(args):
+    """given parsed args, adjust inputs as needed
+    """
+    args.foreground_targets = _parse_to_key_and_indices(
+        args.foreground_targets)
+
+    return
+
+
+def _add_sig_pwms_args(parser):
+    """add in args to use sig pwm vectors
+    """
+    parser.add_argument(
+        "--sig_pwms_file",
+        help="if this arg is used, pvals will be used from here and not from scan file")
+    parser.add_argument(
+        "--sig_pwms_key", default="pwms.differential",
+        help="which dataset group has the sig pwm vectors")
 
     return
 
@@ -697,12 +718,7 @@ def add_buildgrammars_parser(subparsers):
     group_dataset.add_argument(
         "--scan_key",
         help="dataset key with scores") # either motifs {N, task, M} or dmim {N, mutM, task, M}, with dmim need to consider outputs logits {N, mutM, logits}
-    group_dataset.add_argument(
-        "--sig_pwms_file",
-        help="if this arg is used, pvals will be used from here and not from scan file")
-    group_dataset.add_argument(
-        "--sig_pwms_key", default="pwms.differential",
-        help="which dataset group has the sig pwm vectors")
+    _add_sig_pwms_args(group_dataset)
     
     # group for output files
     group_output = cmd_argparser.add_argument_group(
@@ -726,6 +742,7 @@ def add_dmim_parser(subparsers):
     group_dataset.add_argument(
         "--processed_inputs", action="store_true",
         help="inputs are already preprocessed through some inference stack")
+    _add_sig_pwms_args(group_dataset)
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -748,6 +765,10 @@ def add_dmim_parser(subparsers):
         "Misc params")
     group_other.add_argument(
         "--manifold_file", help="manifold h5 file")
+    group_other.add_argument(
+        "--foreground_targets", nargs="+",
+        help="which targets to use as foreground for calling motif enrichment")
+
     
     # group for output files
     group_output = cmd_argparser.add_argument_group(
@@ -1026,7 +1047,7 @@ def _setup_logs(args):
     reload(logging)
     logging.basicConfig(
         filename=logging_file,
-        level=logging.DEBUG, # TODO ADJUST BEFORE RELEASE
+        level=logging.INFO, # TODO ADJUST BEFORE RELEASE
         format='%(message)s')
     logging.getLogger().addHandler(logging.StreamHandler())
     for arg in sorted(vars(args)):
@@ -1097,6 +1118,7 @@ def main():
         _setup_model_args(args)
         _setup_interpretation_args(args)
         _setup_visualization_args(args)
+        _setup_dmim_args(args)
         from tronn.dmim_cmd import run
         run(args)
     elif subcommand == "buildgrammars":

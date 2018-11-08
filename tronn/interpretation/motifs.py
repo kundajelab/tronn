@@ -291,6 +291,39 @@ def run_bootstrap_differential_score_test(
     return None
 
 
+def get_sig_pwm_vector(
+        h5_file,
+        sig_key,
+        target_key,
+        target_indices,
+        reduce_type="any"):
+    """convenience function to quickly extract a sig pwm vector
+    """
+    group_key = "{}/{}".format(sig_key, target_key)
+    with h5py.File(h5_file, "r") as hf:
+        for i in xrange(len(target_indices)):
+            index_key = "{}/{}/{}".format(
+                group_key, target_indices[i], DataKeys.PWM_SIG_ROOT)
+            logging.info("loading from {}".format(index_key))
+            index_sig_pwms = hf[index_key][:]
+
+            if i == 0:
+                sig_pwms = np.zeros((
+                    len(target_indices),
+                    index_sig_pwms.shape[0]))
+                sig_pwms[i] = index_sig_pwms
+            else:
+                sig_pwms[i] = index_sig_pwms
+
+    # reduce
+    if reduce_type == "any":
+        sig_pwms = np.any(sig_pwms != 0,axis=0) # {M}
+    else:
+        raise ValueError, "reduce type requested is not implemented"
+
+    return sig_pwms
+
+
 def select_pwms_by_permutation_test_and_reduce(
         array,
         pwm_list,
@@ -323,6 +356,7 @@ def select_pwms_by_permutation_test_and_reduce(
 
 
 # TODO move to... stats?
+# TODO - deprecate?
 def aggregate_array(
         array,
         agg_fn=np.sum, #np.mean,

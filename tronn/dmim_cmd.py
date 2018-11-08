@@ -14,6 +14,7 @@ from tronn.interpretation.clustering import get_cluster_bed_files
 from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
 
+from tronn.interpretation.motifs import get_sig_pwm_vector
 from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
@@ -107,6 +108,17 @@ def run(args):
         reuse = True
     input_model_manager = setup_model_manager(args)
 
+    # set up sig pwms
+    if args.sig_pwms_file is None:
+        args.sig_pwms_file = data_loader.data_files[0]
+    sig_pwms = get_sig_pwm_vector(
+        args.sig_pwms_file,
+        args.sig_pwms_key,
+        args.foreground_targets[0][0],
+        args.foreground_targets[0][1],
+        reduce_type="any")
+    logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
+    
     # set up inference generator
     inference_generator = input_model_manager.infer(
         input_fn,
@@ -121,7 +133,8 @@ def run(args):
             "importances_fn": args.backprop, # TODO fix this
             "importance_task_indices": args.inference_targets,
             "pwms": args.pwm_list,
-            "manifold": args.manifold_file},
+            "sig_pwms": sig_pwms)
+            #"manifold": args.manifold_file}, # <- change this
         checkpoint=model_manager.model_checkpoint,
         yield_single_examples=True)
 
