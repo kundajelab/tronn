@@ -889,7 +889,7 @@ class H5DataLoader(DataLoader):
             batch_size=256, #256, #256
             task_indices=[],
             keys=[],
-            skip_keys=["label_metadata"],
+            skip_keys=[],
             targets=[(DataKeys.LABELS, [])],
             target_indices=[],
             seq_len=1000,
