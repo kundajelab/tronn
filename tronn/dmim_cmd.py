@@ -97,15 +97,34 @@ def run(args):
         filter_targets=args.filter_targets,
         singleton_filter_targets=args.singleton_filter_targets,
         use_queues=True,
-        shuffle=False)
-        
+        shuffle=False,
+        skip_keys=[
+            DataKeys.ORIG_SEQ_SHUF,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            #DataKeys.ORIG_SEQ_PWM_HITS,
+            DataKeys.ORIG_SEQ_PWM_SCORES,
+            DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+            DataKeys.ORIG_SEQ_SHUF_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.WEIGHTED_SEQ_PWM_HITS,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+            DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES
+        ]) # reduce the things being pulled out
+    
     # set up model
     model_manager = setup_model_manager(args)
+    args.inference_params.update({"model": model_manager})
+
+    # check if processed inputs
     if args.processed_inputs:
         args.model["name"] = "empty_net"
-        reuse = False
+        #reuse = False
+        args.inference_params.update({"model_reuse": False})
     else:
-        reuse = True
+        #reuse = True
+        args.inference_params.update({"model_reuse": True})
     input_model_manager = setup_model_manager(args)
 
     # set up sig pwms
@@ -117,24 +136,14 @@ def run(args):
         args.foreground_targets[0][0],
         args.foreground_targets[0][1],
         reduce_type="any")
+    args.inference_params.update({"sig_pwms": sig_pwms})
     logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
-    
+
     # set up inference generator
     inference_generator = input_model_manager.infer(
         input_fn,
         args.out_dir,
-        net_fns[args.inference_fn],
-        inference_params={
-            # TODO can we clean this up?
-            "model_fn": model_manager.model_fn,
-            "model_reuse": reuse,
-            "num_tasks": args.model["params"]["num_tasks"],
-            "backprop": args.backprop,
-            "importances_fn": args.backprop, # TODO fix this
-            "importance_task_indices": args.inference_targets,
-            "pwms": args.pwm_list,
-            "sig_pwms": sig_pwms)
-            #"manifold": args.manifold_file}, # <- change this
+        args.inference_params,
         checkpoint=model_manager.model_checkpoint,
         yield_single_examples=True)
 
