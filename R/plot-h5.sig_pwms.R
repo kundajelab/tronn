@@ -53,12 +53,22 @@ ordering <- hc$order
 print(ordering)
 
 # first plot global
-data_global <- apply(data, c(1,2), mean) # {motif, cluster}
+data_global <- apply(data, c(1,2), sum) # mean # {motif, cluster}
 print(dim(data))
 print(dim(data_global))
 rownames(data_global) <- pwm_names
 colnames(data_global) <- days
 data_global <- data_global[ordering,]
+
+# global - try chop off top?
+#data_global <- asinh(data_global)
+data_global <- log10(data_global)
+top_thresh <- quantile(data_global, 0.95)
+data_global[data_global > top_thresh] <- top_thresh
+print(data_global)
+
+#data_global <- 1 / (1+exp(-data_global))
+print(data_global)
 
 plot_file <- paste(
     sub("h5", "", h5_file),
