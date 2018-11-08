@@ -730,8 +730,7 @@ def get_task_importances(inputs, params):
 def run_dfim(inputs, params):
     """wrapper for functional calls
     """
-    extractor = DeltaFeatureImportanceMapper(params["model_fn"])
-
+    extractor = DeltaFeatureImportanceMapper(params["model"].model_fn)
     outputs, params = extractor.extract(inputs, params)
     
     return outputs, params
