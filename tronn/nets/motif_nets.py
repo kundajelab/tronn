@@ -511,25 +511,31 @@ def get_motif_densities(inputs, params):
 def filter_for_any_sig_pwms(inputs, params):
     """require that there is a param with a sig pwm vector, check if ANY motif exists
     """
-    pwm_hits_key = DataKeys.WEIGHTED_SEQ_PWM_HITS
+    pwm_hits_key = DataKeys.ORIG_SEQ_PWM_HITS
 
     # assertions
     assert inputs.get(pwm_hits_key) is not None
     assert params.get("sig_pwms") is not None
 
-    # get features
-    features = inputs[pwm_hits_key] # {N, M}
-    sig_pwms = tf.expand_dims(params["sig_pwms"], axis=0) # {1, M}
-
+    # get features and reduce
+    features = inputs[pwm_hits_key] # {N, task, pos, M}
+    features = tf.reduce_any(
+        tf.not_equal(features, 0),
+        axis=(1,2))
+    features = tf.cast(features, tf.float32)
+    sig_pwms = tf.expand_dims(
+        params["sig_pwms"].astype(np.float32), axis=0) # {1, M}
+    
     # multiply to mask
     features = tf.multiply(features, sig_pwms) # {N, M}
-
+    
     # reduce
     has_sig_pwm = tf.reduce_any(features > 0, axis=1) # {N}
-
+    inputs["condition_mask"] = has_sig_pwm
+    
     # filter            
     params.update({"name": "any_sig_pwm_filter"})
-    outputs, params = filter_and_rebatch(outputs, params)
+    outputs, params = filter_and_rebatch(inputs, params)
 
     return outputs, params
 
