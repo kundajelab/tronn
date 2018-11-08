@@ -525,7 +525,7 @@ class H5DataLoader(DataLoader):
         """
         # assertions
         assert (len(data_files) == 0) or (len(dataset_json) == 0)
-
+        
         # set up
         if len(dataset_json) != 0:
             # use json and adjust data as needed
@@ -572,14 +572,17 @@ class H5DataLoader(DataLoader):
         Returns:
           h5_files: consistent list of data files
         """
-        if len(h5_files) > 0:
-            h5_files = [
-                "{}/{}".format(data_dir, os.path.basename(h5_file))
-                for h5_file in h5_files]
+        if data_dir is not None:
+            if len(h5_files) > 0:
+                h5_files = [
+                    "{}/{}".format(data_dir, os.path.basename(h5_file))
+                    for h5_file in h5_files]
+            else:
+                h5_files = glob.glob("{}/*h5".format(data_dir))
+                h5_files = [h5_file for h5_file in h5_files
+                            if "manifold" not in h5_file]
         else:
-            h5_files = glob.glob("{}/*h5".format(data_dir))
-            h5_files = [h5_file for h5_file in h5_files
-                        if "manifold" not in h5_file]
+            assert len(h5_files) > 0
 
         return h5_files
         
