@@ -165,44 +165,48 @@ def run_bootstrap_differential_score_test(
         foreground_h5_file,
         background_h5_file,
         foreground_targets_key,
-        foreground_targets_indices,
+        foreground_targets_indices, # TODO make this optional
         background_targets_key,
-        background_targets_indices,
+        background_targets_indices, # TODO make this optional
         pwm_hits_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
         pwm_names_key=AttrKeys.PWM_NAMES,
         gc_key=DataKeys.GC_CONTENT,
         gc_increment=0.05,
-        num_bootstraps=1000):
+        num_bootstraps=1000,
+        qval_thresh=0.05,
+        reduce_sig_type="any"):
     """run a differential test using bootstraps of background set
     """
-    # background set gets pulled out once
-    # the num tasks must match the ones used for inference (inference_targets)
-    # need to get: targets, indices
+    # get background info: targets, GC content, scores
     with h5py.File(background_h5_file, "r") as hf:
-        background_targets = hf[background_targets_key][:]
-        background_gc = hf[gc_key][:]
-        #background_hits = (hf[pwm_hits_key][:] != 0).astype(int)
-        background_hits = hf[pwm_hits_key][:]
-    if len(background_targets_indices) != 0:
-        background_targets = background_targets[:,background_targets_indices]
-        
-    # get foreground from h5
-    with h5py.File(foreground_h5_file, "r") as hf:
-        foreground_targets = hf[foreground_targets_key][:]
-        foreground_gc = hf[gc_key][:]
-        #foreground_hits = (hf[pwm_hits_key][:] != 0).astype(int)
-        foreground_hits = hf[pwm_hits_key][:]
-        pwm_names = hf[pwm_hits_key].attrs[pwm_names_key]
-    if len(foreground_targets_indices) != 0:
-        foreground_targets = foreground_targets[:,foreground_targets_indices]
+        background_targets = hf[background_targets_key][:] # {N, target}
+        background_gc = hf[gc_key][:] # {N}
+        background_hits = hf[pwm_hits_key][:] # {N, task, M}
 
+    # adjust indices and filter
+    if len(background_targets_indices) == 0:
+        background_targets_indices = range(background_targets.shape[1])
+    background_targets = background_targets[:,background_targets_indices]
+        
+    # get foreground info: targets, GC content, scores
+    with h5py.File(foreground_h5_file, "r") as hf:
+        foreground_targets = hf[foreground_targets_key][:] # {N, target}
+        foreground_gc = hf[gc_key][:] # {N}
+        foreground_hits = hf[pwm_hits_key][:] # {N, task, M}
+        pwm_names = hf[pwm_hits_key].attrs[pwm_names_key] # {M}
+
+    # adjust indices and filter
+    if len(foreground_targets_indices) == 0:
+        foreground_targets_indices = range(foreground_targets.shape[1])        
+    foreground_targets = foreground_targets[:,foreground_targets_indices]
+
+    # make sure the columns match each other
     assert foreground_hits.shape[1] == background_targets.shape[1]
     
     # and iterate through for each set
     raw_pvals = np.ones([foreground_targets.shape[1]] + list(foreground_hits.shape[1:]))
-    positive_hits_summary = np.zeros(raw_pvals.shape)
     for foreground_idx in xrange(foreground_targets.shape[1]):
-        print "Running foreground {}".format(foreground_idx)
+        logging.info("Running foreground {}".format(foreground_idx))
         
         # get foreground and foreground GC
         current_foreground_indices = np.where(
@@ -210,10 +214,10 @@ def run_bootstrap_differential_score_test(
         current_foreground_hits = foreground_hits[current_foreground_indices]
         current_foreground_gc = foreground_gc[current_foreground_indices]
         
-        # now here need to drop down another level to get different backgrounds
-        # per cell state
+        # iterate through the cell states (since you want matched backgrounds
+        # accessible in each cell state)
         for task_idx in xrange(current_foreground_hits.shape[1]):
-            print "Running task {}".format(task_idx)
+            logging.info("Running task {}".format(task_idx))
             
             # get subset
             task_foreground_hits = current_foreground_hits[:,task_idx] # {N, M}
@@ -224,7 +228,7 @@ def run_bootstrap_differential_score_test(
             task_background_hits = background_hits[task_background_indices][:,task_idx] # {N, M}
             task_background_gc = background_gc[task_background_indices]
             
-            # set up gc matched bins
+            # set up GC matched bins
             background_gc_bins = build_gc_matched_bins(
                 current_foreground_gc,
                 task_background_gc,
@@ -253,14 +257,38 @@ def run_bootstrap_differential_score_test(
             
     # and save the pvals to the h5 file
     with h5py.File(foreground_h5_file, "a") as hf:
-        out_key = "{}/{}".format(DataKeys.PWM_PVALS, foreground_targets_key)
-        if hf.get(out_key) is not None:
-            del hf[out_key]
-        hf.create_dataset(out_key, data=raw_pvals)
-        hf[out_key].attrs[AttrKeys.TASK_INDICES] = foreground_targets_indices
-        hf[DataKeys.PWM_PVALS].attrs[AttrKeys.PWM_NAMES] = pwm_names
+        pvals_key = "{}/{}/{}".format(
+            DataKeys.PWM_DIFF_GROUP, foreground_targets_key, DataKeys.PWM_PVALS)
+        if hf.get(pvals_key) is not None:
+            del hf[pvals_key]
+        hf.create_dataset(pvals_key, data=raw_pvals)
+        hf[pvals_key].attrs[AttrKeys.TASK_INDICES] = foreground_targets_indices
+        hf[pvals_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
     
-    return raw_pvals
+    # figure out which ones pass a qval thresh
+    pass_qval_thresh = threshold_by_qvalues(
+        raw_pvals, qval_thresh=qval_thresh, num_bins=50)
+    
+    # then save each out to a different vector for easy use downstream
+    # NOTE: the path to the vectors is pwms.differential/{targets_key}/{idx}/pwms.sig
+    # example: pwms.differential/TRAJ_LABELS/1/pwms.sig
+    if reduce_sig_type == "any":
+        reduce_fn = np.any
+    else:
+        reduce_fn = np.all
+    group_key = "{}/{}".format(DataKeys.PWM_DIFF_GROUP, foreground_targets_key)
+    for i in xrange(pass_qval_thresh.shape[0]):
+        foreground_idx = foreground_targets_indices[i]
+        sig_pwms_key = "{}/{}/{}".format(
+            group_key, foreground_idx, DataKeys.PWM_SIG_ROOT)
+        sig_pwms = reduce_fn(pass_qval_thresh[i], axis=0) # {M}
+        with h5py.File(foreground_h5_file, "a") as hf:
+            if hf.get(sig_pwms_key) is not None:
+                del hf[sig_pwms_key]
+            hf.create_dataset(sig_pwms_key, data=sig_pwms)
+            hf[sig_pwms_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
+    
+    return None
 
 
 def select_pwms_by_permutation_test_and_reduce(

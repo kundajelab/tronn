@@ -60,7 +60,7 @@ def parse_args():
         "--qval_thresh", default=0.05, type=float,
         help="qval threshold")
     parser.add_argument(
-        "--cor_thresh", default=0.70, type=float,
+        "--cor_thresh", type=float,
         help="pwm score/rna expression correlation threshold")
     
     # for second stage
@@ -146,199 +146,230 @@ def _setup_logs(args):
     return
 
 
+
+def _expand_pwms_by_rna(pwms_df, split_cols, split_char=";"):
+    """given column(s) with multiple values in a row, expand so that
+    each row has a single value
+
+    assumes that multiple split_cols are ordered same way
+    """
+    # make the duplicate values into lists
+    for split_col in split_cols:
+        pwms_df = pwms_df.assign(
+            **{split_col: pwms_df[split_col].str.split(split_char)})
+
+    # repeat rows based on list lengths
+    pwms_df_expanded = pd.DataFrame({
+        col: np.repeat(pwms_df[col].values, pwms_df[split_cols[0]].str.len())
+        for col in pwms_df.columns})    
+
+    # put a unique value into each row
+    for split_col in split_cols:
+        pwms_df_expanded = pwms_df_expanded.assign(
+            **{split_col: np.concatenate(pwms_df[split_col].values)})[
+                pwms_df.columns.tolist()]
+
+    return pwms_df_expanded
+
+
+
 def main():
     """run the intersect
     """
     # set up args
     args = parse_args()
     args.other_targets = _parse_to_key_and_indices(args.other_targets)
+    
+    # set up out dir and out file
+    os.system("mkdir -p {}".format(args.out_dir))
+    out_file = "{}/{}.rna_filt.h5".format(
+        args.out_dir, os.path.basename(args.pvals_h5_file).split(".h5")[0])
+
+    # set up logs
     _setup_logs(args)
     
-    # set up out file
-    out_file = "{}/{}.pwms_filt.h5".format(
-        args.out_dir, os.path.basename(args.pvals_h5_file).split(".h5")[0])
-    
-    # read in pwms
+    # read in pwms and metadata file, get expression info from column
     pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
-
-    # read in pwm_metadata file
     pwm_metadata = pd.read_table(args.pwm_metadata_file, sep="\t")
-
-    # look at expressed info (bool vector)
     tf_expressed = pwm_metadata[args.pwm_metadata_expr_col_key].notnull().values
-    tf_expressed = np.reshape(
-        tf_expressed, (1, 1, tf_expressed.shape[0]))
     
-    # get the pval keys
+    # STAGE 1 - filter for expressed
+    expr_group_key = "{}.rna_filt".format(DataKeys.PWM_DIFF_GROUP)
+
+    # get targets
     with h5py.File(args.pvals_h5_file, "r") as hf:
-        pval_keys = hf[DataKeys.PWM_PVALS].keys()
+        target_keys = hf[DataKeys.PWM_DIFF_GROUP].keys()
     
-    # go through pval keys and produce the sig pwms
-    for pval_key in pval_keys:
+    for target_key in target_keys:
 
-        # load in pvals
+        # get indices
         with h5py.File(args.pvals_h5_file, "r") as hf:
-            pvals = hf[DataKeys.PWM_PVALS][pval_key][:]
-            foreground_indices = hf[DataKeys.PWM_PVALS][pval_key].attrs[AttrKeys.TASK_INDICES]
-            pwm_names = hf[args.pwm_scores_key].attrs[AttrKeys.PWM_NAMES]
+            indices = hf[DataKeys.PWM_DIFF_GROUP][target_key].keys()
+        indices = [i for i in indices if "pwms" not in i]
 
-        # convert to qvals
-        pass_qval_thresh = threshold_by_qvalues(
-            pvals, qval_thresh=args.qval_thresh, num_bins=50)
+        for index in indices:
 
-        # now filter by expression
-        pass_expr_filter = np.multiply(
-            pass_qval_thresh,
-            tf_expressed)
+            # get sig pwms
+            old_sig_pwms_key = "{}/{}/{}/{}".format(
+                DataKeys.PWM_DIFF_GROUP, target_key, index, DataKeys.PWM_SIG_ROOT)
+            with h5py.File(args.pvals_h5_file, "r") as hf:
+                old_sig_pwms = hf[old_sig_pwms_key][:]
+                pwm_names = hf[old_sig_pwms_key].attrs[AttrKeys.PWM_NAMES]
+                
+            new_sig_pwms_key = "{}/{}/{}/{}".format(
+                expr_group_key, target_key, index, DataKeys.PWM_SIG_ROOT)
 
-        # save out
-        with h5py.File(out_file, "w") as hf:
-            out_key = "{}/{}".format(DataKeys.PWM_SIG_ROOT, pval_key)
-            hf.create_dataset(out_key, data=pass_expr_filter)
-            hf[DataKeys.PWM_SIG_ROOT].attrs["ensembl_ids"] = pwm_metadata[
-                args.pwm_metadata_expr_col_key].values.astype(str)
-            hf[DataKeys.PWM_SIG_ROOT].attrs["hgnc_ids"] = pwm_metadata[
-                args.pwm_metadata_hgnc_col_key].values.astype(str)
+            # filter
+            sig_pwms_filt = np.multiply(
+                old_sig_pwms,
+                tf_expressed)
+
+            # save out with attributes
+            with h5py.File(out_file, "a") as out:
+                if out.get(new_sig_pwms_key) is not None:
+                    del out[new_sig_pwms_key]
+                out.create_dataset(new_sig_pwms_key, data=sig_pwms_filt)
+                out[new_sig_pwms_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
+                out[new_sig_pwms_key].attrs["ensembl_ids"] = pwm_metadata[
+                    args.pwm_metadata_expr_col_key].values.astype(str)
+                out[new_sig_pwms_key].attrs["hgnc_ids"] = pwm_metadata[
+                    args.pwm_metadata_hgnc_col_key].values.astype(str)
+
+            logging.info(
+                "{}: After filtering for expressed TFs, got {} motifs (from {})".format(
+                    new_sig_pwms_key, np.sum(sig_pwms_filt), np.sum(old_sig_pwms)))
 
     # STAGE 2 - correlation information
-    _CORR_GROUP_KEY = "cor_filt"
+    cor_group_key = "{}.corr_filt".format(expr_group_key)
     
     # read in RNA matrix
     rna_patterns = pd.read_table(args.rna_expression_file)
     rna_patterns["ensembl_ids"] = rna_patterns.index
     
-    # now go through each foreground
-    # remember the pval key is the target key
-    for pval_key in pval_keys:
+    # get targets
+    with h5py.File(out_file, "r") as hf:
+        target_keys = hf[expr_group_key].keys()
 
-        # extract from h5 file
+    for target_key in target_keys:
+        # extract scores for that target to save into patterns
         other_targets = {}
         with h5py.File(args.pvals_h5_file, "r") as hf:
-            targets = hf[pval_key][:]
+            targets = hf[target_key][:]
             pwm_scores = hf[args.pwm_scores_key][:]
-            foreground_indices = hf[DataKeys.PWM_PVALS][pval_key].attrs[AttrKeys.TASK_INDICES]
             for target, indices in args.other_targets:
                 if len(indices) != 0:
                     other_targets[target] = hf[target][:,indices]
                 else:
                     other_targets[target] = hf[target][:]
 
-        # go through each foreground
-        for foreground_idx in xrange(len(foreground_indices)):
-            prefix = "{}-{}".format(pval_key, foreground_indices[foreground_idx])
+        # set up indices
+        with h5py.File(out_file, "r") as hf:
+            indices = hf[expr_group_key][target_key].keys()
+        indices = [i for i in indices if "pwms" not in i]
+            
+        for index in indices:
 
-            # extract subset
-            example_indices = np.where(targets[:,foreground_indices[foreground_idx]] > 0)[0]
+            # get sig pwms
+            old_sig_pwms_key = "{}/{}/{}/{}".format(
+                expr_group_key, target_key, index, DataKeys.PWM_SIG_ROOT)
+            with h5py.File(out_file, "r") as hf:
+                old_sig_pwms = hf[old_sig_pwms_key][:]
+                pwm_names = hf[old_sig_pwms_key].attrs[AttrKeys.PWM_NAMES]
+                ensembl_ids = hf[old_sig_pwms_key].attrs["ensembl_ids"]
+                hgnc_ids = hf[old_sig_pwms_key].attrs["hgnc_ids"]
+
+            
+            # set up pwm score patterns
+            example_indices = np.where(targets[:,int(index)] > 0)[0]
             example_scores = pwm_scores[example_indices]
             pwm_patterns = np.sum(example_scores, axis=0).transpose()
+            # REMOVE LATER
+            pwm_patterns = pwm_patterns[:,[0,2,3,4,5,6,7,8,9]]
+            # add in all necessary information to pwm patterns (convert to dataframe)
+            pwm_patterns = pd.DataFrame(pwm_patterns, index=pwm_names)
+            pwm_patterns["ensembl_ids"] = ensembl_ids
+            pwm_patterns["hgnc_ids"] = hgnc_ids
+            pwm_patterns["original_indices"] = range(pwm_patterns.shape[0])
+            pwm_patterns["pwm_names"] = pwm_patterns.index
+
+            # filter out non sig
+            sig_indices = np.where(old_sig_pwms > 0)[0]
+            pwm_patterns = pwm_patterns.iloc[sig_indices]
+
+            # expand on RNA column
+            split_cols = ["ensembl_ids", "hgnc_ids"]
+            pwm_patterns = _expand_pwms_by_rna(pwm_patterns, split_cols)
+            
+            # move hgnc names to index and remove extraneous data
+            pwm_patterns = pwm_patterns.set_index("hgnc_ids")
+            pwm_patterns_vals = pwm_patterns[
+                pwm_patterns.columns.difference(
+                    ["ensembl_ids", "original_indices", "pwm_names"])]
+            
+            # set up rna patterns
+            rna_patterns_matched = rna_patterns[rna_patterns["ensembl_ids"].isin(pwm_patterns["ensembl_ids"])]
+            rna_patterns_matched = rna_patterns_matched.set_index("ensembl_ids")
+            rna_patterns_matched = rna_patterns_matched.loc[pwm_patterns["ensembl_ids"]]
+            
+            # calculate the row-wise correlations
+            pwm_rna_correlations = np.zeros((pwm_patterns.shape[0]))
+            for i in xrange(pwm_rna_correlations.shape[0]):
+                corr_coef, pval = pearsonr(
+                    pwm_patterns_vals.values[i], rna_patterns_matched.values[i])
+                pwm_rna_correlations[i] = corr_coef
+                
+            # filter for correlation
+            if args.cor_thresh is not None:
+                good_cor = pwm_rna_correlations >= args.cor_thresh
+                pwm_patterns = pwm_patterns.iloc[good_cor]
+                pwm_patterns_vals = pwm_patterns_vals.iloc[good_cor]
+                rna_patterns_matched = rna_patterns_matched.iloc[good_cor]
+                pwm_rna_correlations = pwm_rna_correlations[good_cor]
+                
+            # set up new sig pwms
+            new_sig_pwms = np.zeros((pwm_scores.shape[2])).astype(int)
+            new_sig_pwms[pwm_patterns["original_indices"].values] = 1
 
             # extract other keys
             subset_targets = {}
             for key in other_targets.keys():
-                subset_targets[key] = np.mean(other_targets[key][example_indices], axis=0)
-            
-            # REMOVE LATER
-            pwm_patterns = pwm_patterns[:,[0,2,3,4,5,6,7,8,9]]
-
-            # set up df for matching to RNA
-            pwms_for_matching = pd.DataFrame(pwm_patterns, index=pwm_names)
-            pwms_for_matching["ensembl_ids"] = pwm_metadata[args.pwm_metadata_expr_col_key].values
-            pwms_for_matching["hgnc_ids"] = pwm_metadata[args.pwm_metadata_hgnc_col_key].values
-            pwms_for_matching["original_indices"] = range(pwm_patterns.shape[0])
-            pwms_for_matching["pwm_names"] = pwms_for_matching.index
-
-            # filter for those that are sig
-            if False:
-                passes_sig_filter = np.all(pass_expr_filter[foreground_idx], axis=0) # this is from previous step, separate?
-            else:
-                passes_sig_filter = np.any(pass_expr_filter[foreground_idx], axis=0) # this is from previous step, separate?
-            pass_indices = np.where(passes_sig_filter)[0]
-            pwms_for_matching = pwms_for_matching.iloc[pass_indices]
-            
-            # filter for those that have expression (redundant, but make sure)
-            pwms_for_matching = pwms_for_matching[pwms_for_matching["ensembl_ids"].notnull()]
-            
-            # and expand on RNA, matching ensembl expansion with hgnc expansion
-            split_cols = ["ensembl_ids", "hgnc_ids"]
-            split_char = ";"
-            for split_col in split_cols:
-                pwms_for_matching = pwms_for_matching.assign(
-                    **{split_col: pwms_for_matching[split_col].str.split(split_char)})
-            
-            pwms_for_matching_expanded = pd.DataFrame({
-                col: np.repeat(pwms_for_matching[col].values, pwms_for_matching[split_cols[0]].str.len())
-                for col in pwms_for_matching.columns})    
-
-            for split_col in split_cols:
-                pwms_for_matching_expanded = pwms_for_matching_expanded.assign(
-                    **{split_col: np.concatenate(pwms_for_matching[split_col].values)})[
-                        pwms_for_matching.columns.tolist()]
-
-            # move hgnc names to index
-            pwms_for_matching_expanded = pwms_for_matching_expanded.set_index("hgnc_ids")
-
-            # remove extraneous columns for the correlation analysis
-            pwm_patterns = pwms_for_matching_expanded[
-                pwms_for_matching_expanded.columns.difference(
-                    ["ensembl_ids", "original_indices", "pwm_names"])]
-            
-            # now match with RNA
-            matched_rna = rna_patterns[rna_patterns["ensembl_ids"].isin(
-                pwms_for_matching_expanded["ensembl_ids"])]
-            matched_rna = matched_rna.set_index("ensembl_ids")
-            matched_rna = matched_rna.loc[pwms_for_matching_expanded["ensembl_ids"]]
-            
-            # calculate row-wise correlations
-            pwm_rna_correlations = np.zeros((pwms_for_matching_expanded.shape[0]))
-            for i in xrange(pwm_rna_correlations.shape[0]):
-                corr_coef, pval = pearsonr(
-                    pwm_patterns.values[i], matched_rna.values[i])
-                #corr_coef, pval = spearmanr(
-                #    pwm_patterns.values[i], matched_rna.values[i])
-                pwm_rna_correlations[i] = corr_coef
-
-            # filter for correlation
-            if args.cor_thresh is not None:
-                good_cor = pwm_rna_correlations >= args.cor_thresh
-
-                pwm_patterns = pwm_patterns.iloc[good_cor]
-                matched_rna = matched_rna.iloc[good_cor]
-                pwms_for_matching_expanded = pwms_for_matching_expanded.iloc[good_cor]
-                pwm_rna_correlations = pwm_rna_correlations[good_cor]
-            
-            # and make a sig pwms vector
-            sig_pwms = np.zeros((pwm_scores.shape[2])).astype(int)
-            sig_pwms[pwms_for_matching_expanded["original_indices"].values] = 1
-            
+                subset_targets[key] = np.mean(
+                    other_targets[key][example_indices], axis=0)
+                
             # finally, all of this needs to be saved out
-            _PREFIX_KEY = "{}/{}".format(_CORR_GROUP_KEY, prefix)
-            _PWM_SIG_KEY = "{}/pwms.sig".format(_PREFIX_KEY)
-            _PWM_PATTERN_KEY = "{}/pwm_patterns".format(_PREFIX_KEY)
-            _RNA_PATTERN_KEY = "{}/rna_patterns".format(_PREFIX_KEY)
-            _COR_KEY = "{}/correlations".format(_PREFIX_KEY)
+            subgroup_key = "{}/{}/{}".format(
+                cor_group_key, target_key, index)
+            new_sig_pwms_key = "{}/{}".format(
+                subgroup_key, DataKeys.PWM_SIG_ROOT)
+            pwm_patterns_key = "{}/pwm_patterns".format(subgroup_key)
+            rna_patterns_key = "{}/rna_patterns".format(subgroup_key)
+            cor_key = "{}/correlations".format(subgroup_key)
             
             with h5py.File(out_file, "a") as hf:
-                # pwm pattern
-                hf.create_dataset(_PWM_SIG_KEY, data=sig_pwms)
-                hf.create_dataset(_PWM_PATTERN_KEY, data=pwm_patterns.values)
-                hf.create_dataset(_RNA_PATTERN_KEY, data=matched_rna.values)
-                hf.create_dataset(_COR_KEY, data=pwm_rna_correlations)
+                # datasets
+                hf.create_dataset(new_sig_pwms_key, data=new_sig_pwms)
+                hf.create_dataset(pwm_patterns_key, data=pwm_patterns_vals.values)
+                hf.create_dataset(rna_patterns_key, data=rna_patterns_matched.values)
+                hf.create_dataset(cor_key, data=pwm_rna_correlations)
 
-                # TODO also save out non-expanded?
-
-                # save out attributes
-                hf[_PREFIX_KEY].attrs["ensembl_ids"] = pwms_for_matching_expanded["ensembl_ids"].values.astype(str)
-                hf[_PREFIX_KEY].attrs["hgnc_ids"] = pwms_for_matching_expanded.index.values.astype(str)
-                hf[_PREFIX_KEY].attrs["pwm_names"] = pwms_for_matching_expanded["pwm_names"].values.astype(str)
+                # attributes
+                hf[subgroup_key].attrs["ensembl_ids"] = pwm_patterns["ensembl_ids"].values.astype(str)
+                hf[subgroup_key].attrs["hgnc_ids"] = pwm_patterns.index.values.astype(str)
+                hf[subgroup_key].attrs["pwm_names"] = pwm_patterns["pwm_names"].values.astype(str)
                 
-                # other keys
+                # other keys - keep to a separate subgroup
                 for key in subset_targets.keys():
-                    out_key = "{}/{}.mean".format(_PREFIX_KEY, key)
+                    out_key = "{}/other/{}".format(subgroup_key, key)
                     hf.create_dataset(out_key, data=subset_targets[key])
 
+            logging.info(
+                "{}: After filtering for correlated TFs, got {} motifs (from {})".format(
+                    new_sig_pwms_key, np.sum(new_sig_pwms), np.sum(old_sig_pwms)))
+
     # and plot
-    plot_cmd = "plot-h5.pwm_x_rna.R {}".format(out_file)
-    #os.system(plot_cmd)
+    plot_cmd = "plot-h5.pwm_x_rna.R {} {}".format(out_file, cor_group_key)
+    print plot_cmd
+    os.system(plot_cmd)
     
     return
 
