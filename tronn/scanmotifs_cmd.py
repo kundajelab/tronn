@@ -16,10 +16,8 @@ from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
 from tronn.interpretation.clustering import visualize_multikey_outputs_R
 
-from tronn.interpretation.motifs import extract_significant_pwms
-from tronn.interpretation.motifs import run_hypergeometric_test_on_motif_hits
+from tronn.interpretation.motifs import extract_significant_pwms # TODO DEPRECATE
 from tronn.interpretation.motifs import run_bootstrap_differential_score_test
-from tronn.interpretation.motifs import threshold_and_save_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
@@ -81,105 +79,74 @@ def run(args):
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
 
+    # TODO deprecate this, force user to run scanmotifs for background set FIRST before doing differential calls
     # somewhere here need to run another file of negatives?
     # a set of regions that are NOT positive in the desired set
     # and match the number of regions that were extracted...
     # add an arg to reuse a background if it was already generated
     # --background_targets ATAC_LABELS=3,4,5,6
     # background_sample_size = 4*sample_size
-    background_h5_file = "{0}/{1}.background.h5".format(
-        args.out_dir, args.prefix)
-    if not os.path.isfile(background_h5_file):
-        # set up new input fn
-        input_fn = data_loader.build_input_fn(
-            args.batch_size,
-            targets=args.targets,
-            target_indices=args.target_indices,
-            filter_targets=args.background_targets + args.background_filter_targets,
-            singleton_filter_targets=args.singleton_filter_targets,
-            use_queues=True)
+    if args.background_scores is None:
 
-        # set up inference generator
-        inference_generator = model_manager.infer(
-            input_fn,
-            args.out_dir,
-            args.inference_params,
-            checkpoint=model_manager.model_checkpoint,
-            yield_single_examples=True)
+        background_h5_file = "{0}/{1}.background.h5".format(
+            args.out_dir, args.prefix)
+        if not os.path.isfile(background_h5_file):
+            # set up new input fn
+            input_fn = data_loader.build_input_fn(
+                args.batch_size,
+                targets=args.targets,
+                target_indices=args.target_indices,
+                filter_targets=args.background_targets + args.background_filter_targets,
+                singleton_filter_targets=args.singleton_filter_targets,
+                use_queues=True)
 
-        # determine desired sample size
-        with h5py.File(results_h5_file, "r") as hf:
-            background_sample_size = args.background_sample_multiplier * hf[DataKeys.FEATURES].shape[0]
-        
-        # infer
-        model_manager.infer_and_save_to_h5(
-            inference_generator,
-            background_h5_file,
-            background_sample_size,
-            debug=args.debug)
+            # set up inference generator
+            inference_generator = model_manager.infer(
+                input_fn,
+                args.out_dir,
+                args.inference_params,
+                checkpoint=model_manager.model_checkpoint,
+                yield_single_examples=True)
 
-        # add in PWM names to the datasets
-        add_pwm_names_to_h5(
-            background_h5_file,
-            [pwm.name for pwm in args.pwm_list],
-            other_keys=[DataKeys.FEATURES])
+            # determine desired sample size
+            with h5py.File(results_h5_file, "r") as hf:
+                background_sample_size = args.background_sample_multiplier * hf[DataKeys.FEATURES].shape[0]
+
+            # infer
+            model_manager.infer_and_save_to_h5(
+                inference_generator,
+                background_h5_file,
+                background_sample_size,
+                debug=args.debug)
+
+            # add in PWM names to the datasets
+            add_pwm_names_to_h5(
+                background_h5_file,
+                [pwm.name for pwm in args.pwm_list],
+                other_keys=[DataKeys.FEATURES])
+
+    else:
+        background_h5_file = args.background_scores    
 
     # then bootstrap from the background set (GC matched) to get
-    # probability that summed motif hits in foreground is due to random chance
-    if False:
-        run_hypergeometric_test_on_motif_hits(
-            results_h5_file,
-            background_h5_file,
-            "TRAJ_LABELS",
-            #[0,7,8,9,10,11])
-            [12,13,14,1])
-
-    if True:
+    # probability that summed motif score in foreground is due to random chance
+    if args.foreground_targets is not None:
+        
         for i in xrange(len(args.foreground_targets)):
-
-            from tronn.interpretation.motifs import save_subset_patterns_to_txt
-
-            if True:
-                save_subset_patterns_to_txt(
-                    results_h5_file,
-                    args.foreground_targets[i])
-            
-            # get sig pwms
-            pvals = run_bootstrap_differential_score_test(
+            run_bootstrap_differential_score_test(
                 results_h5_file,
                 background_h5_file,
                 args.foreground_targets[i][0],
                 args.foreground_targets[i][1],
                 args.background_targets[i][0],
-                args.background_targets[i][1])
-
-            import ipdb
-            ipdb.set_trace()
-            
-            for traj_i in xrange(pvals.shape[0]):
-                out_pwm_file = "{}/{}.{}-{}.pwms.txt".format(
-                    args.out_dir,
-                    args.prefix,
-                    args.foreground_targets[i][0],
-                    args.foreground_targets[i][1][traj_i])
-                print out_pwm_file
-                threshold_and_save_pwms(
-                    pvals[traj_i],
-                    args.pwm_list,
-                    out_pwm_file,
-                    pval_thresh=0.05)
-            
-            # save out
-            import ipdb
-            ipdb.set_trace()
+                args.background_targets[i][1],
+                qval_thresh=0.05)
     
     quit()
     
-
-    # return a PWM file with just significant PWMs for further analysis.
     
         
-    # run clustering analysis
+    # run clustering analysis?
     if args.cluster and not args.debug:
         cluster_file_prefix = "{0}/{1}.{2}".format(
             args.out_dir, args.prefix, DataKeys.CLUSTERS)
