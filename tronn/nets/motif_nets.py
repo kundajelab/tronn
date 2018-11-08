@@ -431,7 +431,7 @@ def get_pwm_scores(inputs, params):
     # TODO mask raw scores with weighted hits?
     
     
-    # squeeze the raw and weighted
+    # squeeze the raw and weighted to get summed motif score for the example
     # this happens here because you need to filter the scores
     # with the hits from raw sequence first
     # TODO can try max instead of sum?
@@ -448,9 +448,40 @@ def get_pwm_scores(inputs, params):
     # features coming out: the summed weighted scores
     outputs[DataKeys.FEATURES] = outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] # {N, task, M}
 
+    # get max positions and values (for downstream analyses)
+    outputs, _ = get_pwm_max_vals_and_positions(outputs, params)
+    
     # filter for just those with a motif present
     outputs, _ = filter_by_any_motif_present(outputs, params)
     
+    return outputs, params
+
+
+def get_pwm_max_vals_and_positions(inputs, params):
+    """read off the max positions (and vals, comes for free)
+    for downstream analyses
+    """
+    assert inputs.get(DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH) is not None
+    
+    # get features
+    features = inputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] # {N, task, pos, M}    
+    outputs = dict(inputs)
+
+    # reduce and transpose so position is last
+    features = tf.reduce_max(features, axis=1) # {N, pos, M}
+    features = tf.transpose(features, perm=[0,2,1]) # {N, M, pos}
+    
+    # get the max positions ON THE ACTIVE REGION
+    # NOTE that these are indices for the short region!!
+    vals, indices = tf.nn.top_k(features, k=1, sorted=True)
+
+    # adjust for clipping
+    if params.get("left_clip") is not None:
+        indices = tf.add(indices, params["left_clip"])
+    
+    outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, M, 1}
+    outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, M, 1}
+
     return outputs, params
 
 
@@ -475,8 +506,37 @@ def get_motif_densities(inputs, params):
     return outputs, params
 
 
-def filter_for_significant_pwms(inputs, params):
+
+
+def filter_for_any_sig_pwms(inputs, params):
+    """require that there is a param with a sig pwm vector, check if ANY motif exists
     """
+    pwm_hits_key = DataKeys.WEIGHTED_SEQ_PWM_HITS
+
+    # assertions
+    assert inputs.get(pwm_hits_key) is not None
+    assert params.get("sig_pwms") is not None
+
+    # get features
+    features = inputs[pwm_hits_key] # {N, M}
+    sig_pwms = tf.expand_dims(params["sig_pwms"], axis=0) # {1, M}
+
+    # multiply to mask
+    features = tf.multiply(features, sig_pwms) # {N, M}
+
+    # reduce
+    has_sig_pwm = tf.reduce_any(features > 0, axis=1) # {N}
+
+    # filter            
+    params.update({"name": "any_sig_pwm_filter"})
+    outputs, params = filter_and_rebatch(outputs, params)
+
+    return outputs, params
+
+
+
+def filter_for_significant_pwms(inputs, params):
+    """this is specifically if you have clusters
     """
     assert inputs.get(DataKeys.ORIG_SEQ_PWM_HITS) is not None # {N, task, pos, M}
     assert params.get("manifold") is not None # {cluster, task, M}
@@ -557,118 +617,4 @@ def filter_by_any_motif_present(inputs, params):
     params.update({"name": "motif_presence_filter", "use_queue": True})
     outputs, _ = filter_and_rebatch(inputs, params)
     
-    return outputs, params
-
-
-
-
-
-# OLD BELOW = CHECK TO SEE WHAT TO KEEP
-
-
-
-
-# TODO deprecate
-def pwm_position_squeeze(inputs, params):
-    """Squeeze position
-    """
-    assert inputs.get("features") is not None
-
-    # features
-    features = inputs["features"]
-    outputs = dict(inputs)
-    
-    squeeze_type = params.get("squeeze_type", "max")
-    if squeeze_type == "max":
-        max_vals = tf.reduce_max(tf.abs(features), axis=2, keepdims=True) # {N, task, 1, M}
-        max_mask = tf.cast(
-            tf.greater_equal(tf.abs(features), max_vals),
-            tf.float32) #{N, task, pos, M}
-        features = tf.reduce_sum(
-            tf.multiply(max_mask, features), axis=2) # {N, task, M}
-    elif squeeze_type == "mean":
-        features = tf.reduce_mean(features, axis=2)
-    elif squeeze_type == "sum":
-        features = tf.reduce_sum(features, axis=2)
-
-    outputs["features"] = features
-
-    return outputs, params
-
-
-# tODO deprecate
-def pwm_relu(inputs, params):
-    """Only keep positive
-    """
-    assert inputs.get("features") is not None
-
-    # features
-    features = inputs["features"]
-    outputs = dict(inputs)
-
-    # relu
-    features = tf.nn.relu(features)
-
-    outputs["features"] = features
-    
-    return outputs, params
-
-
-
-# TODO consider whether this is actually useful
-def multitask_global_pwm_scores(inputs, params):
-    """Also get global pwm scores
-    """
-    features = inputs["features"]
-    outputs = dict(inputs)
-
-    append = params.get("append", True)
-    count_thresh = params.get("count_thresh", 2)
-    
-    # per example, only keep positions that have been seen more than once
-    features_by_example = [tf.expand_dims(tensor, axis=0)
-                           for tensor in tf.unstack(features)] # {1, task, M}
-
-    # for each example, get sum across tasks
-    # TODO separate this out as different function
-    masked_features_list = []
-    for example_features in features_by_example:
-        motif_counts = tf.reduce_sum(
-            tf.cast(tf.not_equal(example_features, 0), tf.float32),
-            axis=1, keepdims=True) # sum across tasks {1, 1, M}
-        #motif_max = tf.reduce_max(
-        #    motif_counts, axis=[1, 3], keep_dims=True) # {1, 1, pos, 1}
-        # then mask based on max position
-        motif_mask = tf.cast(tf.greater_equal(motif_counts, count_thresh), tf.float32)
-        # and mask
-        masked_features = tf.multiply(motif_mask, example_features)
-        masked_features_list.append(masked_features)
-
-    # stack
-    features = tf.concat(masked_features_list, axis=0)
-    
-    # TODO could do a max - min scoring system?
-    reduce_type = params.get("reduce_type", "sum")
-
-    if reduce_type == "sum":
-        features_max = tf.reduce_sum(features, axis=1, keepdims=True)
-    elif reduce_type == "max":
-        features_max = tf.reduce_max(features, axis=1, keepdims=True)
-    elif reduce_type == "mean":
-        features_max = tf.reduce_mean(features, axis=1, keepdims=True)
-
-    # append or replace
-    if append:
-        features = tf.concat([features, features_max], axis=1)
-    else:
-        features = features_max
-
-    outputs["features"] = features
-        
-    # things to keep
-    if params.get("keep_global_pwm_scores") is not None:
-        # attach to config
-        outputs[params["keep_global_pwm_scores"]] = features_max #{N, pos, motif}
-        params["keep_global_pwm_scores"] = None # TODO fix this, this is because there is overwriting
-        
     return outputs, params
