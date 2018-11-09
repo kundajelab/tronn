@@ -4,8 +4,11 @@ import h5py
 import logging
 
 from tronn.interpretation.networks import build_co_occurrence_graph
+from tronn.interpretation.networks import build_dmim_graph
 from tronn.interpretation.networks import get_subgraphs_and_filter
 from tronn.interpretation.networks import sort_subgraphs_by_output_strength
+from tronn.interpretation.networks import build_subgraph_per_example_array
+from tronn.interpretation.networks import write_subgraph_to_bed
 
 from tronn.util.utils import DataKeys
 
@@ -20,7 +23,11 @@ def run(args):
     # adjust for sig file as needed
     if args.sig_pwms_file is None:
         args.sig_pwms_file = args.scan_file
-    
+        
+    # extract metadata
+    with h5py.File(args.scan_file, "r") as hf:
+        metadata = hf[DataKeys.SEQ_METADATA][:]
+        
     # set up targets
     with h5py.File(args.sig_pwms_file, "r") as hf:
         target_keys = hf[args.sig_pwms_key].keys()
@@ -46,20 +53,41 @@ def run(args):
             
             # build graph
             # here, either select co-occurrence or dmim
-            graph = build_co_occurrence_graph(
-                args.scan_file,
-                target_key,
-                int(index),
-                args.sig_pwms_file,
-                sig_pwms_key,
-                min_positive=args.min_positive_tasks,
-                min_co_occurring_num=args.min_support)
-
+            if args.scan_type == "motifs":
+                graph = build_co_occurrence_graph(
+                    args.scan_file,
+                    target_key,
+                    int(index),
+                    args.sig_pwms_file,
+                    sig_pwms_key,
+                    min_positive=args.min_positive_tasks,
+                    min_co_occurring_num=args.min_support)
+            elif args.scan_type == "dmim":
+                sig_dmim_key = "{}/{}/{}/{}".format(
+                    DataKeys.DMIM_DIFF_GROUP,
+                    target_key,
+                    index,
+                    DataKeys.DMIM_SIG_ROOT)
+                
+                graph = build_dmim_graph(
+                    args.scan_file,
+                    target_key,
+                    int(index),
+                    args.sig_pwms_file,
+                    sig_pwms_key,
+                    sig_dmim_key,
+                    min_positive=args.min_positive_tasks,
+                    min_co_occurring_num=args.min_support)
+            else:
+                raise ValueError, "scan type not implemented"
+                
             # get subgraphs
             subgraphs = get_subgraphs_and_filter(
                 graph,
                 args.subgraph_max_k,
-                args.min_support, # TODO these two numbers should be one, since just doing intersects here and no unions
+                # TODO these two numbers should be one,
+                # since just doing intersects here and no unions
+                args.min_support, 
                 args.min_support,
                 args.max_overlap_fraction)
 
@@ -74,31 +102,28 @@ def run(args):
             # debug
             for i in xrange(len(sorted_subgraphs)):
                 subgraph = sorted_subgraphs[i]
-                print [node.name for node in subgraph.nodes], len(subgraph.attrs["examples"]), subgraph.attrs["logit_mean"]
-                
-            # summaries: summary metadata file
-            # do I need this summary?
-            summary_metadata_file = "{}/{}.{}-{}.summary.txt".format(
-                args.out_dir, args.prefix, target_key, index)
+                print [node.name for node in subgraph.nodes], len(subgraph.attrs["examples"]), subgraph.attrs["logit_max"]
 
+            # in the original scan file, now save out results {N, subgraph}
+            if False: # file in use right now
+                grammar_labels_key = "{}/{}".format(subgroup_key, DataKeys.GRAMMAR_LABELS)
+                build_subgraph_per_example_array(
+                    args.scan_file,
+                    sorted_subgraphs,
+                    target_key,
+                    grammar_labels_key)
+            
             # for each subgraph, produce:
             # 1) gml file that keeps the network structure
-            # 2) h5 file that tracks all extra information (also global indices, in case merging)
             # 3) BED file of regions to check functional enrichment
-
-            
-
-
-
-            # summary gml file - use a separate merge script that uses h5 file and gml file
-            
-            # figure out for dmim, what information required for dmim
-            # for dmim, requires example_metadata, labels, motif indices
-
-
-            # separate script for functional enriching and grouping results
-                
-            import ipdb
-            ipdb.set_trace()
+            for subgraph_idx in xrange(len(sorted_subgraphs)):
+                subgraph = sorted_subgraphs[subgraph_idx]
+                grammar_prefix = "grammar-{}".format(subgraph_idx)
+                grammar_file_prefix = "{}/{}.{}-{}.{}".format(
+                    args.out_dir, args.prefix, target_key, index, grammar_prefix)
+                grammar_gml = "{}.gml".format(grammar_file_prefix)
+                subgraph.write_gml(grammar_gml)
+                grammar_bed = "{}.bed".format(grammar_file_prefix)
+                write_subgraph_to_bed(subgraph, metadata, grammar_bed, merge=True)
         
     return
