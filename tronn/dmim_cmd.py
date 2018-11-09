@@ -15,6 +15,7 @@ from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
 
 from tronn.interpretation.motifs import get_sig_pwm_vector
+from tronn.interpretation.motifs import copy_sig_pwm_vectors_to_h5
 from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
@@ -22,6 +23,7 @@ from tronn.interpretation.networks import get_motif_hierarchies
 
 from tronn.interpretation.variants import get_significant_delta_logit_responses
 from tronn.interpretation.variants import get_interacting_motifs
+from tronn.interpretation.variants import run_permutation_dmim_score_test
 from tronn.interpretation.variants import visualize_interacting_motifs_R
 
 from tronn.nets.nets import net_fns
@@ -161,9 +163,18 @@ def run(args):
         add_pwm_names_to_h5(
             results_h5_file,
             [pwm.name for pwm in args.pwm_list],
-            other_keys=[])
+            other_keys=[DataKeys.FEATURES])
 
-        # use copy_h5_datasets
+        # copy over the pwm sig vectors that are relevant
+        copy_sig_pwm_vectors_to_h5(
+            args.sig_pwms_file,
+            results_h5_file,
+            args.sig_pwms_key,
+            args.foreground_targets[0][0],
+            args.foreground_targets[0][1])
+
+    if False:
+        # TODO - deprecate this
         copy_h5_datasets(
             args.manifold_file,
             results_h5_file,
@@ -179,6 +190,7 @@ def run(args):
             
     # check manifold - was it consistent
     # TODO make an arg
+    # TODO deprecate this
     check_manifold = False
     if check_manifold:
         manifold_file_prefix = "{0}/{1}.{2}".format(
@@ -217,11 +229,33 @@ def run(args):
             args.visualize_multikey_R)
 
     # DMIM ANALYSES
-    if False:
+    if args.foreground_targets is not None:
+
+        # reminder - there's `sig_pwms` full vector.
+        
+        for i in xrange(len(args.foreground_targets)):
+
+            print args.foreground_targets[i]
+            
+            # get interacting motifs for this task
+            # use target key and index to select sig pwms to look at
+            run_permutation_dmim_score_test(
+                results_h5_file,
+                args.foreground_targets[i][0],
+                args.foreground_targets[i][1],
+                sig_pwms,
+                args.sig_pwms_key)
+            
+
+    quit()
+
+
+    
+    if True:
         get_interacting_motifs(
             results_h5_file,
-            DataKeys.MANIFOLD_CLUST,
-            DataKeys.DMIM_SIG_RESULTS)
+            DataKeys.MANIFOLD_CLUST, # <- figure out what goes here - sig pwms, but sig only for each task
+            DataKeys.DMIM_SIG_RESULTS) # <- figure out what goes here
 
     # and plot these out with R
     if False:
