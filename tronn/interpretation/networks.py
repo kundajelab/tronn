@@ -405,7 +405,7 @@ def build_co_occurrence_graph(
     score_indices = np.where(targets[:,target_idx] > 0)[0]
     scores = scores[score_indices]
     original_indices = original_indices[score_indices]
-    effects_mat = np.sum(scores > 0, axis=1) >= min_positive # {N}
+    effects_mat = np.sum(scores > 0, axis=1) >= min_positive # {N, M}
     
     # first set up driver nodes
     num_drivers = np.sum(sig_pwms)
@@ -439,6 +439,52 @@ def build_co_occurrence_graph(
     return graph
 
 
+def build_edges_from_adjacency(
+        nodes,
+        scores,
+        adjacency,
+        min_co_occurring_num): # <- min num not used currently!
+    """build edges
+    """
+    edges = []
+    for driver_node in nodes:
+        if driver_node.attrs.get("driver_idx") is None:
+            continue
+        driver_idx = driver_node.attrs["driver_idx"]
+        
+        for responder_node in nodes:
+            if responder_node.attrs.get("responder_idx") is None:
+                continue
+            responder_idx = responder_node.attrs["responder_idx"]
+
+            # TODO - hack for square matrix, remove this eventually
+            responder_adj_idx = responder_node.attrs["driver_idx"]
+
+            # then check that the adjacency mat says there's an edge there
+            if adjacency[driver_idx, responder_adj_idx] == 0:
+                continue
+
+            # get direction
+            overall_edge_effect = np.sum(scores[:,driver_idx,:,responder_idx])            
+            if overall_edge_effect < 0:
+
+                # TODO - consider min task count!
+                has_effect = np.any(scores[:,driver_idx,:,responder_idx] < 0, axis=1) # {N}
+                edge_examples = np.where(has_effect)[0].tolist()
+            else:
+                has_effect = np.any(scores[:,driver_idx,:,responder_idx] > 0, axis=1) # {N}
+                edge_examples = np.where(has_effect)[0].tolist()
+
+            # attach the list of examples with both 
+            edge = DirectedEdge(
+                driver_node.name,
+                responder_node.name,
+                attrs={"examples": edge_examples})
+            edges.append(edge)
+    
+    return edges
+
+
 def build_dmim_graph(
         h5_file,
         targets_key,
@@ -447,13 +493,28 @@ def build_dmim_graph(
         sig_pwms_key,
         sig_dmim_key,
         data_key=DataKeys.FEATURES,
-        outputs_key=DataKeys.MUT_MOTIF_LOGITS,
+        outputs_key=DataKeys.LOGITS,
+        outputs_mut_key=DataKeys.MUT_MOTIF_LOGITS,
         sig_only=True,
         min_positive=2,
         min_co_occurring_num=500):
     """using dmim outputs, build graph
     """
-    # first determine what the global pwm vector was
+    # need to load in mut logits (nodes), scores (edges), adjacence mat (edges)
+    # load in scores
+    with h5py.File(h5_file, "r") as hf:
+        scores = hf[data_key][:] # {N, mutM, task, M}
+        outputs = np.expand_dims(hf[outputs_key][:], axis=1) # {N, logit}
+        outputs_mut = hf[outputs_mut_key][:] # {N, mutM, logit}
+        targets = hf[targets_key][:] # {N, task}
+        adjacency = hf[sig_dmim_key][:] # {mutM, responseM} <- square, but eventually not
+        pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
+
+    # set up delta logits
+    delta_outputs = np.subtract(outputs_mut, outputs)
+    
+    # set up sig pwm vectors, both driver pwms and response pwms
+    # first set up the global (rebuild what was used in dmim)
     sig_pwm_root = sig_pwms_key.replace("/{}".format(DataKeys.PWM_SIG_ROOT), "")
     with h5py.File(sig_pwms_h5_file, "r") as hf:
         sig_pwm_keys = hf[sig_pwm_root].keys()
@@ -463,72 +524,67 @@ def build_dmim_graph(
                 sig_pwms = hf[sig_pwm_root][key][:]
             else:
                 sig_pwms += hf[sig_pwm_root][key][:]
-    global_sig_pwms = sig_pwms != 0
+    global_sig_pwms = sig_pwms != 0 # {M}
 
-    # and set up correct subset of pwms
+    # extract the subset of global that is sig for this task
     with h5py.File(sig_pwms_h5_file, "r") as hf:
         sig_pwms = hf[sig_pwms_key][:] # {M}
-    sig_pwms = sig_pwms[np.where(global_sig_pwms)[0]]
-    keep_pwms = np.where(sig_pwms != 0)[0] # use this to filter on mutM
-
-    sig_pwms = sig_pwms[keep_pwms]
     
-    import ipdb
-    ipdb.set_trace()
+    # set up driver - need to index on mutM
+    driver_pwms = sig_pwms[np.where(global_sig_pwms)[0]]
+    driver_pwm_names = pwm_names[np.where(global_sig_pwms)[0]]
+    driver_pwms_indices = np.where(driver_pwms != 0)[0] # use this to filter on mutM
+    driver_pwms = driver_pwms[driver_pwms_indices] # driverM
+    
+    # if not using all motifs, set up responders - need to index on M
+    if True: # <- replace with some check
+        responder_pwms = np.multiply(global_sig_pwms, sig_pwms) # {M}
+        responder_pwm_names = pwm_names
+        #responder_pwms_indices = np.where(responder_pwms != 0)[0]
+        #responder_pwms = responder_pwms[responder_pwms_indices] # responderM
 
-    # need to load in mut logits (nodes), scores (edges), adjacence mat (edges)
-    # load in scores
-    with h5py.File(h5_file, "r") as hf:
-        scores = hf[data_key][:] # {N, mutM, task, M}
-        outputs = hf[outputs_key][:] # {N, mutM, logit}
-        targets = hf[targets_key][:] # {N, task}
-        adjacency = hf[sig_dmim_key][:] # {mutM, responseM} <- square, but eventually not
-        #pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
-
-    # now adjust for the specific task desired
+    # now adjust scores and outputs for the specific task desired
     original_indices = np.arange(scores.shape[0])
     select_indices = np.where(targets[:,target_idx] > 0)[0]
-
     original_indices = original_indices[select_indices]
-    scores = scores[select_indices]
-    outputs = outputs[select_indices]
-
+    #scores = scores[select_indices]
+    #outputs = outputs[select_indices]
+    delta_outputs = delta_outputs[select_indices]
+    
     # nodes: make nodes based on whether the motif had an effect
     # note! need to make this directional maybe
-    effect_mat = np.any(outputs < 0, axis=2) # {N, mutM}
+    effects_mat = np.any(delta_outputs < 0, axis=2) # {N, mutM}
 
     # first set up driver nodes
-    import ipdb
-    ipdb.set_trace()
-    
-    num_drivers = np.sum(sig_pwms) # <- make sure correct pwms get read out here
     nodes = build_nodes(
-        sig_pwms,
-        pwm_names,
+        driver_pwms,
+        driver_pwm_names,
         nodes=[],
         effects_mat=effects_mat,
         original_indices=original_indices,
         indexing_key="driver_idx")
     
     # then set up response nodes
-    num_responders = np.sum(sig_pwms)
     if sig_only:
         nodes = build_nodes(
-            sig_pwms,
-            pwm_names,
+            responder_pwms,
+            responder_pwm_names,
             nodes=nodes,
             indexing_key="responder_idx")
     else:
         raise Exception, "not yet implemented"
 
-    
-
     #  edges: create edges based on adjacency {mutM, responseM}
     # and put examples on the edges if there was an effect
+    edges = build_edges_from_adjacency(
+        nodes,
+        scores,
+        adjacency,
+        50) # adjust this later
 
+    graph = MotifGraph(nodes, edges)
 
-
-    return
+    return graph
 
 
     
