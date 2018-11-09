@@ -98,6 +98,10 @@ class DataKeys(object):
     DFIM_SCORES = "{}.delta".format(MUT_MOTIF_WEIGHTED_SEQ)
 
     # dmim agg results keys
+    DMIM_DIFF_GROUP = "dmim.differential"
+    DMIM_PVALS = "dmim.pvals"
+    DMIM_SIG_ROOT = "dmim.sig"
+    DMIM_SIG_ALL = "{}.all".format(DMIM_SIG_ROOT)
     DMIM_ROOT = "{}.{}".format(DFIM_SCORES, PWM_SCORES_ROOT)
     DMIM_SIG_RESULTS = "{}.agg.sig".format(DMIM_ROOT)
 
