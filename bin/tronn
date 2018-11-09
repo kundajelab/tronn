@@ -715,9 +715,9 @@ def add_buildgrammars_parser(subparsers):
     group_dataset.add_argument(
         "--scan_file", required=True,
         help="h5 file of scan results")
-    group_dataset.add_argument(
-        "--scan_key",
-        help="dataset key with scores") # either motifs {N, task, M} or dmim {N, mutM, task, M}, with dmim need to consider outputs logits {N, mutM, logits}
+    #group_dataset.add_argument(
+    #    "--scan_key",
+    #    help="dataset key with scores") # either motifs {N, task, M} or dmim {N, mutM, task, M}, with dmim need to consider outputs logits {N, mutM, logits}
     _add_sig_pwms_args(group_dataset)
     
     # group for output files
@@ -1047,7 +1047,7 @@ def _setup_logs(args):
     reload(logging)
     logging.basicConfig(
         filename=logging_file,
-        level=logging.INFO, # TODO ADJUST BEFORE RELEASE
+        level=logging.DEBUG, # TODO ADJUST BEFORE RELEASE
         format='%(message)s')
     logging.getLogger().addHandler(logging.StreamHandler())
     for arg in sorted(vars(args)):
