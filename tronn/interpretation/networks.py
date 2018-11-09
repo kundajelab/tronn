@@ -72,6 +72,7 @@ class MotifGraph(object):
         for edge in self.edges:
             self.attrs["examples"] = self.attrs["examples"].intersection(
                 edge.attrs["examples"])
+        self.attrs["num_examples"] = len(self.attrs["examples"])
             
         # keep these! update local copies of examples,
         # that way when combining can just sum each.
@@ -81,10 +82,12 @@ class MotifGraph(object):
         # copy node attrs from nodes
         for node in self.nodes:
             self.node_attrs[node.name] = copy.deepcopy(node.attrs)
+            self.node_attrs[node.name]["num_examples"] = len(self.attrs["examples"])
         # copy edge attrs from edges
         for edge in self.edges:
             self.edge_attrs[edge.name] = copy.deepcopy(edge.attrs)
-
+            self.edge_attrs[edge.name]["num_examples"] = len(self.attrs["examples"])
+            
             
     def deepcopy(self):
         """make a deep copy of the graph
@@ -146,6 +149,14 @@ class MotifGraph(object):
                 return node
 
             
+    def get_edge_by_id(self, edge_name):
+        """get the node object by id
+        """
+        for edge in self.edges:
+            if edge_name == edge.name:
+                return edge
+
+            
     def get_node_out_edges(self, node_name):
         """return the edges
         """
@@ -173,14 +184,17 @@ class MotifGraph(object):
         """
         # update the graph
         self.attrs["examples"] = examples
+        self.attrs["num_examples"] = len(examples)
 
         # update node attrs
         for node_name in self.node_attrs.keys():
             self.node_attrs[node_name]["examples"] = examples
-
+            self.node_attrs[node_name]["num_examples"] = len(examples)
+            
         # update edge attrs
         for edge_name in self.edge_attrs.keys():
             self.edge_attrs[edge_name]["examples"] = examples
+            self.edge_attrs[edge_name]["num_examples"] = len(examples)
 
         return None
     
@@ -188,27 +202,42 @@ class MotifGraph(object):
     def write_gml(self, gml_file):
         """write out the gml file
         """
-        nx_graph = nx.MultiDiGraph()
-
+        # cleaned graph attributes
+        clean_attrs = {}
+        for key in self.attrs.keys():
+            clean_key = key.replace("_", "")
+            if not isinstance(self.attrs[key], (list, set, dict, np.ndarray)):
+                clean_attrs[clean_key] = self.attrs[key]
+        
+        # instantiate graph with attributes
+        nx_graph = nx.MultiDiGraph(**clean_attrs)
+        
         # nodes with cleaned up attrs
         node_list = []
-        for node in self.nodes:
+        for node_name in self.node_attrs.keys():
             clean_attrs = {}
-            for key in node.attrs.keys():
-                if not isinstance(node.attrs[key], (list, set, dict)):
-                    clean_attrs[key] = node.attrs[key]
-            node_list.append((node.name, clean_attrs))
+            for key in self.node_attrs[node_name].keys():
+                clean_key = key.replace("_", "")
+                if not isinstance(self.node_attrs[node_name][key], (list, set, dict, np.ndarray)):
+                    clean_attrs[clean_key] = self.node_attrs[node_name][key]
+                    #if isinstance(clean_attrs[key], basestring):
+                    #    clean_attrs[key] = clean_attrs[key].replace("_", "-")
+            node_list.append((node_name, clean_attrs))
 
         # edges with cleaned up attrs
         edge_list = []
-        for edge in self.edges:
+        for edge_name in self.edge_attrs.keys():
             clean_attrs = {}
-            for key in edge.attrs.keys():
-                if not isinstance(edge.attrs[key], (list, set, dict)):
-                    clean_attrs[key] = node.attrs[key]
+            for key in self.edge_attrs[edge_name].keys():
+                clean_key = key.replace("_", "")
+                if not isinstance(self.edge_attrs[edge_name][key], (list, set, dict, np.ndarray)):
+                    clean_attrs[clean_key] = self.edge_attrs[edge_name][key]
+                    #if isinstance(clean_attrs[key], basestring):
+                    #    clean_attrs[key] = clean_attrs[key].replace("_", "-")
+            edge = self.get_edge_by_id(edge_name)
             edge_list.append(
                 (edge.start_node_name, edge.end_node_name, clean_attrs))
-
+            
         # add them in
         nx_graph.add_nodes_from(node_list)
         nx_graph.add_edges_from(edge_list)
@@ -219,23 +248,24 @@ class MotifGraph(object):
         return None
 
 
-def write_to_bed(
+def write_subgraph_to_bed(
         subgraph,
         example_metadata,
         bed_file,
-        interval_key="active"):
+        interval_key="active",
+        merge=True):
     """convenience function to take indices, convert to regions,
     and save out as a bed file.
 
     NOTE THAT INDICES MUST MATCH THE EXAMPLE METADATA ORDER
     """
     subgraph_examples = sorted(list(subgraph.attrs["examples"]))
-    grammar_metadata = example_metadata[grammar_examples,0].tolist()
+    grammar_metadata = example_metadata[subgraph_examples,0].tolist()
     with open(bed_file, "w") as fp:
         for region_metadata in grammar_metadata:
             interval_types = region_metadata.split(";")
             interval_types = dict([
-                interval_type.split("=")[0:1]
+                interval_type.split("=")[0:2]
                 for interval_type in interval_types])
             interval_string = interval_types[interval_key]
             
@@ -243,7 +273,14 @@ def write_to_bed(
             start = interval_string.split(":")[1].split("-")[0]
             stop = interval_string.split("-")[1]
             fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
-    
+
+    if merge:
+        tmp_bed_file = "{}.tmp.bed".format(bed_file.split(".bed")[0])
+        os.system("mv {} {}".format(bed_file, tmp_bed_file))
+        os.system("cat {} | sort -k1,1 -k2,2n | bedtools merge -i stdin > {}".format(
+            tmp_bed_file, bed_file))
+        os.system("rm {}".format(tmp_bed_file))
+            
     return None
     
 
@@ -368,7 +405,7 @@ def build_co_occurrence_graph(
     score_indices = np.where(targets[:,target_idx] > 0)[0]
     scores = scores[score_indices]
     original_indices = original_indices[score_indices]
-    effects_mat = np.sum(scores > 0, axis=1) >= min_positive
+    effects_mat = np.sum(scores > 0, axis=1) >= min_positive # {N}
     
     # first set up driver nodes
     num_drivers = np.sum(sig_pwms)
@@ -388,6 +425,8 @@ def build_co_occurrence_graph(
             pwm_names,
             nodes=nodes,
             indexing_key="responder_idx")
+    else:
+        raise Exception, "not yet implemented"
 
     # build edges
     edges = build_edges_by_example_intersect(
@@ -399,7 +438,99 @@ def build_co_occurrence_graph(
 
     return graph
 
+
+def build_dmim_graph(
+        h5_file,
+        targets_key,
+        target_idx,
+        sig_pwms_h5_file,
+        sig_pwms_key,
+        sig_dmim_key,
+        data_key=DataKeys.FEATURES,
+        outputs_key=DataKeys.MUT_MOTIF_LOGITS,
+        sig_only=True,
+        min_positive=2,
+        min_co_occurring_num=500):
+    """using dmim outputs, build graph
+    """
+    # first determine what the global pwm vector was
+    sig_pwm_root = sig_pwms_key.replace("/{}".format(DataKeys.PWM_SIG_ROOT), "")
+    with h5py.File(sig_pwms_h5_file, "r") as hf:
+        sig_pwm_keys = hf[sig_pwm_root].keys()
+        for i in xrange(len(sig_pwm_keys)):
+            key = sig_pwm_keys[i]
+            if i == 0:
+                sig_pwms = hf[sig_pwm_root][key][:]
+            else:
+                sig_pwms += hf[sig_pwm_root][key][:]
+    global_sig_pwms = sig_pwms != 0
+
+    # and set up correct subset of pwms
+    with h5py.File(sig_pwms_h5_file, "r") as hf:
+        sig_pwms = hf[sig_pwms_key][:] # {M}
+    sig_pwms = sig_pwms[np.where(global_sig_pwms)[0]]
+    keep_pwms = np.where(sig_pwms != 0)[0] # use this to filter on mutM
+
+    sig_pwms = sig_pwms[keep_pwms]
     
+    import ipdb
+    ipdb.set_trace()
+
+    # need to load in mut logits (nodes), scores (edges), adjacence mat (edges)
+    # load in scores
+    with h5py.File(h5_file, "r") as hf:
+        scores = hf[data_key][:] # {N, mutM, task, M}
+        outputs = hf[outputs_key][:] # {N, mutM, logit}
+        targets = hf[targets_key][:] # {N, task}
+        adjacency = hf[sig_dmim_key][:] # {mutM, responseM} <- square, but eventually not
+        #pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
+
+    # now adjust for the specific task desired
+    original_indices = np.arange(scores.shape[0])
+    select_indices = np.where(targets[:,target_idx] > 0)[0]
+
+    original_indices = original_indices[select_indices]
+    scores = scores[select_indices]
+    outputs = outputs[select_indices]
+
+    # nodes: make nodes based on whether the motif had an effect
+    # note! need to make this directional maybe
+    effect_mat = np.any(outputs < 0, axis=2) # {N, mutM}
+
+    # first set up driver nodes
+    import ipdb
+    ipdb.set_trace()
+    
+    num_drivers = np.sum(sig_pwms) # <- make sure correct pwms get read out here
+    nodes = build_nodes(
+        sig_pwms,
+        pwm_names,
+        nodes=[],
+        effects_mat=effects_mat,
+        original_indices=original_indices,
+        indexing_key="driver_idx")
+    
+    # then set up response nodes
+    num_responders = np.sum(sig_pwms)
+    if sig_only:
+        nodes = build_nodes(
+            sig_pwms,
+            pwm_names,
+            nodes=nodes,
+            indexing_key="responder_idx")
+    else:
+        raise Exception, "not yet implemented"
+
+    
+
+    #  edges: create edges based on adjacency {mutM, responseM}
+    # and put examples on the edges if there was an effect
+
+
+
+    return
+
+
     
 def get_subgraphs(
         graph,
@@ -552,6 +683,9 @@ def get_subgraphs_and_filter(
     print "After removing high overlap subgraphs: {}".format(len(filtered_subgraphs))
     subgraphs = filtered_subgraphs
 
+    # and name them
+    for subgraph_idx in xrange(len(subgraphs)):
+        subgraphs[subgraph_idx].attrs["name"] = "grammar-{}".format(subgraph_idx)
 
     return subgraphs
 
@@ -572,16 +706,53 @@ def sort_subgraphs_by_output_strength(subgraphs, h5_file, target_key):
         subgraph_examples = sorted(list(subgraphs[i].attrs["examples"]))
         subgraph_outputs = outputs[subgraph_examples]
         summed_outputs[i] = np.mean(np.amax(subgraph_outputs, axis=1))
-        subgraphs[i].attrs["logit_mean"] = summed_outputs[i]
+        subgraphs[i].attrs["logit_max"] = summed_outputs[i]
 
         # separately (consider whether to factor this out),
         # also attach the pattern to the subgraph (to visualize later)
         subgraphs[i].attrs["logits"] = np.mean(subgraph_outputs, axis=0)
+        subgraphs[i].attrs["logits_str"] = ";".join(
+            [str(val) for val in np.mean(subgraph_outputs, axis=0).tolist()])
+        
         
     sort_indices = np.argsort(-summed_outputs) # negative to reverse the sort
     sorted_subgraphs = np.array(subgraphs)[sort_indices].tolist()
+
+    # rename
+    for subgraph_idx in xrange(len(sorted_subgraphs)):
+        sorted_subgraphs[subgraph_idx].attrs["name"] = "grammar-{}".format(subgraph_idx)
     
     return sorted_subgraphs
+
+
+def build_subgraph_per_example_array(
+        h5_file,
+        subgraphs,
+        target_key,
+        out_key):
+    """
+    """
+    # use h5 file to determine how many examples there were originally
+    with h5py.File(h5_file, "r") as hf:
+        num_examples = hf[target_key].shape[0]
+
+    # set up array
+    subgraph_present = np.zeros((num_examples, len(subgraphs)))
+    
+    # go through subgraphs
+    for subgraph_idx in xrange(len(subgraphs)):
+        subgraph = subgraphs[subgraph_idx]
+        examples = sorted(list(subgraph.attrs["examples"]))
+        subgraph_present[examples,subgraph_idx] = 1
+
+    # and save it back into the h5 file
+    with h5py.File(h5_file, "a") as hf:
+        if hf.get(out_key) is not None:
+            del hf[out_key]
+        hf.create_dataset(out_key, data=subgraph_present)
+    
+    return
+
 
 
 
