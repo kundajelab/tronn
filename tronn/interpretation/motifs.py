@@ -268,6 +268,9 @@ def run_bootstrap_differential_score_test(
     # figure out which ones pass a qval thresh
     pass_qval_thresh = threshold_by_qvalues(
         raw_pvals, qval_thresh=qval_thresh, num_bins=50)
+
+    # TODO save out the full pass threshold array {task, M}?
+    # ^ this is most useful if adjusting edges across time
     
     # then save each out to a different vector for easy use downstream
     # NOTE: the path to the vectors is pwms.differential/{targets_key}/{idx}/pwms.sig
@@ -322,6 +325,26 @@ def get_sig_pwm_vector(
         raise ValueError, "reduce type requested is not implemented"
 
     return sig_pwms
+
+
+def copy_sig_pwm_vectors_to_h5(
+        old_h5_file,
+        new_h5_file,
+        sig_key,
+        target_key,
+        target_indices):
+    """convenience function to copy pwm vectors
+    """
+    group_key = "{}/{}".format(sig_key, target_key)
+    with h5py.File(old_h5_file, "r") as hf:
+        for i in xrange(len(target_indices)):
+            index_key = "{}/{}/{}".format(
+                group_key, target_indices[i], DataKeys.PWM_SIG_ROOT)
+            with h5py.File(new_h5_file, "a") as out:
+                out.create_dataset(index_key, data=hf[index_key][:])
+
+    return None
+
 
 
 def select_pwms_by_permutation_test_and_reduce(
