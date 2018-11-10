@@ -24,6 +24,7 @@ class Node(object):
         self.attrs = attrs
         if "examples" in self.attrs.keys():
             self.attrs["num_examples"] = len(self.attrs["examples"])
+        self.attrs["name"] = self.name
 
             
     def get_tuple(self):
@@ -42,6 +43,7 @@ class DirectedEdge(object):
         self.attrs = attrs
         if "examples" in self.attrs.keys():
             self.attrs["num_examples"] = len(self.attrs["examples"])
+        self.attrs["name"] = self.name
 
         
     def get_tuple(self):
@@ -199,7 +201,7 @@ class MotifGraph(object):
         return None
     
 
-    def write_gml(self, gml_file):
+    def write_gml(self, gml_file, write_examples=True):
         """write out the gml file
         """
         # cleaned graph attributes
@@ -208,6 +210,9 @@ class MotifGraph(object):
             clean_key = key.replace("_", "")
             if not isinstance(self.attrs[key], (list, set, dict, np.ndarray)):
                 clean_attrs[clean_key] = self.attrs[key]
+            elif (key == "examples") and write_examples:
+                clean_attrs[clean_key] = ",".join(
+                    [str(val) for val in self.attrs[key]])
         
         # instantiate graph with attributes
         nx_graph = nx.MultiDiGraph(**clean_attrs)
@@ -220,8 +225,9 @@ class MotifGraph(object):
                 clean_key = key.replace("_", "")
                 if not isinstance(self.node_attrs[node_name][key], (list, set, dict, np.ndarray)):
                     clean_attrs[clean_key] = self.node_attrs[node_name][key]
-                    #if isinstance(clean_attrs[key], basestring):
-                    #    clean_attrs[key] = clean_attrs[key].replace("_", "-")
+                elif (key == "examples") and write_examples:
+                    clean_attrs[clean_key] = ",".join(
+                        [str(val) for val in self.node_attrs[node_name][key]])
             node_list.append((node_name, clean_attrs))
 
         # edges with cleaned up attrs
@@ -232,8 +238,9 @@ class MotifGraph(object):
                 clean_key = key.replace("_", "")
                 if not isinstance(self.edge_attrs[edge_name][key], (list, set, dict, np.ndarray)):
                     clean_attrs[clean_key] = self.edge_attrs[edge_name][key]
-                    #if isinstance(clean_attrs[key], basestring):
-                    #    clean_attrs[key] = clean_attrs[key].replace("_", "-")
+                elif (key == "examples") and write_examples:
+                    clean_attrs[clean_key] = ",".join(
+                        [str(val) for val in self.edge_attrs[node_name][key]])
             edge = self.get_edge_by_id(edge_name)
             edge_list.append(
                 (edge.start_node_name, edge.end_node_name, clean_attrs))
@@ -247,42 +254,33 @@ class MotifGraph(object):
         
         return None
 
-
-def write_subgraph_to_bed(
-        subgraph,
-        example_metadata,
-        bed_file,
-        interval_key="active",
-        merge=True):
-    """convenience function to take indices, convert to regions,
-    and save out as a bed file.
-
-    NOTE THAT INDICES MUST MATCH THE EXAMPLE METADATA ORDER
-    """
-    subgraph_examples = sorted(list(subgraph.attrs["examples"]))
-    grammar_metadata = example_metadata[subgraph_examples,0].tolist()
-    with open(bed_file, "w") as fp:
-        for region_metadata in grammar_metadata:
-            interval_types = region_metadata.split(";")
-            interval_types = dict([
-                interval_type.split("=")[0:2]
-                for interval_type in interval_types])
-            interval_string = interval_types[interval_key]
-            
-            chrom = interval_string.split(":")[0]
-            start = interval_string.split(":")[1].split("-")[0]
-            stop = interval_string.split("-")[1]
-            fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
-
-    if merge:
-        tmp_bed_file = "{}.tmp.bed".format(bed_file.split(".bed")[0])
-        os.system("mv {} {}".format(bed_file, tmp_bed_file))
-        os.system("cat {} | sort -k1,1 -k2,2n | bedtools merge -i stdin > {}".format(
-            tmp_bed_file, bed_file))
-        os.system("rm {}".format(tmp_bed_file))
-            
-    return None
     
+    def write_bed(self, bed_file, interval_key="active", merge=True):
+        """take the examples and write out a BED file
+        """
+        grammar_examples = list(self.attrs["examples"])
+        with open(bed_file, "w") as fp:
+            for region_metadata in grammar_examples:
+                interval_types = region_metadata.split(";")
+                interval_types = dict([
+                    interval_type.split("=")[0:2]
+                    for interval_type in interval_types])
+                interval_string = interval_types[interval_key]
+
+                chrom = interval_string.split(":")[0]
+                start = interval_string.split(":")[1].split("-")[0]
+                stop = interval_string.split("-")[1]
+                fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
+
+        if merge:
+            tmp_bed_file = "{}.tmp.bed".format(bed_file.split(".bed")[0])
+            os.system("mv {} {}".format(bed_file, tmp_bed_file))
+            os.system("cat {} | sort -k1,1 -k2,2n | bedtools merge -i stdin > {}".format(
+                tmp_bed_file, bed_file))
+            os.system("rm {}".format(tmp_bed_file))
+
+        return None
+
 
 def build_nodes(
         sig_pwms,
@@ -399,13 +397,17 @@ def build_co_occurrence_graph(
         scores = hf[data_key][:] # {N, task, M}
         targets = hf[targets_key][:] # {N, task}
         pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
+        metadata = hf["example_metadata"][:,0]
     
     # set up effects mat and original indices
-    original_indices = np.arange(scores.shape[0])
+    #original_indices = np.arange(scores.shape[0])
     score_indices = np.where(targets[:,target_idx] > 0)[0]
     scores = scores[score_indices]
-    original_indices = original_indices[score_indices]
+    #original_indices = original_indices[score_indices]
+    metadata = metadata[score_indices]
+    
     effects_mat = np.sum(scores > 0, axis=1) >= min_positive # {N, M}
+    
     
     # first set up driver nodes
     num_drivers = np.sum(sig_pwms)
@@ -414,7 +416,7 @@ def build_co_occurrence_graph(
         pwm_names,
         nodes=[],
         effects_mat=effects_mat,
-        original_indices=original_indices,
+        original_indices=metadata, #original_indices,
         indexing_key="driver_idx")
     
     # then set up response nodes
@@ -510,6 +512,9 @@ def build_dmim_graph(
         adjacency = hf[sig_dmim_key][:] # {mutM, responseM} <- square, but eventually not
         pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
 
+        # test metadata
+        metadata = hf["example_metadata"][:,0]
+        
     # set up delta logits
     delta_outputs = np.subtract(outputs_mut, outputs)
     
@@ -544,12 +549,19 @@ def build_dmim_graph(
         #responder_pwms = responder_pwms[responder_pwms_indices] # responderM
 
     # now adjust scores and outputs for the specific task desired
-    original_indices = np.arange(scores.shape[0])
+    #original_indices = np.arange(scores.shape[0])
     select_indices = np.where(targets[:,target_idx] > 0)[0]
-    original_indices = original_indices[select_indices]
+    #original_indices = original_indices[select_indices]
     #scores = scores[select_indices]
     #outputs = outputs[select_indices]
     delta_outputs = delta_outputs[select_indices]
+
+
+    # test metadata
+    metadata = metadata[select_indices]
+
+    # note for future - how to quickly convert to indices
+    #test = np.where(np.isin(metadata, subset_metadata))[0]
     
     # nodes: make nodes based on whether the motif had an effect
     # note! need to make this directional maybe
@@ -561,7 +573,7 @@ def build_dmim_graph(
         driver_pwm_names,
         nodes=[],
         effects_mat=effects_mat,
-        original_indices=original_indices,
+        original_indices=metadata,
         indexing_key="driver_idx")
     
     # then set up response nodes
@@ -757,10 +769,12 @@ def sort_subgraphs_by_output_strength(subgraphs, h5_file, target_key):
     
     with h5py.File(h5_file, "r") as hf:
         outputs = hf[target_key][:] # {N, task}
-    
+        metadata = hf["example_metadata"][:,0]
+        
     for i in xrange(len(subgraphs)):
         subgraph_examples = sorted(list(subgraphs[i].attrs["examples"]))
-        subgraph_outputs = outputs[subgraph_examples]
+        example_indices = np.where(np.isin(metadata, subgraph_examples))[0]
+        subgraph_outputs = outputs[example_indices]
         summed_outputs[i] = np.mean(np.amax(subgraph_outputs, axis=1))
         subgraphs[i].attrs["logit_max"] = summed_outputs[i]
 

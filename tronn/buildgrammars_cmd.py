@@ -105,8 +105,9 @@ def run(args):
                 print [node.name for node in subgraph.nodes], len(subgraph.attrs["examples"]), subgraph.attrs["logit_max"]
 
             # in the original scan file, now save out results {N, subgraph}
-            if False: # file in use right now
-                grammar_labels_key = "{}/{}".format(subgroup_key, DataKeys.GRAMMAR_LABELS)
+            # TODO change this key!
+            if False:
+                #grammar_labels_key = "{}/{}".format(subgroup_key, DataKeys.GRAMMAR_LABELS)
                 build_subgraph_per_example_array(
                     args.scan_file,
                     sorted_subgraphs,
@@ -124,6 +125,6 @@ def run(args):
                 grammar_gml = "{}.gml".format(grammar_file_prefix)
                 subgraph.write_gml(grammar_gml)
                 grammar_bed = "{}.bed".format(grammar_file_prefix)
-                write_subgraph_to_bed(subgraph, metadata, grammar_bed, merge=True)
+                subgraph.write_bed(grammar_bed, merge=True)
         
     return
