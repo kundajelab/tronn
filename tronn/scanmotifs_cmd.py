@@ -79,57 +79,10 @@ def run(args):
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
 
-    # TODO deprecate this, force user to run scanmotifs for background set FIRST before doing differential calls
-    # somewhere here need to run another file of negatives?
-    # a set of regions that are NOT positive in the desired set
-    # and match the number of regions that were extracted...
-    # add an arg to reuse a background if it was already generated
-    # --background_targets ATAC_LABELS=3,4,5,6
-    # background_sample_size = 4*sample_size
-    if args.background_scores is None:
-
-        background_h5_file = "{0}/{1}.background.h5".format(
-            args.out_dir, args.prefix)
-        if not os.path.isfile(background_h5_file):
-            # set up new input fn
-            input_fn = data_loader.build_input_fn(
-                args.batch_size,
-                targets=args.targets,
-                target_indices=args.target_indices,
-                filter_targets=args.background_targets + args.background_filter_targets,
-                singleton_filter_targets=args.singleton_filter_targets,
-                use_queues=True)
-
-            # set up inference generator
-            inference_generator = model_manager.infer(
-                input_fn,
-                args.out_dir,
-                args.inference_params,
-                checkpoint=model_manager.model_checkpoint,
-                yield_single_examples=True)
-
-            # determine desired sample size
-            with h5py.File(results_h5_file, "r") as hf:
-                background_sample_size = args.background_sample_multiplier * hf[DataKeys.FEATURES].shape[0]
-
-            # infer
-            model_manager.infer_and_save_to_h5(
-                inference_generator,
-                background_h5_file,
-                background_sample_size,
-                debug=args.debug)
-
-            # add in PWM names to the datasets
-            add_pwm_names_to_h5(
-                background_h5_file,
-                [pwm.name for pwm in args.pwm_list],
-                other_keys=[DataKeys.FEATURES])
-
-    else:
-        background_h5_file = args.background_scores    
-
     # then bootstrap from the background set (GC matched) to get
     # probability that summed motif score in foreground is due to random chance
+    # TODO - one wrinkle here - what if you want to look at across multiple foreground indices?
+    # not a good way to do that here yet.
     if args.foreground_targets is not None:
         
         for i in xrange(len(args.foreground_targets)):
@@ -138,8 +91,8 @@ def run(args):
                 background_h5_file,
                 args.foreground_targets[i][0],
                 args.foreground_targets[i][1],
-                args.background_targets[i][0],
-                args.background_targets[i][1],
+                args.background_targets[i][0], # use DataKeys.LABELS
+                args.background_targets[i][1], # use args.inference_targets
                 qval_thresh=0.05)
     
     quit()
@@ -147,6 +100,7 @@ def run(args):
     
         
     # run clustering analysis?
+    # TODO probably deprecate this
     if args.cluster and not args.debug:
         cluster_file_prefix = "{0}/{1}.{2}".format(
             args.out_dir, args.prefix, DataKeys.CLUSTERS)
@@ -174,6 +128,7 @@ def run(args):
                 results_h5_file,
                 args.visualize_multikey_R)
 
+    # TODO deprecate this also
     # run manifold analysis
     # NOTE relies on cluster analysis
     if args.summarize_manifold and not args.debug:

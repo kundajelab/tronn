@@ -545,18 +545,17 @@ def _setup_interpretation_args(args):
 def _setup_scanmotifs_args(args):
     """given parsed args, adjust inputs as needed
     """
-    args.foreground_targets = _parse_to_key_and_indices(
-        args.foreground_targets)
+    if args.foreground_targets is not None:
+        args.foreground_targets = _parse_to_key_and_indices(
+            args.foreground_targets)
 
-    args.background_targets = _parse_to_key_and_indices(
-        args.background_targets)
-
-    # TODO deprecate
-    if args.background_filter_targets is not None:
-        args.background_filter_targets = _parse_to_key_and_indices(
-            args.background_filter_targets)
+    # tODO deprecate
+    #if args.background_targets is not None:
+    #    args.background_targets = _parse_to_key_and_indices(
+    #        args.background_targets)
 
     return
+
 
 def _setup_dmim_args(args):
     """given parsed args, adjust inputs as needed
