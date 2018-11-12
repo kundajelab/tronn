@@ -21,6 +21,7 @@ import networkx as nx
 
 from networkx.drawing.nx_agraph import graphviz_layout
 
+from tronn.interpretation.networks import stringize_nx_graph
 from tronn.interpretation.networks import apply_graphics_to_subgraphs
 
 
@@ -121,31 +122,6 @@ def merge_graphs(graphs):
     
     return nx_graph
 
-
-def stringize_nx_graph(nx_graph):
-    """preparatory function for writing out to gml
-    """
-    # graph attributes
-    for key in nx_graph.graph.keys():
-        if isinstance(nx_graph.graph[key], (list, set)):
-            nx_graph.graph[key] = ",".join([
-                str(val) for val in list(nx_graph.graph[key])])
-
-    # node attributes
-    for node_name, node_attrs in nx_graph.nodes(data=True):
-        for key in node_attrs.keys():
-            if isinstance(nx_graph.nodes[node_name][key], (list, set)):
-                nx_graph.nodes[node_name][key] = ",".join([
-                    str(val) for val in nx_graph.nodes[node_name][key]])
-    
-    # edge attributes
-    for edge_name, edge_attrs in nx_graph.edges(data=True):
-        for key in edge_attrs.keys():
-            if isinstance(nx_graph.edges[edge_name][key], (list, set)):
-                nx_graph.edges[edge_name][key] = ",".join([
-                    str(val) for val in nx_graph.edges[edges_name][key]])
-
-    return nx_graph
 
 
 def main():

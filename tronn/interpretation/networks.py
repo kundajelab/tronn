@@ -282,6 +282,34 @@ class MotifGraph(object):
         return None
 
 
+def get_bed_from_nx_graph(graph, bed_file, interval_key="active", merge=True):
+    """get BED file from nx examples
+    """
+    examples = list(graph.graph["examples"])
+
+    with open(bed_file, "w") as fp:
+        for region_metadata in examples:
+            interval_types = region_metadata.split(";")
+            interval_types = dict([
+                interval_type.split("=")[0:2]
+                for interval_type in interval_types])
+            interval_string = interval_types[interval_key]
+
+            chrom = interval_string.split(":")[0]
+            start = interval_string.split(":")[1].split("-")[0]
+            stop = interval_string.split("-")[1]
+            fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
+
+    if merge:
+        tmp_bed_file = "{}.tmp.bed".format(bed_file.split(".bed")[0])
+        os.system("mv {} {}".format(bed_file, tmp_bed_file))
+        os.system("cat {} | sort -k1,1 -k2,2n | bedtools merge -i stdin > {}".format(
+            tmp_bed_file, bed_file))
+        os.system("rm {}".format(tmp_bed_file))
+    
+    return None
+
+    
 def build_nodes(
         sig_pwms,
         pwm_names,
@@ -824,6 +852,39 @@ def build_subgraph_per_example_array(
     return
 
 
+
+
+def stringize_nx_graph(nx_graph):
+    """preparatory function for writing out to gml
+    """
+    # graph attributes
+    for key in nx_graph.graph.keys():
+        if isinstance(nx_graph.graph[key], (list, set)):
+            nx_graph.graph[key] = ",".join([
+                str(val) for val in list(nx_graph.graph[key])])
+
+    # node attributes
+    for node_name, node_attrs in nx_graph.nodes(data=True):
+        for key in node_attrs.keys():
+            if isinstance(nx_graph.nodes[node_name][key], (list, set)):
+                nx_graph.nodes[node_name][key] = ",".join([
+                    str(val) for val in nx_graph.nodes[node_name][key]])
+    
+    # edge attributes
+    for edge_name, edge_attrs in nx_graph.edges(data=True):
+        for key in edge_attrs.keys():
+            if isinstance(nx_graph.edges[edge_name][key], (list, set)):
+                nx_graph.edges[edge_name][key] = ",".join([
+                    str(val) for val in nx_graph.edges[edges_name][key]])
+
+    return nx_graph
+
+
+
+
+
+
+
 def apply_graphics_to_subgraphs(master_graph, other_graphs):
     """assuming loaded graphs (in networkx format)
     get positions from the master graph and apply to the other graphs
@@ -836,6 +897,32 @@ def apply_graphics_to_subgraphs(master_graph, other_graphs):
         nx.set_node_attributes(other_graph, graphics, "graphics")
         
     return other_graphs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def get_clean_pwm_name(pwm_name):
