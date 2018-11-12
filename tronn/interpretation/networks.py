@@ -824,6 +824,18 @@ def build_subgraph_per_example_array(
     return
 
 
+def apply_graphics_to_subgraphs(master_graph, other_graphs):
+    """assuming loaded graphs (in networkx format)
+    get positions from the master graph and apply to the other graphs
+    """
+    # get graphics
+    graphics = nx.get_node_attributes(master_graph, "graphics")
+
+    # apply
+    for other_graph in other_graphs:
+        nx.set_node_attributes(other_graph, graphics, "graphics")
+        
+    return other_graphs
 
 
 def get_clean_pwm_name(pwm_name):

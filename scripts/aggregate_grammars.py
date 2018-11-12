@@ -12,11 +12,16 @@ This can be:
 will update example sets accordingly
 """
 
+import os
 import h5py
 import glob
 import argparse
 
 import networkx as nx
+
+from networkx.drawing.nx_agraph import graphviz_layout
+
+from tronn.interpretation.networks import apply_graphics_to_subgraphs
 
 
 def parse_args():
@@ -47,6 +52,9 @@ def parse_args():
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
         help="outputs directory")
+    parser.add_argument(
+        "--out_file", default="grammars.merged.gml",
+        help="out file name")
     
     args = parser.parse_args()
     
@@ -60,12 +68,12 @@ def merge_graphs(graphs):
     """
     # merge graph attributes
     graph_attrs = {
-        "names": "",
+        "names": [],
         "examples": set(),
         "numexamples": 0}
     for graph in graphs:
         # update names, examples, num examples
-        graph_attrs["names"] += graph.graph["name"]
+        graph_attrs["names"].append(graph.graph["name"])
         graph_attrs["examples"] = graph_attrs["examples"].union(
             graph.graph["examples"])
         graph_attrs["numexamples"] = len(graph_attrs["examples"])
@@ -114,6 +122,31 @@ def merge_graphs(graphs):
     return nx_graph
 
 
+def stringize_nx_graph(nx_graph):
+    """preparatory function for writing out to gml
+    """
+    # graph attributes
+    for key in nx_graph.graph.keys():
+        if isinstance(nx_graph.graph[key], (list, set)):
+            nx_graph.graph[key] = ",".join([
+                str(val) for val in list(nx_graph.graph[key])])
+
+    # node attributes
+    for node_name, node_attrs in nx_graph.nodes(data=True):
+        for key in node_attrs.keys():
+            if isinstance(nx_graph.nodes[node_name][key], (list, set)):
+                nx_graph.nodes[node_name][key] = ",".join([
+                    str(val) for val in nx_graph.nodes[node_name][key]])
+    
+    # edge attributes
+    for edge_name, edge_attrs in nx_graph.edges(data=True):
+        for key in edge_attrs.keys():
+            if isinstance(nx_graph.edges[edge_name][key], (list, set)):
+                nx_graph.edges[edge_name][key] = ",".join([
+                    str(val) for val in nx_graph.edges[edges_name][key]])
+
+    return nx_graph
+
 
 def main():
     """run merging
@@ -121,6 +154,9 @@ def main():
     # set up args
     args = parse_args()
 
+    # make sure out dir exists
+    os.system("mkdir -p {}".format(args.out_dir))
+    
     # get all gml files and load in
     grammar_files = glob.glob("{}/*gml".format(args.grammar_dir))
     grammars = [nx.read_gml(grammar_file) for grammar_file in grammar_files]
@@ -163,33 +199,34 @@ def main():
             # and save out if expr is present
             if expr_present:
                 grammars_filt.append(grammar)
-                    
-    import ipdb
-    ipdb.set_trace()
 
     # now merge
-    # merge nodes: take two lists of nodes. if any are the same,
-    # merge those and add up examples (update examples, num examples)
     merged_grammar = merge_graphs(grammars_filt)
 
-    # TODO adjust attributes before writing out!
-
-
-    # TODO use a layout to set initial good positions
+    # get iniitial positions and add into grammar
+    pos = graphviz_layout(merged_grammar, prog="dot")
+    for key in pos.keys():
+        coords = pos[key]
+        pos[key] = {"x": coords[0], "y": coords[1]}
+    nx.set_node_attributes(merged_grammar, pos, "graphics") # note this is diff from v1 to v2 in networkx
     
+    # write gml
+    out_file = "{}/{}".format(args.out_dir, os.path.basename(args.out_file))
+    nx.write_gml(stringize_nx_graph(merged_grammar), out_file, stringizer=str)
+
     
-    # produces ONE gml.
-    nx.write_gml(merged_grammar, "out_file.gml", stringizer=str)
-
-
     # and then update the subgraphs with positions and write them out to new files too
     # ^ this is a separate function. given a master file of
     # master positions, apply those positions to other gml files.
+    # needs to write out new ones to go along with the master gml file
+    grammars_w_graphics = apply_graphics_to_subgraphs(merged_grammar, grammars_filt)
 
-    
-    import ipdb
-    ipdb.set_trace()
-    
+    for grammar in grammars_w_graphics:
+        # save out
+        out_file = "{}/{}.fixed_positions.gml".format(
+            args.out_dir,
+            grammar.graph["name"])
+        nx.write_gml(stringize_nx_graph(grammar), out_file, stringizer=str)
     
     return
 
