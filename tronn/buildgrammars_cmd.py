@@ -8,7 +8,7 @@ from tronn.interpretation.networks import build_dmim_graph
 from tronn.interpretation.networks import get_subgraphs_and_filter
 from tronn.interpretation.networks import sort_subgraphs_by_output_strength
 from tronn.interpretation.networks import build_subgraph_per_example_array
-from tronn.interpretation.networks import write_subgraph_to_bed
+#from tronn.interpretation.networks import write_subgraph_to_bed
 
 from tronn.util.utils import DataKeys
 
@@ -123,7 +123,11 @@ def run(args):
                 grammar_file_prefix = "{}/{}.{}-{}.{}".format(
                     args.out_dir, args.prefix, target_key, index, grammar_prefix)
                 grammar_gml = "{}.gml".format(grammar_file_prefix)
-                subgraph.write_gml(grammar_gml)
+                try:
+                    subgraph.write_gml(grammar_gml)
+                except:
+                    import ipdb
+                    ipdb.set_trace()
                 grammar_bed = "{}.bed".format(grammar_file_prefix)
                 subgraph.write_bed(grammar_bed, merge=True)
         

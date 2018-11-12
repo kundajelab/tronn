@@ -7,7 +7,9 @@ to grammars
 """
 
 import os
+import sys
 import glob
+import logging
 import argparse
 
 import pandas as pd
@@ -73,14 +75,53 @@ def _add_go_terms_to_graph(nx_graph, great_file, top_k=None):
     return None
 
 
+def track_runs(args):
+    """track command and github commit
+    """
+    # keeps track of restores (or different commands) in folder
+    subcommand_name = "intersect_pwms_and_rna"
+    num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, subcommand_name)))
+    logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, subcommand_name, num_restores)
+    
+    # track github commit
+    git_repo_path = os.path.dirname(os.path.realpath(__file__))
+    os.system('echo "commit:" > {0}'.format(logging_file))
+    os.system('git --git-dir={0}/.git rev-parse HEAD >> {1}'.format(
+        git_repo_path.split("/scripts")[0], logging_file))
+    os.system('echo "" >> {0}'.format(logging_file))
+    
+    # write out the command
+    with open(logging_file, 'a') as f:
+        f.write(' '.join(sys.argv)+'\n\n')
+    
+    return logging_file
+
+
+def _setup_logs(args):
+    """set up logging
+    """
+    logging_file = track_runs(args)
+    reload(logging)
+    logging.basicConfig(
+        filename=logging_file,
+        level=logging.DEBUG, # TODO ADJUST BEFORE RELEASE
+        format='%(message)s')
+    logging.getLogger().addHandler(logging.StreamHandler())
+    for arg in sorted(vars(args)):
+        logging.info("{}: {}".format(arg, getattr(args, arg)))
+    logging.info("")
+
+    return
+
+
 def main():
     """run annotation
     """
     # set up args
     args = parse_args()
-
     # make sure out dir exists
     os.system("mkdir -p {}".format(args.out_dir))
+    _setup_logs(args)
 
     # get all gml files and load in
     grammar_files = glob.glob("{}/*gml".format(args.grammars_dir))
@@ -91,11 +132,12 @@ def main():
         grammar.graph["examples"] = set(
             grammar.graph["examples"].split(","))
         for node_name in grammar.nodes():
-            grammar.node[node_name]["examples"] = set(
-                grammar.node[node_name]["examples"].split(","))
+            grammar.nodes[node_name]["examples"] = set(
+                grammar.nodes[node_name]["examples"].split(","))
         for edge_name in grammar.edges():
-            grammar.edge[edge_name]["examples"] = set(
-                grammar.edge[edge_name]["examples"].split(","))
+            for edge_idx in xrange(len(grammar[edge_name[0]][edge_name[1]])):
+                grammar[edge_name[0]][edge_name[1]][edge_idx]["examples"] = set(
+                    grammar[edge_name[0]][edge_name[1]][edge_idx]["examples"].split(","))
 
     # annotate
     if args.annotation_type == "great":
