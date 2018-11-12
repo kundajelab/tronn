@@ -240,7 +240,7 @@ class MotifGraph(object):
                     clean_attrs[clean_key] = self.edge_attrs[edge_name][key]
                 elif (key == "examples") and write_examples:
                     clean_attrs[clean_key] = ",".join(
-                        [str(val) for val in self.edge_attrs[node_name][key]])
+                        [str(val) for val in self.edge_attrs[edge_name][key]])
             edge = self.get_edge_by_id(edge_name)
             edge_list.append(
                 (edge.start_node_name, edge.end_node_name, clean_attrs))
@@ -360,6 +360,7 @@ def build_nodes(
 
 def build_edges_by_example_intersect(
         nodes,
+        original_indices,
         min_co_occurring_num):
     """build co-occurrence edges
     """
@@ -473,6 +474,7 @@ def build_edges_from_adjacency(
         nodes,
         scores,
         adjacency,
+        original_indices,
         min_co_occurring_num): # <- min num not used currently!
     """build edges
     """
@@ -505,13 +507,23 @@ def build_edges_from_adjacency(
                 has_effect = np.any(scores[:,driver_idx,:,responder_idx] > 0, axis=1) # {N}
                 edge_examples = np.where(has_effect)[0].tolist()
 
+            # get actual ids
+            edge_examples = original_indices[edge_examples]
+
+            # check min count
+            if len(edge_examples) < min_co_occurring_num:
+                continue
+
             # attach the list of examples with both 
             edge = DirectedEdge(
                 driver_node.name,
                 responder_node.name,
                 attrs={"examples": edge_examples})
             edges.append(edge)
-    
+            
+    logging.info("Built {} edges with min support {} regions each".format(
+        len(edges), min_co_occurring_num))
+            
     return edges
 
 
@@ -580,7 +592,7 @@ def build_dmim_graph(
     #original_indices = np.arange(scores.shape[0])
     select_indices = np.where(targets[:,target_idx] > 0)[0]
     #original_indices = original_indices[select_indices]
-    #scores = scores[select_indices]
+    scores = scores[select_indices]
     #outputs = outputs[select_indices]
     delta_outputs = delta_outputs[select_indices]
 
@@ -613,14 +625,15 @@ def build_dmim_graph(
             indexing_key="responder_idx")
     else:
         raise Exception, "not yet implemented"
-
+    
     #  edges: create edges based on adjacency {mutM, responseM}
     # and put examples on the edges if there was an effect
     edges = build_edges_from_adjacency(
         nodes,
         scores,
         adjacency,
-        50) # adjust this later
+        metadata,
+        min_co_occurring_num) # adjust this later
 
     graph = MotifGraph(nodes, edges)
 
@@ -657,7 +670,7 @@ def get_subgraphs(
     # go through each edge and add
     new_subgraphs = []
     for edge in edges:
-
+        
         # extract examples and intersect
         edge_examples = edge.attrs["examples"]
         intersected_examples = subgraph.attrs["examples"].intersection(
@@ -871,11 +884,13 @@ def stringize_nx_graph(nx_graph):
                     str(val) for val in nx_graph.nodes[node_name][key]])
     
     # edge attributes
-    for edge_name, edge_attrs in nx_graph.edges(data=True):
-        for key in edge_attrs.keys():
-            if isinstance(nx_graph.edges[edge_name][key], (list, set)):
-                nx_graph.edges[edge_name][key] = ",".join([
-                    str(val) for val in nx_graph.edges[edges_name][key]])
+    for start_node, end_node in nx_graph.edges():
+        for edge_idx in xrange(len(nx_graph[start_node][end_node])):
+            edge_attrs = nx_graph[start_node][end_node][edge_idx]
+            for key in edge_attrs.keys():
+                if isinstance(edge_attrs[key], (list, set)):
+                    nx_graph[start_node][end_node][edge_idx][key] = ",".join([
+                        str(val) for val in nx_graph[start_node][end_node][edge_idx][key]])
 
     return nx_graph
 
