@@ -22,6 +22,7 @@ import networkx as nx
 from networkx.drawing.nx_agraph import graphviz_layout
 
 from tronn.interpretation.networks import stringize_nx_graph
+from tronn.interpretation.networks import add_graphics_theme_to_nx_graph
 from tronn.interpretation.networks import apply_graphics_to_subgraphs
 
 
@@ -208,8 +209,9 @@ def main():
     pos = graphviz_layout(merged_grammar, prog="dot")
     for key in pos.keys():
         coords = pos[key]
-        pos[key] = {"x": coords[0], "y": coords[1]}
+        pos[key] = {"x": coords[0], "y": -coords[1]}
     nx.set_node_attributes(merged_grammar, pos, "graphics") # note this is diff from v1 to v2 in networkx
+    add_graphics_theme_to_nx_graph(merged_grammar)
     
     # write gml
     out_file = "{}/{}".format(args.out_dir, os.path.basename(args.out_file))

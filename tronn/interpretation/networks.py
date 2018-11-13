@@ -208,7 +208,7 @@ class MotifGraph(object):
         clean_attrs = {}
         for key in self.attrs.keys():
             clean_key = key.replace("_", "")
-            if not isinstance(self.attrs[key], (list, set, dict, np.ndarray)):
+            if not isinstance(self.attrs[key], (list, set, np.ndarray)):
                 clean_attrs[clean_key] = self.attrs[key]
             elif (key == "examples") and write_examples:
                 clean_attrs[clean_key] = ",".join(
@@ -223,7 +223,7 @@ class MotifGraph(object):
             clean_attrs = {}
             for key in self.node_attrs[node_name].keys():
                 clean_key = key.replace("_", "")
-                if not isinstance(self.node_attrs[node_name][key], (list, set, dict, np.ndarray)):
+                if not isinstance(self.node_attrs[node_name][key], (list, set, np.ndarray)):
                     clean_attrs[clean_key] = self.node_attrs[node_name][key]
                 elif (key == "examples") and write_examples:
                     clean_attrs[clean_key] = ",".join(
@@ -236,7 +236,7 @@ class MotifGraph(object):
             clean_attrs = {}
             for key in self.edge_attrs[edge_name].keys():
                 clean_key = key.replace("_", "")
-                if not isinstance(self.edge_attrs[edge_name][key], (list, set, dict, np.ndarray)):
+                if not isinstance(self.edge_attrs[edge_name][key], (list, set, np.ndarray)):
                     clean_attrs[clean_key] = self.edge_attrs[edge_name][key]
                 elif (key == "examples") and write_examples:
                     clean_attrs[clean_key] = ",".join(
@@ -895,6 +895,58 @@ def stringize_nx_graph(nx_graph):
     return nx_graph
 
 
+def add_graphics_theme_to_nx_graph(
+        nx_graph,
+        edge_color=None,
+        node_size_factor=50,
+        edge_size_factor=4):
+    """adjust nodes and edges
+    """
+    # node size, stroke
+    for node_name, node_attrs in nx_graph.nodes(data=True):
+
+        node_size = nx_graph.nodes[node_name]["numexamples"] / float(nx_graph.graph["numexamples"])
+        node_size *= node_size_factor
+        
+        graphics = {
+            "type": "ellipse",
+            "w": node_size,
+            "h": node_size,
+            "fill": "#FFFFFF",
+            "outline": "#000000",
+            "width": 1.0
+        }
+
+        if nx_graph.nodes[node_name].get("graphics") is not None:
+            nx_graph.nodes[node_name]["graphics"].update(graphics)
+        else:
+            nx_graph.nodes[node_name]["graphics"] = graphics
+
+    # edges
+    for start_node, end_node in nx_graph.edges():
+        for edge_idx in xrange(len(nx_graph[start_node][end_node])):
+
+            edge_width = nx_graph[start_node][end_node][edge_idx]["numexamples"] / float(
+                nx_graph.graph["numexamples"])
+            edge_width *= edge_size_factor 
+
+            graphics = {
+                "type": "arc",
+                "width": edge_width,
+                "targetArrow": "delta"
+            }
+            
+            if edge_color is not None:
+                graphics["fill"] = edge_color
+
+            if nx_graph[start_node][end_node][edge_idx].get("graphics") is not None:
+                nx_graph[start_node][end_node][edge_idx]["graphics"].update(graphics)
+            else:
+                nx_graph[start_node][end_node][edge_idx]["graphics"] = graphics
+
+        
+            
+    return None
 
 
 
@@ -905,11 +957,15 @@ def apply_graphics_to_subgraphs(master_graph, other_graphs):
     get positions from the master graph and apply to the other graphs
     """
     # get graphics
-    graphics = nx.get_node_attributes(master_graph, "graphics")
+    node_graphics = nx.get_node_attributes(master_graph, "graphics")
+    #edge_graphics = nx.get_edge_attributes(master_graph, "graphics")
 
+    #print edge_graphics
+    
     # apply
     for other_graph in other_graphs:
-        nx.set_node_attributes(other_graph, graphics, "graphics")
+        nx.set_node_attributes(other_graph, node_graphics, "graphics")
+        #nx.set_edge_attributes(other_graph, edge_graphics, "graphics")
         
     return other_graphs
 

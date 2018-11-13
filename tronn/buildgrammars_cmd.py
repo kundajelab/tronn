@@ -3,12 +3,14 @@
 import h5py
 import logging
 
+import seaborn as sns
+
 from tronn.interpretation.networks import build_co_occurrence_graph
 from tronn.interpretation.networks import build_dmim_graph
 from tronn.interpretation.networks import get_subgraphs_and_filter
 from tronn.interpretation.networks import sort_subgraphs_by_output_strength
 from tronn.interpretation.networks import build_subgraph_per_example_array
-#from tronn.interpretation.networks import write_subgraph_to_bed
+from tronn.interpretation.networks import add_graphics_theme_to_nx_graph
 
 from tronn.util.utils import DataKeys
 
@@ -117,8 +119,15 @@ def run(args):
             # for each subgraph, produce:
             # 1) gml file that keeps the network structure
             # 3) BED file of regions to check functional enrichment
+            colors = sns.color_palette("hls", len(sorted_subgraphs)).as_hex()
             for subgraph_idx in xrange(len(sorted_subgraphs)):
                 subgraph = sorted_subgraphs[subgraph_idx]
+
+                # adjust edge color
+                for edge in subgraph.edges:
+                    subgraph.edge_attrs[edge.name]["graphics"] = {
+                        "fill": colors[subgraph_idx].upper()}
+                
                 grammar_prefix = "grammar-{}".format(subgraph_idx)
                 grammar_file_prefix = "{}/{}.{}-{}.{}".format(
                     args.out_dir, args.prefix, target_key, index, grammar_prefix)
