@@ -174,7 +174,8 @@ def run_bootstrap_differential_score_test(
         gc_increment=0.05,
         num_bootstraps=1000,
         qval_thresh=0.05,
-        reduce_sig_type="any"):
+        reduce_sig_type="any",
+        out_key=DataKeys.PWM_DIFF_GROUP):
     """run a differential test using bootstraps of background set
     """
     # get background info: targets, GC content, scores
@@ -199,6 +200,12 @@ def run_bootstrap_differential_score_test(
     if len(foreground_targets_indices) == 0:
         foreground_targets_indices = range(foreground_targets.shape[1])        
     foreground_targets = foreground_targets[:,foreground_targets_indices]
+
+    # if using hits from orig seq, adjust
+    if pwm_hits_key == DataKeys.ORIG_SEQ_PWM_SCORES_SUM:
+        background_hits = np.any(background_hits != 0, axis=1, keepdims=True).astype(int)
+        background_targets = np.any(background_targets != 0, axis=1, keepdims=True).astype(int)
+        foreground_hits = (foreground_hits != 0).astype(int)
 
     # make sure the columns match each other
     assert foreground_hits.shape[1] == background_targets.shape[1]
@@ -258,7 +265,7 @@ def run_bootstrap_differential_score_test(
     # and save the pvals to the h5 file
     with h5py.File(foreground_h5_file, "a") as hf:
         pvals_key = "{}/{}/{}".format(
-            DataKeys.PWM_DIFF_GROUP, foreground_targets_key, DataKeys.PWM_PVALS)
+            out_key, foreground_targets_key, DataKeys.PWM_PVALS)
         if hf.get(pvals_key) is not None:
             del hf[pvals_key]
         hf.create_dataset(pvals_key, data=raw_pvals)
@@ -279,7 +286,7 @@ def run_bootstrap_differential_score_test(
         reduce_fn = np.any
     else:
         reduce_fn = np.all
-    group_key = "{}/{}".format(DataKeys.PWM_DIFF_GROUP, foreground_targets_key)
+    group_key = "{}/{}".format(out_key, foreground_targets_key)
     for i in xrange(pass_qval_thresh.shape[0]):
         foreground_idx = foreground_targets_indices[i]
         sig_pwms_key = "{}/{}/{}".format(
