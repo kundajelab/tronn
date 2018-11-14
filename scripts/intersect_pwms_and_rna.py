@@ -184,6 +184,8 @@ def main():
     os.system("mkdir -p {}".format(args.out_dir))
     out_file = "{}/{}.rna_filt.h5".format(
         args.out_dir, os.path.basename(args.pvals_h5_file).split(".h5")[0])
+    if os.path.isfile(out_file):
+        os.system("rm {}".format(out_file))
 
     # set up logs
     _setup_logs(args)
@@ -226,8 +228,6 @@ def main():
 
             # save out with attributes
             with h5py.File(out_file, "a") as out:
-                if out.get(new_sig_pwms_key) is not None:
-                    del out[new_sig_pwms_key]
                 out.create_dataset(new_sig_pwms_key, data=sig_pwms_filt)
                 out[new_sig_pwms_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
                 out[new_sig_pwms_key].attrs["ensembl_ids"] = pwm_metadata[
