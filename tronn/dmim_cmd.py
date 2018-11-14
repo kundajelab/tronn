@@ -26,7 +26,7 @@ from tronn.interpretation.variants import get_interacting_motifs
 from tronn.interpretation.variants import run_permutation_dmim_score_test
 from tronn.interpretation.variants import visualize_interacting_motifs_R
 
-from tronn.nets.nets import net_fns
+#from tronn.nets.nets import net_fns
 
 from tronn.stats.nonparametric import run_delta_permutation_test
 
