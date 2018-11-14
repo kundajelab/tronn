@@ -84,17 +84,34 @@ def run(args):
     # TODO - one wrinkle here - what if you want to look at across multiple foreground indices?
     # not a good way to do that here yet.
     if args.foreground_targets is not None:
-        
+
+        if False:
+            # run with nn weighted scores
+            for i in xrange(len(args.foreground_targets)):
+                run_bootstrap_differential_score_test(
+                    results_h5_file,
+                    args.background_scores,
+                    args.foreground_targets[i][0],
+                    args.foreground_targets[i][1],
+                    DataKeys.LABELS,
+                    args.inference_targets,
+                    qval_thresh=0.05)
+    
+        # run with raw hits (HOMER style)
         for i in xrange(len(args.foreground_targets)):
             run_bootstrap_differential_score_test(
                 results_h5_file,
-                background_h5_file,
+                args.background_scores,
                 args.foreground_targets[i][0],
                 args.foreground_targets[i][1],
-                args.background_targets[i][0], # use DataKeys.LABELS
-                args.background_targets[i][1], # use args.inference_targets
-                qval_thresh=0.05)
-    
+                DataKeys.LABELS,
+                args.inference_targets,
+                pwm_hits_key=DataKeys.ORIG_SEQ_PWM_SCORES_SUM,
+                qval_thresh=0.05,
+                out_key="pwms.hits.differential")
+        
+            
+            
     quit()
     
     
