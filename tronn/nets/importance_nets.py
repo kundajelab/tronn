@@ -650,19 +650,18 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         
         # zero out the ones that shouldn't have responded
         # they already give low responses, but easiest to just zero them out
-        # TODO figure out how to fix this
         if True:
             mut_motif_present = tf.cast(outputs[DataKeys.MUT_MOTIF_PRESENT], tf.float32)
 
             # NOTE: turn on for synergy scores!!
-            # TURN THIS OFF FOR DMIM
-            if False:
+            if params["cmd_name"] == "synergy":
                 print "WARNING USING SYNERGY SCORE VERSION"
                 mut_motif_present = outputs[DataKeys.MUT_MOTIF_PRESENT]
                 mut_motif_present = tf.cast(
                     tf.reduce_all(mut_motif_present, axis=1, keepdims=True),
                     tf.float32) # {N, 1}
             else:
+                # TURN THIS OFF FOR DMIM
                 print "WARNING USING DMIM VERSION"
             
             mut_motif_shape = mut_motif_present.get_shape().as_list()
