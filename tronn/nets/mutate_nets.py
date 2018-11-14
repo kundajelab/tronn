@@ -43,8 +43,8 @@ class Mutagenizer(object):
         #quit()
         
         # save adjusted
-        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, mut_M, k}
-        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, mut_M, k}
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = vals # {N, mut_M, k}
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = indices # {N, mut_M, k}
         outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.reduce_any(tf.greater(vals, 0), axis=2) # {N, mut_M}
 
         if self.mutation_type == "point":
@@ -135,13 +135,13 @@ class Mutagenizer(object):
     def mutagenize_multiple_motifs(self, inputs, params):
         """comes in from map fn?
         """
-        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] is not None # {N, mut_M, k}
+        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] is not None # {N, mut_M, k}
         outputs = dict(inputs)
         
         # for each motif, run map fn to mutagenize
         features = inputs[DataKeys.ORIG_SEQ] # {N, 1, 1000, 4}
         orig_seq_len = features.get_shape().as_list()[2]
-        position_indices = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX]
+        position_indices = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT]
         #LEFT_CLIP = 420
         #position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
         #inputs["test.position_indices"] = position_indices
@@ -200,15 +200,13 @@ class SynergyMutagenizer(Mutagenizer):
     def mutagenize_multiple_motifs(self, inputs, params):
         """change this from the Mutagenizer class
         """
-        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] is not None # {N, mut_M, k}
+        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] is not None # {N, mut_M, k}
         outputs = dict(inputs)
         
         # for each motif, run map fn to mutagenize
         features = inputs[DataKeys.ORIG_SEQ] # {N, 1, 1000, 4}
         orig_seq_len = features.get_shape().as_list()[2]
-        LEFT_CLIP = 420 # TODO fix this
-        position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
-        inputs["test.position_indices"] = position_indices
+        position_indices = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT]
         motif_present = inputs[DataKeys.MUT_MOTIF_PRESENT] # {N, mut_M}
         all_motifs_present = tf.reduce_all(motif_present, axis=1) # {N}
         
@@ -240,6 +238,7 @@ class SynergyMutagenizer(Mutagenizer):
         position_combinations = tf.transpose(position_combinations, perm=[0,2,1]) # {N, 2**mutM, mutM}
 
         # set up a vector to zero out the 0th spot
+        # TODO is this necessary? gets filtered elsewhere no?
         position_shape = position_combinations.get_shape().as_list()
         zero_positions = tf.zeros([position_shape[0], 1], dtype=tf.int32)
         zero_positions = tf.one_hot(zero_positions, orig_seq_len) # {N, k, 1000}

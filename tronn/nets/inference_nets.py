@@ -47,33 +47,6 @@ def sequence_to_importance_scores_from_regression(inputs, params):
     return outputs, params
 
 
-def sequence_to_motif_scores_OLD(inputs, params):
-    """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
-    """
-
-    # get importances
-    outputs, params = get_task_importances(inputs, params)
-        
-    # set up inference stack
-    inference_stack = [
-        (pwm_match_filtered_convolve, {}),
-        (multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
-        (pwm_position_squeeze, {"squeeze_type": "sum"}),
-        (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
-    ]
-
-    # build inference stack
-    outputs, params = build_inference_stack(
-        inputs, params, inference_stack)
-
-    # unstack
-    if unstack:
-        params["name"] = "pwm-scores"
-        outputs, params = unstack_tasks(outputs, params)
-
-    return outputs, params
-
-
 def sequence_to_motif_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
@@ -95,8 +68,6 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     print sorted(outputs.keys())
     
     return outputs, params
-
-
 
 
 def sequence_to_dmim(inputs, params):
@@ -138,7 +109,7 @@ def sequence_to_synergy(inputs, params):
     outputs = dict(inputs)
     
     # mutate
-    with tf.device("/cpu:1"):
+    with tf.device("/cpu:0"):
         outputs, params = mutate_weighted_motif_sites_combinatorially(outputs, params)
 
     # run model
