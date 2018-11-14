@@ -886,12 +886,13 @@ class H5DataLoader(DataLoader):
 
     def build_generator(
             self,
-            batch_size=256, #256, #256
+            batch_size=256,
             task_indices=[],
             keys=[],
             skip_keys=[],
             targets=[(DataKeys.LABELS, [])],
             target_indices=[],
+            examples_subset=None,
             seq_len=1000,
             lock=threading.Lock(),
             shuffle=True):
@@ -915,43 +916,53 @@ class H5DataLoader(DataLoader):
             clean_keys, dtypes_dict, shapes_dict, seq_len=seq_len)
 
         # pull out the fasta to throw into the generator
-        fasta = self.fasta
+        #fasta = self.fasta
 
         # make the generator
         # explicitly designed this way to work with tf Dataset
         class Generator(object):
 
-            #@threadsafe_generator
+            def __init__(self, fasta, batch_size):
+                self.fasta = fasta
+                self.batch_size = batch_size
+                
+            
             def __call__(self, h5_file, yield_single_examples=True):
                 """run the generator"""
 
+                batch_size = self.batch_size
+                fasta = self.fasta
+                
+                if examples_subset is not None:
+                    batch_size = 1
+
                 # set up interval to sequence converter
                 converter = GenomicIntervalConverter(lock, fasta, batch_size)
-
-
-                # set up tmp numpy arrays
-                if False:
-                    tmp_arrays = {}
-                    for key in clean_keys:
-                        if dtypes_dict[key] == tf.string:
-                            tmp_arrays[key] = np.empty([batch_size] + list(shapes_dict[key]), dtype="S1000")
-                            tmp_arrays[key].fill("features=chr1:0-1000")
-                        else:
-                            tmp_arrays[key] = np.zeros([batch_size] + list(shapes_dict[key]))
                 
                 # open h5 file
                 with h5py.File(h5_file, "r") as h5_handle:
                     test_key = h5_handle.keys()[0]
-                    
-                    # set up batch id total
-                    max_batches = int(math.ceil(h5_handle[test_key].shape[0]/float(batch_size)))
-                    logging.debug("loading {0} with batch size {1} to get batches {2}".format(
-                        os.path.basename(h5_file), batch_size, max_batches))
 
-                    # set up shuffled batches (deterministic shuffle order)
-                    batch_ids = range(max_batches)
+                    # if using examples, then get the indices and change batch size to 1
+                    if examples_subset is not None:
+                        max_batches = len(examples_subset)
+                        batch_ids = np.where(
+                            np.isin(
+                                h5_handle[DataKeys.SEQ_METADATA],
+                                examples_subset))[0].tolist()
+                        yield_single_examples = False
+                    else:
+                        # set up batch id total and get batches
+                        max_batches = int(math.ceil(h5_handle[test_key].shape[0]/float(batch_size)))
+                        batch_ids = range(max_batches)
+
+                    # shuffle batches as needed
                     if shuffle:
                         random.Random(42).shuffle(batch_ids)
+                            
+                    # logging
+                    logging.debug("loading {0} with batch size {1} to get batches {2}".format(
+                        os.path.basename(h5_file), batch_size, max_batches))
                     
                     # and go through batches
                     try:
@@ -991,7 +1002,7 @@ class H5DataLoader(DataLoader):
                         print "finished {}".format(h5_file)
                             
         # instantiate
-        generator = Generator()
+        generator = Generator(self.fasta, batch_size)
         
         return generator, dtypes_dict, shapes_dict
 
