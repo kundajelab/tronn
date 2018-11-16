@@ -111,6 +111,10 @@ class DataKeys(object):
     # grammar keys
     GRAMMAR_ROOT = "grammar"
     GRAMMAR_LABELS = "{}.labels".format(GRAMMAR_ROOT)
+
+    # synergy keys
+    SYNERGY_ROOT = "synergy"
+    SYNERGY_SCORES = "{}.scores".format(SYNERGY_ROOT)
     
     # split
     TASK_IDX_ROOT = "taskidx"
