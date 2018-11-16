@@ -360,7 +360,6 @@ def build_nodes(
 
 def build_edges_by_example_intersect(
         nodes,
-        original_indices,
         min_co_occurring_num):
     """build co-occurrence edges
     """
