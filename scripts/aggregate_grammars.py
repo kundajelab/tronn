@@ -48,7 +48,10 @@ def parse_args():
     parser.add_argument(
         "--merge_all", action="store_true",
         help="merge all grammars in directory")
-
+    parser.add_argument(
+        "--filename_filter", default="",
+        help="string to use for filtering filenames")
+    
     # outputs
     parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
@@ -114,7 +117,7 @@ def track_runs(args):
     """track command and github commit
     """
     # keeps track of restores (or different commands) in folder
-    subcommand_name = "intersect_pwms_and_rna"
+    subcommand_name = "aggregate_grammars"
     num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, subcommand_name)))
     logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, subcommand_name, num_restores)
     
@@ -161,7 +164,7 @@ def main():
     args.merge_expr = " ".join(args.merge_expr)
     
     # get all gml files and load in
-    grammar_files = glob.glob("{}/*gml".format(args.grammar_dir))
+    grammar_files = glob.glob("{}/*{}*gml".format(args.grammar_dir, args.filename_filter))
     grammars = [nx.read_gml(grammar_file) for grammar_file in grammar_files]
 
     # and adjust examples

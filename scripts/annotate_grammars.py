@@ -79,7 +79,7 @@ def track_runs(args):
     """track command and github commit
     """
     # keeps track of restores (or different commands) in folder
-    subcommand_name = "intersect_pwms_and_rna"
+    subcommand_name = "annotate_grammars"
     num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, subcommand_name)))
     logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, subcommand_name, num_restores)
     
