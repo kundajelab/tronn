@@ -50,7 +50,6 @@ def sequence_to_importance_scores_from_regression(inputs, params):
 def sequence_to_motif_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
-
     # get importances
     outputs, params = get_task_importances(inputs, params)
 
@@ -59,9 +58,6 @@ def sequence_to_motif_scores_from_regression(inputs, params):
         # scan motifs
         outputs, params = get_pwm_scores(outputs, params)
         outputs, params = get_motif_densities(outputs, params)
-        # TODO when to relu the scores?
-        #outputs, params = pwm_relu(outputs, params)
-
 
         # convert sequences to strings
     
@@ -106,6 +102,7 @@ def sequence_to_synergy(inputs, params):
     """
     # here - assume sequence to motif scores has already been run
     # if not set up in another fn
+    print "WARNING ASSUMES PROCESSED INPUTS"
     outputs = dict(inputs)
     
     # mutate
