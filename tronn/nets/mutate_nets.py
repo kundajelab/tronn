@@ -7,6 +7,8 @@ import itertools
 import numpy as np
 import tensorflow as tf
 
+from tronn.interpretation.combinatorial import setup_combinations
+
 from tronn.nets.util_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
 
@@ -192,7 +194,6 @@ class Mutagenizer(object):
         return inputs, params
 
 
-
 class SynergyMutagenizer(Mutagenizer):
     """Generates sequences for synergy scores"""
 
@@ -201,6 +202,7 @@ class SynergyMutagenizer(Mutagenizer):
         """change this from the Mutagenizer class
         """
         assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] is not None # {N, mut_M, k}
+        assert params.get("combinations") is not None
         outputs = dict(inputs)
         
         # for each motif, run map fn to mutagenize
@@ -220,16 +222,10 @@ class SynergyMutagenizer(Mutagenizer):
         all_mut_positions = []
 
         assert position_indices.get_shape().as_list()[2] == 1
-        
-        # now generate all sorts of mutation combinations (mutM, 2**mutM)
-        num_mut_motifs = motif_present.get_shape().as_list()[1]
-        mut_combinations = np.zeros((num_mut_motifs, 2**num_mut_motifs)) # {mutM, 2**mutM}
-        mut_switch = [[0,1]]*num_mut_motifs
-        i = 0
-        for combo in itertools.product(*mut_switch):
-            mut_combinations[:,i] = combo
-            i += 1 
-        mut_combinations = np.expand_dims(mut_combinations, axis=0) # {1, mutM, 2**mutM}
+
+        # get the combinatorial matrix to use
+        mut_combinations = params["combinations"]
+        mut_combinations = np.expand_dims(mut_combinations, axis=0) # {1, mutM, 2**mutM}        
         
         # and then elementwise multiply
         position_combinations = tf.multiply(position_indices, mut_combinations) # {N, mutM, 2**mutM}

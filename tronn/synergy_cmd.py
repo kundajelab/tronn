@@ -6,38 +6,19 @@ import glob
 import logging
 
 import numpy as np
+import pandas as pd
 import networkx as nx
 
 from tronn.datalayer import setup_data_loader
 from tronn.models import setup_model_manager
 
-from tronn.interpretation.clustering import get_cluster_bed_files
-from tronn.interpretation.clustering import visualize_clustered_features_R
-from tronn.interpretation.clustering import visualize_clustered_outputs_R
-
-from tronn.interpretation.motifs import extract_significant_pwms
-from tronn.interpretation.motifs import visualize_significant_pwms_R
-
-from tronn.interpretation.networks import get_motif_hierarchies
-
-from tronn.interpretation.variants import get_significant_delta_logit_responses
-from tronn.interpretation.variants import get_interacting_motifs
-from tronn.interpretation.variants import visualize_interacting_motifs_R
-
-#from tronn.nets.nets import net_fns
-
-from tronn.stats.nonparametric import run_delta_permutation_test
+from tronn.interpretation.combinatorial import setup_combinations
 
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
 
 from tronn.util.utils import DataKeys
-
-# TODO clean this up
-from tronn.visualization import visualize_agg_pwm_results
-from tronn.visualization import visualize_agg_delta_logit_results
-from tronn.visualization import visualize_agg_dmim_adjacency_results
 
 
 def run(args):
@@ -102,6 +83,30 @@ def run(args):
     args.inference_params.update({"sig_pwms": sig_pwms})
     logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
 
+    # set up pwm names
+    sig_indices = np.where(sig_pwms != 0)[0].tolist()
+    sig_pwms_names = []
+    for sig_index in sig_indices:
+        sig_pwms_names.append(args.pwm_names[sig_index])
+        
+    # save out names
+    sig_pwms_ordered_file = "{}/{}.synergy.pwms.order.txt".format(
+        args.out_dir, args.prefix)
+    with open(sig_pwms_ordered_file, "w") as fp:
+        fp.write("# ordered list of pwms used\n")
+        sig_indices = np.where(sig_pwms != 0)[0].tolist()
+        for sig_pwm_name in sig_pwms_names:
+            fp.write("{}\n".format(sig_pwm_name))
+
+    # set up combinatorial matrix and save out
+    num_sig_pwms = int(np.sum(sig_pwms != 0))
+    combinations = setup_combinations(num_sig_pwms)
+    args.inference_params.update({"combinations": combinations})
+    combinations_file = "{}/{}.synergy.combinations.txt".format(
+        args.out_dir, args.prefix)
+    combinations_df = pd.DataFrame(np.transpose(1 - combinations).astype(int), columns=sig_pwms_names)
+    combinations_df.to_csv(combinations_file, sep="\t")
+
     # set up inference generator
     inference_generator = input_model_manager.infer(
         input_fn,
@@ -111,7 +116,7 @@ def run(args):
         yield_single_examples=True)
     
     # run inference and save out
-    results_h5_file = "{0}/{1}.dmim_results.h5".format(
+    results_h5_file = "{0}/{1}.synergy.h5".format(
         args.out_dir, args.prefix)
     if not os.path.isfile(results_h5_file):
         model_manager.infer_and_save_to_h5(
@@ -126,16 +131,9 @@ def run(args):
             [pwm.name for pwm in args.pwm_list],
             other_keys=[])
 
-    quit()
-
-    # TODO figure out how to save out paths (as vectors? adjacency?)
-    # to be able to run the synergy calculations
-    
-    # TODO write another function to extract the top, to do MPRA
-    
-    
-    # TODO still do this to show that all motifs have sig effects
-    #get_significant_delta_logit_responses(
-    #    results_h5_file, DataKeys.MANIFOLD_CLUST)
+    # and also attach the sig pwm names to the features
+    with h5py.File(results_h5_file, "a") as hf:
+        hf[DataKeys.FEATURES].attrs[AttrKeys.PWM_NAMES] = sig_pwms_names
+        hf[DataKeys.MUT_MOTIF_LOGITS].attrs[AttrKeys.PWM_NAMES] = sig_pwms_names
     
     return None
