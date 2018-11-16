@@ -134,9 +134,6 @@ def run_permutation_dmim_score_test(
                 del hf[sig_dmim_key]
             hf.create_dataset(sig_dmim_key, data=sig_dmim)
         
-        import ipdb
-        ipdb.set_trace()
-        
     return
 
 
