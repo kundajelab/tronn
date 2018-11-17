@@ -38,10 +38,6 @@ def parse_args():
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
         help="out directory")
-    parser.add_argument(
-        "--prefix",
-        help="prefix to output files")
-    
     
     # parse args
     args = parser.parse_args()
