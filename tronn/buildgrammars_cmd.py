@@ -11,6 +11,7 @@ from tronn.interpretation.networks import get_subgraphs_and_filter
 from tronn.interpretation.networks import sort_subgraphs_by_output_strength
 from tronn.interpretation.networks import build_subgraph_per_example_array
 from tronn.interpretation.networks import add_graphics_theme_to_nx_graph
+from tronn.interpretation.networks import annotate_subgraphs_with_pwm_scores
 
 from tronn.util.utils import DataKeys
 
@@ -33,7 +34,7 @@ def run(args):
     # set up targets
     with h5py.File(args.sig_pwms_file, "r") as hf:
         target_keys = hf[args.sig_pwms_key].keys()
-
+        
     for target_key in target_keys:
         
         # set up indices
@@ -42,10 +43,6 @@ def run(args):
         indices = [i for i in indices if "pwms" not in i]
             
         for index in indices:
-
-            # debug
-            if int(index) == 1:
-                continue
 
             # set up keys
             subgroup_key = "{}/{}/{}".format(
@@ -101,21 +98,19 @@ def run(args):
                     DataKeys.LOGITS)
                 sorted_subgraphs = sorted_subgraphs[:args.return_top_k]
 
+            # other annotations:
+            # extract score patterns for each node (to viz later)
+            # TODO also edges?
+            annotate_subgraphs_with_pwm_scores(
+                sorted_subgraphs,
+                args.scan_file,
+                DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM)
+            
             # debug
             for i in xrange(len(sorted_subgraphs)):
                 subgraph = sorted_subgraphs[i]
                 print [node.name for node in subgraph.nodes], len(subgraph.attrs["examples"]), subgraph.attrs["logit_max"]
 
-            # in the original scan file, now save out results {N, subgraph}
-            # TODO change this key!
-            if False:
-                #grammar_labels_key = "{}/{}".format(subgroup_key, DataKeys.GRAMMAR_LABELS)
-                build_subgraph_per_example_array(
-                    args.scan_file,
-                    sorted_subgraphs,
-                    target_key,
-                    grammar_labels_key)
-            
             # for each subgraph, produce:
             # 1) gml file that keeps the network structure
             # 3) BED file of regions to check functional enrichment
@@ -132,12 +127,12 @@ def run(args):
                 grammar_file_prefix = "{}/{}.{}-{}.{}".format(
                     args.out_dir, args.prefix, target_key, index, grammar_prefix)
                 grammar_gml = "{}.gml".format(grammar_file_prefix)
-                try:
-                    subgraph.write_gml(grammar_gml)
-                except:
-                    import ipdb
-                    ipdb.set_trace()
+                subgraph.write_gml(grammar_gml)
                 grammar_bed = "{}.bed".format(grammar_file_prefix)
                 subgraph.write_bed(grammar_bed, merge=True)
-        
+
+                # todo save out pwm scores attached to nodes too
+
+                
+                
     return

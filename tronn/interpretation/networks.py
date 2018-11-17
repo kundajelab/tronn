@@ -835,6 +835,32 @@ def sort_subgraphs_by_output_strength(subgraphs, h5_file, target_key):
     return sorted_subgraphs
 
 
+def annotate_subgraphs_with_pwm_scores(subgraphs, h5_file, scores_key):
+    """annotate nodes (and edges?) with scores?
+    """
+    with h5py.File(h5_file, "r") as hf:
+        pwm_scores = hf[scores_key][:] # {N, task, M}
+        metadata = hf["example_metadata"][:,0]
+        
+    for i in xrange(len(subgraphs)):
+        
+        # get indices
+        subgraph_examples = sorted(list(subgraphs[i].attrs["examples"]))
+        example_indices = np.where(np.isin(metadata, subgraph_examples))[0]
+
+        # go through each node
+        for node in subgraphs[i].nodes:
+            node_idx = node.attrs["responder_idx"]
+            node_pwm_scores = pwm_scores[:,:,node_idx] # {N, task}
+            node_pwm_scores = node_pwm_scores[example_indices]
+            node_pwm_scores = np.mean(node_pwm_scores, axis=0)
+            subgraphs[i].node_attrs[node.name]["pwm_scores"] = node_pwm_scores
+            subgraphs[i].node_attrs[node.name]["pwm_scores_str"] = ";".join(
+                [str(val) for val in node_pwm_scores.tolist()])
+            
+    return None
+
+
 def build_subgraph_per_example_array(
         h5_file,
         subgraphs,
