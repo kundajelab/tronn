@@ -219,7 +219,7 @@ def decode_onehot_sequence(inputs, params):
         tf.add(features, 1),
         features_n) # now ranges 0-4, where N is 0
     #features = tf.mod(tf.subtract(features, 1), 5)
-    #features = tf.as_string(features) # {N, seqlen}
+    features = tf.as_string(features) # {N, seqlen}
     features = tf.reduce_join(features, axis=-1) # {N, 1}
 
     # and now replace all indices
