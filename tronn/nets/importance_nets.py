@@ -7,6 +7,7 @@ import tensorflow as tf
 
 from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 from tronn.nets.sequence_nets import generate_scaled_inputs
+from tronn.nets.sequence_nets import decode_onehot_sequence
 
 from tronn.nets.filter_nets import filter_and_rebatch
 
@@ -293,6 +294,9 @@ class FeatureImportanceExtractor(object):
             outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[
                 DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
             params.update({"left_clip": LEFT_CLIP, "right_clip": RIGHT_CLIP})
+
+            params.update({"decode_key": DataKeys.ORIG_SEQ_ACTIVE})
+            outputs, _ = decode_onehot_sequence(outputs, params)
             
             # add in GC content info
             gc_total= tf.reduce_sum(
@@ -629,6 +633,9 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             :,:,:,LEFT_CLIP:RIGHT_CLIP,:]
         outputs[DataKeys.MUT_MOTIF_POS] = outputs[DataKeys.MUT_MOTIF_POS][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
 
+        params.update({"decode_key": DataKeys.MUT_MOTIF_ORIG_SEQ})
+        outputs, _ = decode_onehot_sequence(outputs, params)
+        
         # calculate deltas scores (DFIM). leave as aux (to attach later)
         # this is dy
         outputs[DataKeys.DFIM_SCORES] = tf.subtract(

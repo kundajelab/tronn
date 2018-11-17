@@ -26,6 +26,7 @@ class DataKeys(object):
 
     # clipping
     ORIG_SEQ_ACTIVE = "{}.active".format(ORIG_SEQ)
+    ORIG_SEQ_ACTIVE_STRING = "{}.string".format(ORIG_SEQ_ACTIVE)
     WEIGHTED_SEQ_ACTIVE = "{}.active".format(WEIGHTED_SEQ)
     GC_CONTENT = "{}.gc_fract".format(ORIG_SEQ_ACTIVE)
     
