@@ -40,6 +40,10 @@ def parse_args():
         "--pvals_h5_file", required=True,
         help="h5 file with pvals for pwms")
     parser.add_argument(
+        "--pvals_key", default=DataKeys.PWM_DIFF_GROUP,
+        help="pvals key")
+    
+    parser.add_argument(
         "--pwm_file", required=True,
         help="pwm file to filter")
     parser.add_argument(
@@ -196,24 +200,24 @@ def main():
     tf_expressed = pwm_metadata[args.pwm_metadata_expr_col_key].notnull().values
     
     # STAGE 1 - filter for expressed
-    expr_group_key = "{}.rna_filt".format(DataKeys.PWM_DIFF_GROUP)
+    expr_group_key = "{}.rna_filt".format(args.pvals_key)
 
     # get targets
     with h5py.File(args.pvals_h5_file, "r") as hf:
-        target_keys = hf[DataKeys.PWM_DIFF_GROUP].keys()
+        target_keys = hf[args.pvals_key].keys()
     
     for target_key in target_keys:
 
         # get indices
         with h5py.File(args.pvals_h5_file, "r") as hf:
-            indices = hf[DataKeys.PWM_DIFF_GROUP][target_key].keys()
+            indices = hf[args.pvals_key][target_key].keys()
         indices = [i for i in indices if "pwms" not in i]
 
         for index in indices:
 
             # get sig pwms
             old_sig_pwms_key = "{}/{}/{}/{}".format(
-                DataKeys.PWM_DIFF_GROUP, target_key, index, DataKeys.PWM_SIG_ROOT)
+                args.pvals_key, target_key, index, DataKeys.PWM_SIG_ROOT)
             with h5py.File(args.pvals_h5_file, "r") as hf:
                 old_sig_pwms = hf[old_sig_pwms_key][:]
                 pwm_names = hf[old_sig_pwms_key].attrs[AttrKeys.PWM_NAMES]
