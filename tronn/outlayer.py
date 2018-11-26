@@ -42,7 +42,7 @@ class H5Handler(object):
             maxshape = dataset_shape if resizable else None
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape, dtype="S100")
-            elif "features.string" in key:
+            elif "string" in key:
                 self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape, dtype="S1000")
             else:
                 self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape)
