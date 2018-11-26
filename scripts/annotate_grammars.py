@@ -139,7 +139,8 @@ def main():
     if args.annotation_type == "great":
         # tricky part here is to use the BED files and then link back to gml files...
         # maybe just use the gml files and produce BED files on the fly
-        for grammar_idx in xrange(len(grammars)):
+        #for grammar_idx in xrange(len(grammars)):
+        for i in xrange(0):
             # make bed
             bed_file = "{}/{}.bed".format(
                 args.out_dir,
@@ -158,7 +159,14 @@ def main():
                 args.out_dir,
                 os.path.basename(grammar_files[grammar_idx]).split(".gml")[0])
             nx.write_gml(stringize_nx_graph(grammars[grammar_idx]), graph_file, stringizer=str)
-            
+
+        # and plot the GO table
+        go_files = glob.glob("{}/*Biol*txt".format(args.out_dir))
+        plot_go_table = "make_go_table.R {} {}".format(
+            args.out_dir, " ".join(go_files))
+        print plot_go_table
+        os.system(plot_go_table)
+        
     else:
         raise ValueError, "annotation type not implemented"
     

@@ -1,5 +1,6 @@
-# description: merge GREAT results
+#!/usr/bin/env Rscript
 
+# description: merge GREAT results
 
 library(gplots)
 library(RColorBrewer)
@@ -18,15 +19,20 @@ for (i in 1:length(files)) {
     file <- files[i]
     print(file)
 
-    path_idx <- unlist(strsplit(basename(file), ".", fixed=TRUE))[4]
-    path_idx <- as.numeric(unlist(strsplit(path_idx, "-", fixed=TRUE))[2]) + 1
+    # get a file id for file
+    file_id <- unlist(strsplit(basename(file), ".GO_Biol", fixed=TRUE))[1]
     
     # read in file
     file_data <- read.table(file, header=TRUE, sep="\t")
-    file_data <- data.frame(GO_ID=paste(file_data$ID, file_data$name), val=-log10(file_data$hyper_q_vals))
-    colnames(file_data)[2] <- path_string #paste("idx", i-1, sep="")
+    file_data <- data.frame(
+        GO_ID=paste(file_data$ID, file_data$name),
+        val=-log10(file_data$hyper_q_vals))
+    colnames(file_data)[2] <- file_id
+
+    # don't keep if no GO terms
     if (nrow(file_data) < 2) { next }
 
+    # optionally cutoff for top 10 terms?
     cutoff <- min(15, nrow(file_data))
     file_data <- file_data[1:cutoff,]
     
@@ -39,23 +45,18 @@ for (i in 1:length(files)) {
 
 }
 
+# move GO terms to rownames
 rownames(all_data) <- all_data$GO_ID
-
 all_data$GO_ID <- NULL
 all_data[is.na(all_data)] <- 0
 
 # plot out
-#rownames(all_data) <- all_data$GO_ID
-
-
 hc <- hclust(dist(all_data), method="ward.D2")
 all_data <- all_data[hc$order,]
-
-#all_data <- t(all_data)
 print(dim(all_data))
 
 mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
-mylwid = c(1,6,4)
+mylwid = c(1,6,9)
 mylhei = c(0.5,6,0.75)
 
 my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
@@ -69,7 +70,7 @@ my_breaks <- seq(
 print(my_breaks)
 
 
-pdf(plot_file, height=36, width=10)
+pdf(plot_file, height=42, width=15)
 heatmap.2(
     as.matrix(all_data),
     Rowv=FALSE,
@@ -80,15 +81,15 @@ heatmap.2(
     
     #labRow="",
     #labCol=labCol,
-    srtCol=270,
+    #srtCol=270,
     cexCol=1,
-    cexRow=2,
+    cexRow=1,
     
     keysize=0.1,
     key.title=NA,
     key.xlab=NA,
     key.par=list(pin=c(4,0.1),
-        mar=c(9.1,1,10.1,1),
+        mar=c(9.1,1,15.1,1),
         mgp=c(3,2,0),
         cex.axis=2.0,
         font.axis=2),
