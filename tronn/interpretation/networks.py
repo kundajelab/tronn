@@ -907,7 +907,11 @@ def stringize_nx_graph(nx_graph):
             if isinstance(nx_graph.nodes[node_name][key], (list, set)):
                 nx_graph.nodes[node_name][key] = ",".join([
                     str(val) for val in nx_graph.nodes[node_name][key]])
-    
+        # adjust node name for nice output in cytoscape
+        new_node_name = re.sub(r"HCLUST.\d+_", "", node_name)
+        new_node_name = new_node_name.replace(".UNK.0.A", "")
+        nx_graph.nodes[node_name]["name"] = new_node_name
+                
     # edge attributes
     for start_node, end_node in nx_graph.edges():
         for edge_idx in xrange(len(nx_graph[start_node][end_node])):
@@ -916,7 +920,7 @@ def stringize_nx_graph(nx_graph):
                 if isinstance(edge_attrs[key], (list, set)):
                     nx_graph[start_node][end_node][edge_idx][key] = ",".join([
                         str(val) for val in nx_graph[start_node][end_node][edge_idx][key]])
-
+                    
     return nx_graph
 
 
@@ -924,14 +928,16 @@ def add_graphics_theme_to_nx_graph(
         nx_graph,
         edge_color=None,
         node_size_factor=50,
-        edge_size_factor=4):
+        edge_size_factor=500):
     """adjust nodes and edges
     """
     # node size, stroke
     for node_name, node_attrs in nx_graph.nodes(data=True):
 
-        node_size = nx_graph.nodes[node_name]["numexamples"] / float(nx_graph.graph["numexamples"])
-        node_size *= node_size_factor
+        node_size = nx_graph.nodes[node_name]["numexamples"] / float(node_size_factor)
+        
+        #node_size = nx_graph.nodes[node_name]["numexamples"] / float(nx_graph.graph["numexamples"])
+        #node_size *= node_size_factor
         
         graphics = {
             "type": "ellipse",
@@ -939,7 +945,8 @@ def add_graphics_theme_to_nx_graph(
             "h": node_size,
             "fill": "#FFFFFF",
             "outline": "#000000",
-            "width": 1.0
+            "width": 1.0,
+            "fontSize": 14
         }
 
         if nx_graph.nodes[node_name].get("graphics") is not None:
@@ -952,8 +959,11 @@ def add_graphics_theme_to_nx_graph(
         for edge_idx in xrange(len(nx_graph[start_node][end_node])):
 
             edge_width = nx_graph[start_node][end_node][edge_idx]["numexamples"] / float(
-                nx_graph.graph["numexamples"])
-            edge_width *= edge_size_factor 
+                edge_size_factor)
+            
+            #edge_width = nx_graph[start_node][end_node][edge_idx]["numexamples"] / float(
+            #    nx_graph.graph["numexamples"])
+            #edge_width *= edge_size_factor 
 
             graphics = {
                 "type": "arc",
