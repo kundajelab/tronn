@@ -114,7 +114,20 @@ make_agg_heatmap <- function(
     # color palette
     #my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
     my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
+    my_palette <- colorRampPalette(brewer.pal(9, "Blues"))(49)
 
+    # breaks
+    color_granularity <- 50
+    data_melted <- melt(data)
+    my_breaks <- seq(
+        min(data_melted$value),
+        #0,
+        #quantile(data_melted$value, 0.01),
+        max(data_melted$value),
+        #quantile(data_melted$value, 0.90),
+        length.out=color_granularity)
+
+    
     # grid
     mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
     mylwid = c(0.25,1.5,0.5)
@@ -156,6 +169,7 @@ make_agg_heatmap <- function(
         lwid=mylwid,
         lhei=mylhei,
         col=my_palette,
+        breaks=my_breaks,
         useRaster=FALSE)
     dev.off()
 

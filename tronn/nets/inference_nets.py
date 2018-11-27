@@ -14,6 +14,7 @@ from tronn.nets.manifold_nets import filter_by_manifold_distances
 from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import get_motif_densities
 from tronn.nets.motif_nets import filter_for_significant_pwms
+from tronn.nets.motif_nets import filter_for_any_sig_pwms
 from tronn.nets.motif_nets import run_dmim
 
 from tronn.nets.mutate_nets import dfim
@@ -37,36 +38,6 @@ from tronn.nets.variant_nets import reduce_alleles
 from tronn.util.utils import DataKeys
 
 
-#  TODO consider moving this to utils
-# but also do we need this anymore?
-def unstack_tasks_OLD(inputs, params):
-    """Unstack by task
-    """
-    features = inputs.get("features")
-    task_axis = params.get("task_axis", 1)
-    outputs = dict(inputs)
-    
-    # unstack
-    features = tf.unstack(features, axis=task_axis)
-    
-    # params
-    task_indices = params.get("importance_task_indices")
-    assert task_indices is not None
-    new_task_indices = list(task_indices)
-    if len(features) == len(task_indices) + 1:
-        new_task_indices.append("global") # for the situations with a global score
-    name = params.get("name", "features")
-
-    # save out with appropriate index    
-    for i in xrange(len(features)):
-        task_features_key = "{}.taskidx-{}".format(
-            name, new_task_indices[i])
-        outputs[task_features_key] = features[i]
-    
-    return outputs, params
-
-
-
 def sequence_to_importance_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
@@ -76,37 +47,9 @@ def sequence_to_importance_scores_from_regression(inputs, params):
     return outputs, params
 
 
-def sequence_to_motif_scores_OLD(inputs, params):
-    """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
-    """
-
-    # get importances
-    outputs, params = get_task_importances(inputs, params)
-        
-    # set up inference stack
-    inference_stack = [
-        (pwm_match_filtered_convolve, {}),
-        (multitask_global_pwm_scores, {"append": True, "count_thresh": count_thresh}),
-        (pwm_position_squeeze, {"squeeze_type": "sum"}),
-        (pwm_relu, {}), # for now - since we dont really know how to deal with negative sequences yet
-    ]
-
-    # build inference stack
-    outputs, params = build_inference_stack(
-        inputs, params, inference_stack)
-
-    # unstack
-    if unstack:
-        params["name"] = "pwm-scores"
-        outputs, params = unstack_tasks(outputs, params)
-
-    return outputs, params
-
-
 def sequence_to_motif_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
-
     # get importances
     outputs, params = get_task_importances(inputs, params)
 
@@ -115,9 +58,6 @@ def sequence_to_motif_scores_from_regression(inputs, params):
         # scan motifs
         outputs, params = get_pwm_scores(outputs, params)
         outputs, params = get_motif_densities(outputs, params)
-        # TODO when to relu the scores?
-        #outputs, params = pwm_relu(outputs, params)
-
 
         # convert sequences to strings
     
@@ -126,30 +66,30 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     return outputs, params
 
 
-
-
 def sequence_to_dmim(inputs, params):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
     """
     # here - assume sequence to motif scores has already been run
     # if not set up in another fn
+    print "WARNING ASSUMES PROCESSED INPUTS"
     outputs = dict(inputs)
 
-    with tf.device("/cpu:1"):
-
+    with tf.device("/cpu:0"):
+        
         # filtering
-        outputs, params = filter_for_significant_pwms(inputs, params)
-        outputs, params = score_distances_on_manifold(outputs, params)
-        outputs, params = filter_by_manifold_distances(outputs, params)
-
+        outputs, params = filter_for_any_sig_pwms(inputs, params)
+        #outputs, params = filter_for_significant_pwms(inputs, params) # still do this, requires {N, M}
+        #outputs, params = score_distances_on_manifold(outputs, params) # throw this away
+        #outputs, params = filter_by_manifold_distances(outputs, params) # throw this away
+        
         # mutate
         outputs, params = mutate_weighted_motif_sites(outputs, params)
 
     # run dfim
     outputs, params = run_dfim(outputs, params)
 
-    with tf.device("/cpu:2"):
+    with tf.device("/cpu:0"):
         # and then run dmim
         outputs, params = run_dmim(outputs, params)
         
@@ -162,10 +102,11 @@ def sequence_to_synergy(inputs, params):
     """
     # here - assume sequence to motif scores has already been run
     # if not set up in another fn
+    print "WARNING ASSUMES PROCESSED INPUTS"
     outputs = dict(inputs)
     
     # mutate
-    with tf.device("/cpu:1"):
+    with tf.device("/cpu:0"):
         outputs, params = mutate_weighted_motif_sites_combinatorially(outputs, params)
 
     # run model

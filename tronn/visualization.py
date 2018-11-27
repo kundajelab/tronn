@@ -5,6 +5,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import os
+import logging
 
 import numpy as np
 
@@ -247,7 +248,7 @@ def visualize_clustered_h5_dataset_full(
         
     r_cmd = "{} {}".format(
         script, " ".join(str(val) for val in args))
-    print r_cmd
+    logging.info(r_cmd)
     os.system(r_cmd)
     
     return None

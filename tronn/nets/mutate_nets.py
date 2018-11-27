@@ -7,6 +7,8 @@ import itertools
 import numpy as np
 import tensorflow as tf
 
+from tronn.interpretation.combinatorial import setup_combinations
+
 from tronn.nets.util_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
 
@@ -21,38 +23,30 @@ class Mutagenizer(object):
 
         
     def preprocess(self, inputs, params):
-        # determine where to mutagenize
-        # base level - search for motif
-        # requires motif score thresh map {N, task, pos, M} and filter_width
-        # base level, returns the pos of greatest M (top k)
-        assert inputs.get(DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH) is not None
-        assert params.get("manifold") is not None # {M}
+        """extract the positions for only the desired motifs (sig pwms)
+        """
+        assert inputs.get(DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX) is not None
+        assert inputs.get(DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL) is not None
+        assert params.get("sig_pwms") is not None
+
+        # collect features, TODO move others to old?
+        indices = tf.cast(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], tf.int64)
+        vals = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL]
         outputs = dict(inputs)
         
-        # TODO should this be a separate function in motifs?
-        # features - look at global top score positions
-        features = inputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] # {N, task, pos, M}
-        features = tf.reduce_max(features, axis=1) # {N, pos, M}
-        features = tf.transpose(features, perm=[0,2,1]) # {N, M, pos}
+        # gather sig pwm max positions and vals
+        sig_pwms_indices = np.where(params["sig_pwms"])[0] # {mutM}
+        params["num_aux_examples"] = sig_pwms_indices.shape[0]
+        indices = tf.gather(indices, sig_pwms_indices, axis=1)
+        vals = tf.gather(vals, sig_pwms_indices, axis=1)
+
+        #print indices
+        #print vals
+        #quit()
         
-        # params
-        num_mutations = params.get("num_mutations", 1)
-        
-        # get the max positions ON THE ACTIVE REGION
-        # NOTE that these are indices for the short region!!
-        vals, indices = tf.nn.top_k(features, k=num_mutations, sorted=True)
-        
-        # and then only keep the ones that filter through pwm vector
-        with h5py.File(params["manifold"], "r") as hf:
-            pwm_mask = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL][:]
-        params["num_aux_examples"] = np.sum(pwm_mask > 0)
-        sig_pwm_indices = np.where(pwm_mask > 0)[0]
-        vals = tf.gather(vals, sig_pwm_indices, axis=1)
-        indices = tf.gather(indices, sig_pwm_indices, axis=1)
-        
-        # save
-        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, mut_M, k}
-        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, mut_M, k}
+        # save adjusted
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = vals # {N, mut_M, k}
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = indices # {N, mut_M, k}
         outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.reduce_any(tf.greater(vals, 0), axis=2) # {N, mut_M}
 
         if self.mutation_type == "point":
@@ -62,7 +56,7 @@ class Mutagenizer(object):
             grad_mins = tf.argmin(grad_mins, axis=3) # {N, 1, 1000}
             grad_mins = tf.one_hot(grad_mins, 4) # {N, 1, 1000, 4}
             outputs["grad_mins"] = grad_mins
-        
+
         return outputs, params
 
     
@@ -143,15 +137,16 @@ class Mutagenizer(object):
     def mutagenize_multiple_motifs(self, inputs, params):
         """comes in from map fn?
         """
-        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] is not None # {N, mut_M, k}
+        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] is not None # {N, mut_M, k}
         outputs = dict(inputs)
         
         # for each motif, run map fn to mutagenize
         features = inputs[DataKeys.ORIG_SEQ] # {N, 1, 1000, 4}
         orig_seq_len = features.get_shape().as_list()[2]
-        LEFT_CLIP = 420
-        position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
-        inputs["test.position_indices"] = position_indices
+        position_indices = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT]
+        #LEFT_CLIP = 420
+        #position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
+        #inputs["test.position_indices"] = position_indices
         motif_present = inputs[DataKeys.MUT_MOTIF_PRESENT] # {N, mut_M}
         
         # choose what kind of mutagenesis
@@ -199,7 +194,6 @@ class Mutagenizer(object):
         return inputs, params
 
 
-
 class SynergyMutagenizer(Mutagenizer):
     """Generates sequences for synergy scores"""
 
@@ -207,15 +201,14 @@ class SynergyMutagenizer(Mutagenizer):
     def mutagenize_multiple_motifs(self, inputs, params):
         """change this from the Mutagenizer class
         """
-        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] is not None # {N, mut_M, k}
+        assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] is not None # {N, mut_M, k}
+        assert params.get("combinations") is not None
         outputs = dict(inputs)
         
         # for each motif, run map fn to mutagenize
         features = inputs[DataKeys.ORIG_SEQ] # {N, 1, 1000, 4}
         orig_seq_len = features.get_shape().as_list()[2]
-        LEFT_CLIP = 420 # TODO fix this
-        position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
-        inputs["test.position_indices"] = position_indices
+        position_indices = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT]
         motif_present = inputs[DataKeys.MUT_MOTIF_PRESENT] # {N, mut_M}
         all_motifs_present = tf.reduce_all(motif_present, axis=1) # {N}
         
@@ -229,16 +222,10 @@ class SynergyMutagenizer(Mutagenizer):
         all_mut_positions = []
 
         assert position_indices.get_shape().as_list()[2] == 1
-        
-        # now generate all sorts of mutation combinations (mutM, 2**mutM)
-        num_mut_motifs = motif_present.get_shape().as_list()[1]
-        mut_combinations = np.zeros((num_mut_motifs, 2**num_mut_motifs)) # {mutM, 2**mutM}
-        mut_switch = [[0,1]]*num_mut_motifs
-        i = 0
-        for combo in itertools.product(*mut_switch):
-            mut_combinations[:,i] = combo
-            i += 1 
-        mut_combinations = np.expand_dims(mut_combinations, axis=0) # {1, mutM, 2**mutM}
+
+        # get the combinatorial matrix to use
+        mut_combinations = params["combinations"]
+        mut_combinations = np.expand_dims(mut_combinations, axis=0) # {1, mutM, 2**mutM}        
         
         # and then elementwise multiply
         position_combinations = tf.multiply(position_indices, mut_combinations) # {N, mutM, 2**mutM}
@@ -247,6 +234,7 @@ class SynergyMutagenizer(Mutagenizer):
         position_combinations = tf.transpose(position_combinations, perm=[0,2,1]) # {N, 2**mutM, mutM}
 
         # set up a vector to zero out the 0th spot
+        # TODO is this necessary? gets filtered elsewhere no?
         position_shape = position_combinations.get_shape().as_list()
         zero_positions = tf.zeros([position_shape[0], 1], dtype=tf.int32)
         zero_positions = tf.one_hot(zero_positions, orig_seq_len) # {N, k, 1000}

@@ -78,7 +78,10 @@ class DataLoader(object):
           filter_fn: function to feed to tf.Dataset.filter
         """
         def filter_fn(features, labels):
-            filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            if len(target_indices) != 0:
+                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            else:
+                filter_targets = features[target_key]
             if filter_type == "any":
                 reduce_fn = tf.reduce_any
             else:
@@ -104,7 +107,10 @@ class DataLoader(object):
           filter_fn: function to feed to tf.Dataset.filter
         """
         def filter_fn(features, labels):
-            filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            if len(target_indices) != 0:
+                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            else:
+                filter_targets = features[target_key]
             passes_filter = tf.greater_equal(
                 tf.reduce_sum(filter_targets),
                 min_count)
@@ -112,6 +118,35 @@ class DataLoader(object):
         
         return filter_fn
 
+    
+    @staticmethod
+    def build_fract_accessible_filter_function(target_key, target_indices, max_fract=0.15):
+        """build a function for filtering examples based on whether the
+        example is positive in more than one task. only applies in 
+        multi-task situations
+
+        Args:
+          target_key: the key to the target tensor
+          target_indices: list of indices of targets of interest
+          min_count: how many targets must be positive to pass filter
+
+        Returns:
+          filter_fn: function to feed to tf.Dataset.filter
+        """
+        def filter_fn(features, labels):
+            if len(target_indices) != 0:
+                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
+            else:
+                filter_targets = features[target_key]
+                
+            passes_filter = tf.less_equal(
+                tf.reduce_mean(filter_targets),
+                max_fract)
+            return passes_filter
+        
+        return filter_fn
+    
+    
             
     def build_dataset_dataflow(
             self,
@@ -287,7 +322,7 @@ class DataLoader(object):
             inputs,
             {"name": name,
              "batch_size": batch_size,
-             "num_queue_threads": 1})
+             "num_queue_threads": 4})
         
         return inputs
     
@@ -357,6 +392,18 @@ class DataLoader(object):
                     singleton_filter_targets[0][0],
                     singleton_filter_targets[0][1]),
                 "singleton_filter_{}".format(filter_idx),
+                batch_size)
+
+        # FOR SURAG MODELS
+        if False:
+            filter_idx = 0
+            inputs = DataLoader._queue_filter(
+                inputs,
+                DataLoader.build_fract_accessible_filter_function(
+                    "DNASE_LABELS",
+                    [],
+                    max_fract=0.05),
+                "cell_type_specific_filter_{}".format(filter_idx),
                 batch_size)
 
         # gather labels as needed
@@ -467,7 +514,7 @@ class H5DataLoader(DataLoader):
             data_dir=None,
             data_files=[],
             fasta=None,
-            dataset_json=None,
+            dataset_json={},
             **kwargs):
         """initialize with data files
         
@@ -477,10 +524,10 @@ class H5DataLoader(DataLoader):
           fasta: fasta file for getting sequence from BED intervals on the fly
         """
         # assertions
-        assert (len(data_files) == 0) or (dataset_json is None)
-
+        assert (len(data_files) == 0) or (len(dataset_json) == 0)
+        
         # set up
-        if len(dataset_json) is not None:
+        if len(dataset_json) != 0:
             # use json and adjust data as needed
             self.data_dir = dataset_json["data_dir"]
             self.h5_files = dataset_json.get("data_files")
@@ -525,14 +572,17 @@ class H5DataLoader(DataLoader):
         Returns:
           h5_files: consistent list of data files
         """
-        if len(h5_files) > 0:
-            h5_files = [
-                "{}/{}".format(data_dir, os.path.basename(h5_file))
-                for h5_file in h5_files]
+        if data_dir is not None:
+            if len(h5_files) > 0:
+                h5_files = [
+                    "{}/{}".format(data_dir, os.path.basename(h5_file))
+                    for h5_file in h5_files]
+            else:
+                h5_files = glob.glob("{}/*h5".format(data_dir))
+                h5_files = [h5_file for h5_file in h5_files
+                            if "manifold" not in h5_file]
         else:
-            h5_files = glob.glob("{}/*h5".format(data_dir))
-            h5_files = [h5_file for h5_file in h5_files
-                        if "manifold" not in h5_file]
+            assert len(h5_files) > 0
 
         return h5_files
         
@@ -750,12 +800,18 @@ class H5DataLoader(DataLoader):
             num_examples = h5_handle[example_key].shape[0]
             
             for key in keys:
+                # check if actually a dataset (vs hdf5 group)
+                if not isinstance(h5_handle[key], h5py.Dataset):
+                    skip_keys.append(key)
+                    continue
                 # check if scalar
                 if h5_handle[key].shape == 0:
                     skip_keys.append(key)
+                    continue
                 # check if different shape
                 if h5_handle[key].shape[0] != num_examples:
                     skip_keys.append(key)
+                    continue
             # filter the keys
             clean_keys = [
                 key for key in sorted(h5_handle.keys())
@@ -830,12 +886,13 @@ class H5DataLoader(DataLoader):
 
     def build_generator(
             self,
-            batch_size=256, #256, #256
+            batch_size=256,
             task_indices=[],
             keys=[],
-            skip_keys=["label_metadata"],
+            skip_keys=[],
             targets=[(DataKeys.LABELS, [])],
             target_indices=[],
+            examples_subset=None,
             seq_len=1000,
             lock=threading.Lock(),
             shuffle=True):
@@ -859,43 +916,53 @@ class H5DataLoader(DataLoader):
             clean_keys, dtypes_dict, shapes_dict, seq_len=seq_len)
 
         # pull out the fasta to throw into the generator
-        fasta = self.fasta
+        #fasta = self.fasta
 
         # make the generator
         # explicitly designed this way to work with tf Dataset
         class Generator(object):
 
-            #@threadsafe_generator
+            def __init__(self, fasta, batch_size):
+                self.fasta = fasta
+                self.batch_size = batch_size
+                
+            
             def __call__(self, h5_file, yield_single_examples=True):
                 """run the generator"""
 
+                batch_size = self.batch_size
+                fasta = self.fasta
+                
+                if examples_subset is not None:
+                    batch_size = 1
+
                 # set up interval to sequence converter
                 converter = GenomicIntervalConverter(lock, fasta, batch_size)
-
-
-                # set up tmp numpy arrays
-                if False:
-                    tmp_arrays = {}
-                    for key in clean_keys:
-                        if dtypes_dict[key] == tf.string:
-                            tmp_arrays[key] = np.empty([batch_size] + list(shapes_dict[key]), dtype="S1000")
-                            tmp_arrays[key].fill("features=chr1:0-1000")
-                        else:
-                            tmp_arrays[key] = np.zeros([batch_size] + list(shapes_dict[key]))
                 
                 # open h5 file
                 with h5py.File(h5_file, "r") as h5_handle:
                     test_key = h5_handle.keys()[0]
-                    
-                    # set up batch id total
-                    max_batches = int(math.ceil(h5_handle[test_key].shape[0]/float(batch_size)))
-                    logging.debug("loading {0} with batch size {1} to get batches {2}".format(
-                        os.path.basename(h5_file), batch_size, max_batches))
 
-                    # set up shuffled batches (deterministic shuffle order)
-                    batch_ids = range(max_batches)
+                    # if using examples, then get the indices and change batch size to 1
+                    if examples_subset is not None:
+                        max_batches = len(examples_subset)
+                        batch_ids = np.where(
+                            np.isin(
+                                h5_handle[DataKeys.SEQ_METADATA],
+                                examples_subset))[0].tolist()
+                        yield_single_examples = False
+                    else:
+                        # set up batch id total and get batches
+                        max_batches = int(math.ceil(h5_handle[test_key].shape[0]/float(batch_size)))
+                        batch_ids = range(max_batches)
+
+                    # shuffle batches as needed
                     if shuffle:
                         random.Random(42).shuffle(batch_ids)
+                            
+                    # logging
+                    logging.debug("loading {0} with batch size {1} to get batches {2}".format(
+                        os.path.basename(h5_file), batch_size, max_batches))
                     
                     # and go through batches
                     try:
@@ -935,7 +1002,7 @@ class H5DataLoader(DataLoader):
                         print "finished {}".format(h5_file)
                             
         # instantiate
-        generator = Generator()
+        generator = Generator(self.fasta, batch_size)
         
         return generator, dtypes_dict, shapes_dict
 

@@ -39,6 +39,8 @@ from tronn.learn.learning import DataCleanupHook
 
 from tronn.nets.nets import net_fns
 
+from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
+
 from tronn.interpretation.interpret import visualize_region
 from tronn.interpretation.dreaming import dream_one_sequence
 
@@ -46,6 +48,9 @@ from tronn.visualization import visualize_debug
 
 from tronn.util.utils import DataKeys
 from tronn.util.formats import write_to_json
+
+from tronn.util.tf_utils import setup_tensorflow_session
+from tronn.util.tf_utils import close_tensorflow_session
 
         
 _TRAIN_PHASE = "train"
@@ -57,30 +62,21 @@ class ModelManager(object):
     
     def __init__(
             self,
-            model_dict,
-            model_checkpoint=None,
-            model_dir=None,
+            model,
             name="nn_model"):
         """Initialization keeps core of the model - inputs (from separate dataloader) 
         and model with necessary params. All other pieces are part of different graphs
         (ie, training, evaluation, prediction, inference)
+
+        Args:
+          model: a dict of name, params, etc
         """
         # set up from model dict
-        self.name = model_dict["name"]
+        self.name = model["name"]
         self.model_fn = net_fns[self.name]
-        self.model_params = model_dict.get("params", {})
-        self.model_checkpoint = model_dict.get("checkpoint")
-        
-        # add in checkpoint if present
-        if model_checkpoint is not None:
-            self.model_checkpoint = model_checkpoint
-        
-        # adjust model dir (and checkpoint) as desired
-        self.model_dir = model_dir
-        if (self.model_dir is not None) and (self.model_checkpoint is not None):
-            self.model_checkpoint = "{}/{}".format(
-                self.model_dir,
-                os.path.basename(self.model_checkpoint))
+        self.model_params = model.get("params", {})
+        self.model_dir = model["model_dir"]
+        self.model_checkpoint = model.get("checkpoint")
 
         
     def describe(self):
@@ -303,23 +299,23 @@ class ModelManager(object):
                     return tf.estimator.EstimatorSpec(mode, predictions=outputs)
                 else:
                     # inference mode
-                    inference_params = params.get("inference_params", {})
-                    model_reuse = params.get("model_reuse", False)
-                    inference_params.update({"model_reuse": model_reuse})
                     outputs, variables_to_restore = self.build_inference_dataflow(
                         inputs,
                         params["inference_fn"],
-                        inference_params,
+                        params,
                         regression=regression,
                         logit_indices=logit_indices)
 
-                    if params["checkpoint"] is None:
+                    # adjust model weight loading
+                    if self.model_checkpoint is None:
+                        # this is important for py_func wrapped models like pytorch
+                        # and/or keras models where we use a py_func op for loading
                         print "WARNING: NO CHECKPOINT BEING USED"
                         return tf.estimator.EstimatorSpec(mode, predictions=outputs)
                     else:
-                        # create custom init fn
+                        # create custom init fn for tensorflow
                         init_op, init_feed_dict = restore_variables_op(
-                            params["checkpoint"],
+                            self.model_checkpoint,
                             skip=["pwm"])
                         def init_fn(scaffold, sess):
                             sess.run(init_op, init_feed_dict)
@@ -327,9 +323,7 @@ class ModelManager(object):
                         scaffold = monitored_session.Scaffold(
                             init_fn=init_fn)
                         return tf.estimator.EstimatorSpec(
-                            mode,
-                            predictions=outputs,
-                            scaffold=scaffold)
+                            mode, predictions=outputs, scaffold=scaffold)
             
             elif mode == tf.estimator.ModeKeys.EVAL:
                 # evaluation mode
@@ -438,7 +432,6 @@ class ModelManager(object):
             self,
             input_fn,
             out_dir,
-            inference_fn,
             inference_params={},
             config=None,
             predict_keys=None,
@@ -450,20 +443,13 @@ class ModelManager(object):
         """
         hooks.append(DataSetupHook())
 
-        
-        # build inference estimator
-        self.model_params["inference_mode"] = True
-        params = {
-            "checkpoint": checkpoint,
-            "inference_mode": True,
-            "inference_fn": inference_fn,
-            "inference_params": inference_params,
-            "model_reuse": inference_params.get(
-                "model_reuse", True)} # TODO pwms etc etc
+        # convert inference fn
+        inference_params["inference_fn"] = net_fns[
+            inference_params["inference_fn_name"]]
         
         # build estimator
         estimator = self.build_estimator(
-            params=params,
+            params=inference_params,
             config=config,
             out_dir=out_dir,
             logit_indices=logit_indices)
@@ -855,6 +841,67 @@ class ModelManager(object):
         
         return None
 
+    
+    def extract_model_variables(
+            self,
+            input_fn,
+            out_dir,
+            prefix,
+            skip=["logit", "out"]):
+        """extract params from existing model fn and checkpoint into npz
+        """
+        with tf.Graph().as_default():
+
+            # set up inputs
+            inputs = input_fn()[0]
+            
+            # build model fn
+            self.model_params.update({"is_training": False})
+            outputs, _ = self.model_fn(inputs, self.model_params)
+
+            # get trainable variables (ie, the model variables)
+            all_trainable_variables = tf.trainable_variables()
+            
+            # choose which variables to extract
+            trainable_variables = []
+            for v in all_trainable_variables:
+                skip_var = False
+                for skip_expr in skip:
+                    if skip_expr in v.name:
+                        skip_var = True
+                if not skip_var:
+                    trainable_variables.append(v)
+
+            # run a session
+            sess, coord, threads = setup_tensorflow_session()
+
+            # load model back into graph
+            init_assign_op, init_feed_dict = restore_variables_op(
+                self.model_checkpoint, skip=skip)
+            sess.run(init_assign_op, init_feed_dict)
+            
+            # and extract params
+            trainable_variables_numpy = sess.run(trainable_variables)
+            
+            # close session
+            close_tensorflow_session(coord, threads)
+
+        # set up as dictionary
+        variables_dict = {}
+        variables_order = []
+        for v_idx in xrange(len(trainable_variables)):
+            variable_name = "{}.{}".format(v_idx, trainable_variables[v_idx].name)
+            variables_dict[variable_name] = trainable_variables_numpy[v_idx]
+            variables_order.append(variable_name)
+        variables_dict["variables_order"] = np.array(variables_order)
+
+        # and save out to numpy array
+        np.savez(
+            "{}/{}.model_variables.npz".format(out_dir, prefix),
+            **variables_dict)
+        
+        return None
+
 
 class KerasModelManager(ModelManager):
     """Model manager for Keras models"""
@@ -1085,16 +1132,19 @@ class PyTorchModelManager(ModelManager):
 
     def __init__(
             self,
-            model_fn,
-            model_params={},
-            model_checkpoint=None,
-            model_dir=None,
+            model,
             name="pytorch_model"):
         """Initialization keeps core of the model - inputs (from separate dataloader) 
         and model with necessary params. All other pieces are part of different graphs
         (ie, training, evaluation, prediction, inference)
         """
-        model = model_fn()
+        self.name = model["name"]
+        self.model_params = model.get("params", {})
+        self.model_checkpoint = model.get("checkpoint")
+        self.model_dir = model["model_dir"]
+
+        # convert model
+        pytorch_model = pytorch_net_fns[model["name"]]()
         
         def converted_model_fn(inputs, params):
             outputs = dict(inputs)
@@ -1111,7 +1161,7 @@ class PyTorchModelManager(ModelManager):
             pytorch_inputs = [seq, rna, max_batch_size]
             Tout = tf.float32
             outputs[DataKeys.LOGITS] = tf.py_func(
-                model.output,
+                pytorch_model.output,
                 pytorch_inputs,
                 Tout,
                 #stateful="False",
@@ -1123,7 +1173,7 @@ class PyTorchModelManager(ModelManager):
             # also get gradients and set shape
             pytorch_inputs = [seq, rna, False, max_batch_size]
             outputs[DataKeys.IMPORTANCE_GRADIENTS] = tf.py_func(
-                model.importance_score,
+                pytorch_model.importance_score,
                 pytorch_inputs,
                 Tout,
                 #stateful="False",
@@ -1136,24 +1186,16 @@ class PyTorchModelManager(ModelManager):
                 axis=1)
             
             return outputs, params
-            
-        self.model_fn = converted_model_fn
-        self.model_params = model_params
-        self.model_checkpoint = model_checkpoint
-        self.model_dir = model_dir
-        self.name = name
 
+        self.model_fn = converted_model_fn
 
         
 def setup_model_manager(args):
     """wrapper function to make loading
     models from different sources consistent
     """
-    if args.model_framework == "tronn":
-        model_manager = ModelManager(
-            model_dict=args.model,
-            model_checkpoint=args.model_checkpoint,
-            model_dir=args.model_dir)
+    if args.model_framework == "tensorflow":
+        model_manager = ModelManager(model=args.model)
     elif args.model_framework == "keras":
 
         args.model["name"] = "keras_transfer"
@@ -1167,9 +1209,9 @@ def setup_model_manager(args):
             warm_start_params = {}
 
         
-        model_manager = KerasModelManager(model_dict=args.model)
+        model_manager = KerasModelManager(model=args.model)
     elif args.model_framework == "pytorch":
-        model_manager = PyTorchModelManager(model_dict=args.model)
+        model_manager = PyTorchModelManager(model=args.model)
     else:
         raise ValueError, "unrecognized deep learning framework!"
     

@@ -16,7 +16,8 @@ class AttrKeys(object):
     CLUSTER_IDS = "cluster_ids"
     FILE_NAMES = "file_names"
     TASK_INDICES = "task_indices"
-
+    PLOT_LABELS = "labels"
+    
 
 
 # TODO try to deprecate this?

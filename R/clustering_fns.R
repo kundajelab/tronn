@@ -42,8 +42,11 @@ order_by_clusters <- function(data, clusters) {
     } else {
         # hard
         if (length(dim(data)) == 3) {
+            old_dims <- dim(data)
             data <- data[order(clusters),,]
+            dim(data) <- old_dims
             data <- data[clusters != -1,,]
+            dim(data) <- old_dims
         } else {
             data <- data[order(clusters),]
             data <- data[clusters != -1,]

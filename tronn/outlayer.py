@@ -42,7 +42,7 @@ class H5Handler(object):
             maxshape = dataset_shape if resizable else None
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape, dtype="S100")
-            elif "features.string" in key:
+            elif "string" in key:
                 self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape, dtype="S1000")
             else:
                 self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape)
@@ -66,7 +66,7 @@ class H5Handler(object):
             if key == "example_metadata":
                 tmp_arrays[key] = np.empty(dataset_shape, dtype="S100")
                 tmp_arrays[key].fill("features=chr1:0-1000")
-            elif "features.string" in key:
+            elif "string" in key:
                 tmp_arrays[key] = np.empty(dataset_shape, dtype="S1000")
                 tmp_arrays[key].fill("NNNN")
             else:

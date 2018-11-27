@@ -16,11 +16,9 @@ from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
 from tronn.interpretation.clustering import visualize_multikey_outputs_R
 
-from tronn.interpretation.motifs import extract_significant_pwms
+from tronn.interpretation.motifs import extract_significant_pwms # TODO DEPRECATE
+from tronn.interpretation.motifs import run_bootstrap_differential_score_test
 from tronn.interpretation.motifs import visualize_significant_pwms_R
-
-from tronn.nets.nets import net_fns
-#from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
@@ -47,25 +45,20 @@ def run(args):
         targets=args.targets,
         target_indices=args.target_indices,
         filter_targets=args.filter_targets,
-        singleton_filter_targets=args.singleton_filter_targets)
+        singleton_filter_targets=args.singleton_filter_targets,
+        use_queues=True)
 
     # set up model
     model_manager = setup_model_manager(args)
 
+    # add model to inference params
+    args.inference_params.update({"model": model_manager})
+    
     # set up inference generator
     inference_generator = model_manager.infer(
         input_fn,
         args.out_dir,
-        net_fns[args.inference_fn],
-        inference_params={
-            # TODO can we clean this up?
-            "model_fn": model_manager.model_fn,
-            "num_tasks": args.model["params"]["num_tasks"],
-            "use_filtering": False if args.data_format is not "hdf5" else True, # TODO do this better
-            #"use_filtering": False,
-            "backprop": args.backprop, # change this to importance_method
-            "importance_task_indices": args.inference_targets, #args.inference_task_indices,
-            "pwms": args.pwm_list},
+        args.inference_params,
         checkpoint=model_manager.model_checkpoint,
         yield_single_examples=True)
 
@@ -85,8 +78,46 @@ def run(args):
             results_h5_file,
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
+
+    # then bootstrap from the background set (GC matched) to get
+    # probability that summed motif score in foreground is due to random chance
+    # TODO - one wrinkle here - what if you want to look at across multiple foreground indices?
+    # not a good way to do that here yet.
+    if args.foreground_targets is not None:
+
+        if False:
+            # run with nn weighted scores
+            for i in xrange(len(args.foreground_targets)):
+                run_bootstrap_differential_score_test(
+                    results_h5_file,
+                    args.background_scores,
+                    args.foreground_targets[i][0],
+                    args.foreground_targets[i][1],
+                    DataKeys.LABELS,
+                    args.inference_targets,
+                    qval_thresh=0.05)
+    
+        # run with raw hits (HOMER style)
+        for i in xrange(len(args.foreground_targets)):
+            run_bootstrap_differential_score_test(
+                results_h5_file,
+                args.background_scores,
+                args.foreground_targets[i][0],
+                args.foreground_targets[i][1],
+                DataKeys.LABELS,
+                args.inference_targets,
+                pwm_hits_key=DataKeys.ORIG_SEQ_PWM_SCORES_SUM,
+                qval_thresh=0.05,
+                out_key="pwms.hits.differential")
         
-    # run clustering analysis
+            
+            
+    quit()
+    
+    
+        
+    # run clustering analysis?
+    # TODO probably deprecate this
     if args.cluster and not args.debug:
         cluster_file_prefix = "{0}/{1}.{2}".format(
             args.out_dir, args.prefix, DataKeys.CLUSTERS)
@@ -114,6 +145,7 @@ def run(args):
                 results_h5_file,
                 args.visualize_multikey_R)
 
+    # TODO deprecate this also
     # run manifold analysis
     # NOTE relies on cluster analysis
     if args.summarize_manifold and not args.debug:
@@ -172,11 +204,11 @@ def run(args):
         pass
 
     # save out additional info to model json
-    args.model_info["pwm_file"] = args.pwm_file
-    args.model_info["inference_tasks"] = args.inference_tasks
-    args.model_info["backprop"] = args.backprop
+    args.model["pwm_file"] = args.pwm_file
+    args.model["inference_tasks"] = args.inference_tasks
+    args.model["backprop"] = args.backprop
     with open("{}/model_info.json".format(args.out_dir), "w") as fp:
-        json.dump(args.model_info, fp, sort_keys=True, indent=4)
+        json.dump(args.model, fp, sort_keys=True, indent=4)
 
     return None
 

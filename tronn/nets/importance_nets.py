@@ -7,6 +7,7 @@ import tensorflow as tf
 
 from tronn.nets.sequence_nets import generate_dinucleotide_shuffles
 from tronn.nets.sequence_nets import generate_scaled_inputs
+from tronn.nets.sequence_nets import decode_onehot_sequence
 
 from tronn.nets.filter_nets import filter_and_rebatch
 
@@ -128,6 +129,7 @@ class FeatureImportanceExtractor(object):
         reuse = params.get("model_reuse", True) 
         with tf.variable_scope("", reuse=reuse):
             logging.info("Calling model fn")
+            params.update({"num_tasks": params["model"].model_params["num_tasks"]})
             model_outputs, params = self.model_fn(inputs, params)
         
         # gather anchors
@@ -185,6 +187,7 @@ class FeatureImportanceExtractor(object):
         logging.info("TRANSFORM: threshold features")
         
         SHUFFLE_PVAL = 0.01
+        #SHUFFLE_PVAL = 0.05
 
         # threshold main features
         inputs.update({DataKeys.ACTIVE_SHUFFLES: inputs[DataKeys.WEIGHTED_SEQ_SHUF]})
@@ -283,11 +286,26 @@ class FeatureImportanceExtractor(object):
             # (1) clip edges
             outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES] # save out from features
-            outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
+            outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[
+                DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
             
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-            outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[
+                DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+            outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[
+                DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+            params.update({"left_clip": LEFT_CLIP, "right_clip": RIGHT_CLIP})
 
+            params.update({"decode_key": DataKeys.ORIG_SEQ_ACTIVE})
+            outputs, _ = decode_onehot_sequence(outputs, params)
+            
+            # add in GC content info
+            gc_total= tf.reduce_sum(
+                outputs[DataKeys.ORIG_SEQ_ACTIVE][:,:,:,1:3], axis=(1,2,3))
+            gc_fract = tf.divide(
+                gc_total,
+                outputs[DataKeys.ORIG_SEQ_ACTIVE].get_shape().as_list()[2])
+            outputs[DataKeys.GC_CONTENT] = gc_fract
+            
             # clear active shuffles
             del outputs[DataKeys.ACTIVE_SHUFFLES]
 
@@ -615,6 +633,9 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             :,:,:,LEFT_CLIP:RIGHT_CLIP,:]
         outputs[DataKeys.MUT_MOTIF_POS] = outputs[DataKeys.MUT_MOTIF_POS][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
 
+        params.update({"decode_key": DataKeys.MUT_MOTIF_ORIG_SEQ})
+        outputs, _ = decode_onehot_sequence(outputs, params)
+        
         # calculate deltas scores (DFIM). leave as aux (to attach later)
         # this is dy
         outputs[DataKeys.DFIM_SCORES] = tf.subtract(
@@ -636,16 +657,19 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         
         # zero out the ones that shouldn't have responded
         # they already give low responses, but easiest to just zero them out
-        # TODO figure out how to fix this
         if True:
             mut_motif_present = tf.cast(outputs[DataKeys.MUT_MOTIF_PRESENT], tf.float32)
 
-            # this is for synergy scores
-            if True:
+            # NOTE: turn on for synergy scores!!
+            if params["cmd_name"] == "synergy":
+                print "WARNING USING SYNERGY SCORE VERSION"
                 mut_motif_present = outputs[DataKeys.MUT_MOTIF_PRESENT]
                 mut_motif_present = tf.cast(
                     tf.reduce_all(mut_motif_present, axis=1, keepdims=True),
                     tf.float32) # {N, 1}
+            else:
+                # TURN THIS OFF FOR DMIM
+                print "WARNING USING DMIM VERSION"
             
             mut_motif_shape = mut_motif_present.get_shape().as_list()
             feature_shape = outputs[DataKeys.DFIM_SCORES].get_shape().as_list()
@@ -678,22 +702,21 @@ def get_task_importances(inputs, params):
 
     """
     backprop = params["backprop"]
+    model_fn = params["model"].model_fn
     
     # all this should be is a wrapper
     if backprop == "input_x_grad":
-        extractor = InputxGrad(params["model_fn"])
+        extractor = InputxGrad(model_fn)
     elif backprop == "pytorch_input_x_grad":
-        extractor = PyTorchInputxGrad(params["model_fn"])
+        extractor = PyTorchInputxGrad(model_fn)
     elif backprop == "integrated_gradients":
-        extractor = IntegratedGradients(params["model_fn"])
+        extractor = IntegratedGradients(model_fn)
     elif backprop == "deeplift":
-        extractor = DeepLift(params["model_fn"])
+        extractor = DeepLift(model_fn)
     elif backprop == "saturation_mutagenesis":
-        pass
+        raise ValueError, "backprop method not implemented!"
     else:
-        # TODO switch to exception
-        print "method does not exist/not yet implemented"
-        quit()
+        raise ValueError, "backprop method not implemented!"
     
     outputs, params = extractor.extract(inputs, params)
     
@@ -713,8 +736,7 @@ def get_task_importances(inputs, params):
 def run_dfim(inputs, params):
     """wrapper for functional calls
     """
-    extractor = DeltaFeatureImportanceMapper(params["model_fn"])
-
+    extractor = DeltaFeatureImportanceMapper(params["model"].model_fn)
     outputs, params = extractor.extract(inputs, params)
     
     return outputs, params

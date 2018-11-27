@@ -14,6 +14,8 @@ from tronn.interpretation.clustering import get_cluster_bed_files
 from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
 
+from tronn.interpretation.motifs import get_sig_pwm_vector
+from tronn.interpretation.motifs import copy_sig_pwm_vectors_to_h5
 from tronn.interpretation.motifs import extract_significant_pwms
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
@@ -21,9 +23,10 @@ from tronn.interpretation.networks import get_motif_hierarchies
 
 from tronn.interpretation.variants import get_significant_delta_logit_responses
 from tronn.interpretation.variants import get_interacting_motifs
+from tronn.interpretation.variants import run_permutation_dmim_score_test
 from tronn.interpretation.variants import visualize_interacting_motifs_R
 
-from tronn.nets.nets import net_fns
+#from tronn.nets.nets import net_fns
 
 from tronn.stats.nonparametric import run_delta_permutation_test
 
@@ -95,32 +98,54 @@ def run(args):
         target_indices=args.target_indices,
         filter_targets=args.filter_targets,
         singleton_filter_targets=args.singleton_filter_targets,
-        shuffle=False)
-        
+        use_queues=True,
+        shuffle=False,
+        skip_keys=[
+            DataKeys.ORIG_SEQ_SHUF,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            #DataKeys.ORIG_SEQ_PWM_HITS,
+            DataKeys.ORIG_SEQ_PWM_SCORES,
+            DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+            DataKeys.ORIG_SEQ_SHUF_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.WEIGHTED_SEQ_PWM_HITS,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+            DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES
+        ]) # reduce the things being pulled out
+    
     # set up model
     model_manager = setup_model_manager(args)
+    args.inference_params.update({"model": model_manager})
+
+    # check if processed inputs
     if args.processed_inputs:
         args.model["name"] = "empty_net"
-        reuse = False
+        #reuse = False
+        args.inference_params.update({"model_reuse": False})
     else:
-        reuse = True
+        #reuse = True
+        args.inference_params.update({"model_reuse": True})
     input_model_manager = setup_model_manager(args)
+
+    # set up sig pwms
+    if args.sig_pwms_file is None:
+        args.sig_pwms_file = data_loader.data_files[0]
+    sig_pwms = get_sig_pwm_vector(
+        args.sig_pwms_file,
+        args.sig_pwms_key,
+        args.foreground_targets[0][0],
+        args.foreground_targets[0][1],
+        reduce_type="any")
+    args.inference_params.update({"sig_pwms": sig_pwms})
+    logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
 
     # set up inference generator
     inference_generator = input_model_manager.infer(
         input_fn,
         args.out_dir,
-        net_fns[args.inference_fn],
-        inference_params={
-            # TODO can we clean this up?
-            "model_fn": model_manager.model_fn,
-            "model_reuse": reuse,
-            "num_tasks": args.model["params"]["num_tasks"],
-            "backprop": args.backprop,
-            "importances_fn": args.backprop, # TODO fix this
-            "importance_task_indices": args.inference_targets,
-            "pwms": args.pwm_list,
-            "manifold": args.manifold_file},
+        args.inference_params,
         checkpoint=model_manager.model_checkpoint,
         yield_single_examples=True)
 
@@ -138,9 +163,18 @@ def run(args):
         add_pwm_names_to_h5(
             results_h5_file,
             [pwm.name for pwm in args.pwm_list],
-            other_keys=[])
+            other_keys=[DataKeys.FEATURES])
 
-        # use copy_h5_datasets
+        # copy over the pwm sig vectors that are relevant
+        copy_sig_pwm_vectors_to_h5(
+            args.sig_pwms_file,
+            results_h5_file,
+            args.sig_pwms_key,
+            args.foreground_targets[0][0],
+            args.foreground_targets[0][1])
+
+    if False:
+        # TODO - deprecate this
         copy_h5_datasets(
             args.manifold_file,
             results_h5_file,
@@ -156,6 +190,7 @@ def run(args):
             
     # check manifold - was it consistent
     # TODO make an arg
+    # TODO deprecate this
     check_manifold = False
     if check_manifold:
         manifold_file_prefix = "{0}/{1}.{2}".format(
@@ -194,11 +229,33 @@ def run(args):
             args.visualize_multikey_R)
 
     # DMIM ANALYSES
-    if False:
+    if args.foreground_targets is not None:
+
+        # reminder - there's `sig_pwms` full vector.
+        
+        for i in xrange(len(args.foreground_targets)):
+
+            print args.foreground_targets[i]
+            
+            # get interacting motifs for this task
+            # use target key and index to select sig pwms to look at
+            run_permutation_dmim_score_test(
+                results_h5_file,
+                args.foreground_targets[i][0],
+                args.foreground_targets[i][1],
+                sig_pwms,
+                args.sig_pwms_key)
+            
+
+    quit()
+
+
+    
+    if True:
         get_interacting_motifs(
             results_h5_file,
-            DataKeys.MANIFOLD_CLUST,
-            DataKeys.DMIM_SIG_RESULTS)
+            DataKeys.MANIFOLD_CLUST, # <- figure out what goes here - sig pwms, but sig only for each task
+            DataKeys.DMIM_SIG_RESULTS) # <- figure out what goes here
 
     # and plot these out with R
     if False:

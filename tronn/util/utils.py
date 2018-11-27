@@ -26,7 +26,9 @@ class DataKeys(object):
 
     # clipping
     ORIG_SEQ_ACTIVE = "{}.active".format(ORIG_SEQ)
+    ORIG_SEQ_ACTIVE_STRING = "{}.string".format(ORIG_SEQ_ACTIVE)
     WEIGHTED_SEQ_ACTIVE = "{}.active".format(WEIGHTED_SEQ)
+    GC_CONTENT = "{}.gc_fract".format(ORIG_SEQ_ACTIVE)
     
     # for shuffles (generated for null models)
     SHUFFLE_SUFFIX = "shuffles"
@@ -58,8 +60,13 @@ class DataKeys(object):
     # pwm positions
     WEIGHTED_PWM_SCORES_POSITION_MAX_VAL = "{}.max.val".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_PWM_SCORES_POSITION_MAX_IDX = "{}.max.idx".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
+    WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT = "{}.max.val.mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
+    WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT = "{}.max.idx.mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
+
     
     # significant pwms
+    PWM_DIFF_GROUP = "pwms.differential"
+    PWM_PVALS = "pwms.pvals"
     PWM_SIG_ROOT = "pwms.sig"
     PWM_SIG_GLOBAL = "{}.global".format(PWM_SIG_ROOT)
     PWM_SCORES_AGG_GLOBAL = "{}.agg".format(PWM_SIG_GLOBAL)
@@ -95,12 +102,20 @@ class DataKeys(object):
     DFIM_SCORES = "{}.delta".format(MUT_MOTIF_WEIGHTED_SEQ)
 
     # dmim agg results keys
+    DMIM_DIFF_GROUP = "dmim.differential"
+    DMIM_PVALS = "dmim.pvals"
+    DMIM_SIG_ROOT = "dmim.sig"
+    DMIM_SIG_ALL = "{}.all".format(DMIM_SIG_ROOT)
     DMIM_ROOT = "{}.{}".format(DFIM_SCORES, PWM_SCORES_ROOT)
     DMIM_SIG_RESULTS = "{}.agg.sig".format(DMIM_ROOT)
 
     # grammar keys
     GRAMMAR_ROOT = "grammar"
     GRAMMAR_LABELS = "{}.labels".format(GRAMMAR_ROOT)
+
+    # synergy keys
+    SYNERGY_ROOT = "synergy"
+    SYNERGY_SCORES = "{}.scores".format(SYNERGY_ROOT)
     
     # split
     TASK_IDX_ROOT = "taskidx"

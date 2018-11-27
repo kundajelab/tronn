@@ -110,9 +110,9 @@ def threshold_by_qvalues(
     pvals_flattened = np.sort(pvals.flatten())
     num_pvals_per_bin, pval_bins = np.histogram(
         pvals_flattened, bins=num_bins)
-
+    
     # get baseline
-    baseline = np.mean(num_pvals_per_bin[-2:])
+    baseline = np.mean(num_pvals_per_bin[-4:-1])
     
     # then get the cumulative sum of pvalue dist
     p_cumsum = np.cumsum(num_pvals_per_bin)
@@ -134,13 +134,31 @@ def threshold_by_qvalues(
     return thresholds
 
 
+def _flip_values_randomly(array):
+    """given a difference value array, flip values randomly
+    to approximate a permutation test
+    """
+    # set up random flips
+    random_vals = np.random.random((array.shape)) # ex {N, mutM, task, M}
+    flips = -(random_vals <= 0.5).astype(int) 
+    noflips = (random_vals > 0.5).astype(int)
+    random_flips = np.add(flips, noflips)
+
+    # flip values accordingly
+    shuffle_results = np.multiply(random_flips, array)
+    shuffle_results = np.sum(shuffle_results, axis=0) # ex {mutM, task, M}
+
+    return shuffle_results
+
+
 def run_delta_permutation_test(
         array,
         num_shuffles=1000,
         pval_thresh=0.05, # 0.01
         twotailed=True,
         qvalue=True,
-        qval_thresh=0.50):
+        qval_thresh=0.05,
+        num_threads=24):
     """when given an array, randomly
     flip the sign and recalculate the sum (across last axis)
     consider significant if actual sum is above the 
@@ -153,48 +171,16 @@ def run_delta_permutation_test(
     fact that there are multiple tasks to then give you more information
     """
     true_sums = np.sum(array, axis=0) # ex {mutM, task, M}
-    results_shape = list(array.shape) # ex {N, mutM, task, M}
-    results_shape[0] = num_shuffles # ex {num_shuffles, mutM, task, M}
-    results = np.zeros(results_shape) # ex {num_shuffles, mutM, task, M}
 
-    # do shuffles
-    for i in xrange(num_shuffles):
-        if i % 100 == 0:
-            print i
-            
-        random_vals = np.random.random((array.shape)) # ex {N, mutM, task, M}
-        flips = -(random_vals <= 0.5).astype(int) 
-        noflips = (random_vals > 0.5).astype(int)
-        random_flips = np.add(flips, noflips)
-        
-        shuffle_results = np.multiply(random_flips, array)
-        shuffle_results = np.sum(shuffle_results, axis=0) # ex {mutM, task, M}
-
-        results[i] = shuffle_results
-
+    # do shuffles (in a parallel way)
+    p = Pool(num_threads)
+    shuffles = p.map(_flip_values_randomly, [array]*num_shuffles)
+    results = np.stack(shuffles, axis=0)
+    
     # calculate pvals
     pvals = get_pvals_from_delta_shuffles(
         results,
         true_sums,
-        twotailed=twotailed) # {mutM, task, M}
-    
-    # get cutoffs
-    if qvalue:
-        passed_threshold = threshold_by_qvalues(pvals, qval_thresh=qval_thresh)
-    else:
-        passed_threshold = pvals < pval_thresh
+        twotailed=twotailed) # ex {mutM, task, M}
 
-    # and then filter by task
-    # rationale: if there is a 50% FDR rate, then for
-    # any given hypothesis, need at least 2 hits across tasks
-    # such that at least 1 of them was likely real
-    num_tasks = passed_threshold.shape[1]
-    sig_task_threshold = min(num_tasks - 1, (1. /(1 - qval_thresh)))
-    passed_threshold_cross_task = np.sum(
-        passed_threshold, axis=1, keepdims=True) >  sig_task_threshold
-    passed_threshold = passed_threshold_cross_task
-    #passed_threshold = np.multiply(
-    #    passed_threshold_cross_task,
-    #    passed_threshold)
-
-    return pvals, passed_threshold
+    return pvals

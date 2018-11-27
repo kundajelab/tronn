@@ -105,6 +105,7 @@ def run(args):
     index_list.append("global")
 
     # run global metrics
+    os.system("mkdir -p {}.by_task".format(args.out_dir))
     run_and_plot_metrics(
         labels.flatten(),
         probs.flatten(),

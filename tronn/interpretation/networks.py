@@ -5,6 +5,7 @@ import re
 import h5py
 import copy
 import glob
+import logging
 
 import numpy as np
 import pandas as pd
@@ -23,9 +24,11 @@ class Node(object):
         self.attrs = attrs
         if "examples" in self.attrs.keys():
             self.attrs["num_examples"] = len(self.attrs["examples"])
+        self.attrs["name"] = self.name
 
-        
+            
     def get_tuple(self):
+        # important for conversion to gml
         return (self.name, self.attrs)
 
     
@@ -40,9 +43,11 @@ class DirectedEdge(object):
         self.attrs = attrs
         if "examples" in self.attrs.keys():
             self.attrs["num_examples"] = len(self.attrs["examples"])
+        self.attrs["name"] = self.name
 
         
     def get_tuple(self):
+        # important for conversion to gml
         return (self.start_node_name, self.end_node_name, self.attrs)
 
     
@@ -60,15 +65,31 @@ class MotifGraph(object):
         self.edges = list(edges)
         self.propagated = propagated
         self.attrs = {} # graph attributes
+
+        # update attrs with initial example set across nodes and edges
+        self.attrs["examples"] = nodes[0].attrs.get("examples", set())
+        for node in self.nodes:
+            self.attrs["examples"] = self.attrs["examples"].intersection(
+                node.attrs["examples"])
+        for edge in self.edges:
+            self.attrs["examples"] = self.attrs["examples"].intersection(
+                edge.attrs["examples"])
+        self.attrs["num_examples"] = len(self.attrs["examples"])
+            
+        # keep these! update local copies of examples,
+        # that way when combining can just sum each.
         self.node_attrs = {} # "local" copy of attributes to adjust as needed
         self.edge_attrs = {} # "local" copy of attributes to adjust as needed
+        
         # copy node attrs from nodes
         for node in self.nodes:
             self.node_attrs[node.name] = copy.deepcopy(node.attrs)
+            self.node_attrs[node.name]["num_examples"] = len(self.attrs["examples"])
         # copy edge attrs from edges
         for edge in self.edges:
             self.edge_attrs[edge.name] = copy.deepcopy(edge.attrs)
-
+            self.edge_attrs[edge.name]["num_examples"] = len(self.attrs["examples"])
+            
             
     def deepcopy(self):
         """make a deep copy of the graph
@@ -130,6 +151,14 @@ class MotifGraph(object):
                 return node
 
             
+    def get_edge_by_id(self, edge_name):
+        """get the node object by id
+        """
+        for edge in self.edges:
+            if edge_name == edge.name:
+                return edge
+
+            
     def get_node_out_edges(self, node_name):
         """return the edges
         """
@@ -152,157 +181,70 @@ class MotifGraph(object):
         return node_edges
 
 
-    # TODO maybe deprecate this? or adjust - this doesnt serve a purpose anymore
-    def get_leaf_nodes(self):
-        """extract all nodes with no OUT edges
+    def update_examples(self, examples):
+        """update across graph
         """
-        leaf_node_names = []
-        for node in self.nodes:
-            edges = self.get_node_out_edges(node.name)
-            if len(edges) == 0:
-                leaf_node_names.append(node.name)
-                
-        return leaf_node_names
+        # update the graph
+        self.attrs["examples"] = examples
+        self.attrs["num_examples"] = len(examples)
 
-
-    def get_covered_region_set(self):
-        """for the corrected (all info fully propagated) graph,
-        go to leafs and collect all regions
-        """
-        leaf_node_names = self.get_leaf_nodes()
-        region_set = set([])
-        for node_name in leaf_node_names:
-            region_set = region_set.union(
-                self.node_attrs[node_name]["examples"])
-
-        region_num = len(region_set)
+        # update node attrs
+        for node_name in self.node_attrs.keys():
+            self.node_attrs[node_name]["examples"] = examples
+            self.node_attrs[node_name]["num_examples"] = len(examples)
             
-        return region_num, region_set
-
-
-    def update_node_examples(self, node_name, examples):
-        """update node attrs
-        """
-        self.node_attrs[node_name]["examples"] = set(examples)
-        self.node_attrs[node_name]["num_examples"] = len(examples)
-
-        return None
-
-    
-    def update_edge_examples(self, edge_name, examples):
-        """update node attrs
-        """
-        self.edge_attrs[edge_name]["examples"] = set(examples)
-        self.edge_attrs[edge_name]["num_examples"] = len(examples)
+        # update edge attrs
+        for edge_name in self.edge_attrs.keys():
+            self.edge_attrs[edge_name]["examples"] = examples
+            self.edge_attrs[edge_name]["num_examples"] = len(examples)
 
         return None
     
-    
-    def propagate_up(
-            self, node_name, examples, seen_nodes=[]):
-        """from a starting node, propagate up and
-        adjust graph attributes
-        """
-        # get parent node ids
-        parent_node_names = []
-        in_edges = self.get_node_in_edges(node_name)
-        for edge in in_edges:
-            # update edge examples
-            self.update_edge_examples(edge.name, examples)
-            # update parent node examples
-            if edge.start_node_name not in seen_nodes:
-                self.update_node_examples(edge.start_node_name, examples)
-                seen_nodes.append(edge.start_node_name)
-                parent_node_names.append(edge.start_node_name)
-        # and then propagate
-        for parent_node_name in parent_node_names:
-            seen_nodes = self.propagate_up(
-                parent_node_name,
-                examples,
-                seen_nodes=seen_nodes)
 
-        return seen_nodes
-
-    
-    def propagate_down(
-            self, node_name, examples, seen_nodes=[]):
-        """from a starting node, propagate up and
-        adjust each node using transform fn
-        """
-        # get parent node ids
-        child_node_names = []
-        out_edges = self.get_node_out_edges(node_name)
-        for edge in out_edges:
-            # update edge examples
-            self.update_edge_examples(edge.name, examples)
-            # update child node examples
-            if edge.end_node_name not in seen_nodes:
-                self.update_node_examples(edge.end_node_name, examples)
-                seen_nodes.append(edge.end_node_name)
-                child_node_names.append(edge.end_node_name)
-        for child_node_name in child_node_names:
-            seen_nodes = self.propagate_down(
-                child_node_name,
-                examples,
-                seen_nodes=seen_nodes)
-                
-        return seen_nodes
-
-
-    def update_examples_and_propagate(self, edge, update_type="synergistic"):
-        """update the graph based on addition of internal edge
-        """
-        assert edge.start_node_name in self.node_names
-        assert edge.end_node_name in self.node_names
-        
-        # get examples that have desired effects
-        if update_type == "synergistic":
-            edge_examples = edge.attrs["examples"]
-            edge_examples = edge_examples.intersection(
-                self.node_attrs[edge.start_node_name]["examples"])
-            edge_examples = edge_examples.intersection(
-                self.node_attrs[edge.end_node_name]["examples"])
-        elif update_type == "overlap":
-            edge_examples = self.node_attrs[edge.start_node_name]["examples"].intersection(
-                self.node_attrs[edge.end_node_name]["examples"])
-        else:
-            raise TypeError, "no such update type"
-
-        # update edges
-        for edge in self.edges:
-            self.update_edge_examples(edge.name, edge_examples)
-
-        # update nodes
-        for node in self.nodes:
-            self.update_node_examples(node.name, edge_examples)
-
-        return None
-
-
-    def write_gml(self, gml_file):
+    def write_gml(self, gml_file, write_examples=True):
         """write out the gml file
         """
-        nx_graph = nx.MultiDiGraph()
-
+        # cleaned graph attributes
+        clean_attrs = {}
+        for key in self.attrs.keys():
+            clean_key = key.replace("_", "")
+            if not isinstance(self.attrs[key], (list, set, np.ndarray)):
+                clean_attrs[clean_key] = self.attrs[key]
+            elif (key == "examples") and write_examples:
+                clean_attrs[clean_key] = ",".join(
+                    [str(val) for val in self.attrs[key]])
+        
+        # instantiate graph with attributes
+        nx_graph = nx.MultiDiGraph(**clean_attrs)
+        
         # nodes with cleaned up attrs
         node_list = []
-        for node in self.nodes:
+        for node_name in self.node_attrs.keys():
             clean_attrs = {}
-            for key in node.attrs.keys():
-                if not isinstance(node.attrs[key], (list, set, dict)):
-                    clean_attrs[key] = node.attrs[key]
-            node_list.append((node.name, clean_attrs))
+            for key in self.node_attrs[node_name].keys():
+                clean_key = key.replace("_", "")
+                if not isinstance(self.node_attrs[node_name][key], (list, set, np.ndarray)):
+                    clean_attrs[clean_key] = self.node_attrs[node_name][key]
+                elif (key == "examples") and write_examples:
+                    clean_attrs[clean_key] = ",".join(
+                        [str(val) for val in self.node_attrs[node_name][key]])
+            node_list.append((node_name, clean_attrs))
 
         # edges with cleaned up attrs
         edge_list = []
-        for edge in self.edges:
+        for edge_name in self.edge_attrs.keys():
             clean_attrs = {}
-            for key in edge.attrs.keys():
-                if not isinstance(edge.attrs[key], (list, set, dict)):
-                    clean_attrs[key] = node.attrs[key]
+            for key in self.edge_attrs[edge_name].keys():
+                clean_key = key.replace("_", "")
+                if not isinstance(self.edge_attrs[edge_name][key], (list, set, np.ndarray)):
+                    clean_attrs[clean_key] = self.edge_attrs[edge_name][key]
+                elif (key == "examples") and write_examples:
+                    clean_attrs[clean_key] = ",".join(
+                        [str(val) for val in self.edge_attrs[edge_name][key]])
+            edge = self.get_edge_by_id(edge_name)
             edge_list.append(
                 (edge.start_node_name, edge.end_node_name, clean_attrs))
-
+            
         # add them in
         nx_graph.add_nodes_from(node_list)
         nx_graph.add_edges_from(edge_list)
@@ -311,6 +253,390 @@ class MotifGraph(object):
         nx.write_gml(nx_graph, gml_file, stringizer=str)
         
         return None
+
+    
+    def write_bed(self, bed_file, interval_key="active", merge=True):
+        """take the examples and write out a BED file
+        """
+        grammar_examples = list(self.attrs["examples"])
+        with open(bed_file, "w") as fp:
+            for region_metadata in grammar_examples:
+                interval_types = region_metadata.split(";")
+                interval_types = dict([
+                    interval_type.split("=")[0:2]
+                    for interval_type in interval_types])
+                interval_string = interval_types[interval_key]
+
+                chrom = interval_string.split(":")[0]
+                start = interval_string.split(":")[1].split("-")[0]
+                stop = interval_string.split("-")[1]
+                fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
+
+        if merge:
+            tmp_bed_file = "{}.tmp.bed".format(bed_file.split(".bed")[0])
+            os.system("mv {} {}".format(bed_file, tmp_bed_file))
+            os.system("cat {} | sort -k1,1 -k2,2n | bedtools merge -i stdin > {}".format(
+                tmp_bed_file, bed_file))
+            os.system("rm {}".format(tmp_bed_file))
+
+        return None
+
+
+def get_bed_from_nx_graph(graph, bed_file, interval_key="active", merge=True):
+    """get BED file from nx examples
+    """
+    examples = list(graph.graph["examples"])
+
+    with open(bed_file, "w") as fp:
+        for region_metadata in examples:
+            interval_types = region_metadata.split(";")
+            interval_types = dict([
+                interval_type.split("=")[0:2]
+                for interval_type in interval_types])
+            interval_string = interval_types[interval_key]
+
+            chrom = interval_string.split(":")[0]
+            start = interval_string.split(":")[1].split("-")[0]
+            stop = interval_string.split("-")[1]
+            fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
+
+    if merge:
+        tmp_bed_file = "{}.tmp.bed".format(bed_file.split(".bed")[0])
+        os.system("mv {} {}".format(bed_file, tmp_bed_file))
+        os.system("cat {} | sort -k1,1 -k2,2n | bedtools merge -i stdin > {}".format(
+            tmp_bed_file, bed_file))
+        os.system("rm {}".format(tmp_bed_file))
+    
+    return None
+
+    
+def build_nodes(
+        sig_pwms,
+        pwm_names,
+        nodes=[],
+        effects_mat=None,
+        original_indices=None,
+        indexing_key="driver_idx"):
+    """helper function to build a nodes list
+    use to build perturb nodes and response nodes
+    
+    Args:
+      sig_pwms: np bool vector of whether the pwm is significant or not {M}
+      pwm_names: list of the pwm names
+      effects_mat: np array of effects per example {N, M}
+      nodes: node list, if it already exists
+    
+    Returns:
+      nodes: updated list of nodes
+    """
+    assert sig_pwms.shape[0] == len(pwm_names)
+    
+    # go through pwms
+    pwm_indices = np.where(sig_pwms !=0)[0]
+    for pwm_idx in pwm_indices:
+        pwm_name = pwm_names[pwm_idx]
+        
+        # first create node or find it as needed
+        if pwm_name not in [node.name for node in nodes]:
+            node = Node(pwm_name, {indexing_key: pwm_idx})
+            nodes.append(node)
+        else:
+            for old_node_idx in xrange(len(nodes)):
+                if nodes[old_node_idx].name == pwm_name:
+                    node = nodes[old_node_idx]
+                    break
+                
+        # update node
+        node.attrs[indexing_key] = pwm_idx
+        if effects_mat is not None:
+            indices_from_effects = np.where(effects_mat[:,pwm_idx] != 0)[0]
+            true_indices = original_indices[indices_from_effects]
+            node.attrs["examples"] = set(true_indices.tolist())
+
+    logging.info("Built {} nodes".format(len(nodes)))
+
+    return nodes
+
+
+def build_edges_by_example_intersect(
+        nodes,
+        min_co_occurring_num):
+    """build co-occurrence edges
+    """
+    edges = []
+    for driver_node in nodes:
+        if driver_node.attrs.get("driver_idx") is None:
+            continue
+        for responder_node in nodes:
+            if responder_node.attrs.get("responder_idx") is None:
+                continue
+
+            # do not add if the reverse already exists (undirected graph)
+            edge_exists = False
+            for edge in edges:
+                if "{}_{}".format(responder_node.name, driver_node.name) in edge.name:
+                    edge_exists = True
+            if edge_exists:
+                continue
+
+            # do not add if same node
+            if driver_node.name == responder_node.name:
+                continue
+                
+            # get overlap
+            co_occurring_examples = driver_node.attrs["examples"].intersection(
+                responder_node.attrs["examples"])
+
+            # check that conditions met
+            if len(co_occurring_examples) < min_co_occurring_num:
+                continue
+            
+            # build edge with co-occurrence info
+            edge = DirectedEdge(
+                driver_node.name,
+                responder_node.name,
+                attrs={"examples": co_occurring_examples})
+            edges.append(edge)
+            
+    logging.info("Built {} edges with min support {} regions each".format(
+        len(edges), min_co_occurring_num))
+
+    return edges
+
+
+def build_co_occurrence_graph(
+        h5_file,
+        targets_key,
+        target_idx,
+        sig_pwms_h5_file,
+        sig_pwms_key,
+        data_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
+        sig_only=True,
+        min_positive=2,
+        min_co_occurring_num=500):
+    """build co-occurrence based graph
+    """
+    # load in sig pwms vector
+    with h5py.File(sig_pwms_h5_file, "r") as hf:
+        sig_pwms = hf[sig_pwms_key][:] # {M}
+        
+    # load in scores
+    with h5py.File(h5_file, "r") as hf:
+        scores = hf[data_key][:] # {N, task, M}
+        targets = hf[targets_key][:] # {N, task}
+        pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
+        metadata = hf["example_metadata"][:,0]
+    
+    # set up effects mat and original indices
+    #original_indices = np.arange(scores.shape[0])
+    score_indices = np.where(targets[:,target_idx] > 0)[0]
+    scores = scores[score_indices]
+    #original_indices = original_indices[score_indices]
+    metadata = metadata[score_indices]
+    
+    effects_mat = np.sum(scores > 0, axis=1) >= min_positive # {N, M}
+    
+    
+    # first set up driver nodes
+    num_drivers = np.sum(sig_pwms)
+    nodes = build_nodes(
+        sig_pwms,
+        pwm_names,
+        nodes=[],
+        effects_mat=effects_mat,
+        original_indices=metadata, #original_indices,
+        indexing_key="driver_idx")
+    
+    # then set up response nodes
+    num_responders = np.sum(sig_pwms)
+    if sig_only:
+        nodes = build_nodes(
+            sig_pwms,
+            pwm_names,
+            nodes=nodes,
+            indexing_key="responder_idx")
+    else:
+        raise Exception, "not yet implemented"
+
+    # build edges
+    edges = build_edges_by_example_intersect(
+        nodes,
+        min_co_occurring_num)
+    
+    # and put together into a graph
+    graph = MotifGraph(nodes, edges)
+
+    return graph
+
+
+def build_edges_from_adjacency(
+        nodes,
+        scores,
+        adjacency,
+        original_indices,
+        min_co_occurring_num): # <- min num not used currently!
+    """build edges
+    """
+    edges = []
+    for driver_node in nodes:
+        if driver_node.attrs.get("driver_idx") is None:
+            continue
+        driver_idx = driver_node.attrs["driver_idx"]
+        
+        for responder_node in nodes:
+            if responder_node.attrs.get("responder_idx") is None:
+                continue
+            responder_idx = responder_node.attrs["responder_idx"]
+
+            # TODO - hack for square matrix, remove this eventually
+            responder_adj_idx = responder_node.attrs["driver_idx"]
+
+            # then check that the adjacency mat says there's an edge there
+            if adjacency[driver_idx, responder_adj_idx] == 0:
+                continue
+
+            # get direction
+            overall_edge_effect = np.sum(scores[:,driver_idx,:,responder_idx])            
+            if overall_edge_effect < 0:
+
+                # TODO - consider min task count!
+                has_effect = np.any(scores[:,driver_idx,:,responder_idx] < 0, axis=1) # {N}
+                edge_examples = np.where(has_effect)[0].tolist()
+            else:
+                has_effect = np.any(scores[:,driver_idx,:,responder_idx] > 0, axis=1) # {N}
+                edge_examples = np.where(has_effect)[0].tolist()
+
+            # get actual ids
+            edge_examples = original_indices[edge_examples]
+
+            # check min count
+            if len(edge_examples) < min_co_occurring_num:
+                continue
+
+            # attach the list of examples with both 
+            edge = DirectedEdge(
+                driver_node.name,
+                responder_node.name,
+                attrs={"examples": edge_examples})
+            edges.append(edge)
+            
+    logging.info("Built {} edges with min support {} regions each".format(
+        len(edges), min_co_occurring_num))
+            
+    return edges
+
+
+def build_dmim_graph(
+        h5_file,
+        targets_key,
+        target_idx,
+        sig_pwms_h5_file,
+        sig_pwms_key,
+        sig_dmim_key,
+        data_key=DataKeys.FEATURES,
+        outputs_key=DataKeys.LOGITS,
+        outputs_mut_key=DataKeys.MUT_MOTIF_LOGITS,
+        sig_only=True,
+        min_positive=2,
+        min_co_occurring_num=500):
+    """using dmim outputs, build graph
+    """
+    # need to load in mut logits (nodes), scores (edges), adjacence mat (edges)
+    # load in scores
+    with h5py.File(h5_file, "r") as hf:
+        scores = hf[data_key][:] # {N, mutM, task, M}
+        outputs = np.expand_dims(hf[outputs_key][:], axis=1) # {N, logit}
+        outputs_mut = hf[outputs_mut_key][:] # {N, mutM, logit}
+        targets = hf[targets_key][:] # {N, task}
+        adjacency = hf[sig_dmim_key][:] # {mutM, responseM} <- square, but eventually not
+        pwm_names = hf[data_key].attrs[AttrKeys.PWM_NAMES] # {M}
+
+        # test metadata
+        metadata = hf["example_metadata"][:,0]
+        
+    # set up delta logits
+    delta_outputs = np.subtract(outputs_mut, outputs)
+    
+    # set up sig pwm vectors, both driver pwms and response pwms
+    # first set up the global (rebuild what was used in dmim)
+    sig_pwm_root = sig_pwms_key.replace("/{}".format(DataKeys.PWM_SIG_ROOT), "")
+    with h5py.File(sig_pwms_h5_file, "r") as hf:
+        sig_pwm_keys = hf[sig_pwm_root].keys()
+        for i in xrange(len(sig_pwm_keys)):
+            key = sig_pwm_keys[i]
+            if i == 0:
+                sig_pwms = hf[sig_pwm_root][key][:]
+            else:
+                sig_pwms += hf[sig_pwm_root][key][:]
+    global_sig_pwms = sig_pwms != 0 # {M}
+
+    # extract the subset of global that is sig for this task
+    with h5py.File(sig_pwms_h5_file, "r") as hf:
+        sig_pwms = hf[sig_pwms_key][:] # {M}
+    
+    # set up driver - need to index on mutM
+    driver_pwms = sig_pwms[np.where(global_sig_pwms)[0]]
+    driver_pwm_names = pwm_names[np.where(global_sig_pwms)[0]]
+    driver_pwms_indices = np.where(driver_pwms != 0)[0] # use this to filter on mutM
+    driver_pwms = driver_pwms[driver_pwms_indices] # driverM
+    
+    # if not using all motifs, set up responders - need to index on M
+    if True: # <- replace with some check
+        responder_pwms = np.multiply(global_sig_pwms, sig_pwms) # {M}
+        responder_pwm_names = pwm_names
+        #responder_pwms_indices = np.where(responder_pwms != 0)[0]
+        #responder_pwms = responder_pwms[responder_pwms_indices] # responderM
+
+    # now adjust scores and outputs for the specific task desired
+    #original_indices = np.arange(scores.shape[0])
+    select_indices = np.where(targets[:,target_idx] > 0)[0]
+    #original_indices = original_indices[select_indices]
+    scores = scores[select_indices]
+    #outputs = outputs[select_indices]
+    delta_outputs = delta_outputs[select_indices]
+
+
+    # test metadata
+    metadata = metadata[select_indices]
+
+    # note for future - how to quickly convert to indices
+    #test = np.where(np.isin(metadata, subset_metadata))[0]
+    
+    # nodes: make nodes based on whether the motif had an effect
+    # note! need to make this directional maybe
+    effects_mat = np.any(delta_outputs < 0, axis=2) # {N, mutM}
+
+    # first set up driver nodes
+    nodes = build_nodes(
+        driver_pwms,
+        driver_pwm_names,
+        nodes=[],
+        effects_mat=effects_mat,
+        original_indices=metadata,
+        indexing_key="driver_idx")
+    
+    # then set up response nodes
+    if sig_only:
+        nodes = build_nodes(
+            responder_pwms,
+            responder_pwm_names,
+            nodes=nodes,
+            indexing_key="responder_idx")
+    else:
+        raise Exception, "not yet implemented"
+    
+    #  edges: create edges based on adjacency {mutM, responseM}
+    # and put examples on the edges if there was an effect
+    edges = build_edges_from_adjacency(
+        nodes,
+        scores,
+        adjacency,
+        metadata,
+        min_co_occurring_num) # adjust this later
+
+    graph = MotifGraph(nodes, edges)
+
+    return graph
 
 
     
@@ -330,7 +656,7 @@ def get_subgraphs(
     if k == 1:
         return []
 
-    # get relevant edges
+    # get edges that can connect to subgraph but do not yet exist
     edges = []
     for edge in graph.edges:
         if edge in subgraph.edges:
@@ -339,16 +665,24 @@ def get_subgraphs(
             edges.append(edge)
         elif edge.end_node_name in subgraph.node_names:
             edges.append(edge)
-    
-    # consider all edges at the same time
+            
+    # go through each edge and add
     new_subgraphs = []
     for edge in edges:
+        
+        # extract examples and intersect
         edge_examples = edge.attrs["examples"]
+        intersected_examples = subgraph.attrs["examples"].intersection(
+            edge_examples)
+
+        # check conditions
+        if len(intersected_examples) < min_region_count:
+            continue
         
         # check if internal and not seen already
         if (edge.start_node_name in subgraph.node_names) and (edge.end_node_name in subgraph.node_names):
             new_subgraph = subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
+            new_subgraph.update_examples(intersected_examples)
             new_subgraphs.append(new_subgraph)
                 
         # check if edge adds new child node into subgraph
@@ -356,9 +690,9 @@ def get_subgraphs(
             new_subgraph = subgraph.add_node(
                 graph.get_node_by_id(edge.end_node_name))
             new_subgraph = new_subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
-
+            new_subgraph.update_examples(intersected_examples)
             new_subgraphs.append(new_subgraph)
+            
             new_subgraphs += get_subgraphs(
                 graph, new_subgraph, k-1, min_region_count=min_region_count)
 
@@ -367,9 +701,9 @@ def get_subgraphs(
             new_subgraph = subgraph.add_node(
                 graph.get_node_by_id(edge.start_node_name))
             new_subgraph = new_subgraph.add_edge(edge)
-            new_subgraph.update_examples_and_propagate(edge, update_type=update_type)
-            
+            new_subgraph.update_examples(intersected_examples)
             new_subgraphs.append(new_subgraph)
+            
             new_subgraphs += get_subgraphs(
                 graph, new_subgraph, k-1, min_region_count=min_region_count)
 
@@ -378,12 +712,11 @@ def get_subgraphs(
             print "something wrong!"
             import ipdb
             ipdb.set_trace()
-
     
     # now check to make sure they pass criteria
     filtered_subgraphs = []
     for subgraph in new_subgraphs:
-        region_num, _ = subgraph.get_covered_region_set()
+        region_num = len(subgraph.attrs["examples"])
         if region_num > min_region_count:
             filtered_subgraphs.append(subgraph)
 
@@ -428,7 +761,7 @@ def get_subgraphs_and_filter(
     # 2) now more stringent region number check
     filtered_subgraphs = []
     for subgraph in subgraphs:
-        region_num, _ = subgraph.get_covered_region_set()
+        region_num = len(subgraph.attrs["examples"])
         if region_num > min_region_count:
             filtered_subgraphs.append(subgraph)
     print "After second size filter with size > {}: {}".format(
@@ -441,8 +774,8 @@ def get_subgraphs_and_filter(
         differs = True
         for j in xrange(len(filtered_subgraphs)):
             # get examples
-            _, examples_i = subgraphs[i].get_covered_region_set()
-            _, examples_j = filtered_subgraphs[j].get_covered_region_set()
+            examples_i = subgraphs[i].attrs["examples"]
+            examples_j = filtered_subgraphs[j].attrs["examples"]
             # calculate jaccard index
             intersect = examples_i.intersection(examples_j)
             union = examples_i.union(examples_j)
@@ -458,7 +791,242 @@ def get_subgraphs_and_filter(
     print "After removing high overlap subgraphs: {}".format(len(filtered_subgraphs))
     subgraphs = filtered_subgraphs
 
+    # and name them
+    for subgraph_idx in xrange(len(subgraphs)):
+        subgraphs[subgraph_idx].attrs["name"] = "grammar-{}".format(subgraph_idx)
+
     return subgraphs
+
+
+def sort_subgraphs_by_output_strength(subgraphs, h5_file, target_key):
+    """given a subgraph set, re-rank the order based on summed output strength
+    this gives a nice way to cut the subgraphs to only keep a manageable set
+    
+    extract the MAX val.
+
+    """
+    summed_outputs = np.zeros((len(subgraphs)))
+    
+    with h5py.File(h5_file, "r") as hf:
+        outputs = hf[target_key][:] # {N, task}
+        metadata = hf["example_metadata"][:,0]
+        
+    for i in xrange(len(subgraphs)):
+        subgraph_examples = sorted(list(subgraphs[i].attrs["examples"]))
+        example_indices = np.where(np.isin(metadata, subgraph_examples))[0]
+        subgraph_outputs = outputs[example_indices]
+        summed_outputs[i] = np.mean(np.amax(subgraph_outputs, axis=1))
+        subgraphs[i].attrs["logit_max"] = summed_outputs[i]
+
+        # separately (consider whether to factor this out),
+        # also attach the pattern to the subgraph (to visualize later)
+        subgraphs[i].attrs["logits"] = np.mean(subgraph_outputs, axis=0)
+        subgraphs[i].attrs["logits_str"] = ";".join(
+            [str(val) for val in np.mean(subgraph_outputs, axis=0).tolist()])
+        
+        
+    sort_indices = np.argsort(-summed_outputs) # negative to reverse the sort
+    sorted_subgraphs = np.array(subgraphs)[sort_indices].tolist()
+
+    # rename
+    for subgraph_idx in xrange(len(sorted_subgraphs)):
+        sorted_subgraphs[subgraph_idx].attrs["name"] = "grammar-{}".format(subgraph_idx)
+    
+    return sorted_subgraphs
+
+
+def annotate_subgraphs_with_pwm_scores(subgraphs, h5_file, scores_key):
+    """annotate nodes (and edges?) with scores?
+    """
+    with h5py.File(h5_file, "r") as hf:
+        pwm_scores = hf[scores_key][:] # {N, task, M}
+        metadata = hf["example_metadata"][:,0]
+        
+    for i in xrange(len(subgraphs)):
+        
+        # get indices
+        subgraph_examples = sorted(list(subgraphs[i].attrs["examples"]))
+        example_indices = np.where(np.isin(metadata, subgraph_examples))[0]
+
+        # go through each node
+        for node in subgraphs[i].nodes:
+            node_idx = node.attrs["responder_idx"]
+            node_pwm_scores = pwm_scores[:,:,node_idx] # {N, task}
+            node_pwm_scores = node_pwm_scores[example_indices]
+            node_pwm_scores = np.mean(node_pwm_scores, axis=0)
+            subgraphs[i].node_attrs[node.name]["pwm_scores"] = node_pwm_scores
+            subgraphs[i].node_attrs[node.name]["pwm_scores_str"] = ";".join(
+                [str(val) for val in node_pwm_scores.tolist()])
+            
+    return None
+
+
+def build_subgraph_per_example_array(
+        h5_file,
+        subgraphs,
+        target_key,
+        out_key):
+    """
+    """
+    # use h5 file to determine how many examples there were originally
+    with h5py.File(h5_file, "r") as hf:
+        num_examples = hf[target_key].shape[0]
+
+    # set up array
+    subgraph_present = np.zeros((num_examples, len(subgraphs)))
+    
+    # go through subgraphs
+    for subgraph_idx in xrange(len(subgraphs)):
+        subgraph = subgraphs[subgraph_idx]
+        examples = sorted(list(subgraph.attrs["examples"]))
+        subgraph_present[examples,subgraph_idx] = 1
+
+    # and save it back into the h5 file
+    with h5py.File(h5_file, "a") as hf:
+        if hf.get(out_key) is not None:
+            del hf[out_key]
+        hf.create_dataset(out_key, data=subgraph_present)
+    
+    return
+
+
+
+
+def stringize_nx_graph(nx_graph):
+    """preparatory function for writing out to gml
+    """
+    # graph attributes
+    for key in nx_graph.graph.keys():
+        if isinstance(nx_graph.graph[key], (list, set)):
+            nx_graph.graph[key] = ",".join([
+                str(val) for val in list(nx_graph.graph[key])])
+
+    # node attributes
+    for node_name, node_attrs in nx_graph.nodes(data=True):
+        for key in node_attrs.keys():
+            if isinstance(nx_graph.nodes[node_name][key], (list, set)):
+                nx_graph.nodes[node_name][key] = ",".join([
+                    str(val) for val in nx_graph.nodes[node_name][key]])
+        # adjust node name for nice output in cytoscape
+        new_node_name = re.sub(r"HCLUST.\d+_", "", node_name)
+        new_node_name = new_node_name.replace(".UNK.0.A", "")
+        nx_graph.nodes[node_name]["name"] = new_node_name
+                
+    # edge attributes
+    for start_node, end_node in nx_graph.edges():
+        for edge_idx in xrange(len(nx_graph[start_node][end_node])):
+            edge_attrs = nx_graph[start_node][end_node][edge_idx]
+            for key in edge_attrs.keys():
+                if isinstance(edge_attrs[key], (list, set)):
+                    nx_graph[start_node][end_node][edge_idx][key] = ",".join([
+                        str(val) for val in nx_graph[start_node][end_node][edge_idx][key]])
+                    
+    return nx_graph
+
+
+def add_graphics_theme_to_nx_graph(
+        nx_graph,
+        edge_color=None,
+        node_size_factor=50,
+        edge_size_factor=500):
+    """adjust nodes and edges
+    """
+    # node size, stroke
+    for node_name, node_attrs in nx_graph.nodes(data=True):
+
+        node_size = nx_graph.nodes[node_name]["numexamples"] / float(node_size_factor)
+        
+        #node_size = nx_graph.nodes[node_name]["numexamples"] / float(nx_graph.graph["numexamples"])
+        #node_size *= node_size_factor
+        
+        graphics = {
+            "type": "ellipse",
+            "w": node_size,
+            "h": node_size,
+            "fill": "#FFFFFF",
+            "outline": "#000000",
+            "width": 1.0,
+            "fontSize": 14
+        }
+
+        if nx_graph.nodes[node_name].get("graphics") is not None:
+            nx_graph.nodes[node_name]["graphics"].update(graphics)
+        else:
+            nx_graph.nodes[node_name]["graphics"] = graphics
+
+    # edges
+    for start_node, end_node in nx_graph.edges():
+        for edge_idx in xrange(len(nx_graph[start_node][end_node])):
+
+            edge_width = nx_graph[start_node][end_node][edge_idx]["numexamples"] / float(
+                edge_size_factor)
+            
+            #edge_width = nx_graph[start_node][end_node][edge_idx]["numexamples"] / float(
+            #    nx_graph.graph["numexamples"])
+            #edge_width *= edge_size_factor 
+
+            graphics = {
+                "type": "arc",
+                "width": edge_width,
+                "targetArrow": "delta"
+            }
+            
+            if edge_color is not None:
+                graphics["fill"] = edge_color
+
+            if nx_graph[start_node][end_node][edge_idx].get("graphics") is not None:
+                nx_graph[start_node][end_node][edge_idx]["graphics"].update(graphics)
+            else:
+                nx_graph[start_node][end_node][edge_idx]["graphics"] = graphics
+
+        
+            
+    return None
+
+
+
+
+
+def apply_graphics_to_subgraphs(master_graph, other_graphs):
+    """assuming loaded graphs (in networkx format)
+    get positions from the master graph and apply to the other graphs
+    """
+    # get graphics
+    node_graphics = nx.get_node_attributes(master_graph, "graphics")
+    #edge_graphics = nx.get_edge_attributes(master_graph, "graphics")
+
+    #print edge_graphics
+    
+    # apply
+    for other_graph in other_graphs:
+        nx.set_node_attributes(other_graph, node_graphics, "graphics")
+        #nx.set_edge_attributes(other_graph, edge_graphics, "graphics")
+        
+    return other_graphs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -471,6 +1039,22 @@ def get_clean_pwm_name(pwm_name):
     pwm_name = re.sub(r"\d+$", "", pwm_name)
     
     return pwm_name
+
+
+def write_summary_metadata_file(subgraphs, metadata_file):
+    """
+    """
+    with open(summary_metadata_file, "w") as fp:
+        fp.write("grammar_index\t{}\tedges\n".format(
+            "\t".join([node.name for node in graph.nodes])))
+    for i in xrange(len(sorted_subgraphs)):
+        with open(summary_metadata_file, "w") as fp:
+            # write code to make a node vector
+            # code to make edge string
+            pass
+
+    return
+
 
 
 def merge_subgraphs_and_write_gml(subgraphs, gml_file, ignore_singles=True):
@@ -550,8 +1134,8 @@ def get_motif_hierarchies(
         num_sig_tasks=3,
         max_subgraph_size=3,
         max_subgraph_overlap=0.3,
-        forward_pass_min_region_count=50,
-        min_region_count=300):
+        forward_pass_min_region_count=100, # this is too manual still, need to adjust
+        min_region_count=500): # 100/500 for mid, 50/400 for early, 
     """extract motif hierarchies
     """
     # load in necessary data
@@ -624,7 +1208,7 @@ def get_motif_hierarchies(
 
     # put into network
     graph = MotifGraph(nodes, edges)
-
+    
     # get subgraphs
     subgraphs = get_subgraphs_and_filter(
         graph,
@@ -632,7 +1216,10 @@ def get_motif_hierarchies(
         forward_pass_min_region_count,
         min_region_count,
         max_subgraph_overlap)
-   
+
+
+    # currently HERE in refactoring
+    
     # save out subgraphs
     grammar_file = "{}.grammars.txt".format(
         h5_file.split(".h5")[0])
@@ -730,17 +1317,21 @@ def get_motif_hierarchies(
     # get subsets
     terms = [
         "keratinocyte differentiation",
+        "epithelial cell proliferation",
+        "epidermal cell division",
         "epidermis development",
         "proliferation",
         "cell cycle arrest",
+        "negative regulation of cell cycle",
         "stem cell proliferation",
         "hair",
+        "junction assembly",
         "regulation of cell motility",
         "extracellular matrix",
         "stem cell"]
     
     subsets = subset_by_functional_enrichments(
-        subgraphs, terms, os.path.dirname(h5_file), "test.great.mid")
+        subgraphs, terms, os.path.dirname(h5_file), "{}/great".format(os.path.dirname(h5_file)))
     
     # and save out
     for term in terms:
@@ -760,6 +1351,9 @@ def get_motif_hierarchies(
 def subset_by_functional_enrichments(subgraphs, terms, bed_dir, out_dir):
     """get subsets by functional enrichment
     """
+    import ipdb
+    ipdb.set_trace()
+    
     # run functional enrichment tool
     # ie, rgreat
     if False:
@@ -790,348 +1384,3 @@ def subset_by_functional_enrichments(subgraphs, terms, bed_dir, out_dir):
     ipdb.set_trace()
     
     return subsets
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# TO DELETE - below
-
-def get_mut_effect_results(path, net, delta_logits, out_file, task_idx=0):
-    """get a matrix of effects
-    """
-    effects_df = pd.DataFrame()
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects = delta_logits[:,mut_node_idx,task_idx] # {N}
-
-        # save out
-        effects_df[path[i]] = effects
-
-    effects_df.to_csv(out_file, sep="\t")
-
-    return None
-
-
-  
-def get_path_dmim_effects_DEPRECATE(path, net, data):
-    """extract the mut effects, multiplicatively
-    """
-    effects = np.ones((data.shape[0], data.shape[2])) # {N, task}
-    for i in xrange(1, len(path)):
-        mut_node_idx = net.get_node_by_id(path[i-1]).attrs["mut_idx"]
-        response_node_idx = net.get_node_by_id(path[i]).attrs["response_idx"]
-        edge_effects = data[:,mut_node_idx,:,response_node_idx] # {N, task}
-        effects *= np.abs(edge_effects)
-    effects = np.mean(effects, axis=0) # {task}
-    
-    return effects
-
-
-def get_path_logit_effects_DEPRECATE(path, net, data):
-    """extract the logit effects, multiplicatively
-    """
-    effects = np.ones((data.shape[0], data.shape[2]))
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects *= np.abs(data[:,mut_node_idx,:]) # {N, task}
-    effects = np.mean(effects, axis=0) # {task}
-
-    return effects
-
-
-
-def get_path_example_logits_DEPRECATE(path, net, logits, mut_logits):
-    """go through the path and get the mut results and orig logits
-    """
-    task_idx = 0
-    effects = np.zeros((logits.shape[0], 1+len(path)))
-    effects[:,0] = logits[:,task_idx]
-    for i in xrange(len(path)):
-        mut_node_idx = net.get_node_by_id(path[i]).attrs["mut_idx"]
-        effects[:,i+1] = mut_logits[:,mut_node_idx,task_idx]
-
-    return effects
-
-
-
-
-def old():
-    # TODO make this a seperate function?
-    # run the network to get hierarchical paths
-    # is each path a tuple ([path], [examples])?
-    # TODO keep paths as indices?
-    # TODO also keep edges as indices?
-    paths = []
-    for node in net.nodes:
-
-        # add in singletons and where they exist
-        node_idx = node.attrs["mut_idx"]
-        #node_mut_effects = np.sum(delta_logits[:,node_idx,:] != 0, axis=1)
-        #node_examples = set(np.where(node_mut_effects > 0)[0].tolist())
-
-        node_examples = set(node.attrs["examples"])
-        
-        current_path = ([node.name], node_examples)
-
-        if len(node_examples) > min_region_count:
-            paths.append(current_path)
-        
-        #all_examples = set(range(example_metadata.shape[0]))
-        #all_examples = set(example_metadata[:,0].tolist())
-        paths += net.get_paths(
-            node.name,
-            forward_pass_min_region_count,
-            current_path=current_path,
-            checked_nodes=[node.name])
-
-    # TODO saving paths out - separate function out?
-    # for each path, want to write out a BED file (and write a metadata file)
-    metadata_file = "{}.hierarchies.metadata.txt".format(
-        h5_file.split(".h5")[0])
-    with open(metadata_file, "w") as fp:
-        fp.write(
-            "path_idx\tpath_hierarchy\tnum_regions\tdmim\tdelta_logit\t{}\n".format(
-                "\t".join(extra_keys)))
-
-    timepoints_file = "{}.hierarchies.LOGITS.txt".format(
-        h5_file.split(".h5")[0])
-
-    global_path_id = 0
-    for path_idx in xrange(len(paths)):
-        path = paths[path_idx]
-        path_hierarchy = "->".join(path[0])
-        path_indices = sorted(path[1]) # TODO save this out in the h5 file
-        path_data = data[path_indices]
-        path_logits = logits[path_indices]
-        path_mut_logits = mut_logits[path_indices]
-        path_delta_logits = delta_logits[path_indices]
-
-        if len(path_indices) < min_region_count:
-            # do not write out
-            continue
-        
-        # get the aggregate effects over the path
-        # TODO check the sign on the multiplications
-        path_dmim_effects = get_path_dmim_effects(path[0], net, path_data)
-        path_delta_logits_effects = get_path_logit_effects(path[0], net, path_delta_logits)
-
-        # testing
-        mut_effects_file = "{}.path-{}.effects_per_example.txt".format(
-            h5_file.split(".h5")[0],
-            global_path_id)
-        get_mut_effect_results(path[0], net, path_delta_logits, mut_effects_file, task_idx=0)
-
-        # TODO just choose max val?
-        # TODO save out dy/dx
-        path_dmim_max = path_dmim_effects[
-            np.argmax(np.abs(path_dmim_effects))]
-        path_delta_logits_max = path_delta_logits_effects[
-            np.argmax(np.abs(path_delta_logits_effects))]
-
-        # for key in extra keys
-        path_extra_results = []
-        path_extra_results_examples = []
-        for key_idx in xrange(len(extra_keys)):
-            key = extra_keys[key_idx]
-            extra_data = extra_datasets[key_idx][path_indices]
-            #extra_data_summary = np.mean(np.amax(extra_data, axis=1) > 0.5)
-            #print extra_data_summary.shape
-            extra_data_summary = np.median(np.amax(extra_data, axis=1))
-            path_extra_results.append(extra_data_summary)
-            path_extra_results_examples.append(np.amax(extra_data, axis=1))
-            
-        # write out to file
-        with open(metadata_file, "a") as fp:
-            fp.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(
-                global_path_id,
-                path_hierarchy,
-                len(path[1]),
-                path_dmim_max,
-                path_delta_logits_max,
-                "\t".join([str(val)
-                           for val in path_extra_results])))
-        
-        bed_file = "{}.path-{}.bed".format(
-            h5_file.split(".h5")[0],
-            global_path_id)
-
-        # TODO for each region, keep track of extra information
-        # ie ATAC signal, H3K27ac, dmim score, etc
-        # this is for filtering regions later
-        path_metadata = example_metadata[sorted(path[1]),0].tolist()
-        with open(bed_file, "w") as fp:
-            for region_metadata in path_metadata:
-                region = region_metadata.split(";")[1].split("=")[1] # TODO adjust here - just active region
-                chrom = region.split(":")[0]
-                start = region.split(":")[1].split("-")[0]
-                stop = region.split("-")[1]
-                fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
-
-        # write out the logit trajectory too
-        path_signal = signal[path_indices]
-        path_logits_mean = np.mean(
-            path_signal[:,0,signal_indices],
-            axis=0).tolist()
-
-        with open(timepoints_file, "a") as fp:
-            fp.write("{}\t{}\t{}\n".format(
-                global_path_id,
-                path_hierarchy,
-                "\t".join([str(val) for val in path_logits_mean])))
-                
-        global_path_id += 1
-
-
-    # TODO - now do a merge_paths run through? to find things that work together....
-    total_new = 0
-    for path1_idx in xrange(len(paths)):
-        path1 = paths[path1_idx]
-        path1_hierarchy = path1[0] # list of names
-        path1_indices = path1[1]
-
-        if len(path1_hierarchy) <= 1:
-            continue
-
-        for subpath1_idx in xrange(len(path1_hierarchy)-1, 0, -1):
-            subpath1 = path1_hierarchy[subpath1_idx:]
-            
-            # starting at BOTTOM of path, see if any other paths have same bottom path
-            for path2_idx in xrange(len(paths)):
-                if path2_idx <= path1_idx:
-                    continue
-                path2 = paths[path2_idx]
-                path2_hierarchy = path2[0] # list of names
-                #print path2_hierarchy
-
-                if len(path2_hierarchy) <= 1:
-                    continue
-                
-                for subpath2_idx in xrange(len(path2_hierarchy)-1, 0, -1):
-                    subpath2 = path2_hierarchy[subpath2_idx:]
-
-                    if subpath1 == subpath2:
-                        # merge paths!
-                        path2_indices = path2[1]
-                        merged_path_indices = sorted(list(
-                            set(path1_indices).union(set(path2_indices))))
-
-                        if len(merged_path_indices) < min_region_count:
-                            continue
-                        
-                        path1_start = path1_hierarchy[:subpath1_idx]
-                        path2_start = path2_hierarchy[:subpath2_idx]
-                        #print path1_hierarchy
-                        #print path2_hierarchy
-                        path_hierarchy = "({};{})>{}".format(
-                            "->".join(path1_start),
-                            "->".join(path2_start),
-                            "->".join(subpath2))
-                        print ">>>", path_hierarchy, len(merged_path_indices)
-                        total_new += 1
-
-                        # write out to file
-                        with open(metadata_file, "a") as fp:
-                            fp.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(
-                                global_path_id,
-                                path_hierarchy,
-                                len(merged_path_indices),
-                                path_dmim_max,
-                                path_delta_logits_max,
-                                "\t".join([str(val)
-                                           for val in path_extra_results])))
-
-                        bed_file = "{}.path-{}.bed".format(
-                            h5_file.split(".h5")[0],
-                            global_path_id)
-
-                        # TODO for each region, keep track of extra information
-                        # ie ATAC signal, H3K27ac, dmim score, etc
-                        # this is for filtering regions later
-                        path_metadata = example_metadata[sorted(merged_path_indices),0].tolist()
-                        with open(bed_file, "w") as fp:
-                            for region_metadata in path_metadata:
-                                region = region_metadata.split(";")[1].split("=")[1] # TODO adjust here - just active region
-                                chrom = region.split(":")[0]
-                                start = region.split(":")[1].split("-")[0]
-                                stop = region.split("-")[1]
-                                fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
-
-                        # write out the logit trajectory too
-                        path_signal = signal[merged_path_indices]
-                        path_logits_mean = np.mean(
-                            path_signal[:,0,signal_indices],
-                            axis=0).tolist()
-
-                        with open(timepoints_file, "a") as fp:
-                            fp.write("{}\t{}\t{}\n".format(
-                                global_path_id,
-                                path_hierarchy,
-                                "\t".join([str(val) for val in path_logits_mean])))
-
-                        # check out the mutational effects
-                        path_delta_logits = delta_logits[sorted(path1_indices)]
-                        mut_effects_file = "{}.path-{}.effects_per_example.txt".format(
-                            h5_file.split(".h5")[0],
-                            global_path_id)
-                        get_mut_effect_results(path1_hierarchy, net, path_delta_logits, mut_effects_file, task_idx=0)
-
-                        global_path_id += 1
-
-    print total_new
-    print global_path_id
-
-    import ipdb
-    ipdb.set_trace()
-
-    if False:
-        # get path logits
-        # TODO add in filters as needed
-        # TODO split this out into separate function
-        #keep_indices = np.where(path_extra_results_examples[1] > 0.7)[0]
-        # TODO remove this, not being used
-        example_logits = get_path_example_logits(
-            path[0],
-            net,
-            path_logits[:,0,:], # TODO change the task here
-            path_mut_logits)
-            #path_logits[keep_indices,0],
-            #path_mut_logits[keep_indices])
-
-        #from scipy.stats import describe
-        #print describe(example_logits[:,0])
-        #print describe(example_logits[:,1])
-        #print describe(example_logits[:,2])
-        #import ipdb
-        #ipdb.set_trace()
-        
-    # and resort metadata
-    metadata = pd.read_table(metadata_file)
-    #metadata_sorted = metadata.sort_values(["dmim"], ascending=False)
-    metadata_sorted = metadata.sort_values([extra_keys[1]], ascending=False)
-    metadata_sorted_file = "{}.sorted.txt".format(metadata_file.split(".txt")[0])
-    metadata_sorted.to_csv(metadata_sorted_file, sep='\t', index=False)
-        
-    return paths
