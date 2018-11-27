@@ -139,8 +139,7 @@ def main():
     if args.annotation_type == "great":
         # tricky part here is to use the BED files and then link back to gml files...
         # maybe just use the gml files and produce BED files on the fly
-        #for grammar_idx in xrange(len(grammars)):
-        for i in xrange(0):
+        for grammar_idx in xrange(len(grammars)):
             # make bed
             bed_file = "{}/{}.bed".format(
                 args.out_dir,

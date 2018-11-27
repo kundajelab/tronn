@@ -37,6 +37,9 @@ def parse_args():
         "--grammar_dir",
         help="directory with grammar files (gml)")
     parser.add_argument(
+        "--grammar_files", nargs="+", default=[],
+        help="list of grammar files (gml)")
+    parser.add_argument(
         "--merge_type", default="graph",
         help="what type of merge - node, edge, graph")
     parser.add_argument(
@@ -164,7 +167,11 @@ def main():
     args.merge_expr = " ".join(args.merge_expr)
     
     # get all gml files and load in
-    grammar_files = glob.glob("{}/*{}*gml".format(args.grammar_dir, args.filename_filter))
+    assert (len(args.grammar_files) == 0) or (args.grammar_dir is None), "only use directory or file list, NOT both!"
+    if len(args.grammar_files) == 0:
+        grammar_files = glob.glob("{}/*{}*gml".format(args.grammar_dir, args.filename_filter))
+    else:
+        grammar_files = args.grammar_files
     grammars = [nx.read_gml(grammar_file) for grammar_file in grammar_files]
 
     # and adjust examples
