@@ -254,6 +254,30 @@ class ModelManager(object):
 
         return outputs, variables_to_restore
 
+
+    def _build_scaffold_with_custom_init_fn(self):
+        """convenience wrapper to make it easier to generate custom initializations
+        from saved models (ie ignoring certain variables, etc)
+        """
+        # always scope change for prediction/inference/eval, sometimes train
+        # do it for train if creating an ensemble and continuing on in training
+
+        
+        # make init op with feed dict of saved variables
+        init_op, init_feed_dict = restore_variables_op(
+            self.model_checkpoint,
+            skip=["pwm"])
+
+        # create the init fn
+        def init_fn(scaffold, sess):
+            sess.run(init_op, init_feed_dict)
+            
+        # plug in to scaffold
+        scaffold = monitored_session.Scaffold(
+            init_fn=init_fn)
+        
+        return scaffold
+
     
     def build_estimator(
             self,
@@ -313,15 +337,8 @@ class ModelManager(object):
                         print "WARNING: NO CHECKPOINT BEING USED"
                         return tf.estimator.EstimatorSpec(mode, predictions=outputs)
                     else:
-                        # create custom init fn for tensorflow
-                        init_op, init_feed_dict = restore_variables_op(
-                            self.model_checkpoint,
-                            skip=["pwm"])
-                        def init_fn(scaffold, sess):
-                            sess.run(init_op, init_feed_dict)
-                        # custom scaffold to load checkpoint
-                        scaffold = monitored_session.Scaffold(
-                            init_fn=init_fn)
+                        # TODO consider just always building a custom scaffold
+                        scaffold = self._build_scaffold_with_custom_init_fn()
                         return tf.estimator.EstimatorSpec(
                             mode, predictions=outputs, scaffold=scaffold)
             
@@ -903,6 +920,87 @@ class ModelManager(object):
         return None
 
 
+    
+class EnsembleModelManager(ModelManager):
+    """Model manager that handles multiple tensorflow models and pulls them together"""
+    
+    def __init__(
+            self,
+            models,
+            name="ensemble_model"):
+        """adjust so that model fn is ensemble
+        """
+        assert len(models) != 0
+        self.name = name
+        self.model_fn = self._build_ensemble_model_fn(models)
+        self.model_params = {"num_tasks": models[0].model_params["num_tasks"]} # everything already went into model fn, this last bit for model calling again in importance scores
+        self.model_dir = [model.model_dir for model in models]
+        self.model_checkpoint = [model.model_checkpoint for model in models]
+        self.models = models
+
+
+    def _build_ensemble_model_fn(self, models, merge_outputs=True):
+        """builds an ensemble model fn based on model list
+        """
+        def ensemble_model_fn(inputs, params):
+            outputs = dict(inputs)
+            all_logits = []
+            for model_idx in xrange(len(models)):
+                new_scope = "model_{}".format(model_idx)
+                logging.info("calling model {}".format(model_idx))
+                model_fn = models[model_idx].model_fn
+                model_params = models[model_idx].model_params
+                params.update(model_params)
+
+                with tf.variable_scope(new_scope):
+                    model_outputs, _ = model_fn(inputs, params)
+                all_logits.append(model_outputs[DataKeys.LOGITS])
+
+            # reduce if requested and save out to outputs
+            if merge_outputs:
+                logits = tf.reduce_mean(tf.stack(all_logits, axis=1), axis=1)
+            outputs[DataKeys.LOGITS] = logits
+
+            return outputs, params
+
+        return ensemble_model_fn
+
+
+    def _build_scaffold_with_custom_init_fn(self):
+        """convenience wrapper to make it easier to generate custom initializations
+        from saved models (ie ignoring certain variables, etc)
+        """
+        # always scope change for prediction/inference/eval, sometimes train
+        # do it for train if creating an ensemble and continuing on in training
+        init_ops = []
+        init_feed_dicts = {}
+        for model_idx in xrange(len(self.model_checkpoint)):
+            new_scope = "model_{}".format(model_idx)
+            model_checkpoint = self.model_checkpoint[model_idx]
+            
+            # make init op with feed dict of saved variables
+            init_op, init_feed_dict = restore_variables_op(
+                model_checkpoint,
+                skip=["pwm"],
+                include_scope=new_scope,
+                scope_change=["^{}/".format(new_scope), ""])
+
+            # add/update
+            init_ops.append(init_op)
+            init_feed_dicts.update(init_feed_dict)
+            
+        # create the init fn
+        def init_fn(scaffold, sess):
+            sess.run(init_ops, init_feed_dicts)
+            
+        # plug in to scaffold
+        scaffold = monitored_session.Scaffold(
+            init_fn=init_fn)
+        
+        return scaffold
+    
+    
+
 class KerasModelManager(ModelManager):
     """Model manager for Keras models"""
 
@@ -1195,7 +1293,29 @@ def setup_model_manager(args):
     models from different sources consistent
     """
     if args.model_framework == "tensorflow":
-        model_manager = ModelManager(model=args.model)
+
+        if args.model["name"] != "ensemble":
+            model_manager = ModelManager(model=args.model)
+        else:
+            models = []
+            for model_json in args.model["params"]["models"]:
+
+                # set up model manager
+                with open(model_json, "r") as fp:
+                    model = json.load(fp)
+                sub_model_manager = ModelManager(model=model)
+                
+                # adjust model dir if needed
+                if args.model_dir is not None:
+                    sub_model_manager.model_checkpoint = "{}/{}".format(
+                        args.model_dir,
+                        os.path.basename(sub_model_manager.model_checkpoint))
+                    
+                # append back to models
+                models.append(sub_model_manager)
+            
+            model_manager = EnsembleModelManager(models)
+
     elif args.model_framework == "keras":
 
         args.model["name"] = "keras_transfer"
