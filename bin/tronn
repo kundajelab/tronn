@@ -313,7 +313,11 @@ def _setup_model_args(args):
             if '=' in model_arg:
                 # params
                 key, value = model_arg.split('=', 1)
-                model["params"][key] = eval(value)
+                # check if param is a list
+                if "," in value:
+                    model["params"][key] = value.split(",")
+                else:
+                    model["params"][key] = eval(value)
             else:
                 # action store true
                 model["params"][model_arg] = True
