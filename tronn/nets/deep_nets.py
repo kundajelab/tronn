@@ -916,31 +916,3 @@ def tfslim_resnet(features, labels, config, is_training=True):
     logits = tf.squeeze(logits, [1, 2])
     
     return logits
-
-
-def ensemble(features, labels, config, is_training=True):
-    """Given a list of models, instantiate each under an index
-    need to instantiate each under an index to be able to 
-    load the correct checkpoint to each model
-    """
-    from tronn.nets.nets import net_fns
-
-    # get the models
-    models = config.get("models")
-    models = [net_fns[model_name]
-              for model_name in models.split(",")]
-
-    # set up each model
-    all_logits = []
-    for i in xrange(len(models)):
-        new_scope = "model_{}".format(i)
-        print new_scope
-        with tf.variable_scope(new_scope):
-            model_logits = models[i](features, labels, config, is_training=is_training)
-            all_logits.append(model_logits)
-
-    # TODO may want to put in a function to load an MLP on top of the ensemble?
-    logits = tf.reduce_mean(
-        tf.stack(all_logits, axis=1), axis=1)
-
-    return logits
