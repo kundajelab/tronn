@@ -40,6 +40,9 @@ def run(args):
     # set up dataloader and input fn
     data_loader = setup_data_loader(args)
     data_loader = data_loader.setup_positives_only_dataloader()
+
+    # TODO this is where to start rotating through models if kfold
+    
     input_fn = data_loader.build_input_fn(
         args.batch_size,
         targets=args.targets,
@@ -48,6 +51,7 @@ def run(args):
         singleton_filter_targets=args.singleton_filter_targets,
         use_queues=True)
 
+    
     # set up model
     model_manager = setup_model_manager(args)
 
@@ -78,6 +82,12 @@ def run(args):
             results_h5_file,
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
+
+    # TODO this is where it stops
+
+
+
+    
 
     # then bootstrap from the background set (GC matched) to get
     # probability that summed motif score in foreground is due to random chance

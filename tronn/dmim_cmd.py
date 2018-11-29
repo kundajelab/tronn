@@ -42,42 +42,6 @@ from tronn.visualization import visualize_agg_delta_logit_results
 from tronn.visualization import visualize_agg_dmim_adjacency_results
 
 
-# TODO move this out
-def _visualize_mut_results(
-        h5_file,
-        pwm_scores_key,
-        delta_logits_key,
-        dmim_adjacency_key,
-        visualize_task_indices,
-        pwm_names_attribute,
-        mut_pwm_names_attribute,
-        master_pwm_vector_key="master_pwm_vector",
-        motif_filter_key="mut_pwm_vectors.agg"):
-    """visualize out results
-    """
-    # (1) visualize all the cluster results (which are filtered for motif presence)
-    visualize_agg_pwm_results(h5_file, pwm_scores_key, pwm_names_attribute, master_pwm_vector_key)
-        
-    # visualize delta logits (in groups) (delta_logits)
-    for idx_set in visualize_task_indices:
-        visualize_agg_delta_logit_results(
-            h5_file,
-            delta_logits_key,
-            motif_filter_key,
-            idx_set,
-            mut_pwm_names_attribute)
-
-    # adjacency results - {task, pwm, pwm} for specific indices (all indices in list)
-    # dmim-scores.mut_only
-    visualize_agg_dmim_adjacency_results(
-        h5_file,
-        dmim_adjacency_key,
-        motif_filter_key,
-        mut_pwm_names_attribute)
-    
-    return None
-
-
 def run(args):
     """run delta motif interaction mutagenesis (DMIM)
     """
@@ -114,20 +78,6 @@ def run(args):
             DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
             DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES
         ]) # reduce the things being pulled out
-    
-    # set up model
-    model_manager = setup_model_manager(args)
-    args.inference_params.update({"model": model_manager})
-
-    # check if processed inputs
-    if args.processed_inputs:
-        args.model["name"] = "empty_net"
-        #reuse = False
-        args.inference_params.update({"model_reuse": False})
-    else:
-        #reuse = True
-        args.inference_params.update({"model_reuse": True})
-    input_model_manager = setup_model_manager(args)
 
     # set up sig pwms
     if args.sig_pwms_file is None:
@@ -141,6 +91,23 @@ def run(args):
     args.inference_params.update({"sig_pwms": sig_pwms})
     logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
 
+    # TODO this is where to start rotating through models if kfold
+    # (actually earlier, before input fn is created)
+    
+    # put model into inference params
+    args.inference_params.update({"model": setup_model_manager(args)})
+
+    # check if processed inputs
+    if args.processed_inputs:
+        args.model["name"] = "empty_net"
+        #reuse = False
+        args.inference_params.update({"model_reuse": False})
+    else:
+        #reuse = True
+        args.inference_params.update({"model_reuse": True})
+    
+    input_model_manager = setup_model_manager(args)
+    
     # set up inference generator
     inference_generator = input_model_manager.infer(
         input_fn,
