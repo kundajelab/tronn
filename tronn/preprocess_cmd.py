@@ -26,7 +26,7 @@ def run(args):
         args.tmp_dir = "{}/tmp".format(args.out_dir)
     os.system("mkdir -p {}".format(args.tmp_dir))
 
-    # parse labels and signals
+    # print total labels and signals (for debug as needed)
     total_labels = [len(args.labels[key][0]) for key in args.labels.keys()]
     total_signals = [len(args.signals[key][0]) for key in args.signals.keys()]
     logging.info("Using {} label files".format(total_labels))

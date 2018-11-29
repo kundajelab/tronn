@@ -9,6 +9,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from tronn.preprocess.metadata import MetaKeys
 from tronn.util.parallelize import setup_multiprocessing_queue
 from tronn.util.parallelize import run_in_parallel
 
@@ -33,7 +34,7 @@ def generate_master_regions(master_bed_file, bed_files):
         if i == 0:
             # for first file copy into master
             transfer = "cp {0} {1}".format(bed_file, master_bed_file)
-            print transfer
+            logging.debug(transfer)
             os.system(transfer)
         else:
             # merge master with current bed
@@ -46,12 +47,12 @@ def generate_master_regions(master_bed_file, bed_files):
                     bed_file,
                     master_bed_file,
                     tmp_master_bed_file)
-            print merge_bed
+            logging.debug(merge_bed)
             os.system(merge_bed)
 
             # copy tmp master over to master
             transfer = "cp {0} {1}".format(tmp_master_bed_file, master_bed_file)
-            print transfer
+            logging.debug(transfer)
             os.system(transfer)
                 
     os.system('rm {}'.format(tmp_master_bed_file))
@@ -114,82 +115,6 @@ def split_bed_to_chrom_bed_parallel(
 
     # run the queue
     run_in_parallel(split_queue, parallel=parallel, wait=True)
-
-    return None
-
-
-def bin_regions(
-        in_file,
-        out_file,
-        bin_size,
-        stride,
-        chrom_sizes_bed,
-        method='naive'):
-    """Bin regions based on bin size and stride
-
-    Args:
-      in_file: BED file to bin
-      out_file: name of output binned file
-      bin_size: length of the bin 
-      stride: how many base pairs to jump for next window
-      method: how to do binning (add flanks or not)
-
-    Returns:
-      None
-    """
-    logging.info("binning regions for {}...".format(in_file))
-    assert os.path.splitext(in_file)[1] == '.gz'
-    assert os.path.splitext(out_file)[1] == '.gz'
-
-    # Open input and output files and bin regions
-    with gzip.open(out_file, 'w') as out:
-        with gzip.open(in_file, 'rb') as fp:
-            for line in fp:
-                fields = line.strip().split('\t')
-                chrom, start, stop = fields[0], int(fields[1]), int(fields[2])
-                if len(fields) > 3:
-                    metadata = "{};".format(fields[3])
-                else:
-                    metadata = ""
-                    
-                if method == 'naive':
-                    # Just go from start of region to end of region
-                    mark = start
-                    adjusted_stop = stop
-                elif method == 'plus_flank_negs':
-                    # Add 3 flanks to either side
-                    mark = max(start - 3 * stride, 0)
-                    adjusted_stop = stop + 3 * stride
-                # add other binning strategies as needed here
-                else:
-                    raise Exception
-                
-                while mark < adjusted_stop:
-                    # write out bins
-                    out.write((
-                        "{0}\t{1}\t{2}\t"
-                        "{3}"
-                        "region={0}:{4}-{5};"
-                        "active={0}:{1}-{2};"
-                        "features={0}:{6}-{7}"
-                        "\n").format(
-                            chrom, 
-                            mark, 
-                            mark + bin_size,
-                            metadata,
-                            start,
-                            stop))
-                    mark += stride
-
-    # and then check chrom boundaries - throw away bins that fall outside the boundaries
-    chrom_bed_files = glob.glob("{}*.bed.gz".format(out_prefix))
-    for bed_file in chrom_bed_files:
-        filt_bed_file = "{}.filt.bed.gz".format(bed_file.split(".bed")[0])
-        overlap_check = (
-            "bedtools intersect -u -f 1.0 -a {0} -b {1} | gzip -c > {2}").format(
-                bed_file, chrom_sizes_bed, filt_bed_file)
-        print overlap_check
-        os.system(overlap_check)
 
     return None
 
@@ -284,11 +209,14 @@ def bin_regions_sharded(
                 extend_len,
                 bin_size,
                 filt_bed_file)
-        print overlap_check
+        logging.debug(overlap_check)
         os.system(overlap_check)
 
-        # TODO if the file is now empty, throw away...?
-
+        # if the file is now empty, throw away
+        with gzip.open(filt_bed_file, "r") as fp:
+            data = fp.read(1)
+        if len(data) == 0:
+            os.system("rm {}".format(filt_bed_file))
         
     return None
 
@@ -350,7 +278,212 @@ def extract_active_centers(binned_file, fasta_file):
     return bin_count
 
 
+# TODO I think move negatives selection here...
+def select_flank_negatives(
+        positives_bed_file,
+        negatives_bed_file,
+        bin_size,
+        stride,
+        num_flank_regions=3):
+    """given a positives set, get negatives from the flanks
+    """
+    with gzip.open(positives_bed_file, "r") as fp:
+        with gzip.open(negatives_bed_file, "w") as out:
+            for line in fp:
+                fields = line.strip().split('\t')
+                chrom, start, stop = fields[0], int(fields[1]), int(fields[2])
 
+                # get left flanks
+                left_start = max(start - 3*stride, 0)
+                left_stop = start
+
+                # get right flanks
+                right_start = stop
+                right_stop = stop + 3*stride
+
+                # write out
+                metadata = "region={0}:{1}-{2};negative_type=flank_neg".format(
+                    chrom, start, stop)
+                out.write("{0}\t{1}\t{2}\t{3}\n".format(
+                    chrom, left_start, left_stop, metadata))
+                out.write("{0}\t{1}\t{2}\t{3}\n".format(
+                    chrom, right_start, right_stop, metadata))
+
+                # TODO slopbed?
+                
+    return None
+
+
+def select_negatives_from_region_set(
+        positives_bed_file,
+        superset_bed_file,
+        neg_region_num,
+        negatives_bed_file):
+    """given a superset bed file, select a number of regions
+    """
+    select_negs = (
+        "bedtools intersect -v -a {0} -b {1} | "
+        "shuf -n {2} --random-source={1} | "
+        "awk '{{ print $1\"\t\"$2\"\t\"$3 }}' | "
+        "gzip -c > {3}").format(
+            positives_bed_file,
+            superset_bed_file,
+            neg_region_num,
+            negatives_bed_file)
+    print select_negs
+    os.system(select_negs)
+
+    return None
+
+
+def select_random_negatives(
+        positives_bed_file,
+        negatives_bed_file,
+        chrom_sizes,
+        neg_region_num,
+        tmp_dir="."):
+    """select random negatives from across teh genome
+    """
+    # set up chrom sizes - remove chrM
+    tmp_chrom_sizes = "{0}/{1}.tmp".format(tmp_dir, os.path.basename(chrom_sizes))
+    setup_chrom_sizes = (
+        "cat {0} | grep -v '_' | grep -v 'chrM' > "
+        "{1}").format(chrom_sizes, tmp_chrom_sizes)
+    print setup_chrom_sizes
+    os.system(setup_chrom_sizes)
+
+    # get total region num from positives bed file
+    num_positive_regions = 0
+    with gzip.open(positives_bed_file, "r") as fp:
+        for line in fp:
+            num_positive_regions += 1
+            
+    # select random negatives
+    # this uses bedtools shuffle, which maintains distribution of lengths
+    # of the regions. as such, it relies on the positives bed file
+    # if you are selecting more negatives than there are total regions,
+    # you'll run this multiple times to maintain the lengths distribution
+    # as much as possible.
+    random_neg_left = neg_region_num
+    while random_neg_left > 0:
+        random_negs_to_select = min(random_neg_left, num_positive_regions)
+        select_negs = (
+            "bedtools shuffle -i {0} -excl {0} -g {1} -seed 42 | "
+            "head -n {2} | "
+            "gzip -c >> {3}").format(
+                positives_bed_file,
+                tmp_chrom_sizes,
+                random_negs_to_select,
+                negatives_bed_file)
+        print select_negs
+        os.system(select_negs)
+        random_neg_left -= random_negs_to_select
+    
+    return None
+
+
+def select_all_negatives(
+        positives_bed_file,
+        negatives_bed_file,
+        chrom_sizes,
+        tmp_dir="."):
+    """select all negatives outside of the positives
+    """
+    # set up chrom sizes - remove chrM
+    tmp_chrom_sizes = "{0}/{1}.tmp".format(tmp_dir, os.path.basename(chrom_sizes))
+    setup_chrom_sizes = (
+        "cat {0} | grep -v '_' | sort -k1,1 -k2,2n | grep -v 'chrM' > "
+        "{1}").format(chrom_sizes, tmp_chrom_sizes)
+    print setup_chrom_sizes
+    os.system(setup_chrom_sizes)
+
+    # get complement
+    select_negs = (
+        "bedtools complement -i {0} -g {1} | "
+        "gzip -c > {2}").format(
+            positives_bed_file,
+            tmp_chrom_sizes,
+            negatives_bed_file)
+    print select_negs
+    os.system(select_negs)
+    
+    return None
+
+
+def setup_negatives(
+        positives_bed_file,
+        dhs_bed_file,
+        chrom_sizes,
+        bin_size=200,
+        stride=50,
+        genome_wide=True,
+        tmp_dir="."):
+    """wrapper to set up reasonable negative sets 
+    for various needs
+    """
+    # set up
+    prefix = "{}/{}".format(
+        tmp_dir,
+        os.path.basename(positives_bed_file).split(".bed")[0])
+    num_positive_regions = 0
+    with gzip.open(positives_bed_file, "r") as fp:
+        for line in fp:
+            num_positive_regions += 1
+    
+    # flank negatives
+    num_flank_regions = 3
+    flank_negatives_bed_file = "{}.flank-negatives.bed.gz".format(
+        prefix, num_flank_regions)
+    select_flank_negatives(
+        positives_bed_file,
+        flank_negatives_bed_file,
+        bin_size,
+        stride,
+        num_flank_regions=num_flank_regions)
+
+    # DHS negatives
+    dhs_negatives_bed_file = "{}.dhs-negatives.bed.gz".format(prefix)
+    select_negatives_from_region_set(
+        positives_bed_file,
+        dhs_bed_file,
+        int(num_positive_regions/2.),
+        dhs_negatives_bed_file)
+
+    # also infuse random negatives
+    random_negatives_bed_file = "{}.random-negatives.bed.gz".format(prefix)
+    select_random_negatives(
+        positives_bed_file,
+        random_negatives_bed_file,
+        chrom_sizes,
+        int(num_positive_regions/2.))
+
+    # now merge all these to get training negative set
+    training_negatives_bed_file = "{}.training-negatives.bed.gz".format(prefix)
+    merge_cmd = (
+        "zcat {0} {1} {2} | "
+        "awk -F '\t' '{{print $1\"\t\"$2\"\t\"$3}}' | "
+        "sort -k1,1 -k2,2n | "
+        "bedtools merge -i stdin | "
+        "gzip -c > {3}").format(
+            flank_negatives_bed_file,
+            dhs_negatives_bed_file,
+            random_negatives_bed_file,
+            training_negatives_bed_file)
+    print merge_cmd
+    os.system(merge_cmd)
+
+    genomewide_negatives_bed_file = "{}.genomewide-negatives.bed.gz".format(prefix)
+    if genome_wide:
+        # then also set up genomic negatives (for evaluation)
+        select_all_negatives(
+            positives_bed_file,
+            genomewide_negatives_bed_file,
+            chrom_sizes)
+        
+    return training_negatives_bed_file, genomewide_negatives_bed_file
+
+
+# rename this as binary labels?
 def generate_labels(
         bed_file,
         label_bed_files,
