@@ -43,7 +43,13 @@ def run(args):
         train_data_loader = split_data_loaders[0]
         validation_data_loader = split_data_loaders[1]
         test_data_loader = split_data_loaders[2]
-        
+
+    # save the chromosome splits into train summary
+    args.model["dataset"] = {
+        "train": train_data_loader.get_chromosomes(),
+        "validation": validation_data_loader.get_chromosomes(),
+        "test": test_data_loader.get_chromosomes()}
+    
     # save out dataset summaries (use the test json in eval)
     dataset_summary = {
         "targets": args.targets,
