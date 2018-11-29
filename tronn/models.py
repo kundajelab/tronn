@@ -77,6 +77,7 @@ class ModelManager(object):
         self.model_params = model.get("params", {})
         self.model_dir = model["model_dir"]
         self.model_checkpoint = model.get("checkpoint")
+        self.model_dataset = model.get("dataset", {}) # <- this tracks anything related to data
 
         
     def describe(self):
@@ -87,7 +88,8 @@ class ModelManager(object):
             "name": self.name,
             "params": self.model_params,
             "model_dir": self.model_dir,
-            "checkpoint": self.model_checkpoint
+            "checkpoint": self.model_checkpoint,
+            "dataset": self.model_dataset
         }
         
         return model
@@ -567,10 +569,10 @@ class ModelManager(object):
         if os.path.isfile(train_summary_file):
             with open(train_summary_file, "r") as fp:
                 train_summary = json.load(fp)
-            print train_summary
+            logging.info("Starting from: {}".format(train_summary))
         else:
             train_summary = {}
-
+        
         # fill out as needed
         train_summary = ModelManager._setup_train_summary(train_summary)
 
