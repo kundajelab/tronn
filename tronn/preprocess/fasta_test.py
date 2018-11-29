@@ -75,16 +75,11 @@ def test_converter():
         "features=chr1:150-160"])
     intervals = np.expand_dims(intervals, axis=1)
 
-    print intervals
-    print intervals.shape
-
     # true results (pulled by eye)
     seq1 = [0,0,2,3,2,2,2,0,0,3]
     seq2 = [2,2,2,2,3,3,3,2,2,0]
     seq3 = [3,4,1,0,3,2,1,3,0,1]
     true_results = np.stack([seq1, seq2, seq3], axis=0)
-    print true_results
-    print true_results.shape
     
     # make a converter
     converter = GenomicIntervalConverter(
@@ -95,8 +90,6 @@ def test_converter():
 
     # convert
     results = converter.convert(intervals, seq_len=10)
-    print results
-    print results.shape
     
     # clean up
     converter.close()
