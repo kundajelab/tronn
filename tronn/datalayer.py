@@ -585,8 +585,22 @@ class H5DataLoader(DataLoader):
             assert len(h5_files) > 0
 
         return h5_files
-        
 
+
+    def get_chromosomes(self):
+        """figure out which chromosomes are in the dataset
+        """
+        chroms = []
+        for data_file in self.data_files:
+            with h5py.File(data_file, "r") as hf:
+                chrom = hf["/"].attrs["chromosome"]
+            if chrom not in chroms:
+                chroms.append(chrom)
+        chroms = sorted(chroms)
+        
+        return chroms
+
+    
     @staticmethod
     def organize_h5_files_by_chrom(
             h5_files, genome="human"):
@@ -605,6 +619,7 @@ class H5DataLoader(DataLoader):
             raise Exception, "unrecognized genome!"
 
         # save into a chromosome dict
+        # TODO(dk) eventually adjust this to check h5 attributes instead of filename, safer that way
         chrom_file_dict = {}
         for chrom in chroms:
             chrom_files = [
@@ -1079,9 +1094,41 @@ class H5DataLoader(DataLoader):
         return split_dataloaders
 
 
+    def _check_chromosomes(self, chromosomes):
+        """check and make sure the list only contains desired
+        chromosomes
+        """
+        consistent = True
+        for data_file in self.data_files:
+            with h5py.File(data_file, "r") as hf:
+                chrom = hf["/"].attrs["chromosome"]
+            if chrom not in chromosomes:
+                consistent = False
+                break
+
+        return consistent
+
+    
+    def filter_for_chromosomes(self, chromosomes):
+        """given a list of chromosomes, reduce data files to those
+        that are in the chromosome list
+        """
+        filtered_files = []
+        for data_file in self.data_files:
+            with h5py.File(data_file, "r") as hf:
+                chrom = hf["/"].attrs["chromosome"]
+            if chrom in chromosomes:
+                filtered_files.append(data_file)
+        new_dataloader = H5DataLoader(
+            self.data_dir, data_files=filtered_files, fasta=self.fasta)
+                
+        return new_dataloader
+    
+
     def setup_positives_only_dataloader(self):
         """only work with positives
         """
+        # TODO(dk) - use an attributes tag
         positives_files = [
             h5_file for h5_file in self.data_files
             if "negative" not in h5_file]
@@ -1094,6 +1141,7 @@ class H5DataLoader(DataLoader):
     def remove_genomewide_negatives(self):
         """dataloader without genomewide negatives
         """
+        # TODO(dk) use an attributes tag
         new_files = [
             h5_file for h5_file in self.data_files
             if "genomewide-negatives" not in h5_file]
@@ -1106,6 +1154,7 @@ class H5DataLoader(DataLoader):
     def remove_training_negatives(self):
         """dataloader without genomewide negatives
         """
+        # TODO(dk) use an attributes tag
         new_files = [
             h5_file for h5_file in self.data_files
             if "training-negatives" not in h5_file]
