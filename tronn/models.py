@@ -39,7 +39,7 @@ from tronn.learn.learning import DataCleanupHook
 
 from tronn.nets.nets import net_fns
 
-from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
+#from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
 
 from tronn.interpretation.interpret import visualize_region
 from tronn.interpretation.dreaming import dream_one_sequence
