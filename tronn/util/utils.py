@@ -119,7 +119,14 @@ class DataKeys(object):
     
     # split
     TASK_IDX_ROOT = "taskidx"
-    
+
+
+class MetaKeys(object):
+    """standard names for metadata keys
+    """
+    REGION_ID = "region"
+    ACTIVE_ID = "active"
+    FEATURES_ID = "features"
 
 
 class ParamKeys(object):

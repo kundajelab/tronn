@@ -7,14 +7,6 @@ import numpy as np
 from tronn.util.utils import DataKeys
 
 
-class MetaKeys(object):
-    """standard names for metadata keys
-    """
-    REGION_ID = "region"
-    ACTIVE_ID = "active"
-    FEATURES_ID = "features"
-
-
 def save_metadata(bed_file, h5_file, key=DataKeys.SEQ_METADATA):
     """save out metadata into h5 file
     """

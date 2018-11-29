@@ -4,7 +4,6 @@ files that are input to deep learning models
 """
 
 import os
-import glob
 import time
 import logging
 
@@ -62,9 +61,10 @@ def run(args):
         tmp_dir=args.tmp_dir,
         normalize_signals=True)  
 
+    # track how long it took
     end = time.time()
-    print "Execution time: {}".format(end - start)
-    print "DONE"
+    logging.info("Execution time: {}".format(end - start))
+    logging.info("DONE")
 
     return None
 

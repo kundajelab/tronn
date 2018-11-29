@@ -9,9 +9,10 @@ import logging
 import numpy as np
 import pandas as pd
 
-from tronn.preprocess.metadata import MetaKeys
+from tronn.util.h5_utils import AttrKeys
 from tronn.util.parallelize import setup_multiprocessing_queue
 from tronn.util.parallelize import run_in_parallel
+from tronn.util.utils import MetaKeys
 
 
 def generate_master_regions(master_bed_file, bed_files):
@@ -75,17 +76,17 @@ def split_bed_to_chrom_bed(
     Returns:
       None
     """
-    logging.info("Splitting BED file into chromosome BED files...")
+    logging.info("splitting BED file into chromosome BED files...")
     assert os.path.splitext(peak_file)[1] == '.gz'
 
     current_chrom = ''
-    data_dict = {}
+    #data_dict = {}
     with gzip.open(peak_file, 'r') as fp:
         for line in fp:
             fields = line.strip().split('\t')
             chrom = fields[0]
             chrom_file = '{0}/{1}.{2}.bed.gz'.format(out_dir, prefix, chrom)
-            data_dict[chrom] = {"bed": chrom_file}
+            #data_dict[chrom] = {"bed": chrom_file}
             with gzip.open(chrom_file, 'a') as out_fp:
                 out_fp.write(line)
             
@@ -94,17 +95,17 @@ def split_bed_to_chrom_bed(
                 logging.info("Started {}".format(chrom))
                 current_chrom = chrom
 
-    return data_dict
+    return None
 
 
 def split_bed_to_chrom_bed_parallel(
         bed_files,
         out_dir,
         parallel=12):
+    """split a list of bed files into chromosome bed files, in parallel
     """
-    """
+    # put commands in queue
     split_queue = setup_multiprocessing_queue()
-
     for bed_file in bed_files:
         prefix = os.path.basename(bed_file).split(".narrowPeak")[0].split(".bed")[0]
         split_args = [
@@ -119,6 +120,26 @@ def split_bed_to_chrom_bed_parallel(
     return None
 
 
+def _get_adjusted_start_and_stop(
+        start, stop, method, num_flanks=3):
+    """adjust the start and stop of a region based on whether
+    flanks should be present
+    """
+    if method == 'naive':
+        # Just go from start of region to end of region
+        mark = start
+        adjusted_stop = stop
+    elif method == 'plus_flank_negs':
+        # Add 3 flanks to either side
+        mark = max(start - num_flanks * stride, 0)
+        adjusted_stop = stop + num_flanks * stride
+    # add other binning strategies as needed here
+    else:
+        raise ValueError, "method not yet implemented!"
+
+    return mark, adjusted_stop
+
+
 def bin_regions_sharded(
         in_file,
         out_prefix,
@@ -126,7 +147,8 @@ def bin_regions_sharded(
         stride,
         final_length,
         chromsizes,
-        method='naive',
+        method="naive", # <- TODO deprecate? handle flanks elsewhere?
+        num_flanks=3, # <- TODO deprecate? handle flanks elsewhere?
         max_size=1000000): # max size: total num of bins allowed in one file
     """Bin regions based on bin size and stride
 
@@ -145,7 +167,8 @@ def bin_regions_sharded(
     extend_len = (final_length - bin_size) / 2
     
     total_bins_in_file = 0
-    idx = 0
+    file_idx = 0
+    out_file = "{}.{}.bed.gz".format(out_prefix, str(file_idx).zfill(3))
     # Open input and output files and bin regions
     with gzip.open(in_file, 'rb') as fp:
         for line in fp:
@@ -156,45 +179,47 @@ def bin_regions_sharded(
             else:
                 metadata = ""
 
-            if method == 'naive':
-                # Just go from start of region to end of region
-                mark = start
-                adjusted_stop = stop
-            elif method == 'plus_flank_negs':
-                # Add 3 flanks to either side
-                mark = max(start - 3 * stride, 0)
-                adjusted_stop = stop + 3 * stride
-            # add other binning strategies as needed here
-            else:
-                raise ValueError
+            # adjust start/stop as needed
+            adjusted_start, adjusted_stop = _get_adjusted_start_and_stop(
+                start, stop, method, num_flanks=num_flanks)
 
-            while mark < adjusted_stop:
+            # bin and save out
+            while adjusted_start < adjusted_stop:
+                region_id = "{}={}:{}-{}".format(
+                    MetaKeys.REGION_ID, chrom, start, stop)
+                active_id = "{}={}:{}-{}".format(
+                    MetaKeys.ACTIVE_ID, chrom, adjusted_start, adjusted_start + bin_size)
+                features_id = "{}={}:{}-{}".format(
+                    MetaKeys.FEATURES_ID,
+                    chrom,
+                    adjusted_start - extend_len,
+                    adjusted_start - extend_len + final_length)
+                
                 # write out bins
-                out_file = "{}.{}.bed.gz".format(out_prefix, str(idx).zfill(3))
+                # TODO one way to speed this up is to keep in mem until file change, only then write out
                 with gzip.open(out_file, 'a') as out:
                     out.write((
                         "{0}\t{1}\t{2}\t"
-                        "{3}"
-                        "region={0}:{4}-{5};"
-                        "active={0}:{1}-{2};"
-                        "features={0}:{6}-{7}"
-                        "\n").format(
-                            chrom, 
-                            mark, 
-                            mark + bin_size,
+                        "{3};{4};{5};{6}\n").format(
+                            chrom,
+                            adjusted_start,
+                            adjusted_start + bin_size,
                             metadata,
-                            start,
-                            stop,
-                            mark - extend_len,
-                            mark + bin_size + extend_len))
-                mark += stride
+                            region_id,
+                            active_id,
+                            features_id))
+
+                # increment start position and total bins
+                adjusted_start += stride
                 total_bins_in_file += 1
-                
+
+                # if max size hit, reset and go to new file
                 if total_bins_in_file >= max_size:
-                    # reset and go into new file
-                    idx += 1
+                    file_idx += 1
+                    out_file = "{}.{}.bed.gz".format(out_prefix, str(idx).zfill(3))
                     total_bins_in_file = 0
 
+    # TODO deal with this elsewhere? works if flanks are deprecated here
     # and then check chrom boundaries - throw away bins that fall outside the boundaries
     chrom_bed_files = glob.glob("{}[.]*.bed.gz".format(out_prefix))
     for bed_file in chrom_bed_files:
@@ -252,8 +277,8 @@ def bin_regions_parallel(
     return None
 
 
-
-def extract_active_centers(binned_file, fasta_file):
+# TODO deprecate
+def extract_active_centers_OLD(binned_file, fasta_file):
     """given a fasta file produced in this pipeline, extract out
     the active center 
     """
@@ -278,7 +303,6 @@ def extract_active_centers(binned_file, fasta_file):
     return bin_count
 
 
-# TODO I think move negatives selection here...
 def select_flank_negatives(
         positives_bed_file,
         negatives_bed_file,
@@ -294,12 +318,12 @@ def select_flank_negatives(
                 chrom, start, stop = fields[0], int(fields[1]), int(fields[2])
 
                 # get left flanks
-                left_start = max(start - 3*stride, 0)
+                left_start = max(start - num_flank_regions * stride, 0)
                 left_stop = start
 
                 # get right flanks
                 right_start = stop
-                right_stop = stop + 3*stride
+                right_stop = stop + num_flank_regions * stride
 
                 # write out
                 metadata = "region={0}:{1}-{2};negative_type=flank_neg".format(
@@ -309,7 +333,7 @@ def select_flank_negatives(
                 out.write("{0}\t{1}\t{2}\t{3}\n".format(
                     chrom, right_start, right_stop, metadata))
 
-                # TODO slopbed?
+    # TODO slopbed?
                 
     return None
 
@@ -483,7 +507,65 @@ def setup_negatives(
     return training_negatives_bed_file, genomewide_negatives_bed_file
 
 
-# rename this as binary labels?
+def _build_intersect_cmd(
+        label_bed_file, bed_file, out_tmp_file, method, chromsizes, extend_len):
+    """build the intersect command (uses bedtools) to get labels
+    """
+    if method == 'summit': # Must overlap with summit
+        intersect = (
+            "zcat {0} | "
+            "awk -F '\t' '{{print $1\"\t\"$2+$10\"\t\"$2+$10+1}}' | "
+            "bedtools intersect -c -a {1} -b stdin | "
+            "gzip -c > "
+            "{2}").format(label_bed_file, bed_file, out_tmp_file)
+    elif method == 'half_peak': # Bin must be 50% positive
+        intersect = (
+            "bedtools intersect -f 0.5 -c "
+            "-a <(zcat {0}) "
+            "-b <(zcat {1}) | "
+            "gzip -c > "
+            "{2}").format(bed_file, label_bed_file, out_tmp_file)
+    elif method == "histone_overlap":
+        # label file is histone, so look for nearby histone mark
+        extend_len = 1000
+        intersect = (
+            "bedtools slop -i {0} -g {1} -b {2} | "
+            "bedtools intersect -c "
+            "-a <(zcat {3}) "
+            "-b stdin | "
+            "gzip -c > "
+            "{4}").format(
+                label_bed_file,
+                chromsizes,
+                extend_len,
+                bed_file,
+                out_tmp_file)
+    elif method == "counts":
+        # TODO(dk) do a counts version (for regression)
+        # requires BED files of reads (tagAlign)
+        raise ValueError, "method not yet implemented!"
+    else:
+        raise ValueError,  "method not yet implemented!"
+
+    return intersect
+
+
+def _setup_file_metadata(label_bed_files):
+    """pull filenames and condense for readability/space constraints
+    """
+    # get metadata
+    file_metadata = [
+        "index={0};file={1}".format(
+            i, os.path.basename(label_bed_files[i]).split(".bed")[0].split("narrowPeak")[0])
+        for i in xrange(len(label_bed_files))]
+
+    # check bytes
+    if np.array(file_metadata).nbytes >= 64000:
+        file_metadata = ["metadata too large"]
+
+    return file_metadata
+
+
 def generate_labels(
         bed_file,
         label_bed_files,
@@ -497,16 +579,7 @@ def generate_labels(
     """
     os.system("mkdir -p {}".format(tmp_dir))
     num_files = len(label_bed_files)
-    
-    # get metadata
-    file_metadata = [
-        "index={0};file={1}".format(
-            i, os.path.basename(label_bed_files[i]).split(".bed")[0].split("narrowPeak")[0])
-        for i in xrange(len(label_bed_files))]
-
-    # check bytes
-    if np.array(file_metadata).nbytes >= 64000:
-        file_metadata = ["metadata too large"]
+    file_metadata = _setup_file_metadata(label_bed_files)
 
     # for each label bed file
     for i in xrange(len(label_bed_files)):
@@ -517,45 +590,18 @@ def generate_labels(
             os.path.basename(label_bed_file).split(".narrowPeak")[0].split(".bed.gz")[0])
         
         # Do the intersection to get a series of 1s and 0s
-        if method == 'summit': # Must overlap with summit
-            intersect = (
-                "zcat {0} | "
-                "awk -F '\t' '{{print $1\"\t\"$2+$10\"\t\"$2+$10+1}}' | "
-                "bedtools intersect -c -a {1} -b stdin | "
-                "gzip -c > "
-                "{2}").format(label_bed_file, bed_file, out_tmp_file)
-        elif method == 'half_peak': # Bin must be 50% positive
-            intersect = (
-                "bedtools intersect -f 0.5 -c "
-                "-a <(zcat {0}) "
-                "-b <(zcat {1}) | "
-                "gzip -c > "
-                "{2}").format(bed_file, label_bed_file, out_tmp_file)
-        elif method == "histone_overlap":
-            # label file is histone, so look for nearby histone mark
-            extend_len = 1000
-            intersect = (
-                "bedtools slop -i {0} -g {1} -b {2} | "
-                "bedtools intersect -c "
-                "-a <(zcat {3}) "
-                "-b stdin | "
-                "gzip -c > "
-                "{4}").format(
-                    label_bed_file,
-                    chromsizes,
-                    extend_len,
-                    bed_file,
-                    out_tmp_file)
-                
-        # TODO(dk) do a counts version (for regression)
-        print '{0}: {1}'.format(bed_file, intersect)
+        intersect = _build_intersect_cmd(
+            label_bed_file, bed_file, out_tmp_file, method, chromsizes, extend_len)
+        logging.debug('{0}: {1}'.format(bed_file, intersect))
         os.system('GREPDB="{0}"; /bin/bash -c "$GREPDB"'.format(intersect))
         
-        # Then for each intersect, store it in h5
+        # read in the results
         bed_labels = pd.read_table(
             out_tmp_file,
             header=None,
-            names=['Chr', 'Start', 'Stop', "pos"]) 
+            names=['Chr', 'Start', 'Stop', "pos"])
+
+        # store in tmp array
         if i == 0:
             num_rows = bed_labels.shape[0]
             labels = np.zeros((num_rows, num_files), dtype=np.bool)
@@ -568,18 +614,12 @@ def generate_labels(
 
     # add data into h5 file
     with h5py.File(h5_file, "a") as hf:
-        hf.create_dataset(
-            key,
-            dtype="u1",
-            shape=labels.shape)
-            #data=np.zeros((num_rows, num_files), dtype=np.bool))
-        print "storing in file"
+        hf.create_dataset(key, dtype="u1", shape=labels.shape)
+        logging.debug("storing label set in file")
         for i in range(num_rows):
             if i % 10000 == 0:
-                print i
+                logging.debug("{}".format(i))
             hf[key][i,:] = labels[i,:]
-        hf[key].attrs["filenames"] = file_metadata
-
-    # remove tmp dir?
+        hf[key].attrs[AttrKeys.FILE_NAMES] = file_metadata
                 
     return None

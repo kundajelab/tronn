@@ -4,16 +4,14 @@ files that are input to deep learning models
 """
 
 import os
-#import re
 import gzip
 import glob
 import h5py
 import time
 import logging
-#import subprocess
 
 import numpy as np
-import pandas as pd
+#import pandas as pd
 
 from tronn.preprocess.bed import bin_regions_parallel
 from tronn.preprocess.bed import split_bed_to_chrom_bed_parallel
@@ -28,6 +26,7 @@ from tronn.util.parallelize import run_in_parallel
 
 _CHROM_TAG = "chromosome"
 _EXAMPLE_TYPE_TAG = "example_type"
+
 
 def setup_h5_dataset(
         bin_file,
@@ -62,12 +61,8 @@ def setup_h5_dataset(
         label_params = label_sets[key][1]
         method = label_params.get("method", "half_peak")
         generate_labels(
-            bin_file, #bin_active_center_file,
-            label_files,
-            key,
-            h5_file,
-            method=method,
-            chromsizes=chromsizes,
+            bin_file, label_files, key, h5_file,
+            method=method, chromsizes=chromsizes,
             tmp_dir=tmp_dir)
 
     # generate bigwig annotations on the active center
@@ -75,16 +70,8 @@ def setup_h5_dataset(
         signal_files = signal_sets[key][0]
         signal_params = signal_sets[key][1]
         generate_signal_vals(
-            bin_file, #bin_active_center_file,
-            signal_files,
-            key,
-            h5_file,
-            tmp_dir=tmp_dir,
-            params=signal_params)
-
-    # TODO matrix annotations? ie using DESeq2 normalized matrix here?
-
-    # TODO and then clean up the tmp dir (for now debug so dont do it)
+            bin_file, signal_files, key, h5_file,
+            tmp_dir=tmp_dir, params=signal_params)
     
     return h5_file
 
