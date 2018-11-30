@@ -216,7 +216,7 @@ def bin_regions_sharded(
                 # if max size hit, reset and go to new file
                 if total_bins_in_file >= max_size:
                     file_idx += 1
-                    out_file = "{}.{}.bed.gz".format(out_prefix, str(idx).zfill(3))
+                    out_file = "{}.{}.bed.gz".format(out_prefix, str(file_idx).zfill(3))
                     total_bins_in_file = 0
 
     # TODO deal with this elsewhere? works if flanks are deprecated here
