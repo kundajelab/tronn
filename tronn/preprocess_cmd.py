@@ -44,9 +44,10 @@ def run(args):
             args.out_dir, args.prefix)
         if not os.path.isfile(final_master_regions_bed):
             generate_master_regions(master_regions_bed, master_file_labels)
+        os.system("cp {} {}".format(master_regions_bed, final_master_regions_bed))
+        master_regions_bed = final_master_regions_bed
     else:
         master_regions_bed = args.master_bed_file    
-    os.system("cp {} {}/".format(master_regions_bed, args.out_dir))
         
     # generate nn dataset
     generate_h5_datasets(
