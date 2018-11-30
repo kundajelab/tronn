@@ -39,12 +39,13 @@ def run(args):
         for key in args.master_label_keys:
             master_file_labels += args.labels[key][0]
         master_regions_bed = '{0}/{1}.master.bed.gz'.format(
-            args.out_dir, args.prefix)
+            args.tmp_dir, args.prefix)
         if not os.path.isfile(master_regions_bed):
             generate_master_regions(master_regions_bed, master_file_labels)
     else:
         master_regions_bed = args.master_bed_file    
-            
+    os.system("cp {} {}/".format(master_regions_bed, args.out_dir))
+        
     # generate nn dataset
     generate_h5_datasets(
         master_regions_bed,
