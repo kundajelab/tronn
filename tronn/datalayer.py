@@ -1254,6 +1254,30 @@ class H5DataLoader(DataLoader):
         return dataset
 
 
+    def load_dataset(self, key):
+        """extract dataset across files and return as one numpy array, plus any attributes?
+        """
+        data = []
+        for data_file in self.data_files:
+            with h5py.File(data_file, "r") as hf:
+                file_data = hf[key][:]
+                data.append(file_data)
+
+        data = np.concatenate(data, axis=0)
+                
+        return data
+
+
+    def load_datasets(self, keys):
+        """extract dataset across files and return as dict of arrays
+        """
+        data = {}
+        for key in keys:
+            data[key] = self.load_dataset(key)
+        
+        return data
+
+    
     
 class ArrayDataLoader(DataLoader):
     """build a dataloader from numpy arrays"""
