@@ -16,6 +16,7 @@ from tronn.stats.nonparametric import run_delta_permutation_test
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
 
+from tronn.util.scripts import setup_run_logs
 
 
 def parse_args():
@@ -36,45 +37,6 @@ def parse_args():
     args = parser.parse_args()
 
     return args
-
-
-def track_runs(args):
-    """track command and github commit
-    """
-    # keeps track of restores (or different commands) in folder
-    subcommand_name = "calculate_mutagenesis_effects"
-    num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, subcommand_name)))
-    logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, subcommand_name, num_restores)
-    
-    # track github commit
-    git_repo_path = os.path.dirname(os.path.realpath(__file__))
-    os.system('echo "commit:" > {0}'.format(logging_file))
-    os.system('git --git-dir={0}/.git rev-parse HEAD >> {1}'.format(
-        git_repo_path.split("/scripts")[0], logging_file))
-    os.system('echo "" >> {0}'.format(logging_file))
-    
-    # write out the command
-    with open(logging_file, 'a') as f:
-        f.write(' '.join(sys.argv)+'\n\n')
-    
-    return logging_file
-
-
-def _setup_logs(args):
-    """set up logging
-    """
-    logging_file = track_runs(args)
-    reload(logging)
-    logging.basicConfig(
-        filename=logging_file,
-        level=logging.DEBUG, # TODO ADJUST BEFORE RELEASE
-        format='%(message)s')
-    logging.getLogger().addHandler(logging.StreamHandler())
-    for arg in sorted(vars(args)):
-        logging.info("{}: {}".format(arg, getattr(args, arg)))
-    logging.info("")
-
-    return
 
 
 def parse_calculation_strings(args):
@@ -133,7 +95,7 @@ def main():
     # set up args
     args = parse_args()
     args.out_dir = os.path.dirname(args.synergy_file)
-    _setup_logs(args)
+    setup_run_logs(args)
 
     # now set up the indices
     parse_calculation_strings(args)

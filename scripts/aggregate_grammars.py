@@ -25,6 +25,8 @@ from tronn.interpretation.networks import stringize_nx_graph
 from tronn.interpretation.networks import add_graphics_theme_to_nx_graph
 from tronn.interpretation.networks import apply_graphics_to_subgraphs
 
+from tronn.util.scripts import setup_run_logs
+
 
 def parse_args():
     """parser
@@ -67,8 +69,6 @@ def parse_args():
     args = parser.parse_args()
     
     return args
-
-# TODO track runs
 
 
 def merge_graphs(graphs):
@@ -116,45 +116,6 @@ def merge_graphs(graphs):
     return nx_graph
 
 
-def track_runs(args):
-    """track command and github commit
-    """
-    # keeps track of restores (or different commands) in folder
-    subcommand_name = "aggregate_grammars"
-    num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, subcommand_name)))
-    logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, subcommand_name, num_restores)
-    
-    # track github commit
-    git_repo_path = os.path.dirname(os.path.realpath(__file__))
-    os.system('echo "commit:" > {0}'.format(logging_file))
-    os.system('git --git-dir={0}/.git rev-parse HEAD >> {1}'.format(
-        git_repo_path.split("/scripts")[0], logging_file))
-    os.system('echo "" >> {0}'.format(logging_file))
-    
-    # write out the command
-    with open(logging_file, 'a') as f:
-        f.write(' '.join(sys.argv)+'\n\n')
-    
-    return logging_file
-
-
-def _setup_logs(args):
-    """set up logging
-    """
-    logging_file = track_runs(args)
-    reload(logging)
-    logging.basicConfig(
-        filename=logging_file,
-        level=logging.DEBUG, # TODO ADJUST BEFORE RELEASE
-        format='%(message)s')
-    logging.getLogger().addHandler(logging.StreamHandler())
-    for arg in sorted(vars(args)):
-        logging.info("{}: {}".format(arg, getattr(args, arg)))
-    logging.info("")
-
-    return
-
-
 def main():
     """run merging
     """
@@ -163,6 +124,7 @@ def main():
 
     # make sure out dir exists
     os.system("mkdir -p {}".format(args.out_dir))
+    setup_run_logs
 
     args.merge_expr = " ".join(args.merge_expr)
     

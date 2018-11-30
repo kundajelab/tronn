@@ -27,6 +27,7 @@ from tronn.stats.nonparametric import threshold_by_qvalues
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.pwms import MotifSetManager
 from tronn.util.utils import DataKeys
+from tronn.util.scripts import setup_run_logs
 
 
 def parse_args():
@@ -111,46 +112,6 @@ def _parse_to_key_and_indices(key_strings):
     return ordered_keys
 
 
-def track_runs(args):
-    """track command and github commit
-    """
-    # keeps track of restores (or different commands) in folder
-    subcommand_name = "intersect_pwms_and_rna"
-    num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, subcommand_name)))
-    logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, subcommand_name, num_restores)
-    
-    # track github commit
-    git_repo_path = os.path.dirname(os.path.realpath(__file__))
-    os.system('echo "commit:" > {0}'.format(logging_file))
-    os.system('git --git-dir={0}/.git rev-parse HEAD >> {1}'.format(
-        git_repo_path.split("/scripts")[0], logging_file))
-    os.system('echo "" >> {0}'.format(logging_file))
-    
-    # write out the command
-    with open(logging_file, 'a') as f:
-        f.write(' '.join(sys.argv)+'\n\n')
-    
-    return logging_file
-
-
-def _setup_logs(args):
-    """set up logging
-    """
-    logging_file = track_runs(args)
-    reload(logging)
-    logging.basicConfig(
-        filename=logging_file,
-        level=logging.DEBUG, # TODO ADJUST BEFORE RELEASE
-        format='%(message)s')
-    logging.getLogger().addHandler(logging.StreamHandler())
-    for arg in sorted(vars(args)):
-        logging.info("{}: {}".format(arg, getattr(args, arg)))
-    logging.info("")
-
-    return
-
-
-
 def _expand_pwms_by_rna(pwms_df, split_cols, split_char=";"):
     """given column(s) with multiple values in a row, expand so that
     each row has a single value
@@ -192,7 +153,7 @@ def main():
         os.system("rm {}".format(out_file))
 
     # set up logs
-    _setup_logs(args)
+    setup_run_logs(args)
     
     # read in pwms and metadata file, get expression info from column
     pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
