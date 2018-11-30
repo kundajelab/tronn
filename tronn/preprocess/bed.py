@@ -508,7 +508,7 @@ def setup_negatives(
 
 
 def _build_intersect_cmd(
-        label_bed_file, bed_file, out_tmp_file, method, chromsizes, extend_len):
+        label_bed_file, bed_file, out_tmp_file, method, chromsizes, extend_len=1000):
     """build the intersect command (uses bedtools) to get labels
     """
     if method == 'summit': # Must overlap with summit
@@ -527,7 +527,6 @@ def _build_intersect_cmd(
             "{2}").format(bed_file, label_bed_file, out_tmp_file)
     elif method == "histone_overlap":
         # label file is histone, so look for nearby histone mark
-        extend_len = 1000
         intersect = (
             "bedtools slop -i {0} -g {1} -b {2} | "
             "bedtools intersect -c "
@@ -591,7 +590,7 @@ def generate_labels(
         
         # Do the intersection to get a series of 1s and 0s
         intersect = _build_intersect_cmd(
-            label_bed_file, bed_file, out_tmp_file, method, chromsizes, extend_len)
+            label_bed_file, bed_file, out_tmp_file, method, chromsizes)
         logging.debug('{0}: {1}'.format(bed_file, intersect))
         os.system('GREPDB="{0}"; /bin/bash -c "$GREPDB"'.format(intersect))
         
