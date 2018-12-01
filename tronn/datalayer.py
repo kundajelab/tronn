@@ -554,9 +554,8 @@ class H5DataLoader(DataLoader):
         # save h5 files as data files
         self.data_files = self.h5_files
         
-        # by the end of all this, needs to have data files and fasta file
+        # by the end of all this, needs to have data files
         assert len(self.data_files) > 0
-        assert self.fasta is not None
 
 
     @staticmethod
