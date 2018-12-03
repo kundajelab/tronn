@@ -597,9 +597,9 @@ class H5DataLoader(DataLoader):
                 print list(file_chroms)
             chroms = list(set(chroms + list(file_chroms)))
             print chroms
-            chroms = list(set(chroms + file_chroms))
+            #chroms = list(set(chroms + file_chroms))
         chroms = sorted(chroms)
-        
+        quit()
         return chroms
 
     
