@@ -160,31 +160,25 @@ def generate_h5_datasets(
         # run the queue
         run_in_parallel(h5_queue, parallel=parallel, wait=True)
 
-    # and finally normalize the signals if desired
-    if normalize_signals:
-        h5_dir = "{}/h5".format(work_dir)
-        h5_files = glob.glob("{}/*h5".format(h5_dir))
-        positive_h5_files = [h5_file for h5_file in h5_files if "negative" not in h5_file]
-        for key in signal_files.keys():
-            print key
-            normalize_signal_vals(positive_h5_files, h5_files, key, "{}.NORM".format(key))
+        # and finally normalize the signals if desired
+        if normalize_signals:
+            h5_dir = "{}/h5".format(work_dir)
+            h5_files = glob.glob("{}/*h5".format(h5_dir))
+            positive_h5_files = [h5_file for h5_file in h5_files if "negative" not in h5_file]
+            for key in signal_files.keys():
+                print key
+                normalize_signal_vals(positive_h5_files, h5_files, key, "{}.NORM".format(key))
 
     # also tag each file with the chromosome and positives, negatives, etc
+    h5_dir = "{}/h5".format(work_dir)
     h5_files = glob.glob("{}/*h5".format(h5_dir))
     for h5_file in h5_files:
         chrom = os.path.basename(h5_file).split(".")[-4]
         example_type = os.path.basename(h5_file).split(".")[-5]
         if example_type == "master":
-            example_type == "positives"
+            example_type = "positives"
         with h5py.File(h5_file, "a") as hf:
             hf["/"].attrs[_CHROM_TAG] = [chrom]
             hf["/"].attrs[_EXAMPLE_TYPE_TAG] = example_type
     
     return None
-
-
-# deprecate this
-# better way to do it is to adjust the fasta with seqtk (or other favorite tool)
-# and then ideally perform two runs - how to keep coordinated?
-# adjust this in dataloader? two processing streams per chrom, gets read out
-# into a paired structure {N, 2, 1, 1000, 4}, flatten and unflatten during analyses.
