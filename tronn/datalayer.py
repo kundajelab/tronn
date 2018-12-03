@@ -593,6 +593,7 @@ class H5DataLoader(DataLoader):
         for data_file in self.data_files:
             with h5py.File(data_file, "r") as hf:
                 file_chroms = hf["/"].attrs["chromosomes"]
+                print file_chroms
             chroms = list(set(chroms + file_chroms))
         chroms = sorted(chroms)
         
