@@ -24,7 +24,7 @@ from tronn.util.parallelize import setup_multiprocessing_queue
 from tronn.util.parallelize import run_in_parallel
 
 
-_CHROM_TAG = "chromosome"
+_CHROM_TAG = "chromosomes"
 _EXAMPLE_TYPE_TAG = "example_type"
 
 
@@ -177,7 +177,7 @@ def generate_h5_datasets(
         if example_type == "master":
             example_type == "positives"
         with h5py.File(h5_file, "a") as hf:
-            hf["/"].attrs[_CHROM_TAG] = chrom
+            hf["/"].attrs[_CHROM_TAG] = [chrom]
             hf["/"].attrs[_EXAMPLE_TYPE_TAG] = example_type
     
     return None

@@ -592,9 +592,8 @@ class H5DataLoader(DataLoader):
         chroms = []
         for data_file in self.data_files:
             with h5py.File(data_file, "r") as hf:
-                chrom = hf["/"].attrs["chromosome"]
-            if chrom not in chroms:
-                chroms.append(chrom)
+                file_chroms = hf["/"].attrs["chromosome"]
+            chroms = list(set(chroms + file_chroms))
         chroms = sorted(chroms)
         
         return chroms
@@ -1100,8 +1099,9 @@ class H5DataLoader(DataLoader):
         consistent = True
         for data_file in self.data_files:
             with h5py.File(data_file, "r") as hf:
-                chrom = hf["/"].attrs["chromosome"]
-            if chrom not in chromosomes:
+                file_chroms = hf["/"].attrs["chromosome"]
+            intersect_total = len(set(file_chroms).intersection(set(chromosomes)))
+            if intersect_total < len(file_chroms):
                 consistent = False
                 break
 
@@ -1115,8 +1115,9 @@ class H5DataLoader(DataLoader):
         filtered_files = []
         for data_file in self.data_files:
             with h5py.File(data_file, "r") as hf:
-                chrom = hf["/"].attrs["chromosome"]
-            if chrom in chromosomes:
+                file_chroms = hf["/"].attrs["chromosome"]
+            intersect_total = len(set(file_chroms).intersection(set(chromosomes)))
+            if intersect_total == len(file_chroms):
                 filtered_files.append(data_file)
         new_dataloader = H5DataLoader(
             self.data_dir, data_files=filtered_files, fasta=self.fasta)
