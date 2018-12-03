@@ -7,12 +7,12 @@ import logging
 """
 
 
-def track_runs(args):
+def track_runs(args, prefix):
     """track command and github commit
     """
     # keeps track of restores (or different commands) in folder
-    num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, args.subcommand_name)))
-    logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, args.subcommand_name, num_restores)
+    num_restores = len(glob.glob('{0}/{1}.command*'.format(args.out_dir, prefix)))
+    logging_file = '{0}/{1}.command_{2}.log'.format(args.out_dir, prefix, num_restores)
     
     # track github commit
     git_repo_path = os.path.dirname(os.path.realpath(__file__))
@@ -28,10 +28,10 @@ def track_runs(args):
     return logging_file
 
 
-def setup_run_logs(args):
+def setup_run_logs(args, prefix):
     """set up logging
     """
-    logging_file = track_runs(args)
+    logging_file = track_runs(args, prefix)
     reload(logging)
     logging.basicConfig(
         filename=logging_file,
@@ -43,3 +43,48 @@ def setup_run_logs(args):
     logging.info("")
 
     return
+
+
+# TODO provide option to load in as json
+def parse_multi_target_selection_strings(key_strings):
+    """given an arg string list, parse out into a dict
+    assumes a format of: key=indices,key=indices::param=val,param=val
+    
+    this is for smart indexing into tensor dicts (mostly label sets).
+
+    Returns:
+      list of tuples, where tuple is (list of tuples of keys and indices, param dict)
+    """
+    if key_strings is None:
+        return []
+    
+    parsed_results = []
+    for key_string in key_strings:
+        targets_and_params = key_string.split("::")
+        assert len(targets_and_params) <= 2
+        
+        # set up keys/indices
+        targets = targets_and_params[0].split(":")
+        parsed_targets = []
+        for target in targets:
+            target = target.split("=")
+            if len(target) > 1:
+                indices = [int(i) for i in target[1].split(",")]
+            else:
+                indices = []
+            parsed_targets.append((target[0], indices))
+
+        # set up params
+        if len(targets_and_params) == 2:
+            params = targets_and_params[1].split(",")
+            parsed_params = {}
+            for param in params:
+                param = param.split("=")
+                parsed_params[param[0]] = param[1]
+        else:
+            parsed_params = {}
+            
+        # save out
+        parsed_results.append((parsed_targets, parsed_params))
+    
+    return parsed_results

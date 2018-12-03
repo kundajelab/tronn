@@ -1034,7 +1034,7 @@ def main():
     args = parse_args()
     args.out_dir = os.path.abspath(args.out_dir)
     os.system("mkdir -p {}".format(args.out_dir))
-    setup_run_logs(args)
+    setup_run_logs(args, args.subcommand_name)
 
     # get subcommand run function and run
     subcommand = args.subcommand_name
