@@ -79,9 +79,17 @@ class GenomicIntervalConverter(object):
             stdout=PIPE, stdin=PIPE, stderr=STDOUT)
 
         # get fasta sequence
-        get_fasta_cmd = "bedtools getfasta -tab -fi {} -bed stdin".format(fasta)
+        get_fasta_cmd = [
+            "bedtools",
+            "getfasta",
+            "-tab",
+            "-fi",
+            "{}".format(fasta),
+            "-bed",
+            "stdin"]
+        #get_fasta_cmd = "bedtools getfasta -tab -fi {} -bed stdin".format(fasta)
         get_fasta = subprocess.Popen(
-            get_fasta_cmd.split(),
+            get_fasta_cmd, #.split(),
             stdin=pipe_in.stdout, stdout=PIPE)
 
         # replace ACGTN with 01234 and separate with commas
