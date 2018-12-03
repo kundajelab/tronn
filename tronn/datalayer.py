@@ -592,7 +592,7 @@ class H5DataLoader(DataLoader):
         chroms = []
         for data_file in self.data_files:
             with h5py.File(data_file, "r") as hf:
-                file_chroms = hf["/"].attrs["chromosome"]
+                file_chroms = hf["/"].attrs["chromosomes"]
             chroms = list(set(chroms + file_chroms))
         chroms = sorted(chroms)
         
@@ -1099,7 +1099,7 @@ class H5DataLoader(DataLoader):
         consistent = True
         for data_file in self.data_files:
             with h5py.File(data_file, "r") as hf:
-                file_chroms = hf["/"].attrs["chromosome"]
+                file_chroms = hf["/"].attrs["chromosomes"]
             intersect_total = len(set(file_chroms).intersection(set(chromosomes)))
             if intersect_total < len(file_chroms):
                 consistent = False
@@ -1115,7 +1115,7 @@ class H5DataLoader(DataLoader):
         filtered_files = []
         for data_file in self.data_files:
             with h5py.File(data_file, "r") as hf:
-                file_chroms = hf["/"].attrs["chromosome"]
+                file_chroms = hf["/"].attrs["chromosomes"]
             intersect_total = len(set(file_chroms).intersection(set(chromosomes)))
             if intersect_total == len(file_chroms):
                 filtered_files.append(data_file)
