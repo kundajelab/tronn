@@ -15,7 +15,8 @@ def run(args):
     # set up
     logger = logging.getLogger(__name__)
     logger.info("Training...")
-    
+
+    # define the logs
     train_dataset_log = "{}/dataset.train_split.json".format(args.out_dir)
     valid_dataset_log = "{}/dataset.validation_split.json".format(args.out_dir)
     test_dataset_log = "{}/dataset.test_split.json".format(args.out_dir)
@@ -25,16 +26,19 @@ def run(args):
     # set up dataloader
     data_loader = setup_data_loader(args)
 
-    # either run cross validation or full train
+    # set up train/valid/test, default is generate new folds
     if args.full_train:
+        logging.info("dataset: setting up full train")
         train_data_loader = data_loader.remove_genomewide_negatives()
         validation_data_loader = data_loader.remove_genomewide_negatives()
         test_data_loader = data_loader.remove_training_negatives()
-        if args.regression:
-            train_data_loader = train_data_loader.setup_positives_only_dataloader()
-            validation_data_loader = validation_data_loader.setup_positives_only_dataloader()
-            test_data_loader = test_data_loader.setup_positives_only_dataloader()
+    elif args.use_transfer_splits:
+        logging.info("dataset: using train/valid/test splits from transfer model")
+        train_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["train"])
+        validation_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["valid"])
+        test_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["test"])
     else:
+        logging.info("dataset: generating new folds for train/valid/test")
         split_data_loaders = data_loader.setup_cross_validation_dataloaders(
             kfolds=args.kfolds,
             valid_folds=args.valid_folds,
@@ -44,7 +48,15 @@ def run(args):
         validation_data_loader = split_data_loaders[1]
         test_data_loader = split_data_loaders[2]
 
-    # save the chromosome splits into train summary
+    # adjust for regression - just run on positives, adjust early stopping criterion
+    if args.regression:
+        train_data_loader = train_data_loader.setup_positives_only_dataloader()
+        validation_data_loader = validation_data_loader.setup_positives_only_dataloader()
+        test_data_loader = test_data_loader.setup_positives_only_dataloader()
+        logging.info("regression - switching metric to MSE")
+        args.early_stopping_metric = "mse"
+
+    # save the chromosome splits into model info
     args.model["dataset"] = {
         "train": train_data_loader.get_chromosomes(),
         "validation": validation_data_loader.get_chromosomes(),
@@ -56,14 +68,11 @@ def run(args):
         "target_indices": args.target_indices,
         "filter_targets": args.filter_targets}
     write_to_json(
-        dict(train_data_loader.describe(), **dataset_summary),
-        train_dataset_log)
+        dict(train_data_loader.describe(), **dataset_summary), train_dataset_log)
     write_to_json(
-        dict(validation_data_loader.describe(), **dataset_summary),
-        valid_dataset_log)
+        dict(validation_data_loader.describe(), **dataset_summary), valid_dataset_log)
     write_to_json(
-        dict(test_data_loader.describe(), **dataset_summary),
-        test_dataset_log)
+        dict(test_data_loader.describe(), **dataset_summary), test_dataset_log)
         
     # set up train input fn
     train_input_fn = train_data_loader.build_input_fn(
@@ -106,22 +115,6 @@ def run(args):
     # set up model and save summary
     model_manager = setup_model_manager(args)
     write_to_json(model_manager.describe(), model_log)
-
-    # adjust for regression
-    if args.regression:
-        logging.info("regression - switching metric to MSE")
-        args.early_stopping_metric = "mse"
-
-    # adjust for warm start as needed
-    if args.transfer_model_checkpoint is not None:
-        warm_start_params = {"skip": [DataKeys.LOGITS]}
-        warm_start_checkpoint = args.transfer_model_checkpoint
-    elif args.restore_model_checkpoint is not None:
-        warm_start_params = {}
-        warm_start_checkpoint = args.restore_model_checkpoint
-    else:
-        warm_start_params = {}
-        warm_start_checkpoint = None
         
     # train and evaluate
     best_checkpoint = model_manager.train_and_evaluate(
@@ -132,8 +125,8 @@ def run(args):
         early_stopping_metric=args.early_stopping_metric,
         train_steps=None,
         eval_steps=int(1000. * 512 / args.batch_size),
-        warm_start=warm_start_checkpoint,
-        warm_start_params=warm_start_params,
+        warm_start=args.transfer_checkpoint,
+        warm_start_params=args.warm_start_params,
         regression=args.regression,
         model_summary_file=model_log,
         train_summary_file=train_log,

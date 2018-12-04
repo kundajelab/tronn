@@ -345,6 +345,26 @@ def _setup_model_args(args):
     return None
 
 
+def _setup_warm_start_args(args):
+    """set up warm start args
+    """
+    # first, extract model json if defined
+    if args.transfer_model_json is not None:
+        with open(args.transfer_model_json, "r") as fp:
+            args.transfer_model = json.load(fp)
+    else:
+        args.transfer_model = {}
+            
+    # only update transfer checkpoint if it was None
+    if args.transfer_checkpoint is None:
+        args.transfer_checkpoint = args.transfer_model.get("checkpoint")
+
+    # add skip vars to warm start params
+    args.warm_start_params = {"skip": args.transfer_skip_vars}
+    
+    return None
+
+
 def add_train_parser(subparsers):
     """Add argument parser for training
     """
@@ -377,12 +397,22 @@ def add_train_parser(subparsers):
     group_model = cmd_argparser.add_argument_group(
         "Model arguments")
     _add_model_args(group_model)
-    group_model.add_argument(
-        '--transfer_model_checkpoint', default=None,
-        help='transfer from desired checkpoint') 
-    group_model.add_argument(
-        '--restore_model_checkpoint', default=None,
-        help='restore from desired checkpoint (in new dir)') 
+
+    # group for warm starting
+    group_transfer = cmd_argparser.add_argument_group(
+        "Transfer model arguments")
+    group_transfer.add_argument(
+        "--transfer_model_json", default=None,
+        help="transfer model json. must have a checkpoint")
+    group_transfer.add_argument(
+        "--transfer_checkpoint", default=None,
+        help="transfer model checkpoint, if defined will supersede model json")
+    group_transfer.add_argument(
+        "--transfer_skip_vars", nargs="+", default=[],
+        help="variable names to skip (note searches these as substrings of var names)")
+    group_transfer.add_argument(
+        "--use_transfer_splits", action="store_true",
+        help="set up train/valid/test splits using transfer model info")
     
     # group for parameters
     group_params = cmd_argparser.add_argument_group(
@@ -1052,6 +1082,7 @@ def main():
     elif subcommand == 'train':
         _setup_dataset_args(args)
         _setup_model_args(args)
+        _setup_warm_start_args(args)
         from tronn.train_cmd import run
         run(args)
     elif subcommand == "evaluate":
