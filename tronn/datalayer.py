@@ -905,7 +905,7 @@ class H5DataLoader(DataLoader):
             skip_keys=[],
             targets=[(DataKeys.LABELS, [])],
             target_indices=[],
-            examples_subset=None,
+            examples_subset=[],
             seq_len=1000,
             lock=threading.Lock(),
             shuffle=True):
@@ -946,7 +946,7 @@ class H5DataLoader(DataLoader):
                 batch_size = self.batch_size
                 fasta = self.fasta
                 
-                if examples_subset is not None:
+                if len(examples_subset) != 0:
                     batch_size = 1
 
                 # set up interval to sequence converter
@@ -957,7 +957,7 @@ class H5DataLoader(DataLoader):
                     test_key = h5_handle.keys()[0]
 
                     # if using examples, then get the indices and change batch size to 1
-                    if examples_subset is not None:
+                    if len(examples_subset) != 0:
                         max_batches = len(examples_subset)
                         batch_ids = np.where(
                             np.isin(
