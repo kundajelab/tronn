@@ -452,14 +452,14 @@ def basset_conv_factorized_resnet_module(inputs, is_training=True, width_factor=
 
     # res blocks 1
     features = res_conv_block_1(features, is_training)
-    features = res_conv_block_1(features, is_training)
+    #features = res_conv_block_1(features, is_training)
 
     # 1 to 2
     features = standard_conv_stack(features, 128, [1,3], [1,1], is_training)
 
     # res blocks 2
     features = res_conv_block_2(features, is_training)
-    features = res_conv_block_2(features, is_training)
+    #features = res_conv_block_2(features, is_training)
 
     features = tf.layers.max_pooling2d(features, [1,3], [1,3])
     
@@ -468,13 +468,13 @@ def basset_conv_factorized_resnet_module(inputs, is_training=True, width_factor=
 
     # res blocks 3
     features = res_conv_block_3(features, is_training)
-    features = res_conv_block_3(features, is_training)
+    #features = res_conv_block_3(features, is_training)
 
     features = tf.layers.max_pooling2d(features, [1,4], [1,4])
     
     # res blocks 4
     features = res_conv_block_4(features, is_training)
-    features = res_conv_block_4(features, is_training)
+    #features = res_conv_block_4(features, is_training)
 
     # final conv
     features = standard_conv_stack(features, 200, [1,7], [1,1], is_training)
