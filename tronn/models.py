@@ -332,6 +332,11 @@ class ModelManager(object):
                         regression=regression,
                         logit_indices=logit_indices)
 
+                    # adjust outputs
+                    for key in outputs.keys():
+                        if key in params["skip_outputs"]:
+                            del outputs[key]
+                    
                     # adjust model weight loading
                     if self.model_checkpoint is None:
                         # this is important for py_func wrapped models like pytorch
