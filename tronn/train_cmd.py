@@ -35,7 +35,7 @@ def run(args):
     elif args.use_transfer_splits:
         logging.info("dataset: using train/valid/test splits from transfer model")
         train_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["train"])
-        validation_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["valid"])
+        validation_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["validation"])
         test_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["test"])
     else:
         logging.info("dataset: generating new folds for train/valid/test")
