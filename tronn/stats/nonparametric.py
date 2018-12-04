@@ -102,7 +102,7 @@ def get_pvals_from_delta_shuffles(
 
 def threshold_by_qvalues(
         pvals,
-        qval_thresh=0.50,
+        qval_thresh=0.05,
         num_bins=50):
     """adjust for FDR
     """
