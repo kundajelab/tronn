@@ -219,6 +219,9 @@ def _add_dataset_args(parser):
     parser.add_argument(
         "--target_indices", nargs="+", default=[], type=int,
         help="after collection of labels, which of those to finally select. Format: indices_list_with_commas")
+    parser.add_argument(
+        "--dataset_examples", nargs="+", default=[],
+        help="option to throw in specific examples to run")
 
     return None
 
@@ -268,6 +271,10 @@ def _setup_dataset_args(args):
         "filter_targets", args.filter_targets)
     args.singleton_filter_targets = args.dataset_json.get(
         "singleton_filter_targets", args.singleton_filter_targets)
+
+    # if fasta is not given, check dataset json
+    if args.fasta is None:
+        args.fasta = args.dataset_json.get("fasta")
     
     return None
 
