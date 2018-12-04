@@ -126,7 +126,7 @@ def run(args):
         train_steps=None,
         eval_steps=int(1000. * 512 / args.batch_size),
         warm_start=args.transfer_checkpoint,
-        warm_start_params=args.warm_start_params,
+        warm_start_params=args.transfer_params,
         regression=args.regression,
         model_summary_file=model_log,
         train_summary_file=train_log,

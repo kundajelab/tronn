@@ -360,7 +360,7 @@ def _setup_warm_start_args(args):
         args.transfer_checkpoint = args.transfer_model.get("checkpoint")
 
     # add skip vars to warm start params
-    args.warm_start_params = {"skip": args.transfer_skip_vars}
+    args.transfer_params = {"skip": args.transfer_skip_vars}
     
     return None
 
