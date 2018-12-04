@@ -6,8 +6,10 @@ import h5py
 import glob
 import logging
 
-from tronn.datalayer import setup_data_loader
-from tronn.models import setup_model_manager
+from tronn.datalayer import H5DataLoader
+
+from tronn.interpretation.inference import run_inference
+from tronn.interpretation.inference import run_multi_model_inference
 
 from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
@@ -16,13 +18,14 @@ from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
 from tronn.interpretation.clustering import visualize_multikey_outputs_R
 
-from tronn.interpretation.motifs import extract_significant_pwms # TODO DEPRECATE
-from tronn.interpretation.motifs import run_bootstrap_differential_score_test
+#from tronn.interpretation.motifs import extract_significant_pwms # TODO DEPRECATE
+#from tronn.interpretation.motifs import run_bootstrap_differential_score_test
+#from tronn.interpretation.motifs import test_differential_motifs
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
-
+from tronn.util.formats import write_to_json
 from tronn.util.utils import DataKeys
 
 
@@ -37,75 +40,52 @@ def run(args):
     else:
         args.tmp_dir = args.out_dir
 
-    # set up dataloader and input fn
-    data_loader = setup_data_loader(args)
-    data_loader = data_loader.setup_positives_only_dataloader()
+    # run all files together or run rotation of models
+    if args.model["name"] == "kfold_models":
+        inference_files = run_multi_model_inference(args, positives_only=True)
+    else:
+        inference_files = run_inference(args, positives_only=True)
 
-    # TODO this is where to start rotating through models if kfold
+    # put the files into a dataloader
+    results_data_log = "{}/dataset.{}.json".format(args.out_dir, args.subcommand_name)
+    results_data_loader = H5DataLoader(
+        data_dir=args.out_dir, data_files=inference_files, fasta=args.fasta)
+    write_to_json(results_data_loader.describe(), results_data_log)
     
-    input_fn = data_loader.build_input_fn(
-        args.batch_size,
-        targets=args.targets,
-        target_indices=args.target_indices,
-        filter_targets=args.filter_targets,
-        singleton_filter_targets=args.singleton_filter_targets,
-        use_queues=True)
-
-    
-    # set up model
-    model_manager = setup_model_manager(args)
-
-    # add model to inference params
-    args.inference_params.update({"model": model_manager})
-    
-    # set up inference generator
-    inference_generator = model_manager.infer(
-        input_fn,
-        args.out_dir,
-        args.inference_params,
-        checkpoint=model_manager.model_checkpoint,
-        yield_single_examples=True)
-
-    # run inference and save out
-    # TODO change this to pwm_results
-    results_h5_file = "{0}/{1}.inference.h5".format(
-        args.out_dir, args.prefix)
-    if not os.path.isfile(results_h5_file):
-        model_manager.infer_and_save_to_h5(
-            inference_generator,
-            results_h5_file,
-            args.sample_size,
-            debug=args.debug)
-
-        # add in PWM names to the datasets
+    # add in PWM names to the datasets
+    for inference_file in inference_files:
         add_pwm_names_to_h5(
-            results_h5_file,
+            inference_file,
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
 
-    # TODO this is where it stops
+    # save out the pwm file somewhere - a run summary?
 
+    quit()
 
-
-    
-
-    # then bootstrap from the background set (GC matched) to get
-    # probability that summed motif score in foreground is due to random chance
+    # is this better as a standalone script?
+    # if background file is given, then run differential test
+    # against bootstrapped samples from background
     # TODO - one wrinkle here - what if you want to look at across multiple foreground indices?
     # not a good way to do that here yet.
+    # TODO - better thing to do might be to separate each, so that each thing in list is foreground
+    # cmd line TRAJ_LABELS TRAJ_LABELS=1 TRAJ_LABELS=2:H3K27ac=0 TRAJ_LABELS=2,3::reduce_type=any
+    # files    TRAJ_LABELS TRAJ_LABELS-1 TRAJ_LABELS-2.H3K27ac-0 TRAJ_LABELS-2-3.reduce_type-any
     if args.foreground_targets is not None:
 
-        if False:
-            # run with nn weighted scores
-            for i in xrange(len(args.foreground_targets)):
-                run_bootstrap_differential_score_test(
-                    results_h5_file,
-                    args.background_scores,
-                    args.foreground_targets[i][0],
-                    args.foreground_targets[i][1],
-                    DataKeys.LABELS,
-                    args.inference_targets,
-                    qval_thresh=0.05)
+        # TODO load background data
+        background_data_loader = H5DataLoader(args.background_dataset)
+        
+        # run with nn weighted scores
+        for i in xrange(len(args.foreground_targets)):
+            run_bootstrap_differential_score_test(
+                results_h5_file,
+                args.background_scores, # TODO convert this to a background dataloader
+                args.foreground_targets[i][0],
+                args.foreground_targets[i][1],
+                DataKeys.LABELS,
+                args.inference_targets,
+                qval_thresh=0.05)
     
         # run with raw hits (HOMER style)
         for i in xrange(len(args.foreground_targets)):

@@ -1,65 +1,156 @@
 """description: wrappers for inference runs
 """
 
+import os
+import json
+
+from tronn.datalayer import setup_data_loader
+from tronn.models import setup_model_manager
+from tronn.util.utils import DataKeys
 
 
-
-# really an integrative thing between the model manager and dataloader - new module?
-# from tronn.interpretation.inference import run_inference
-# model manager is either a list or individual - maybe just always have it be a list,
-# so wrap it when going in
-def run_inference(args):
+def run_multi_model_inference(args, positives_only=True):
     """run inference on one model
     """
-    # set up list of model managers
-    if args.model == "kfolds":
-        model_managers = []
-        model_jsons = args.model["params"]["models"]
-        for model_json in model_jsons:
-            with open(model_json, "r") as fp:
-                args.model = json.load(fp)
-            model_manager = setup_model_manager(args)
-        model_managers.append(model_manager)
+    # get the model jsons
+    model_jsons = args.model["params"]["models"]
+    out_files = []
+    for model_idx in xrange(len(model_jsons)):
+
+        # load the model json into args.model
+        model_json = model_jsons[model_idx]
+        with open(model_json, "r") as fp:
+            args.model = json.load(fp)
+
+        # generate the out file
+        out_file = "{}/{}.{}.model-{}.h5".format(
+            args.out_dir, args.prefix, args.subcommand_name, model_idx)
+        out_files.append(out_file)
+        
+        # run inference
+        run_inference(
+            args,
+            out_file=out_file,
+            positives_only=positives_only,
+            kfold=True)
+    
+    return out_files
+
+
+def _setup_input_skip_keys(args):
+    """reduce tensors pulled from data files to save time/space
+    """
+    if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy"):
+        skip_keys = [
+            DataKeys.ORIG_SEQ_SHUF,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            #DataKeys.ORIG_SEQ_PWM_HITS,
+            DataKeys.ORIG_SEQ_PWM_SCORES,
+            DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+            DataKeys.ORIG_SEQ_SHUF_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.WEIGHTED_SEQ_PWM_HITS,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+            DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES]
+    elif (args.subcommand_name == "scanmotifs"):
+        skip_keys = []
     else:
-        model_managers = [setup_model_manager(args)]
+        skip_keys = []
+        
+    return skip_keys
 
-    # go through each one
-    for model_manager in model_managers:
-        pass
-                
 
-    
-    
-    return
-
+def _setup_output_skip_keys(args):
+    """reduce tensors pulled from data files to save time/space
+    """
+    if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy"):
+        skip_keys = []
+    elif (args.subcommand_name == "scanmotifs"):
+        skip_keys = [
+            DataKeys.ORIG_SEQ_SHUF,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            DataKeys.ORIG_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_PWM_HITS,
+            DataKeys.FEATURES,
+            DataKeys.LOGITS_SHUF]
+    else:
+        skip_keys = []
+        
+    return skip_keys
 
 
 def run_inference(
-        data_loader,
-        model_managers, # <- just always make this a list?
-        inference_params,
-        out_file,
-        sample_size=1000,
-        debug=False,
+        args,
+        out_file=None,
         positives_only=True,
         kfold=False):
     """wrapper for inference
     """
-    for run_idx in xrange(len(model_managers)):
+    # set up out_file
+    if out_file is None:
+        out_file = "{}/{}.{}.h5".format(
+            args.out_dir, args.prefix, args.subcommand_name)
+
+    # set up dataloader
+    data_loader = setup_data_loader(args)
+
+    # set up model, add to inference params
+    model_manager = setup_model_manager(args)
+    args.inference_params.update({"model": model_manager})
+
+    # adjust for positives (normally only run inference on positives)
+    if positives_only:
+        data_loader = data_loader.setup_positives_only_dataloader()
     
-        # for loop starts here, check model manager
-        
-        # adjust data files if kfold, also for positives
-        
-        # set up input fn
-        
-        # also check if processed inputs
-        
-        # set up model(s)
-        
-        # add model fn to inference params
-        
-        # 
+    # adjust for kfold in model (normally no)
+    if kfold:
+        keep_chromosomes = model_manager.model_dataset["test"]
+        data_loader = data_loader.filter_for_chromosomes(
+            keep_chromosomes)
+
+    # data file adjustments done, set up input fn
+    input_fn = data_loader.build_input_fn(
+        args.batch_size,
+        targets=args.targets,
+        target_indices=args.target_indices,
+        filter_targets=args.filter_targets,
+        singleton_filter_targets=args.singleton_filter_targets,
+        examples_subset=args.dataset_examples,
+        use_queues=True,
+        skip_keys=_setup_input_skip_keys(args))
+
+    # skip some outputs
+    args.inference_params.update(
+        {"skip_outputs": _setup_output_skip_keys(args)})
     
+    # also check if processed inputs, if processed then remove model
+    # and replace with empty net (just send tensors through)
+    if args.processed_inputs:
+        args.model[""] = "empty_net"
+        args.inference_params.update({"model_reuse": False})
+        model_manager = setup_model_manager(args)
+    else:
+        args.inference_params.update({"model_reuse": True})
+
+    # set up inference generator
+    inference_generator = model_manager.infer(
+        input_fn,
+        args.out_dir,
+        args.inference_params,
+        checkpoint=model_manager.model_checkpoint,
+        yield_single_examples=True)
+
+    # run inference and save out
+    if not os.path.isfile(out_file):
+        model_manager.infer_and_save_to_h5(
+            inference_generator,
+            out_file,
+            args.sample_size,
+            debug=args.debug)
     
-    return
+    return [out_file]
