@@ -59,8 +59,15 @@ def run(args):
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
 
-    # save out the pwm file somewhere - a run summary?
-
+    # save out relevant inference run details for downstream runs
+    infer_log = "{}/infer.{}.json".format(args.out_dir, args.subcommand_name)
+    infer_vals = {
+        "infer_dir": args.out_dir,
+        "model_json": args.model_json,
+        "inference_targets": args.inference_targets,
+        "pwm_file": args.pwm_file}
+    write_to_json(infer_vals, infer_log)
+    
     quit()
 
     # is this better as a standalone script?

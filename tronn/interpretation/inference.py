@@ -2,39 +2,12 @@
 """
 
 import os
+import h5py
 import json
 
 from tronn.datalayer import setup_data_loader
 from tronn.models import setup_model_manager
 from tronn.util.utils import DataKeys
-
-
-def run_multi_model_inference(args, positives_only=True):
-    """run inference on one model
-    """
-    # get the model jsons
-    model_jsons = args.model["params"]["models"]
-    out_files = []
-    for model_idx in xrange(len(model_jsons)):
-
-        # load the model json into args.model
-        model_json = model_jsons[model_idx]
-        with open(model_json, "r") as fp:
-            args.model = json.load(fp)
-
-        # generate the out file
-        out_file = "{}/{}.{}.model-{}.h5".format(
-            args.out_dir, args.prefix, args.subcommand_name, model_idx)
-        out_files.append(out_file)
-        
-        # run inference
-        run_inference(
-            args,
-            out_file=out_file,
-            positives_only=positives_only,
-            kfold=True)
-    
-    return out_files
 
 
 def _setup_input_skip_keys(args):
@@ -44,7 +17,6 @@ def _setup_input_skip_keys(args):
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,
             DataKeys.ORIG_SEQ_ACTIVE_SHUF,
-            #DataKeys.ORIG_SEQ_PWM_HITS,
             DataKeys.ORIG_SEQ_PWM_SCORES,
             DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
             DataKeys.ORIG_SEQ_SHUF_PWM_SCORES,
@@ -152,5 +124,37 @@ def run_inference(
             out_file,
             args.sample_size,
             debug=args.debug)
+
+        # get chrom tags and transfer in
+        with h5py.File(out_file, "a") as hf:
+            hf["/"].attrs["chromosomes"] = data_loader.get_chromosomes()
     
     return [out_file]
+
+
+def run_multi_model_inference(args, positives_only=True):
+    """run inference on one model
+    """
+    # get the model jsons
+    model_jsons = args.model["params"]["models"]
+    out_files = []
+    for model_idx in xrange(len(model_jsons)):
+
+        # load the model json into args.model
+        model_json = model_jsons[model_idx]
+        with open(model_json, "r") as fp:
+            args.model = json.load(fp)
+
+        # generate the out file
+        out_file = "{}/{}.{}.model-{}.h5".format(
+            args.out_dir, args.prefix, args.subcommand_name, model_idx)
+        out_files.append(out_file)
+        
+        # run inference
+        run_inference(
+            args,
+            out_file=out_file,
+            positives_only=positives_only,
+            kfold=True)
+    
+    return out_files
