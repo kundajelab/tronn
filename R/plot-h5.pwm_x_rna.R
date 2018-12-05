@@ -134,16 +134,19 @@ groups <- metadata$name[metadata$group == paste("/", main_group, sep="")]
 # run for each group (label set)
 for (group_i in 1:length(groups)) {
     group <- paste("/", main_group, "/", groups[group_i], sep="")
-
+    print(group)
+    
     # and run for each subgroup (task idx)
-    subgroups <- metadata$name[metadata$group == group]
-
-    for (subgroup_i in 1:length(subgroups)) {
-        subgroup <- paste(group, "/", subgroups[subgroup_i], sep="")
-        print(subgroup)
+    #subgroups <- metadata$name[metadata$group == group]
+    #print(subgroups)
+    
+    #for (subgroup_i in 1:length(subgroups)) {
+        #subgroup <- paste(group, "/", subgroups[subgroup_i], sep="")
+        #print(subgroup)
 
         # extract relevant data
-        group_data <- h5read(h5_file, subgroup, read.attributes=TRUE)
+        group_data <- h5read(h5_file, group, read.attributes=TRUE)
+        #print(group_data)
         
         # ===================
         # 1) correlation plot
@@ -238,7 +241,7 @@ for (group_i in 1:length(groups)) {
         # ===================
         # 4) other outputs
         # ===================
-        keys <- metadata$name[metadata$group == paste(subgroup, "/other", sep="")]
+        keys <- metadata$name[metadata$group == paste(group, "/other", sep="")]
         for (key_i in 1:length(keys)) {
             key_data <- unlist(group_data$other[keys[key_i]])
             if (key_i == 1) {
@@ -258,7 +261,7 @@ for (group_i in 1:length(groups)) {
         # 5) plots
         # ===================
 
-        plot_prefix <- paste(out_dir, "/", groups[group_i], "-", subgroups[subgroup_i], sep="")
+        plot_prefix <- paste(out_dir, "/", groups[group_i], sep="")
         
         # plot pwm scores
         fn1 <- function() make_heatmap(pwm_scores, pwm_unit_max, TRUE, TRUE)
@@ -292,7 +295,7 @@ for (group_i in 1:length(groups)) {
         grid.arrange(grobs=grob_list, nrow=2, ncol=3, heights=c(9.5, 0.5), widths=c(5.25, 0.25, 5.25), clip=FALSE)
         dev.off()
         
-    }
+    #}
 }
 
 
