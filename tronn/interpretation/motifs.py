@@ -161,7 +161,7 @@ def run_hypergeometric_test_on_motif_hits(
     return pvals
 
 
-def run_bootstrap_differential_score_test(
+def run_bootstrap_differential_score_test_OLD(
         foreground_h5_file,
         background_h5_file,
         foreground_targets_key,
@@ -301,6 +301,115 @@ def run_bootstrap_differential_score_test(
     return None
 
 
+def _boostrap_gc_matched_backgrounds(
+        background_hits,
+        foreground_gc,
+        background_gc,
+        gc_increment=0.05,
+        num_bootstraps=1000):
+    """collect background sets that are GC matched, of the 
+    desired sample size
+    """
+    # set up GC matched bins
+    background_gc_bins = build_gc_matched_bins(
+        foreground_gc, background_gc, increment=gc_increment)
+    num_per_bin = int(foreground_gc.shape[0] * gc_increment)
+
+    # bootstrap
+    matched_backgrounds = []
+    for i in xrange(num_bootstraps):
+        background_indices = build_gc_matched_background(
+            background_gc_bins,
+            num_per_bin,
+            rand_state=RandomState(i))
+        matched_background = background_hits[background_indices] # {N, ...}
+        matched_background = np.mean(matched_background, axis=0) # {...}
+        matched_backgrounds.append(matched_background) # list of {...}
+    matched_backgrounds = np.stack(matched_backgrounds, axis=0) # {bootstraps, ...}
+
+    return matched_backgrounds
+
+
+def test_differential_motifs(
+        foreground_scores,
+        background_scores,
+        foreground_gc,
+        background_gc,
+        gc_increment=0.05,
+        num_bootstraps=1000,
+        qval_thresh=0.05,
+        reduce_sig_type="any",
+        out_key=DataKeys.PWM_DIFF_GROUP):
+    """run a differential test using bootstraps of background set
+    assumes axis 1 is different tasks, and will adjust to make
+    sure background is positives for each task
+    """
+    # get GC-matched background sets
+    matched_backgrounds = _boostrap_gc_matched_backgrounds(
+        background_scores,
+        foreground_gc,
+        background_gc,
+        gc_increment=gc_increment,
+        num_bootstraps=1000)
+    
+    # subtract from each other
+    score_minus_background = np.subtract(
+        np.mean(np.expand_dims(foreground_scores, axis=0), axis=1),
+        matched_backgrounds)
+    
+    # and then determine how often the diff is 0 or less
+    pvals = np.mean(score_minus_background <= 0, axis=0)
+
+    print np.sum(threshold_by_qvalues(
+        pvals, qval_thresh=0.05, num_bins=50))
+    
+    #import ipdb
+    #ipdb.set_trace()
+    
+    if True:
+        return pvals
+
+    # and save the pvals to the h5 file
+    # TODO save out to new h5 file
+    with h5py.File(foreground_h5_file, "a") as hf:
+        pvals_key = "{}/{}/{}".format(
+            out_key, foreground_targets_key, DataKeys.PWM_PVALS)
+        if hf.get(pvals_key) is not None:
+            del hf[pvals_key]
+        hf.create_dataset(pvals_key, data=raw_pvals)
+        hf[pvals_key].attrs[AttrKeys.TASK_INDICES] = foreground_targets_indices
+        hf[pvals_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
+    
+    # figure out which ones pass a qval thresh
+    pass_qval_thresh = threshold_by_qvalues(
+        raw_pvals, qval_thresh=qval_thresh, num_bins=50)
+
+    # TODO save out the full pass threshold array {task, M}?
+    # ^ this is most useful if adjusting edges across time
+    
+    # then save each out to a different vector for easy use downstream
+    # NOTE: the path to the vectors is pwms.differential/{targets_key}/{idx}/pwms.sig
+    # example: pwms.differential/TRAJ_LABELS/1/pwms.sig
+    if reduce_sig_type == "any":
+        reduce_fn = np.any
+    else:
+        reduce_fn = np.all
+    group_key = "{}/{}".format(out_key, foreground_targets_key)
+    for i in xrange(pass_qval_thresh.shape[0]):
+        foreground_idx = foreground_targets_indices[i]
+        sig_pwms_key = "{}/{}/{}".format(
+            group_key, foreground_idx, DataKeys.PWM_SIG_ROOT)
+        sig_pwms = reduce_fn(pass_qval_thresh[i], axis=0) # {M}
+        with h5py.File(foreground_h5_file, "a") as hf:
+            if hf.get(sig_pwms_key) is not None:
+                del hf[sig_pwms_key]
+            hf.create_dataset(sig_pwms_key, data=sig_pwms)
+            hf[sig_pwms_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
+    
+    return None
+
+
+
 def get_sig_pwm_vector(
         h5_file,
         sig_key,
@@ -424,6 +533,7 @@ def refine_sig_pwm_clusters(clusters):
     return
 
 
+# TODO consider deprecating this
 def extract_significant_pwms(
         h5_file,
         pwm_list,
