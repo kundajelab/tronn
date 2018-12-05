@@ -20,7 +20,7 @@ def track_runs(args, prefix):
     git_repo_path = os.path.dirname(os.path.realpath(__file__))
     os.system('echo "commit:" > {0}'.format(logging_file))
     os.system('git --git-dir={0}/.git rev-parse HEAD >> {1}'.format(
-        git_repo_path.split("/util")[0], logging_file))
+        git_repo_path.split("/tronn/util")[0], logging_file))
     os.system('echo "" >> {0}'.format(logging_file))
     
     # write out the command
