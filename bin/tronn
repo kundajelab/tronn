@@ -13,6 +13,7 @@ import pkg_resources
 
 from tronn.util.pwms import MotifSetManager # TODO move this?
 from tronn.util.scripts import setup_run_logs
+from tronn.util.scripts import parse_multi_target_selection_strings
 
 def parse_args():
     """Prepare argument parser. Main subcommands are set up here first
@@ -226,51 +227,29 @@ def _add_dataset_args(parser):
     return None
 
 
-def _parse_to_key_and_indices(key_strings):
-    """given an arg string list, parse out into a dict
-    assumes a format of: key=indices
-    
-    NOTE: this is for smart indexing into tensor dicts (mostly label sets)
-
-    Returns:
-      list of tuples, where tuple is (dataset_key, indices_list)
-    """
-    ordered_keys = []
-    for key_string in key_strings:
-        key_and_indices = key_string.split("=")
-        key = key_and_indices[0]
-        if len(key_and_indices) > 1:
-            indices = [int(i) for i in key_and_indices[1].split(",")]
-        else:
-            indices = []
-        ordered_keys.append((key, indices))
-    
-    return ordered_keys
-
-
 def _setup_dataset_args(args):
     """set up dataset options
     """
-    args.targets = _parse_to_key_and_indices(
-        args.targets)
-    args.filter_targets = _parse_to_key_and_indices(
-        args.filter_targets)
-    args.singleton_filter_targets = _parse_to_key_and_indices(
-        args.singleton_filter_targets)
-
+    # first load dataset json if it is given
     if args.dataset_json is not None:
         with open(args.dataset_json, "r") as fp:
             args.dataset_json = json.load(fp)
     else:
         args.dataset_json = {}
 
-    # and adjust as needed
-    args.targets = args.dataset_json.get(
-        "targets", args.targets)
-    args.filter_targets = args.dataset_json.get(
-        "filter_targets", args.filter_targets)
-    args.singleton_filter_targets = args.dataset_json.get(
-        "singleton_filter_targets", args.singleton_filter_targets)
+    # load targets from json if not given
+    if args.targets is None:
+        args.targets = args.dataset_json.get("targets")
+    else:
+        args.targets = parse_multi_target_selection_strings(
+            args.targets)
+
+    # load filter targets from json if not given
+    if args.filter_targets is None:
+        args.filter_targets = args.dataset_json.get("filter_targets")
+    else:
+        args.filter_targets = parse_multi_target_selection_strings(
+            args.filter_targets)
 
     # if fasta is not given, check dataset json
     if args.fasta is None:
@@ -537,7 +516,10 @@ def _add_interpretation_args(parser, inference_fn="sequence_to_motif_scores"):
     """set up trained model info
     """
     parser.add_argument(
-        "--inference_targets", nargs="+", required=True, type=int,
+        "--infer_json",
+        help="inference json file to continue from last run")
+    parser.add_argument(
+        "--inference_targets", nargs="+", type=int,
         help="tasks to extract importance scores - must be global indices") 
     parser.add_argument(
         "--backprop", default="input_x_grad",
@@ -562,6 +544,19 @@ def _setup_interpretation_args(args):
     """given parsed args, adjust inputs as needed
     matches _add_interpretation_options
     """
+    # load infer json if it exists
+    if args.infer_json is not None:
+        with open(args.infer_json, "r") as fp:
+            args.infer_json = json.load(fp)
+
+    # load out of infer json if not overridden in cmd line
+    if args.model_json is None:
+        args.model_json = args.infer_json.get("model_json")
+    if args.inference_targets is None:
+        args.inference_targets = args.infer_json.get("inference_targets")
+    if args.pwm_file is None:
+        args.pwm_file = args.infer_json.get("pwm_file")
+            
     # pwm file
     args.pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
     args.pwm_names = [pwm.name for pwm in args.pwm_list]
@@ -580,25 +575,6 @@ def _setup_interpretation_args(args):
     return
 
 
-def _setup_scanmotifs_args(args):
-    """given parsed args, adjust inputs as needed
-    """
-    if args.foreground_targets is not None:
-        args.foreground_targets = _parse_to_key_and_indices(
-            args.foreground_targets)
-
-    return
-
-
-def _setup_dmim_args(args):
-    """given parsed args, adjust inputs as needed
-    """
-    args.foreground_targets = _parse_to_key_and_indices(
-        args.foreground_targets)
-
-    return
-
-
 def _add_sig_pwms_args(parser):
     """add in args to use sig pwm vectors
     """
@@ -606,7 +582,7 @@ def _add_sig_pwms_args(parser):
         "--sig_pwms_file",
         help="if this arg is used, pvals will be used from here and not from scan file")
     parser.add_argument(
-        "--sig_pwms_key", default="pwms.differential",
+        "--sig_pwms_key", default="pvals",
         help="which dataset group has the sig pwm vectors")
 
     return
@@ -669,36 +645,6 @@ def add_scanmotifs_parser(subparsers):
         group_interpret,
         inference_fn="sequence_to_motif_scores") # adjust for defaults
     _add_visualization_args(group_interpret)
-
-    # group for cmd specific functions
-    group_other = cmd_argparser.add_argument_group(
-        "Other options")
-    
-    group_other.add_argument(
-        "--foreground_targets", nargs="+",
-        help="which targets to use as foreground for calling motif enrichment")
-    group_other.add_argument(
-        "--background_scores",
-        help="h5 file of background scores")
-
-    
-    group_other.add_argument(
-        "--background_targets", nargs="+",
-        help="which targets to use as background for calling motif enrichment. MUST MATCH FOREGROUND ORDER EXACTLY")
-    group_other.add_argument(
-        "--background_filter_targets", nargs="+", default=[],
-        help="targets to filter for background set of regions") # these need to match exactly?
-    group_other.add_argument(
-        "--background_sample_multiplier", default=2,
-        help="Multiplicative factor for num examples in background to collect (ie, 2X the number of foreground)")
-    
-
-    group_other.add_argument(
-        "--cluster", action="store_true",
-        help="run clustering")
-    group_other.add_argument(
-        "--summarize_manifold", action="store_true",
-        help="summarize clusters in the manifold")
     
     # group for output files
     group_output = cmd_argparser.add_argument_group(
@@ -773,7 +719,7 @@ def add_dmim_parser(subparsers):
     _add_dataset_args(group_dataset)
     group_dataset.add_argument(
         "--processed_inputs", action="store_true",
-        help="inputs are already preprocessed through some inference stack")
+        help="inputs are already preprocessed through some inference stack") # deprecate, assume this is true
     _add_sig_pwms_args(group_dataset)
 
     # group for model
@@ -795,12 +741,11 @@ def add_dmim_parser(subparsers):
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
         "Misc params")
-    group_other.add_argument(
-        "--manifold_file", help="manifold h5 file")
+    #group_other.add_argument(
+    #    "--manifold_file", help="manifold h5 file")
     group_other.add_argument(
         "--foreground_targets", nargs="+",
         help="which targets to use as foreground for calling motif enrichment")
-
     
     # group for output files
     group_output = cmd_argparser.add_argument_group(
@@ -1103,28 +1048,26 @@ def main():
         from tronn.predict_cmd import run
         run(args)
     elif subcommand == "scanmotifs":
+        _setup_interpretation_args(args)
         _setup_dataset_args(args)
         _setup_model_args(args)
-        _setup_interpretation_args(args)
         _setup_visualization_args(args)
-        _setup_scanmotifs_args(args)
         from tronn.scanmotifs_cmd import run
         run(args)
     elif subcommand == "dmim":
+        _setup_interpretation_args(args)
         _setup_dataset_args(args)
         _setup_model_args(args)
-        _setup_interpretation_args(args)
         _setup_visualization_args(args)
-        _setup_dmim_args(args)
         from tronn.dmim_cmd import run
         run(args)
     elif subcommand == "buildgrammars":
         from tronn.buildgrammars_cmd import run
         run(args)
     elif subcommand == "synergy":
+        _setup_interpretation_args(args)
         _setup_dataset_args(args)
         _setup_model_args(args)
-        _setup_interpretation_args(args)
         _setup_visualization_args(args)
         from tronn.synergy_cmd import run
         run(args)
