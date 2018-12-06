@@ -31,18 +31,20 @@ def run(args):
     """
     logging.info("Evaluating trained model...")
     os.system("mkdir -p {}".format(args.out_dir))
-
+    
+    # set up model
+    model_manager = setup_model_manager(args)
+    
     # set up data loader
-    test_data_loader = setup_data_loader(args)
+    data_loader = setup_data_loader(args)
+    test_data_loader = data_loader.filter_for_chromosomes(
+        model_manager.model_dataset["test"])
     test_input_fn = test_data_loader.build_input_fn(
         args.batch_size,
         targets=args.targets,
         target_indices=args.target_indices,
         filter_targets=args.filter_targets)
 
-    # set up model
-    model_manager = setup_model_manager(args)
-    
     # evaluate
     predictor = model_manager.predict(
         test_input_fn,
