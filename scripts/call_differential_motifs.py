@@ -253,11 +253,13 @@ def main():
         sig_key: overall_thresholded}
 
     # save out each foreground separately - easier to handle downstream
+    foregrounds_keys = []
     for foreground_idx in range(len(foregrounds)):
         foreground = args.foregrounds[foreground_idx]
         foreground_string = foreground.replace("=", "-")
         foreground_string = foreground_string.replace("::", ".")
         foreground_string = foreground_string.replace(",", "-")
+        foregrounds_keys.append(foreground_string)
         logging.info("saving foreground results as {}".format(foreground_string))
 
         for key in results.keys():
@@ -276,6 +278,7 @@ def main():
 
     with h5py.File(pvals_file, "a") as hf:
         hf[_RAW_PVALS_GROUP].attrs["foregrounds"] = args.foregrounds
+        hf[_RAW_PVALS_GROUP].attrs["foregrounds.keys"] = foregrounds_keys
     
     return
 

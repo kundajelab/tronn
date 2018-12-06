@@ -171,7 +171,7 @@ def main():
     # get groups
     with h5py.File(args.pvals_file, "r") as hf:
         foregrounds_strings = hf[args.pvals_key].attrs["foregrounds"]
-        foreground_keys = hf[args.pvals_key].keys()
+        foreground_keys = hf[args.pvals_key].attrs["foregrounds.keys"]
     foregrounds = parse_multi_target_selection_strings(foregrounds_strings)
         
     # check each foreground
@@ -199,6 +199,7 @@ def main():
             out[sig_pwms_key].attrs["hgnc_ids"] = pwm_metadata[
                 args.pwm_metadata_hgnc_col_key].values.astype(str)
             out[args.pvals_key].attrs["foregrounds"] = foregrounds_strings
+            out[args.pvals_key].attrs["foregrounds.keys"] = foreground_keys
 
         logging.info(
             "{}: After filtering for expressed TFs, got {} motifs (from {})".format(
@@ -214,7 +215,7 @@ def main():
     # get foregrounds
     with h5py.File(expr_pvals_file, "r") as hf:
         foregrounds_strings = hf[args.pvals_key].attrs["foregrounds"]
-        foreground_keys = hf[args.pvals_key].keys()
+        foreground_keys = hf[args.pvals_key].attrs["foregrounds.keys"]
     foregrounds = parse_multi_target_selection_strings(foregrounds_strings)
     
     # extract scores for that target to save into patterns
