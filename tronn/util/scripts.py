@@ -50,7 +50,7 @@ def setup_run_logs(args, prefix):
 # TODO provide option to load in as json
 def parse_multi_target_selection_strings(key_strings):
     """given an arg string list, parse out into a dict
-    assumes a format of: key=indices,key=indices::param=val,param=val
+    assumes a format of: key=indices:key=indices::param=val,param=val
     
     this is for smart indexing into tensor dicts (mostly label sets).
 
