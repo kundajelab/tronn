@@ -50,7 +50,11 @@ def run(args):
     results_data_log = "{}/dataset.{}.json".format(args.out_dir, args.subcommand_name)
     results_data_loader = H5DataLoader(
         data_dir=args.out_dir, data_files=inference_files, fasta=args.fasta)
-    write_to_json(results_data_loader.describe(), results_data_log)
+    dataset = results_data_loader.describe()
+    dataset.update({
+        "targets": args.targets,
+        "target_indices": args.target_indices})
+    write_to_json(dataset, results_data_log)
     
     # add in PWM names to the datasets
     for inference_file in inference_files:
@@ -64,7 +68,6 @@ def run(args):
     infer_vals = {
         "infer_dir": args.out_dir,
         "model_json": args.model_json,
-        "targets": args.targets,
         "inference_targets": args.inference_targets,
         "pwm_file": args.pwm_file}
     write_to_json(infer_vals, infer_log)
