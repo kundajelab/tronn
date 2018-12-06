@@ -151,26 +151,39 @@ def test_differential_motifs(
 def get_sig_pwm_vector(
         h5_file,
         sig_key,
-        target_key,
-        target_indices,
+        foregrounds,
         reduce_type="any"):
     """convenience function to quickly extract a sig pwm vector
     """
-    group_key = "{}/{}".format(sig_key, target_key)
     with h5py.File(h5_file, "r") as hf:
-        for i in xrange(len(target_indices)):
-            index_key = "{}/{}/{}".format(
-                group_key, target_indices[i], DataKeys.PWM_SIG_ROOT)
-            logging.info("loading from {}".format(index_key))
-            index_sig_pwms = hf[index_key][:]
+
+        # get indices of foregrounds to keep
+        existing_foregrounds = hf[sig_key].attrs["foregrounds"]
+        foregrounds_keys = hf[sig_key].attrs["foregrounds.keys"]
+        keep_indices = []
+        for i in range(len(existing_foregrounds)):
+            if existing_foregrounds[i] in foregrounds:
+                keep_indices.append(i)
+        
+        # add them up
+        foreground_exists = False
+        for i in range(len(keep_indices)):
+            foreground_idx = keep_indices[i]
+            foreground_key = foregrounds_keys[foreground_idx]
+            foreground_key = "{}/{}/sig".format(sig_key, foreground_key)
+            logging.info("loading from {}".format(foreground_key))
+            index_sig_pwms = hf[foreground_key][:]
 
             if i == 0:
                 sig_pwms = np.zeros((
-                    len(target_indices),
+                    len(foregrounds),
                     index_sig_pwms.shape[0]))
                 sig_pwms[i] = index_sig_pwms
+                foreground_exists = True
             else:
                 sig_pwms[i] = index_sig_pwms
+
+        assert foreground_exists
 
     # reduce
     if reduce_type == "any":
