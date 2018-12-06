@@ -319,7 +319,8 @@ def main():
             hf[subgroup_key].attrs["ensembl_ids"] = pwm_patterns["ensembl_ids"].values.astype(str)
             hf[subgroup_key].attrs["hgnc_ids"] = pwm_patterns.index.values.astype(str)
             hf[subgroup_key].attrs["pwm_names"] = pwm_patterns["pwm_names"].values.astype(str)
-            hf[subgroup_key].attrs["foregrounds"] = foregrounds_strings
+            hf[args.pvals_key].attrs["foregrounds"] = foregrounds_strings
+            hf[args.pvals_key].attrs["foregrounds.keys"] = foreground_keys
 
             # other keys - keep to a separate subgroup
             for key in subset_targets.keys():
