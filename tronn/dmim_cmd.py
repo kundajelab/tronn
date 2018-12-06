@@ -26,15 +26,14 @@ from tronn.interpretation.variants import get_interacting_motifs
 from tronn.interpretation.variants import run_permutation_dmim_score_test
 from tronn.interpretation.variants import visualize_interacting_motifs_R
 
-#from tronn.nets.nets import net_fns
-
 from tronn.stats.nonparametric import run_delta_permutation_test
 
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
-
+from tronn.util.scripts import parse_multi_target_selection_strings
 from tronn.util.utils import DataKeys
+
 
 # TODO clean this up
 from tronn.visualization import visualize_agg_pwm_results
@@ -52,205 +51,32 @@ def run(args):
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
         args.tmp_dir = args.out_dir
-
-    # set up dataloader and input fn
-    data_loader = setup_data_loader(args)
-    data_loader = data_loader.setup_positives_only_dataloader()
-    input_fn = data_loader.build_input_fn(
-        args.batch_size,
-        targets=args.targets,
-        target_indices=args.target_indices,
-        filter_targets=args.filter_targets,
-        singleton_filter_targets=args.singleton_filter_targets,
-        use_queues=True,
-        shuffle=False,
-        skip_keys=[
-            DataKeys.ORIG_SEQ_SHUF,
-            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
-            #DataKeys.ORIG_SEQ_PWM_HITS,
-            DataKeys.ORIG_SEQ_PWM_SCORES,
-            DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
-            DataKeys.ORIG_SEQ_SHUF_PWM_SCORES,
-            DataKeys.WEIGHTED_SEQ_SHUF,
-            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
-            DataKeys.WEIGHTED_SEQ_PWM_HITS,
-            DataKeys.WEIGHTED_SEQ_PWM_SCORES,
-            DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
-            DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES
-        ]) # reduce the things being pulled out
-
-    # set up sig pwms
-    if args.sig_pwms_file is None:
-        args.sig_pwms_file = data_loader.data_files[0]
+        
+    # get a sig pwms vector
     sig_pwms = get_sig_pwm_vector(
         args.sig_pwms_file,
         args.sig_pwms_key,
-        args.foreground_targets[0][0],
-        args.foreground_targets[0][1],
+        args.foreground_targets,
         reduce_type="any")
+
+    # adjust filter targets based on foreground
+    args.filter_targets = parse_multi_target_selection_strings(
+        args.foreground_targets)
+    
+    # TODO add option to ignore long PWMs (later)
     args.inference_params.update({"sig_pwms": sig_pwms})
     logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
-
-    # TODO this is where to start rotating through models if kfold
-    # (actually earlier, before input fn is created)
     
-    # put model into inference params
-    args.inference_params.update({"model": setup_model_manager(args)})
-
-    # check if processed inputs
-    if args.processed_inputs:
-        args.model["name"] = "empty_net"
-        #reuse = False
-        args.inference_params.update({"model_reuse": False})
+    # run all files together or run rotation of models
+    if args.model["name"] == "kfold_models":
+        run_multi_model_inference(args, positives_only=True)
     else:
-        #reuse = True
-        args.inference_params.update({"model_reuse": True})
-    
-    input_model_manager = setup_model_manager(args)
-    
-    # set up inference generator
-    inference_generator = input_model_manager.infer(
-        input_fn,
-        args.out_dir,
-        args.inference_params,
-        checkpoint=model_manager.model_checkpoint,
-        yield_single_examples=True)
+        run_inference(args, positives_only=True)
 
-    # run inference and save out
-    results_h5_file = "{0}/{1}.dmim_results.h5".format(
-        args.out_dir, args.prefix)
-    if not os.path.isfile(results_h5_file):
-        model_manager.infer_and_save_to_h5(
-            inference_generator,
-            results_h5_file,
-            args.sample_size,
-            debug=args.debug)
-
-        # add in PWM names to the datasets
-        add_pwm_names_to_h5(
-            results_h5_file,
-            [pwm.name for pwm in args.pwm_list],
-            other_keys=[DataKeys.FEATURES])
-
-        # copy over the pwm sig vectors that are relevant
-        copy_sig_pwm_vectors_to_h5(
-            args.sig_pwms_file,
-            results_h5_file,
-            args.sig_pwms_key,
-            args.foreground_targets[0][0],
-            args.foreground_targets[0][1])
-
-    if False:
-        # TODO - deprecate this
-        copy_h5_datasets(
-            args.manifold_file,
-            results_h5_file,
-            keys=[
-                DataKeys.MANIFOLD_PWM_SIG_CLUST,
-                DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL])
-
-        # TODO set up attr for delta logits and clusters
-        with h5py.File(args.manifold_file, "r") as hf:
-            with h5py.File(results_h5_file, "a") as out:
-                num_clusters = out[DataKeys.MANIFOLD_CLUST].shape[1]
-                out[DataKeys.MANIFOLD_CLUST].attrs[AttrKeys.CLUSTER_IDS] = range(num_clusters)
-            
-    # check manifold - was it consistent
-    # TODO make an arg
-    # TODO deprecate this
-    check_manifold = False
-    if check_manifold:
-        manifold_file_prefix = "{0}/{1}.{2}".format(
-            args.out_dir, args.prefix, DataKeys.MANIFOLD_ROOT)
-        
-        get_cluster_bed_files(
-            results_h5_file,
-            manifold_file_prefix,
-            clusters_key=DataKeys.MANIFOLD_CLUST)
-        extract_significant_pwms(
-            results_h5_file,
-            args.pwm_list,
-            clusters_key=DataKeys.MANIFOLD_CLUST,
-            pwm_sig_global_key=DataKeys.MANIFOLD_PWM_SIG_GLOBAL,
-            pwm_scores_agg_global_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_GLOBAL,
-            pwm_sig_clusters_key=DataKeys.MANIFOLD_PWM_SIG_CLUST,
-            pwm_sig_clusters_all_key=DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL,
-            pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
-
-    args.visualize_R = [] # TODO remove
-    if len(args.visualize_R) > 0:
-        visualize_clustered_features_R(
-            results_h5_file,
-            data_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
-            clusters_key=DataKeys.MANIFOLD_CLUST)
-        visualize_clustered_outputs_R(
-            results_h5_file,
-            args.visualize_R)
-        visualize_significant_pwms_R(
-            results_h5_file,
-            pwm_scores_agg_clusters_key=DataKeys.MANIFOLD_PWM_SCORES_AGG_CLUST)
-
-    if len(args.visualize_multikey_R) > 0:
-        visualize_multikey_outputs_R(
-            results_h5_file,
-            args.visualize_multikey_R)
-
-    # DMIM ANALYSES
-    if args.foreground_targets is not None:
-
-        # reminder - there's `sig_pwms` full vector.
-        
-        for i in xrange(len(args.foreground_targets)):
-
-            print args.foreground_targets[i]
-            
-            # get interacting motifs for this task
-            # use target key and index to select sig pwms to look at
-            run_permutation_dmim_score_test(
-                results_h5_file,
-                args.foreground_targets[i][0],
-                args.foreground_targets[i][1],
-                sig_pwms,
-                args.sig_pwms_key)
-            
-
-    quit()
-
-
-    
-    if True:
-        get_interacting_motifs(
-            results_h5_file,
-            DataKeys.MANIFOLD_CLUST, # <- figure out what goes here - sig pwms, but sig only for each task
-            DataKeys.DMIM_SIG_RESULTS) # <- figure out what goes here
-
-    # and plot these out with R
-    if False:
-        visualize_interacting_motifs_R(
-            results_h5_file,
-            DataKeys.DMIM_SIG_RESULTS)
-
-    # TODO also run sig analysis on the logit output? how to integrate this information?
-
-    
-    # and then build hierarcy
-    paths = get_motif_hierarchies(
+    # add in PWM names to the datasets
+    add_pwm_names_to_h5(
         results_h5_file,
-        DataKeys.DMIM_SIG_RESULTS,
-        DataKeys.FEATURES,
-        extra_keys = [
-            "ATAC_SIGNAL.NORM",
-            "H3K27ac_SIGNAL.NORM",
-            "H3K4me1_SIGNAL.NORM"])
+        [pwm.name for pwm in args.pwm_list],
+        other_keys=[DataKeys.FEATURES])
 
-    # TODO figure out how to save out paths (as vectors? adjacency?)
-    # to be able to run the synergy calculations
-    
-    # TODO write another function to extract the top, to do MPRA
-    
-    
-    # TODO still do this to show that all motifs have sig effects
-    #get_significant_delta_logit_responses(
-    #    results_h5_file, DataKeys.MANIFOLD_CLUST)
-    
     return None
