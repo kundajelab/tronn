@@ -34,9 +34,12 @@ def run(args):
         test_data_loader = data_loader.remove_training_negatives()
     elif args.use_transfer_splits:
         logging.info("dataset: using train/valid/test splits from transfer model")
-        train_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["train"])
-        validation_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["validation"])
-        test_data_loader = data_loader.filter_for_chromosomes(args.transfer_model["dataset"]["test"])
+        train_data_loader = data_loader.filter_for_chromosomes(
+            args.transfer_model["dataset"]["train"]).remove_genomewide_negatives()
+        validation_data_loader = data_loader.filter_for_chromosomes(
+            args.transfer_model["dataset"]["validation"]).remove_genomewide_negatives()
+        test_data_loader = data_loader.filter_for_chromosomes(
+            args.transfer_model["dataset"]["test"]).remove_training_negatives()
     else:
         logging.info("dataset: generating new folds for train/valid/test")
         split_data_loaders = data_loader.setup_cross_validation_dataloaders(
