@@ -65,7 +65,7 @@ class DataLoader(object):
 
     
     @staticmethod
-    def build_target_filter_function(target_key, target_indices, filter_type="any"):
+    def build_target_filter_function(target_set):
         """build a function for filtering examples based on whether the
         target is positive (in classification, positive label)
 
@@ -77,75 +77,37 @@ class DataLoader(object):
         Returns:
           filter_fn: function to feed to tf.Dataset.filter
         """
+        keys_and_indices = target_set[0]
+        params = target_set[1]
+        reduce_type = params.get("reduce_type", "any")
+        logging.debug("building filter fn for {}".format(target_set))
+            
         def filter_fn(features, labels):
-            if len(target_indices) != 0:
-                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
-            else:
-                filter_targets = features[target_key]
-            if filter_type == "any":
-                reduce_fn = tf.reduce_any
+            filter_targets = []
+            for key, indices in keys_and_indices:
+                if len(indices) != 0:
+                    filter_targets.append(tf.gather(features[key], indices, axis=-1))
+                else:
+                    filter_targets.append(features[key])
+            filter_targets = tf.concat(filter_targets, axis=-1)
+            filter_targets = tf.greater(filter_targets, 0)
+            if reduce_type == "any":
+                passes_filter = tf.reduce_any(filter_targets)
+            elif reduce_type == "all":
+                passes_filter = tf.reduce_all(filter_targets)
+            elif reduce_type == "min":
+                min_count = float(params.get("min", 1))
+                positive_num = tf.reduce_sum(tf.cast(filter_targets, tf.float32))
+                passes_filter = tf.greater_equal(positive_num, min_count)
+            elif reduce_type == "max":
+                max_count = float(params.get("max", filter_targets.get_shape().aslist()[-1]))
+                positive_num = tf.reduce_sum(tf.cast(filter_targets, tf.float32))
+                passes_filter = tf.less_equal(positive_num, max_count)
             else:
                 raise NotImplementedError, "requested filter type not implemented!"
-            passes_filter = reduce_fn(tf.greater(filter_targets, 0))
             return passes_filter
         
         return filter_fn
-
-    
-    @staticmethod
-    def build_singleton_filter_function(target_key, target_indices, min_count=2):
-        """build a function for filtering examples based on whether the
-        example is positive in more than one task. only applies in 
-        multi-task situations
-
-        Args:
-          target_key: the key to the target tensor
-          target_indices: list of indices of targets of interest
-          min_count: how many targets must be positive to pass filter
-
-        Returns:
-          filter_fn: function to feed to tf.Dataset.filter
-        """
-        def filter_fn(features, labels):
-            if len(target_indices) != 0:
-                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
-            else:
-                filter_targets = features[target_key]
-            passes_filter = tf.greater_equal(
-                tf.reduce_sum(filter_targets),
-                min_count)
-            return passes_filter
-        
-        return filter_fn
-
-    
-    @staticmethod
-    def build_fract_accessible_filter_function(target_key, target_indices, max_fract=0.15):
-        """build a function for filtering examples based on whether the
-        example is positive in more than one task. only applies in 
-        multi-task situations
-
-        Args:
-          target_key: the key to the target tensor
-          target_indices: list of indices of targets of interest
-          min_count: how many targets must be positive to pass filter
-
-        Returns:
-          filter_fn: function to feed to tf.Dataset.filter
-        """
-        def filter_fn(features, labels):
-            if len(target_indices) != 0:
-                filter_targets = tf.gather(features[target_key], target_indices, axis=-1)
-            else:
-                filter_targets = features[target_key]
-                
-            passes_filter = tf.less_equal(
-                tf.reduce_mean(filter_targets),
-                max_fract)
-            return passes_filter
-        
-        return filter_fn
-    
     
             
     def build_dataset_dataflow(
@@ -214,18 +176,10 @@ class DataLoader(object):
         
         # filter on specific keys and indices
         if len(filter_targets) != 0:
-            for key, indices in filter_targets:
+            for target_set in filter_targets:
                 dataset = dataset.filter(
-                    DataLoader.build_target_filter_function(
-                        key, indices))
+                    DataLoader.build_target_filter_function(target_set))
                 
-        # filter singletons
-        if len(singleton_filter_targets) >= 1:
-            dataset = dataset.filter(
-                DataLoader.build_singleton_filter_function(
-                    singleton_filter_targets[0][0],
-                    singleton_filter_targets[0][1]))
-            
         # gather labels as needed
         if len(target_indices) > 0:
             dataset = dataset.map(
@@ -374,37 +328,13 @@ class DataLoader(object):
         # filter on specific keys and indices
         if len(filter_targets) != 0:
             filter_idx = 0
-            for key, indices in filter_targets:
+            for filter_set in filter_targets:
                 inputs = DataLoader._queue_filter(
                     inputs,
-                    DataLoader.build_target_filter_function(
-                        key, indices),
+                    DataLoader.build_target_filter_function(filter_set),
                     "targets_filter_{}".format(filter_idx),
                     batch_size)
                 filter_idx += 1
-
-        # filter singletons
-        if len(singleton_filter_targets) >= 1:
-            filter_idx = 0
-            inputs = DataLoader._queue_filter(
-                inputs,
-                DataLoader.build_singleton_filter_function(
-                    singleton_filter_targets[0][0],
-                    singleton_filter_targets[0][1]),
-                "singleton_filter_{}".format(filter_idx),
-                batch_size)
-
-        # FOR SURAG MODELS
-        if False:
-            filter_idx = 0
-            inputs = DataLoader._queue_filter(
-                inputs,
-                DataLoader.build_fract_accessible_filter_function(
-                    "DNASE_LABELS",
-                    [],
-                    max_fract=0.05),
-                "cell_type_specific_filter_{}".format(filter_idx),
-                batch_size)
 
         # gather labels as needed
         if len(target_indices) > 0:
@@ -695,20 +625,30 @@ class H5DataLoader(DataLoader):
     
     def get_num_targets(
             self,
-            targets=[(DataKeys.LABELS, [])],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
             target_indices=[],
             test_file_idx=0):
         """get number of labels
         """
         if len(target_indices) == 0:
-            # need to manually figure out what the joint target set looks like
             num_targets = 0
-            with h5py.File(self.h5_files[test_file_idx], "r") as hf:
-                for key, indices in targets:
-                    if len(indices) != 0:
-                        num_targets += len(indices)
-                    else:
-                        num_targets += hf[key].shape[1]
+            # need to manually figure out what the joint target set looks like
+            for keys_and_indices, params in targets:
+                reduce_type = params.get("reduce_type", "none")
+            if reduce_type == "all":
+                num_targets += 1
+            elif reduce_type == "any":
+                num_targets += 1
+            elif reduce_type == "min":
+                num_targets += 1
+            else:
+                # need to grab the set
+                with h5py.File(self.h5_files[test_file_idx], "r") as hf:
+                    for key, indices in keys_and_indices:
+                        if len(indices) != 0:
+                            num_targets += len(indices)
+                        else:
+                            num_targets += hf[key].shape[1]
         else:
             # the target num is the length of the indices
             num_targets = len(target_indices)
@@ -716,7 +656,7 @@ class H5DataLoader(DataLoader):
         logging.info(
             "Found {} targets across target set(s) {}, finally indexed with {}.".format(
                 num_targets,
-                ";".join([target[0] for target in targets]),
+                ";".join([target[0][0][0] for target in targets]),
                 target_indices))
         
         return num_targets
@@ -728,7 +668,7 @@ class H5DataLoader(DataLoader):
             start_idx,
             batch_size,
             keys_to_load=None,
-            targets=[(DataKeys.LABELS, [])],
+            targets=[],
             target_indices=[]):
         """Get slices from the (open) h5 file back and pad with 
         null sequences as needed to fill the batch.
@@ -778,20 +718,42 @@ class H5DataLoader(DataLoader):
                 slices[key] = np.concatenate([slice_tmp, slice_pad], axis=0)
 
         # concatenate labels
-        labels = []
-        for key, indices in targets:
-            if len(indices) == 0:
-                # no indices, save out all
-                labels.append(slices[key])
+        if len(targets) != 0:
+            labels = []
+
+            for keys_and_indices, params in targets:
+                labels_subset = []
+
+                # pull all the keys and indices into a subset
+                for key, indices in keys_and_indices:
+                    if len(indices) == 0:
+                        labels_subset.append(slices[key])
+                    else:
+                        labels_subset.append(slices[key][:, indices])
+                labels_subset = np.concatenate(labels_subset, axis=1)
+
+                # then reduce as needed
+                reduce_type = params.get("reduce_type", "none")
+                if reduce_type == "all":
+                    labels_subset = np.all(labels_subset, axis=1)
+                elif reduce_type == "any":
+                    labels_subset = np.any(labels_subset, axis=1)
+                elif reduce_type == "none":
+                    labels_subset = labels_subset
+                else:
+                    raise ValueError, "reduce type not recognized!"
+                    
+                # then append to labels
+                labels.append(labels_subset)
+
+            # concatenate them all
+            labels = np.concatenate(labels, axis=1)
+
+            # and finally, adjust for the target_indices
+            if len(target_indices) != 0:
+                slices[DataKeys.LABELS] = labels[:, target_indices]
             else:
-                labels.append(slices[key][:, indices])
-        labels = np.concatenate(labels, axis=1)
-                
-        # and finally, adjust for the target_indices
-        if len(target_indices) != 0:
-            slices[DataKeys.LABELS] = labels[:, target_indices]
-        else:
-            slices[DataKeys.LABELS] = labels
+                slices[DataKeys.LABELS] = labels
 
         return slices
 
@@ -903,7 +865,7 @@ class H5DataLoader(DataLoader):
             task_indices=[],
             keys=[],
             skip_keys=[],
-            targets=[(DataKeys.LABELS, [])],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
             target_indices=[],
             examples_subset=[],
             seq_len=1000,
