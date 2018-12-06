@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 
-'''
+"""
 description: script to use for those who also
 have joint RNA data to help filter their results
 from `tronn scanmotifs`
 
+Key params used here:
 
+- correlation
 
-'''
+"""
 
 import os
 import sys
@@ -45,20 +47,22 @@ def parse_args():
         required=True,
         help="dataset with motif scans")
     parser.add_argument(
-        "--pvals_file", required=True,
+        "--pvals_file",
+        required=True,
         help="h5 file with pvals for pwms")
     parser.add_argument(
-        "--pvals_key", default="pvals",
-        help="pvals key")
-    
-    parser.add_argument(
-        "--pwm_file", required=True,
+        "--pwm_file",
+        required=True,
         help="pwm file to filter")
     parser.add_argument(
-        "--pwm_metadata_file", required=True,
+        "--pwm_metadata_file",
+        required=True,
         help="metadata file, requires 1 column with PWM names and the other with gene ids OR genes present")
 
     # options
+    parser.add_argument(
+        "--pvals_key", default="pvals",
+        help="pvals key")
     parser.add_argument(
         "--pwm_scores_key", default=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
         help="scores key in the hdf5 file")
@@ -69,21 +73,18 @@ def parse_args():
         "--pwm_metadata_hgnc_col_key", default="expressed_hgnc",
         help="which column has the TF presence information")
     parser.add_argument(
-        "--qval_thresh", default=0.05, type=float,
-        help="qval threshold")
-    parser.add_argument(
-        "--cor_thresh", type=float,
+        "--cor_thresh", type=float, default=0.75,
         help="pwm score/rna expression correlation threshold")
+    parser.add_argument(
+        "--other_targets",
+        nargs="+",
+        default=[DataKeys.LOGITS],
+        help="other keys and indices that are relevant")
     
     # for second stage
     parser.add_argument(
         "--rna_expression_file",
         help="RNA file if adding in RNA expression information")
-
-    # other things to visualize
-    parser.add_argument(
-        "--other_targets", nargs="+",
-        help="other keys and indices that are relevant")
     
     # other
     parser.add_argument(
@@ -96,7 +97,7 @@ def parse_args():
     
     return args
 
-
+# TODO move this to util/scripts
 def _parse_to_key_and_indices(key_strings):
     """given an arg string list, parse out into a dict
     assumes a format of: key=indices
@@ -152,16 +153,12 @@ def main():
     args = parse_args()
     os.system("mkdir -p {}".format(args.out_dir))
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
-    
+
+    # set up other targets to load
     args.other_targets = _parse_to_key_and_indices(args.other_targets)
 
     # set up dataloader
     data_loader = H5DataLoader(data_files=args.dataset_files)
-    
-    # set up out dir and out file
-
-
-
 
     # read in pwms and metadata file, get expression info from column
     pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
@@ -169,15 +166,13 @@ def main():
     tf_expressed = pwm_metadata[args.pwm_metadata_expr_col_key].notnull().values
     
     # STAGE 1 - filter for expressed
-    out_file = "{}/pvals.rna_filt.h5".format(args.out_dir)
+    expr_pvals_file = "{}/pvals.rna_filt.h5".format(args.out_dir)
 
     # get groups
     with h5py.File(args.pvals_file, "r") as hf:
         foregrounds_strings = hf[args.pvals_key].attrs["foregrounds"]
         foreground_keys = hf[args.pvals_key].keys()
     foregrounds = parse_multi_target_selection_strings(foregrounds_strings)
-
-    print foreground_keys
         
     # check each foreground
     for foreground_idx in xrange(len(foreground_keys)):
@@ -196,7 +191,7 @@ def main():
             tf_expressed)
 
         # save out with attributes
-        with h5py.File(out_file, "a") as out:
+        with h5py.File(expr_pvals_file, "a") as out:
             out.create_dataset(sig_pwms_key, data=sig_pwms_filt)
             out[sig_pwms_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
             out[sig_pwms_key].attrs["ensembl_ids"] = pwm_metadata[
@@ -209,21 +204,18 @@ def main():
             "{}: After filtering for expressed TFs, got {} motifs (from {})".format(
                 sig_pwms_key, np.sum(sig_pwms_filt), np.sum(old_sig_pwms)))
 
-
     # STAGE 2 - correlation information
-    #cor_group_key = "{}.corr_filt".format(expr_group_key)
-    corr_out_file = "{}/pvals.rna_filt.corr_filt.h5".format(args.out_dir)
+    corr_pvals_file = "{}/pvals.rna_filt.corr_filt.h5".format(args.out_dir)
     
     # read in RNA matrix
     rna_patterns = pd.read_table(args.rna_expression_file)
     rna_patterns["ensembl_ids"] = rna_patterns.index
     
     # get foregrounds
-    # TODO adjust this to grab from new out file
-    with h5py.File(args.pvals_file, "r") as hf:
-        foregrounds = hf[args.pvals_key].attrs["foregrounds"]
+    with h5py.File(expr_pvals_file, "r") as hf:
+        foregrounds_strings = hf[args.pvals_key].attrs["foregrounds"]
         foreground_keys = hf[args.pvals_key].keys()
-    foregrounds = parse_multi_target_selection_strings(foregrounds)
+    foregrounds = parse_multi_target_selection_strings(foregrounds_strings)
     
     # extract scores for that target to save into patterns
     other_targets = {}
@@ -243,7 +235,7 @@ def main():
         # get sig pwms
         sig_pwms_key = "{}/{}/sig".format(
             args.pvals_key, foreground_key)
-        with h5py.File(out_file, "r") as hf:
+        with h5py.File(expr_pvals_file, "r") as hf:
             old_sig_pwms = hf[sig_pwms_key][:]
             pwm_names = hf[sig_pwms_key].attrs[AttrKeys.PWM_NAMES]
             ensembl_ids = hf[sig_pwms_key].attrs["ensembl_ids"]
@@ -253,6 +245,7 @@ def main():
         example_scores = pwm_scores[foreground_indices]
         pwm_patterns = np.sum(example_scores, axis=0).transpose()
         # REMOVE LATER
+        logging.info("WARNING GGR SPECIFIC ADJUSTMENT HERE")
         pwm_patterns = pwm_patterns[:,[0,2,3,4,5,6,7,8,9]]
         # add in all necessary information to pwm patterns (convert to dataframe)
         pwm_patterns = pd.DataFrame(pwm_patterns, index=pwm_names)
@@ -314,7 +307,7 @@ def main():
         rna_patterns_key = "{}/rna_patterns".format(subgroup_key)
         cor_key = "{}/correlations".format(subgroup_key)
 
-        with h5py.File(corr_out_file, "a") as hf:
+        with h5py.File(corr_pvals_file, "a") as hf:
             # datasets
             hf.create_dataset(new_sig_pwms_key, data=new_sig_pwms)
             hf.create_dataset(pwm_patterns_key, data=pwm_patterns_vals.values)
@@ -325,6 +318,7 @@ def main():
             hf[subgroup_key].attrs["ensembl_ids"] = pwm_patterns["ensembl_ids"].values.astype(str)
             hf[subgroup_key].attrs["hgnc_ids"] = pwm_patterns.index.values.astype(str)
             hf[subgroup_key].attrs["pwm_names"] = pwm_patterns["pwm_names"].values.astype(str)
+            hf[subgroup_key].attrs["foregrounds"] = foregrounds_strings
 
             # other keys - keep to a separate subgroup
             for key in subset_targets.keys():
@@ -336,7 +330,7 @@ def main():
                 new_sig_pwms_key, np.sum(new_sig_pwms), np.sum(old_sig_pwms)))
 
     # and plot
-    plot_cmd = "plot-h5.pwm_x_rna.R {} {}".format(corr_out_file, args.pvals_key)
+    plot_cmd = "plot-h5.pwm_x_rna.R {} {}".format(corr_pvals_file, args.pvals_key)
     print plot_cmd
     os.system(plot_cmd)
     

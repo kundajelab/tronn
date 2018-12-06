@@ -176,6 +176,8 @@ def run_delta_permutation_test(
     p = Pool(num_threads)
     shuffles = p.map(_flip_values_randomly, [array]*num_shuffles)
     results = np.stack(shuffles, axis=0)
+    p.close()
+    p.join()
     
     # calculate pvals
     pvals = get_pvals_from_delta_shuffles(

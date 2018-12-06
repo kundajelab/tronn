@@ -30,33 +30,26 @@ def build_gc_matched_bins(
     
     Returns:
       indices to use for pulling a GC background out
-
     """
     # get intervals
-    num_increments = 1. /  increment
+    num_increments = 1. / increment
     sorted_gc = np.sort(gc_array) # use this for intervals
     intervals = np.interp(
         np.linspace(0, len(sorted_gc), num=int(num_increments)+1),
         range(len(sorted_gc)),
         sorted_gc)
-
-    # set up a struct to keep indexes for different bins
-    binned_indices = []
-
+    
     # go through bins and collect sequences
+    binned_indices = []
     for i in xrange(len(intervals)-1):
         range_min = intervals[i]
         range_max = intervals[i+1]
-
         background_indices = np.where(
             (background_gc_array >= range_min) &
             (background_gc_array < range_max))[0]
-
-        # maintain the list
         binned_indices.append(background_indices)
         
     return binned_indices
-
 
 
 def build_gc_matched_background(
@@ -91,214 +84,6 @@ def build_gc_matched_background(
                 [all_background_indices, background_indices])
 
     return all_background_indices
-
-
-
-def run_hypergeometric_test_on_motif_hits(
-        positives_h5_file,
-        background_h5_file,
-        target_key,
-        target_indices=[],
-        pwm_hits_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
-        pwm_names_key=AttrKeys.PWM_NAMES,
-        gc_key=DataKeys.GC_CONTENT,
-        gc_increment=0.05):
-    """
-    """
-    with h5py.File(positives_h5_file, "r") as hf:
-        targets = hf[target_key][:]
-        positives_gc = hf[gc_key][:]
-        positive_hits = (hf[pwm_hits_key][:] > 0).astype(int)
-        pwm_names = hf[pwm_hits_key].attrs[pwm_names_key]
-        
-    with h5py.File(background_h5_file, "r") as hf:
-        background_gc = hf[gc_key][:]
-        background_hits = (hf[pwm_hits_key][:] > 0).astype(int)
-
-    # adjust target indices
-    if len(target_indices) == 0:
-        target_indices = range(targets.shape[1])
-
-    # results array {target_indices, task, M}
-    pvals = np.ones([len(target_indices)] + list(positive_hits.shape[1:]))
-        
-    # iterate through
-    for i in xrange(len(target_indices)):
-        target_idx = target_indices[i]
-        subset_indices = np.where(targets[:,target_idx] > 0)[0]
-
-        subset =  positive_hits[subset_indices]
-        subset_gc = positives_gc[subset_indices]
-        
-        background_gc_bins = build_gc_matched_bins(
-            subset_gc,
-            background_gc,
-            increment=gc_increment)
-
-        num_per_bin = int(subset.shape[0] * gc_increment) + 50
-
-        background_indices = build_gc_matched_background(
-            background_gc_bins,
-            num_per_bin,
-            rand_state=RandomState(0))
-        
-        matched_background = background_hits[background_indices]
-
-        for task_idx in xrange(subset.shape[1]):
-            # and run test
-            pvals[i,task_idx,:] = run_hypergeometric_test(
-                subset[:,task_idx,:],
-                matched_background[:,task_idx,:])
-
-    positive_hits_summed = np.sum(positive_hits, axis=0)
-
-    import ipdb
-    ipdb.set_trace()
-
-    # TODO - like homer would also be nice to keep fract of sites the hits exist
-    
-
-    return pvals
-
-
-def run_bootstrap_differential_score_test_OLD(
-        foreground_h5_file,
-        background_h5_file,
-        foreground_targets_key,
-        foreground_targets_indices, # TODO make this optional
-        background_targets_key,
-        background_targets_indices, # TODO make this optional
-        pwm_hits_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
-        pwm_names_key=AttrKeys.PWM_NAMES,
-        gc_key=DataKeys.GC_CONTENT,
-        gc_increment=0.05,
-        num_bootstraps=1000,
-        qval_thresh=0.05,
-        reduce_sig_type="any",
-        out_key=DataKeys.PWM_DIFF_GROUP):
-    """run a differential test using bootstraps of background set
-    """
-    # get background info: targets, GC content, scores
-    with h5py.File(background_h5_file, "r") as hf:
-        background_targets = hf[background_targets_key][:] # {N, target}
-        background_gc = hf[gc_key][:] # {N}
-        background_hits = hf[pwm_hits_key][:] # {N, task, M}
-
-    # adjust indices and filter
-    if len(background_targets_indices) == 0:
-        background_targets_indices = range(background_targets.shape[1])
-    background_targets = background_targets[:,background_targets_indices]
-        
-    # get foreground info: targets, GC content, scores
-    with h5py.File(foreground_h5_file, "r") as hf:
-        foreground_targets = hf[foreground_targets_key][:] # {N, target}
-        foreground_gc = hf[gc_key][:] # {N}
-        foreground_hits = hf[pwm_hits_key][:] # {N, task, M}
-        pwm_names = hf[pwm_hits_key].attrs[pwm_names_key] # {M}
-
-    # adjust indices and filter
-    if len(foreground_targets_indices) == 0:
-        foreground_targets_indices = range(foreground_targets.shape[1])        
-    foreground_targets = foreground_targets[:,foreground_targets_indices]
-
-    # if using hits from orig seq, adjust
-    if pwm_hits_key == DataKeys.ORIG_SEQ_PWM_SCORES_SUM:
-        background_hits = np.any(background_hits != 0, axis=1, keepdims=True).astype(int)
-        background_targets = np.any(background_targets != 0, axis=1, keepdims=True).astype(int)
-        foreground_hits = (foreground_hits != 0).astype(int)
-
-    # make sure the columns match each other
-    assert foreground_hits.shape[1] == background_targets.shape[1]
-    
-    # and iterate through for each set
-    raw_pvals = np.ones([foreground_targets.shape[1]] + list(foreground_hits.shape[1:]))
-    for foreground_idx in xrange(foreground_targets.shape[1]):
-        logging.info("Running foreground {}".format(foreground_idx))
-        
-        # get foreground and foreground GC
-        current_foreground_indices = np.where(
-            foreground_targets[:,foreground_idx] > 0)[0]
-        current_foreground_hits = foreground_hits[current_foreground_indices]
-        current_foreground_gc = foreground_gc[current_foreground_indices]
-        
-        # iterate through the cell states (since you want matched backgrounds
-        # accessible in each cell state)
-        for task_idx in xrange(current_foreground_hits.shape[1]):
-            logging.info("Running task {}".format(task_idx))
-            
-            # get subset
-            task_foreground_hits = current_foreground_hits[:,task_idx] # {N, M}
-            
-            # set up background set - only draw from positives!
-            task_background_indices = np.where(
-                background_targets[:,task_idx] > 0)[0]
-            task_background_hits = background_hits[task_background_indices][:,task_idx] # {N, M}
-            task_background_gc = background_gc[task_background_indices]
-            
-            # set up GC matched bins
-            background_gc_bins = build_gc_matched_bins(
-                current_foreground_gc,
-                task_background_gc,
-                increment=gc_increment)
-            num_per_bin = int(task_foreground_hits.shape[0] * gc_increment)
-            
-            # set up boostrapped background sets
-            matched_backgrounds = []
-            for i in xrange(num_bootstraps):
-                background_indices = build_gc_matched_background(
-                    background_gc_bins,
-                    num_per_bin,
-                    rand_state=RandomState(i))
-                matched_background = task_background_hits[background_indices] # {N, M}
-                matched_background = np.mean(matched_background, axis=0) # {M}
-                matched_backgrounds.append(matched_background) # list of {M}
-            matched_backgrounds = np.stack(matched_backgrounds, axis=0) # {bootstraps, M}
-            
-            # subtract from each other
-            score_minus_background = np.subtract(
-                np.mean(np.expand_dims(task_foreground_hits, axis=0), axis=1),
-                matched_backgrounds)
-
-            # and then determine how often the diff is 0 or less
-            raw_pvals[foreground_idx, task_idx] = np.mean(score_minus_background <= 0, axis=0)
-            
-    # and save the pvals to the h5 file
-    with h5py.File(foreground_h5_file, "a") as hf:
-        pvals_key = "{}/{}/{}".format(
-            out_key, foreground_targets_key, DataKeys.PWM_PVALS)
-        if hf.get(pvals_key) is not None:
-            del hf[pvals_key]
-        hf.create_dataset(pvals_key, data=raw_pvals)
-        hf[pvals_key].attrs[AttrKeys.TASK_INDICES] = foreground_targets_indices
-        hf[pvals_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
-    
-    # figure out which ones pass a qval thresh
-    pass_qval_thresh = threshold_by_qvalues(
-        raw_pvals, qval_thresh=qval_thresh, num_bins=50)
-
-    # TODO save out the full pass threshold array {task, M}?
-    # ^ this is most useful if adjusting edges across time
-    
-    # then save each out to a different vector for easy use downstream
-    # NOTE: the path to the vectors is pwms.differential/{targets_key}/{idx}/pwms.sig
-    # example: pwms.differential/TRAJ_LABELS/1/pwms.sig
-    if reduce_sig_type == "any":
-        reduce_fn = np.any
-    else:
-        reduce_fn = np.all
-    group_key = "{}/{}".format(out_key, foreground_targets_key)
-    for i in xrange(pass_qval_thresh.shape[0]):
-        foreground_idx = foreground_targets_indices[i]
-        sig_pwms_key = "{}/{}/{}".format(
-            group_key, foreground_idx, DataKeys.PWM_SIG_ROOT)
-        sig_pwms = reduce_fn(pass_qval_thresh[i], axis=0) # {M}
-        with h5py.File(foreground_h5_file, "a") as hf:
-            if hf.get(sig_pwms_key) is not None:
-                del hf[sig_pwms_key]
-            hf.create_dataset(sig_pwms_key, data=sig_pwms)
-            hf[sig_pwms_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
-    
-    return None
 
 
 def _boostrap_gc_matched_backgrounds(
@@ -359,55 +144,8 @@ def test_differential_motifs(
     
     # and then determine how often the diff is 0 or less
     pvals = np.mean(score_minus_background <= 0, axis=0)
-
-    print np.sum(threshold_by_qvalues(
-        pvals, qval_thresh=0.05, num_bins=50))
     
-    #import ipdb
-    #ipdb.set_trace()
-    
-    if True:
-        return pvals
-
-    # and save the pvals to the h5 file
-    # TODO save out to new h5 file
-    with h5py.File(foreground_h5_file, "a") as hf:
-        pvals_key = "{}/{}/{}".format(
-            out_key, foreground_targets_key, DataKeys.PWM_PVALS)
-        if hf.get(pvals_key) is not None:
-            del hf[pvals_key]
-        hf.create_dataset(pvals_key, data=raw_pvals)
-        hf[pvals_key].attrs[AttrKeys.TASK_INDICES] = foreground_targets_indices
-        hf[pvals_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
-    
-    # figure out which ones pass a qval thresh
-    pass_qval_thresh = threshold_by_qvalues(
-        raw_pvals, qval_thresh=qval_thresh, num_bins=50)
-
-    # TODO save out the full pass threshold array {task, M}?
-    # ^ this is most useful if adjusting edges across time
-    
-    # then save each out to a different vector for easy use downstream
-    # NOTE: the path to the vectors is pwms.differential/{targets_key}/{idx}/pwms.sig
-    # example: pwms.differential/TRAJ_LABELS/1/pwms.sig
-    if reduce_sig_type == "any":
-        reduce_fn = np.any
-    else:
-        reduce_fn = np.all
-    group_key = "{}/{}".format(out_key, foreground_targets_key)
-    for i in xrange(pass_qval_thresh.shape[0]):
-        foreground_idx = foreground_targets_indices[i]
-        sig_pwms_key = "{}/{}/{}".format(
-            group_key, foreground_idx, DataKeys.PWM_SIG_ROOT)
-        sig_pwms = reduce_fn(pass_qval_thresh[i], axis=0) # {M}
-        with h5py.File(foreground_h5_file, "a") as hf:
-            if hf.get(sig_pwms_key) is not None:
-                del hf[sig_pwms_key]
-            hf.create_dataset(sig_pwms_key, data=sig_pwms)
-            hf[sig_pwms_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
-    
-    return None
-
+    return pvals
 
 
 def get_sig_pwm_vector(
@@ -462,7 +200,7 @@ def copy_sig_pwm_vectors_to_h5(
     return None
 
 
-
+# TODO deprecate
 def select_pwms_by_permutation_test_and_reduce(
         array,
         pwm_list,
@@ -521,16 +259,6 @@ def select_task_pwms(array, pwm_list, hclust):
             task_data, pwm_list, hclust)
         
     return sig_pwms
-
-
-def refine_sig_pwm_clusters(clusters):
-    """adjust clusters
-    """
-    # TODO if needed
-
-    
-
-    return
 
 
 # TODO consider deprecating this
