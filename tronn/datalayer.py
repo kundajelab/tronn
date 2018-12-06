@@ -635,20 +635,20 @@ class H5DataLoader(DataLoader):
             # need to manually figure out what the joint target set looks like
             for keys_and_indices, params in targets:
                 reduce_type = params.get("reduce_type", "none")
-            if reduce_type == "all":
-                num_targets += 1
-            elif reduce_type == "any":
-                num_targets += 1
-            elif reduce_type == "min":
-                num_targets += 1
-            else:
-                # need to grab the set
-                with h5py.File(self.h5_files[test_file_idx], "r") as hf:
-                    for key, indices in keys_and_indices:
-                        if len(indices) != 0:
-                            num_targets += len(indices)
-                        else:
-                            num_targets += hf[key].shape[1]
+                if reduce_type == "all":
+                    num_targets += 1
+                elif reduce_type == "any":
+                    num_targets += 1
+                elif reduce_type == "min":
+                    num_targets += 1
+                else:
+                    # need to grab the set
+                    with h5py.File(self.h5_files[test_file_idx], "r") as hf:
+                        for key, indices in keys_and_indices:
+                            if len(indices) != 0:
+                                num_targets += len(indices)
+                            else:
+                                num_targets += hf[key].shape[1]
         else:
             # the target num is the length of the indices
             num_targets = len(target_indices)
