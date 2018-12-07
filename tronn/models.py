@@ -946,7 +946,11 @@ class EnsembleModelManager(ModelManager):
         self.models = models
 
 
-    def _build_ensemble_model_fn(self, models, merge_outputs=True):
+    def _build_ensemble_model_fn(
+            self,
+            models,
+            merge_outputs=True,
+            produce_confidence_interval=True):
         """builds an ensemble model fn based on model list
         """
         def ensemble_model_fn(inputs, params):
@@ -962,10 +966,17 @@ class EnsembleModelManager(ModelManager):
                 with tf.variable_scope(new_scope):
                     model_outputs, _ = model_fn(inputs, params)
                 all_logits.append(model_outputs[DataKeys.LOGITS])
+            logits = tf.stack(all_logits, axis=1) # {N, model, task}
 
+            # generate a CI (assume normal distr)
+            if produce_confidence_interval:
+                pass
+            
             # reduce if requested and save out to outputs
             if merge_outputs:
-                logits = tf.reduce_mean(tf.stack(all_logits, axis=1), axis=1)
+                # TODO set up fixed term here for saving
+                outputs["logits.multimodel"] = logits
+                logits = tf.reduce_mean(logits, axis=1)
             outputs[DataKeys.LOGITS] = logits
 
             return outputs, params
