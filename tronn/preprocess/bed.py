@@ -175,7 +175,7 @@ def bin_regions_sharded(
             fields = line.strip().split('\t')
             chrom, start, stop = fields[0], int(fields[1]), int(fields[2])
             if len(fields) > 3:
-                metadata = "{};".format(fields[3])
+                metadata = "metadata={};".format(fields[3])
             else:
                 metadata = ""
 
@@ -200,7 +200,7 @@ def bin_regions_sharded(
                 with gzip.open(out_file, 'a') as out:
                     out.write((
                         "{0}\t{1}\t{2}\t"
-                        "{3};{4};{5};{6}\n").format(
+                        "{3}{4};{5};{6}\n").format(
                             chrom,
                             adjusted_start,
                             adjusted_start + bin_size,
