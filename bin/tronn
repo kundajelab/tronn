@@ -240,6 +240,7 @@ def _setup_dataset_args(args):
     # load targets from json if not given
     if args.targets is None:
         args.targets = args.dataset_json.get("targets")
+        print args.targets
     else:
         args.targets = parse_multi_target_selection_strings(
             args.targets)
