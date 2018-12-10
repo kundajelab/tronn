@@ -735,9 +735,9 @@ class H5DataLoader(DataLoader):
                 # then reduce as needed
                 reduce_type = params.get("reduce_type", "none")
                 if reduce_type == "all":
-                    labels_subset = np.all(labels_subset, axis=1)
+                    labels_subset = np.all(labels_subset, axis=1, keepdims=True)
                 elif reduce_type == "any":
-                    labels_subset = np.any(labels_subset, axis=1)
+                    labels_subset = np.any(labels_subset, axis=1, keepdims=True)
                 elif reduce_type == "none":
                     labels_subset = labels_subset
                 else:
