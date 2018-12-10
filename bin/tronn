@@ -238,16 +238,15 @@ def _setup_dataset_args(args):
         args.dataset_json = {}
 
     # load targets from json if not given
-    if args.targets is None:
-        args.targets = args.dataset_json.get("targets")
-        print args.targets
+    if len(args.targets) == 0:
+        args.targets = args.dataset_json.get("targets", [])
     else:
         args.targets = parse_multi_target_selection_strings(
             args.targets)
 
     # load filter targets from json if not given
-    if args.filter_targets is None:
-        args.filter_targets = args.dataset_json.get("filter_targets")
+    if len(args.filter_targets) == 0:
+        args.filter_targets = args.dataset_json.get("filter_targets", [])
     else:
         args.filter_targets = parse_multi_target_selection_strings(
             args.filter_targets)
