@@ -62,7 +62,7 @@ class DataKeys(object):
     WEIGHTED_PWM_SCORES_POSITION_MAX_IDX = "{}.max.idx".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT = "{}.max.val.mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT = "{}.max.idx.mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
-
+    NULL_PWM_POSITION_INDICES = "{}.null.idx".format(PWM_SCORES_ROOT)
     
     # significant pwms
     PWM_DIFF_GROUP = "pwms.differential"

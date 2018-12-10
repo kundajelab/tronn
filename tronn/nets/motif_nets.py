@@ -448,8 +448,9 @@ def get_pwm_scores(inputs, params):
     # features coming out: the summed weighted scores
     outputs[DataKeys.FEATURES] = outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] # {N, task, M}
 
-    # get max positions and values (for downstream analyses)
+    # get max positions and values (for downstream analyses), also null positions
     outputs, _ = get_pwm_max_vals_and_positions(outputs, params)
+    outputs, _ = get_pwm_null_positions(outputs, params)
     
     # filter for just those with a motif present
     outputs, _ = filter_by_any_motif_present(outputs, params)
@@ -482,6 +483,68 @@ def get_pwm_max_vals_and_positions(inputs, params):
     outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, M, 1}
     outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, M, 1}
 
+    return outputs, params
+
+
+def get_pwm_null_positions(inputs, params):
+    """extract positions that are null (exactly zero) across the PWMs tested
+
+    might be better to do this on importance scores?
+    actually though in practice i am selecting positions based on pwms
+    """
+    assert inputs.get(DataKeys.WEIGHTED_SEQ_PWM_SCORES) is not None
+    
+    # get features
+    features = inputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES] # {N, task, pos, M}    
+    outputs = dict(inputs)
+    min_pos = params.get("null_k", 10)
+    
+    # get real null positions
+    real_null_features = tf.equal(features, 0) # {N, task, pos, M}
+    real_null_features = tf.reduce_all(real_null_features, axis=[1,3]) # {N, pos}
+    num_null = tf.reduce_sum(tf.cast(real_null_features, tf.float32), axis=1) # {N}
+    #outputs["real_null"] = real_null_features
+    #outputs["num_null"] = num_null
+
+    # get pseudo null positions (smallest total pwm score)
+    pseudo_null_features = tf.reduce_min(tf.abs(features), axis=1) # {N, pos, M}
+    pseudo_null_features = tf.reduce_sum(pseudo_null_features, axis=2) # {N, pos}
+    pseudo_null_features = tf.equal(
+        pseudo_null_features,
+        tf.reduce_min(pseudo_null_features, axis=1, keepdims=True)) # {N, pos}
+    #outputs["pseudo_null"] = pseudo_null_features
+
+    # select depending on num null
+    features = tf.where(
+        tf.greater(num_null, 0),
+        x=real_null_features,
+        y=pseudo_null_features)
+
+    def select_null_positions(null_features):
+        """use this on single examples (ie, need to combine this with map fn)
+        """
+        # null features {pos}
+        null_indices = tf.where(null_features) # {some positions}
+        chosen_null_indices = []
+        for i in range(min_pos):
+            null_indices = tf.random_shuffle(null_indices)
+            chosen_null_indices.append(null_indices[0])
+        chosen_null_indices = tf.concat(chosen_null_indices, axis=0)
+        return chosen_null_indices
+
+    # use map fn to select null positions
+    null_indices = tf.map_fn(
+        select_null_positions,
+        features,
+        dtype=tf.int64) # {N, pos}
+
+    # adjust for clipping
+    if params.get("left_clip") is not None:
+        null_indices = tf.add(null_indices, params["left_clip"])
+
+    null_indices = tf.expand_dims(null_indices, axis=2)
+    outputs[DataKeys.NULL_PWM_POSITION_INDICES] = null_indices # {N, null, 1}
+    
     return outputs, params
 
 
