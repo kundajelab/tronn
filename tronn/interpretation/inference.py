@@ -20,6 +20,8 @@ def _setup_input_skip_keys(args):
             DataKeys.ORIG_SEQ_PWM_SCORES,
             DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
             DataKeys.ORIG_SEQ_SHUF_PWM_SCORES,
+            DataKeys.ORIG_SEQ_PWM_DENSITIES,
+            DataKeys.ORIG_SEQ_PWM_MAX_DENSITIES,
             DataKeys.WEIGHTED_SEQ_SHUF,
             DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
             DataKeys.WEIGHTED_SEQ_PWM_HITS,
