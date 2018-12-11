@@ -60,8 +60,8 @@ class DataKeys(object):
     # pwm positions
     WEIGHTED_PWM_SCORES_POSITION_MAX_VAL = "{}.max.val".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_PWM_SCORES_POSITION_MAX_IDX = "{}.max.idx".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
-    WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT = "{}.max.val.mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
-    WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT = "{}.max.idx.mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
+    WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT = "{}.max.val.motif_mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
+    WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT = "{}.max.idx.motif_mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     NULL_PWM_POSITION_INDICES = "{}.null.idx".format(PWM_SCORES_ROOT)
     
     # significant pwms
@@ -100,8 +100,10 @@ class DataKeys(object):
     MUT_MOTIF_PRESENT = "{}.motif_mut_present".format(ORIG_SEQ)
     MUT_MOTIF_LOGITS = "{}.motif_mut".format(LOGITS)
     DFIM_SCORES = "{}.delta".format(MUT_MOTIF_WEIGHTED_SEQ)
+    DFIM_SCORES_DX = "{}.delta.dx".format(MUT_MOTIF_WEIGHTED_SEQ)
 
     # dmim agg results keys
+    DMIM_SCORES = "dmim.motif_mut.scores"
     DMIM_DIFF_GROUP = "dmim.differential"
     DMIM_PVALS = "dmim.pvals"
     DMIM_SIG_ROOT = "dmim.sig"

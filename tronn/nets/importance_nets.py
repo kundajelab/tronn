@@ -653,7 +653,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             outputs[DataKeys.MUT_MOTIF_POS]), axis=[2,3,4])
 
         # can keep this separate for now
-        outputs["dx"] = tf.subtract(mut_x, orig_x)
+        outputs[DataKeys.DFIM_SCORES_DX] = tf.subtract(mut_x, orig_x)
         
         # zero out the ones that shouldn't have responded
         # they already give low responses, but easiest to just zero them out
@@ -686,7 +686,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         
         # Q: is there a way to get the significance of a delta score even here?
         # ie, what is the probability of a delta score by chance?
-
+        
         return outputs, params
     
     
