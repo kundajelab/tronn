@@ -129,7 +129,9 @@ class FeatureImportanceExtractor(object):
         reuse = params.get("model_reuse", True) 
         with tf.variable_scope("", reuse=reuse):
             logging.info("Calling model fn")
-            params.update({"num_tasks": params["model"].model_params["num_tasks"]})
+            params.update({
+                "num_tasks": params["model"].model_params["num_tasks"],
+                "is_inferring": True})
             model_outputs, params = self.model_fn(inputs, params)
         
         # gather anchors
@@ -436,94 +438,151 @@ class IntegratedGradients(InputxGrad):
 class DeepLift(FeatureImportanceExtractor):
     """deep lift for sequence"""
 
-
+    
     @classmethod
-    def get_diff_from_ref(features, shuffle_num=7):
+    def get_diff_from_ref(cls, activations, num_shuffles):
         """Get the diff from reference, but maintain batch
         only remove shuffles at the end of the process. For deeplift
         """
-        batch_size = features.get_shape().as_list()[0]
-        assert batch_size % (shuffle_num + 1) == 0
-
-        example_num = batch_size / (shuffle_num + 1)
-
-        # unstack to get diff from ref
-        features = [tf.expand_dims(example, axis=0)
-                    for example in tf.unstack(features, axis=0)]
+        # get actual example num
+        batch_size = activations.get_shape().as_list()[0]
+        assert batch_size % (num_shuffles + 1) == 0
+        example_num = batch_size / (num_shuffles + 1)
+        
+        # go through sub batches (actual + shuffle refs)
+        diff_from_ref = []
         for i in xrange(example_num):
-            idx = (shuffle_num + 1) * (i)
-            actual = features[idx]
-            references = features[idx+1:idx+shuffle_num+1]
-            diff = tf.subtract(actual, tf.reduce_mean(references, axis=0))
-            features[idx] = diff
-
+            idx = (num_shuffles + 1) * (i)
+            actual = activations[idx:idx+num_shuffles+1]
+            references = activations[idx+1:idx+num_shuffles+1]
+            diff = tf.subtract(
+                actual,
+                tf.reduce_mean(references, axis=0, keepdims=True))
+            diff_from_ref.append(diff)
+            
         # restack
-        features = tf.concat(features, axis=0)
-
-        return features
+        diff_from_ref = tf.concat(diff_from_ref, axis=0)
+        
+        return diff_from_ref
 
     
     @classmethod
-    def build_deeplift_multiplier(cls, x, y, multiplier=None, shuffle_num=7):
+    def _is_nonlinear_var(cls, var):
+        """check if variable is nonlinear, use names
+        """
+        nonlinear_names = ["Relu", "relu"]
+        is_nonlinear = False
+        for nonlinear_name in nonlinear_names:
+            if nonlinear_name in var.name:
+                is_nonlinear = True
+                break
+
+        return is_nonlinear
+
+    
+    @classmethod
+    def _is_linear_var(cls, var):
+        """check if variable is nonlinear, use names
+        """
+        linear_names = set(["Conv", "conv", "fc"])
+        is_linear = False
+        for linear_name in linear_names:
+            if linear_name in var.name:
+                is_linear = True
+                break
+
+        return is_linear
+
+
+    def reveal_cancel_rule(x, y):
+        """reveal cancel rule
+        """
+        # split out positive and negative deltas
+
+        
+        return
+    
+    
+    @classmethod
+    def build_deeplift_multipliers(
+            cls, x, y,
+            num_shuffles,
+            old_multipliers,
+            nonlinear_fn="rescale"):
         """Takes input and activations to pass down
         """
-        # TODO figure out how to use sets for name matching
-        linear_names = set(["Conv", "conv", "fc"])
-        nonlinear_names = set(["Relu", "relu"])
+        if cls._is_nonlinear_var(y):
+            delta_y = cls.get_diff_from_ref(y, num_shuffles)
+            delta_x = cls.get_diff_from_ref(x, num_shuffles)
+            if nonlinear_fn == "rescale":
+                # rescale
+                multipliers = tf.divide(delta_y, delta_x)
+            elif nonlinear_fn == "reveal_cancel"
+                # reveal cancel
+                positive_multipliers = tf.divide(
+                    tf.nn.relu(delta_y),
+                    tf.nn.relu(delta_x))
+                negative_multipliers = tf.divide(
+                    tf.nn.relu(-delta_y),
+                    tf.nn.relu(-delta_x))
+                multipliers = tf.add(positive_multipliers, negative_multipliers)
+            else:
+                raise ValueError, "nonlinear fn not implemented!"
+                
+            # NOTE that paper says to use gradients when delta_x is small
+            # for numerical instability
+            multipliers = tf.where(
+                tf.less(delta_x, 1e-8),
+                x=tf.gradients(y, x),
+                y=multipliers)
 
-        if "Relu" in y.name:
-            # rescale rule
-            delta_y = cls.get_diff_from_ref(y, shuffle_num=shuffle_num)
-            delta_x = cls.get_diff_from_ref(x, shuffle_num=shuffle_num)
-            multiplier = tf.divide(
-                delta_y, delta_x)
-        elif "Conv" in y.name or "fc" in y.name:
+            # and chain rule
+            multipliers = tf.multiply(multipliers, old_multipliers)
+            
+        elif cls._is_linear_var(y):
             # linear rule
-            [weights] = tf.gradients(y, x, grad_ys=multiplier)
-            #delta_x = get_diff_from_ref(x, shuffle_num=shuffle_num)
-            #multiplier = tf.multiply(
-            #    weights, delta_x)
-            multiplier = weights
+            [weights] = tf.gradients(y, x, grad_ys=old_multipliers)
+            multipliers = weights
         else:
             # TODO implement reveal cancel rule?
-            print y.name, "not recognized"
-            quit()
-
-        return multiplier
+            raise ValueError, "{} not recognized as linear or nonlinear".format(y.name)
+        
+        return multipliers
 
 
     @classmethod
     def get_singletask_feature_importances(cls, inputs, params):
         """run deeplift on a single anchor
         """
-        
         # inputs
         features = inputs[DataKeys.FEATURES]
         anchor = inputs["anchor"]
         outputs = dict(inputs)
+        num_shuffles = params.get("num_shuffles")
         activations = tf.get_collection("DEEPLIFT_ACTIVATIONS")
-        activations = [features] + activations
-
+        
         # go backwards through the variables
         activations.reverse()
         for i in xrange(len(activations)):
             current_activation = activations[i]
-
+            
             if i == 0:
                 previous_activation = tf.identity(
                     anchor, name="fc.anchor")
-                multiplier = None
+                multipliers = None
             else:
                 previous_activation = activations[i-1]
 
             # function here to build multiplier and pass down
-            multiplier = cls.build_deeplift_multiplier(
+            multipliers = cls.build_deeplift_multipliers(
                 current_activation,
                 previous_activation,
-                multiplier=multiplier,
-                shuffle_num=shuffle_num)
-            
-        outputs[DataKeys.FEATURES] = multiplier
+                num_shuffles,
+                multipliers)
+
+        # save out multipliers as gradients
+        outputs[DataKeys.IMPORTANCE_GRADIENTS] = multipliers
+        outputs[DataKeys.FEATURES] = tf.multiply(features, multipliers)
         
         return outputs, params
 

@@ -127,6 +127,7 @@ def mlp_module_v2(
         logit_dropout=0.0,
         split_before=None,
         is_training=True,
+        is_inferring=False,
         prefix=""):
     """MLP with options for task specific layers
     
@@ -152,14 +153,16 @@ def mlp_module_v2(
                 input_tensor,
                 fc_dim,
                 biases_initializer=None)
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.batch_norm(
                 net,
                 center=True,
                 scale=True,
                 activation_fn=tf.nn.relu,
                 is_training=is_training)
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.dropout(
                 net,
                 keep_prob=1.0-dropout,
@@ -275,7 +278,7 @@ def lstm_module(features, is_training):
     return net
 
 
-def basset_conv_module(features, is_training=True, width_factor=1):
+def basset_conv_module(features, is_training=True, width_factor=1, is_inferring=False):
     """basset convolutional layers
     """
     with slim.arg_scope(
@@ -289,23 +292,31 @@ def basset_conv_module(features, is_training=True, width_factor=1):
                 activation_fn=None,
                 weights_initializer=layers.variance_scaling_initializer(),
                 biases_initializer=None):
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", features)
             net = slim.conv2d(features, int(width_factor*300), [1, 19], scope="Conv")
             # need to do this for tf_deeplift
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.batch_norm(net, scope="BatchNorm")
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 3], stride=[1, 3])
 
             net = slim.conv2d(net, int(width_factor*200), [1, 11], scope="Conv_1")
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.batch_norm(net, scope="BatchNorm_1")
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
 
             net = slim.conv2d(net, int(width_factor*200), [1, 7], scope="Conv_2")
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.batch_norm(net, scope="BatchNorm_2")
-            tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
+            if is_inferring:
+                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", net)
             net = slim.max_pool2d(net, [1, 4], stride=[1, 4])
             
     return net
@@ -494,6 +505,7 @@ def basset(inputs, params):
     # features
     features = inputs["features"]
     is_training = params.get("is_training", False)
+    is_inferring = params.get("is_inferring", False)
     
     # get params
     num_tasks = params["num_tasks"]
@@ -506,6 +518,7 @@ def basset(inputs, params):
     params['drop'] = params.get('drop', 0.3)
     params["logit_drop"] = params.get("logit_drop", 0.0)
     params["split_before"] = params.get("split_before", None)
+
     
     # set up model
     with tf.variable_scope("basset"):
@@ -513,7 +526,8 @@ def basset(inputs, params):
         net = basset_conv_module(
             features,
             is_training,
-            width_factor=params['width_factor'])
+            width_factor=params['width_factor'],
+            is_inferring=is_inferring)
 
         # recurrent layers (if any)
         if params["recurrent"]:
@@ -538,7 +552,8 @@ def basset(inputs, params):
                 dropout=params['drop'],
                 logit_dropout=params["logit_drop"],
                 split_before=params["split_before"],
-                is_training=is_training)
+                is_training=is_training,
+                is_inferring=is_inferring)
 
         # Torch7 style maxnorm
         maxnorm(norm_val=7)
