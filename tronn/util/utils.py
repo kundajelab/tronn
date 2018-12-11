@@ -99,6 +99,7 @@ class DataKeys(object):
     MUT_MOTIF_MASK = "{}.mask".format(MUT_MOTIF_ORIG_SEQ)
     MUT_MOTIF_PRESENT = "{}.motif_mut_present".format(ORIG_SEQ)
     MUT_MOTIF_LOGITS = "{}.motif_mut".format(LOGITS)
+    MUT_MOTIF_LOGITS_SIG = "{}.motif_mut.sig".format(LOGITS)
     DFIM_SCORES = "{}.delta".format(MUT_MOTIF_WEIGHTED_SEQ)
     DFIM_SCORES_DX = "{}.delta.dx".format(MUT_MOTIF_WEIGHTED_SEQ)
 
