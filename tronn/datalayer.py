@@ -696,7 +696,7 @@ class H5DataLoader(DataLoader):
         slices = {}
         if end_idx < h5_handle[keys_to_load[0]].shape[0]:
             for key in keys_to_load:
-                if "metadata" in key:
+                if h5_handle[key][0].dtype.char == "S":
                     slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1)) # TODO don't reshape?
                 else:
                     slices[key] = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
@@ -709,6 +709,11 @@ class H5DataLoader(DataLoader):
                     slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                     slice_pad = np.array(
                         ["features=chr1:0-1000" for i in xrange(batch_padding_num)]).reshape(
+                            (batch_padding_num, 1))
+                elif "string" in key:
+                    slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
+                    slice_pad = np.array(
+                        ["N" for i in xrange(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
                 else:
                     slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
@@ -957,7 +962,7 @@ class H5DataLoader(DataLoader):
                             # TODO keep the string sequence
                             slice_array[DataKeys.FEATURES] = converter.convert(
                                 slice_array["example_metadata"])
-
+                            
                             # yield
                             if yield_single_examples: # NOTE: this is the most limiting step
                                 for i in xrange(batch_size):
@@ -968,7 +973,8 @@ class H5DataLoader(DataLoader):
                             else:
                                 yield (slice_array, 1.)
                             
-                    except ValueError:
+                    except ValueError as value_error:
+                        logging.debug(value_error)
                         logging.info("Stopping {}".format(h5_file))
                         raise StopIteration
 
@@ -1252,38 +1258,24 @@ class ArrayDataLoader(DataLoader):
         self.array_types = array_types
 
 
-
-    def build_generator(self):
-        """go from array to individual exapmles?
-        """
-        pass
-
         
-
-        
-    def build_raw_dataflow(self, batch_size, task_indices=[]):
-        """load data
+    def build_generator(
+            self,
+            batch_size=256,
+            task_indices=[],
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            lock=threading.Lock(),
+            shuffle=True):
+        """build generator
         """
-        inputs = {}
-        for i in xrange(len(self.array_names)):
-            array_name = self.array_names[i]
-            assert self.feed_dict[array_name] is not None
-                
-            inputs[array_name] = tf.placeholder(
-                self.array_types[i],
-                shape=[batch_size]+list(self.feed_dict[array_name].shape[1:]),
-                name=array_name)
+        
+        return None
 
-        # TODO this might be useful
-        #new_inputs = tf.train.batch(
-        #    inputs,
-        #    batch_size,
-        #    capacity=batch_size*3,
-        #    enqueue_many=True,
-        #    name='batcher')
-            
-        return inputs
-            
 
     
 class VariantDataLoader(DataLoader):
