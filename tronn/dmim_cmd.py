@@ -7,38 +7,12 @@ import logging
 
 import numpy as np
 
-from tronn.datalayer import setup_data_loader
-from tronn.models import setup_model_manager
-
-from tronn.interpretation.clustering import get_cluster_bed_files
-from tronn.interpretation.clustering import visualize_clustered_features_R
-from tronn.interpretation.clustering import visualize_clustered_outputs_R
-
+from tronn.interpretation.inference import run_inference
+from tronn.interpretation.inference import run_multi_model_inference
 from tronn.interpretation.motifs import get_sig_pwm_vector
-from tronn.interpretation.motifs import copy_sig_pwm_vectors_to_h5
-from tronn.interpretation.motifs import extract_significant_pwms
-from tronn.interpretation.motifs import visualize_significant_pwms_R
-
-from tronn.interpretation.networks import get_motif_hierarchies
-
-from tronn.interpretation.variants import get_significant_delta_logit_responses
-from tronn.interpretation.variants import get_interacting_motifs
-from tronn.interpretation.variants import run_permutation_dmim_score_test
-from tronn.interpretation.variants import visualize_interacting_motifs_R
-
-from tronn.stats.nonparametric import run_delta_permutation_test
-
-from tronn.util.h5_utils import AttrKeys
 from tronn.util.h5_utils import add_pwm_names_to_h5
-from tronn.util.h5_utils import copy_h5_datasets
 from tronn.util.scripts import parse_multi_target_selection_strings
 from tronn.util.utils import DataKeys
-
-
-# TODO clean this up
-from tronn.visualization import visualize_agg_pwm_results
-from tronn.visualization import visualize_agg_delta_logit_results
-from tronn.visualization import visualize_agg_dmim_adjacency_results
 
 
 def run(args):
@@ -60,8 +34,13 @@ def run(args):
         reduce_type="any")
 
     # adjust filter targets based on foreground
-    args.filter_targets = parse_multi_target_selection_strings(
+    filter_targets = parse_multi_target_selection_strings(
         args.foreground_targets)
+    new_filter_targets = []
+    for keys_and_indices, params in filter_targets:
+        new_filter_targets += keys_and_indices
+    args.filter_targets = [(new_filter_targets, {"reduce_type": "any"})]
+
     
     # TODO add option to ignore long PWMs (later)
     args.inference_params.update({"sig_pwms": sig_pwms})
