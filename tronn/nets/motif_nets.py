@@ -365,7 +365,8 @@ class DeltaMotifImportanceMapper(MotifScanner):
         # TODO sum or mean?
         features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
         inputs[DataKeys.FEATURES] = features
-        
+        inputs[DataKeys.DMIM_SCORES] = features
+
         # gather correctly
         outputs = {}
         for key in inputs.keys():
@@ -548,6 +549,54 @@ def get_pwm_null_positions(inputs, params):
     return outputs, params
 
 
+def attach_null_indices(inputs, params):
+    """attach null indices (and vals) to appropriate tensors before
+    running the mutations
+    """
+    assert inputs.get(DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT) is not None
+    assert inputs.get(DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT) is not None
+    assert inputs.get(DataKeys.MUT_MOTIF_PRESENT) is not None
+
+    # get null indices and save out number of null indices
+    null_indices = tf.cast(inputs[DataKeys.NULL_PWM_POSITION_INDICES], tf.int64)
+    params["num_null_mut"] = null_indices.get_shape().as_list()[1]
+    
+    # attach to vals and indices and mut motif present
+    inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = tf.concat(
+        [inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT],
+         null_indices], axis=1) # {N, mut_M+null, k}
+    inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = tf.concat(
+        [inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT],
+         tf.ones(null_indices.get_shape())], axis=1) # {N, mut_M+null, k}
+    inputs[DataKeys.MUT_MOTIF_PRESENT] = tf.reduce_any(
+        tf.greater(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT], 0),
+        axis=2) # {N, mut_M+null}
+    
+    return inputs, params
+
+
+def extract_null_results(inputs, params):
+    """after running a function, extract out the null muts
+    """
+    # use motif_mut as key for which tensors to separate?
+    num_null = params.get("num_null_mut")
+
+    for key in inputs.keys():
+        if "motif_mut" in key:
+            null_key = key.replace("motif_mut", "null_mut")
+            null_tensors = inputs[key][:,-num_null:]
+            motif_mut_tensors = inputs[key][:,:-num_null]
+            
+            inputs[key] = motif_mut_tensors
+            inputs[null_key] = null_tensors
+
+    # TODO also need to adjust features?
+            
+    return inputs, params
+
+
+
+
 def get_motif_densities(inputs, params):
     """use an avg pool to get density within window
     and also save out the max motif density val
@@ -650,18 +699,12 @@ def filter_for_significant_pwms(inputs, params):
     return outputs, params
 
 
+# TODO just throw this in inference nets?
 def run_dmim(inputs, params):
     """run dmim
     """
-    # scan, no shuffles or filtering
     scanner = DeltaMotifImportanceMapper(features_key=DataKeys.FEATURES)
     outputs, params = scanner.scan(inputs, params)
-
-    # filter for just those with a motif present
-    # TODO consider wrapping everything in variable scopes to be utterly safe
-    if True:
-        with tf.variable_scope("dmim"):
-            outputs, _ = filter_by_any_motif_present(outputs, params) # {N, mutM, task, resM}
     
     return outputs, params
 

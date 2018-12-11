@@ -11,7 +11,7 @@ from tronn.interpretation.combinatorial import setup_combinations
 
 from tronn.nets.util_nets import rebatch
 from tronn.nets.filter_nets import filter_and_rebatch
-
+from tronn.nets.motif_nets import attach_null_indices
 from tronn.util.utils import DataKeys
 
 
@@ -39,16 +39,17 @@ class Mutagenizer(object):
         params["num_aux_examples"] = sig_pwms_indices.shape[0]
         indices = tf.gather(indices, sig_pwms_indices, axis=1)
         vals = tf.gather(vals, sig_pwms_indices, axis=1)
-
-        #print indices
-        #print vals
-        #quit()
         
         # save adjusted
         outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = vals # {N, mut_M, k}
         outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = indices # {N, mut_M, k}
         outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.reduce_any(tf.greater(vals, 0), axis=2) # {N, mut_M}
 
+        # and add null indices if present
+        if inputs.get(DataKeys.NULL_PWM_POSITION_INDICES) is not None:
+            outputs, _ = attach_null_indices(outputs, params)
+
+        
         if self.mutation_type == "point":
             # set up gradients
             grad = inputs[DataKeys.IMPORTANCE_GRADIENTS]
@@ -189,7 +190,8 @@ class Mutagenizer(object):
     
 
     def postprocess(self, inputs, params):
-        # depends on the analysis
+        # depends on the anlaysis
+
         
         return inputs, params
 

@@ -16,6 +16,7 @@ from tronn.nets.motif_nets import get_motif_densities
 from tronn.nets.motif_nets import filter_for_significant_pwms
 from tronn.nets.motif_nets import filter_for_any_sig_pwms
 from tronn.nets.motif_nets import run_dmim
+from tronn.nets.motif_nets import extract_null_results
 
 from tronn.nets.mutate_nets import dfim
 from tronn.nets.mutate_nets import motif_dfim
@@ -76,6 +77,10 @@ def sequence_to_dmim(inputs, params):
     outputs = dict(inputs)
 
     with tf.device("/cpu:0"):
+
+        # TODO i think eventually load the different objects here
+        # so that it's easier to intersperse new functions at the right places
+        # ex: loading null muts and removing null muts
         
         # filtering
         outputs, params = filter_for_any_sig_pwms(inputs, params)
@@ -92,6 +97,7 @@ def sequence_to_dmim(inputs, params):
     with tf.device("/cpu:0"):
         # and then run dmim
         outputs, params = run_dmim(outputs, params)
+        outputs, _ = extract_null_results(outputs, params)
         
     return outputs, params
 
