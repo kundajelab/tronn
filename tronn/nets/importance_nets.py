@@ -517,7 +517,7 @@ class DeepLift(FeatureImportanceExtractor):
             if nonlinear_fn == "rescale":
                 # rescale
                 multipliers = tf.divide(delta_y, delta_x)
-            elif nonlinear_fn == "reveal_cancel"
+            elif nonlinear_fn == "reveal_cancel":
                 # reveal cancel
                 positive_multipliers = tf.divide(
                     tf.nn.relu(delta_y),
