@@ -41,7 +41,6 @@ def parse_args():
     add_dmim_parser(subparsers)
     
     # command for network analysis
-    # NOTE: this applies to stuff coming from scanmotifs and dmim
     add_buildgrammars_parser(subparsers)
 
     # command for synergy scan
@@ -58,6 +57,9 @@ def parse_args():
     
     # baseline model
     add_baseline_parser(subparsers)
+
+    # visualize importance scores parser
+    add_plotregions_parser(subparsers)
     
     # command for extracting model variables
     add_export_model_parser(subparsers)
@@ -880,53 +882,6 @@ def add_analyzevariants_parser(subparsers):
     return
 
 
-def add_vizimpts_parser(subparsers):
-    """
-    """
-    argparser_multitask = subparsers.add_parser(
-        "vizimportances",
-        help="Get back importance score visualizations for a region")
-
-
-    # group for input files
-    # start with BED file, preprocess, then run through
-    group_input = argparser_multitask.add_argument_group(
-    	"Input files and folders")
-    load_data_files(group_input)
-    group_input.add_argument(
-        "--labels", nargs='+', required=True,
-        help='list of label file peak sets (BED/narrowPeak)')
-    group_input.add_argument(
-        "--importances_tasks", nargs="+", required=True, type=int,
-        help="tasks to interpret on")
-    
-    # group for model
-    group_model = argparser_multitask.add_argument_group(
-        "Model definition")
-    #add_trained_nn_model_options(group_model)
-
-    # group for parameters
-    group_params = argparser_multitask.add_argument_group(
-        "Interpretation hyperparameters")
-    group_params.add_argument(
-        '--batch_size', default=128, type=int,
-        help='batch size')
-
-    # group for output files
-    group_output = argparser_multitask.add_argument_group(
-        "Output files and folders")
-    _add_output_args(group_output, out_dir="importances")
-    group_output.add_argument(
-        '--tmp_dir', default='importances_tmp',
-        help='temporary scratch directory')
-    group_output.add_argument(
-        '--plot_samples', action='store_true',
-        help='plot some sample sequences weighted by importance scores')
-
-    return
-
-
-
 def add_baseline_parser(subparsers):
     """Add train baseline function argument parser
     """
@@ -967,6 +922,55 @@ def add_baseline_parser(subparsers):
     # group for output files
     group_output = argparser_baseline.add_argument_group("Output files and folders")
     _add_output_args(group_output, out_dir='baseline')
+
+    return
+
+
+def add_plotregions_parser(subparsers):
+    """plot a region, either command line region ID or BED file of regions
+    """
+    cmd_argparser = subparsers.add_parser(
+        "plotregions",
+        help="plot importance scores for a region")
+
+    # inputs
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    group_dataset.add_argument(
+        "--fasta",
+        help="fasta file")
+    group_dataset.add_argument(
+        "--region_id",
+        help="single region to plot, in the form chrom:start-stop (ex chr1:100-200)")
+    group_dataset.add_argument(
+        "--bed_input",
+        help="bed file of regions to plot")
+
+    # params
+    group_params = cmd_argparser.add_argument_group(
+        "Param arguments")
+    group_params.add_argument(
+        "--stride", default=1, type=int,
+        help="stride to get importance scores")
+    
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
+    
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    _add_output_args(group_output, out_dir="grammars")
+    
+    return
+
+
+def add_makebigwig_parser(subparsers):
+    """go through genome and make a bigwig
+    """
+    
+    
 
     return
 
@@ -1085,6 +1089,10 @@ def main():
     elif subcommand == "baseline":
         _setup_dataset_args(args)
         from tronn.run_tensorforest import run
+        run(args)
+    elif subcommand == "plotregions":
+        _setup_model_args(args)
+        from tronn.plotregions_cmd import run
         run(args)
     elif subcommand == "exportmodel":
         _setup_dataset_args(args)
