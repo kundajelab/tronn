@@ -17,6 +17,7 @@ from tronn.nets.motif_nets import filter_for_significant_pwms
 from tronn.nets.motif_nets import filter_for_any_sig_pwms
 from tronn.nets.motif_nets import run_dmim
 from tronn.nets.motif_nets import extract_null_results
+from tronn.nets.motif_nets import get_sig_mut_logits
 
 from tronn.nets.mutate_nets import dfim
 from tronn.nets.mutate_nets import motif_dfim
@@ -98,6 +99,7 @@ def sequence_to_dmim(inputs, params):
         # and then run dmim
         outputs, params = run_dmim(outputs, params)
         outputs, _ = extract_null_results(outputs, params)
+        outputs, _ = get_sig_mut_logits(outputs, params)
         
     return outputs, params
 

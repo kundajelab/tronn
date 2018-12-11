@@ -591,10 +591,33 @@ def extract_null_results(inputs, params):
             inputs[null_key] = null_tensors
 
     # TODO also need to adjust features?
-            
+    
     return inputs, params
 
 
+def get_sig_mut_logits(inputs, params):
+    """given null mutation logits, build a distribution and
+    get cutoff for significant change
+    """
+    null_mut_logits = inputs[DataKeys.MUT_MOTIF_LOGITS.replace("motif_mut", "null_mut")]
+    motif_mut_logits = inputs[DataKeys.MUT_MOTIF_LOGITS]
+    outputs = dict(inputs)
+
+    # get mean and std
+    mean, std = tf.nn.moments(null_mut_logits, axes=[1], keep_dims=True) # {N, 1, logit}
+    
+    # cutoff
+    passed_threshold = tf.subtract(motif_mut_logits, mean)
+    passed_threshold = tf.greater_equal(tf.abs(passed_threshold), 2*std)
+
+    # it's only real if the motif was present
+    passed_threshold = tf.multiply(
+        tf.cast(passed_threshold, tf.int64),
+        tf.expand_dims(tf.cast(inputs[DataKeys.MUT_MOTIF_PRESENT], tf.int64), axis=-1))
+    
+    outputs[DataKeys.MUT_MOTIF_LOGITS_SIG] = passed_threshold
+    
+    return outputs, params
 
 
 def get_motif_densities(inputs, params):
