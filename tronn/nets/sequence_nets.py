@@ -90,7 +90,7 @@ def generate_dinucleotide_shuffles(inputs, params):
     aux_key = params.get("aux_key")
     num_shuffles = params.get("num_shuffles", 7)
     batch_size = features_shape[0]
-    assert batch_size % (num_shuffles + 1) == 0
+    #assert batch_size % (num_shuffles + 1) == 0
 
     # build the dinuc shuffle fn
     shuffle_fn = _build_dinucleotide_shuffle_fn(num_shuffles)
