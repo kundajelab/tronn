@@ -550,6 +550,8 @@ def _setup_interpretation_args(args):
     if args.infer_json is not None:
         with open(args.infer_json, "r") as fp:
             args.infer_json = json.load(fp)
+    else:
+        args.infer_json = {}
 
     # load out of infer json if not overridden in cmd line
     if args.model_json is None:

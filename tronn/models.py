@@ -1024,11 +1024,8 @@ class KerasModelManager(ModelManager):
 
     def __init__(
             self,
-            keras_model=None,
-            keras_model_path=None,
-            custom_objects=None,
-            model_dir=None,
-            model_params=None):
+            model=None,
+            keras_model=None):
         """extract the keras model fn and keep the model fn, to be called by 
         tronn estimator. also set up first checkpoint
         
@@ -1037,22 +1034,17 @@ class KerasModelManager(ModelManager):
 
         Draws liberally from tf.keras.estimator.model_to_estimator fn
         """
-        self.model_dir = model_dir
-
-        # check mutually exclusive
-        if not (keras_model or keras_model_path):
-            raise ValueError(
-                'Either `keras_model` or `keras_model_path` needs to be provided.')
-        if keras_model and keras_model_path:
-            raise ValueError(
-                'Please specity either `keras_model` or `keras_model_path`, '
-                'but not both.')
-
-        # set up keras model
-        if not keras_model:
-            self.keras_model = models.load_model(keras_model_path)
+        # load in things
+        if model is not None:
+            # keras model in h5, load it
+            keras_model = models.load_model(model["checkpoint"])
+            model_params = model.get("params", {})
+            self.model_dir = model["model_dir"]
+        elif keras_model is not None:
+            # keras model
+            keras_model = keras_model
         else:
-            self.keras_model = keras_model
+            raise ValueError, "no model loaded!"
         
         # set up model fn
         def keras_estimator_fn(inputs, model_fn_params):
@@ -1070,14 +1062,13 @@ class KerasModelManager(ModelManager):
                 mode = model_fn_lib.ModeKeys.TRAIN
             else:
                 mode = model_fn_lib.ModeKeys.PREDICT
-            model = build_keras_model(mode, self.keras_model, model_fn_params, features, labels)
+            model = build_keras_model(mode, keras_model, model_fn_params, features, labels)
             model.layers.pop() # remove the sigmoid activation
             model = tf.keras.models.Model(model.input, model.layers[-1].output)
-            #print [layer.name for layer in model.layers]
 
             # set up outputs
             outputs.update(dict(zip(model.output_names, model.outputs)))
-            out_layer_key = "dense_3" # is 12 just the layer num?
+            out_layer_key = "dense_3" # is 12 just the layer num? tODO do this better
             outputs[DataKeys.LOGITS] = outputs[out_layer_key]
 
             # add to collection to make sure restored correctly
@@ -1107,19 +1098,14 @@ class KerasModelManager(ModelManager):
         # store fn and params for later
         self.model_fn = keras_estimator_fn
         self.model_params = model_params
-        self.model_params.update({"model_reuse": False})
         
         # set up weights
-        # TODO figure out how to check if weights were even initialized
-        self.keras_weights = self.keras_model.get_weights()
-        self.model_checkpoint = self.save_checkpoint_from_keras_model()
+        self.keras_weights = keras_model.get_weights()
+        self.transfer_checkpoint = self.save_checkpoint_from_keras_model(keras_model)
+        self.model_checkpoint = None
+
         
-        # debug check
-        #print self.keras_model.input_names
-        #print self.keras_model.output_names
-
-
-    def save_checkpoint_from_keras_model(self):
+    def save_checkpoint_from_keras_model(self, keras_model):
         """create a checkpoint from the keras model
 
         draws heavily from _save_first_checkpoint in keras to estimator fn
@@ -1132,7 +1118,7 @@ class KerasModelManager(ModelManager):
                 tf.train.create_global_step(g)
                 mode = model_fn_lib.ModeKeys.TRAIN
                 model = build_keras_model(
-                    mode, self.keras_model, self.model_params)
+                    mode, keras_model, self.model_params)
                 with tf.Session() as sess:
                     model.set_weights(self.keras_weights)
                     # TODO - check if adding to model variables necessary here
@@ -1150,18 +1136,9 @@ class KerasModelManager(ModelManager):
                     saver = tf.train.Saver()
                     saver.save(sess, keras_checkpoint)
 
-        # test
-        #keras_checkpoint = "/srv/scratch/dskim89/mahfuza/models/mouse.all.fbasset/train/model.ckpt-1"
-        #keras_checkpoint = "/srv/scratch/dskim89/mahfuza/models/mouse.all.fbasset/test.ckpt"
+        # test to make sure loading works
         with tf.Graph().as_default() as g:
             tf.train.create_global_step(g)
-            #mode = model_fn_lib.ModeKeys.TRAIN
-            #model = build_keras_model(
-            #    mode,
-            #    self.keras_model,
-            #    self.model_params)
-            #model.layers.pop() # remove the sigmoid - but check this
-            #model = tf.keras.models.Model(model.input, model.layers[-1].output)
             features = tf.placeholder(tf.float32, shape=[64,1,1000,4])
             labels = tf.placeholder(tf.float32, shape=[64,279])
             inputs = {"features": features, "labels": labels}
@@ -1179,7 +1156,6 @@ class KerasModelManager(ModelManager):
             self,
             input_fn,
             out_dir,
-            inference_fn,
             inference_params={},
             config=None,
             predict_keys=None,
@@ -1189,11 +1165,11 @@ class KerasModelManager(ModelManager):
         """adjust a few things for keras
         """
         hooks.append(KerasRestoreHook())
+        inference_params.update({"model_reuse": False})
         
         return super(KerasModelManager, self).infer(
             input_fn,
             out_dir,
-            inference_fn,
             inference_params=inference_params,
             config=config,
             predict_keys=predict_keys,
@@ -1323,31 +1299,23 @@ def setup_model_manager(args):
                     model = json.load(fp)
                 sub_model_manager = ModelManager(model=model)
                 
-                # adjust model dir if needed
-                if args.model_dir is not None:
-                    sub_model_manager.model_checkpoint = "{}/{}".format(
-                        args.model_dir,
-                        os.path.basename(sub_model_manager.model_checkpoint))
-                    
+                # adjust model dir
+                model_json_dir = os.path.dirname(model_json)
+                sub_model_manager.model_checkpoint = "{}/train/{}".format(
+                    model_json_dir,
+                    os.path.basename(sub_model_manager.model_checkpoint))
+                
                 # append back to models
                 models.append(sub_model_manager)
             
             model_manager = EnsembleModelManager(models)
 
     elif args.model_framework == "keras":
+        # load. json minimally has checkpoint, num_tasks in params, name
+        args.model["model_dir"] = args.out_dir
+        model_manager = KerasModelManager(
+            model=args.model)
 
-        args.model["name"] = "keras_transfer"
-        with open(args.transfer_keras) as fp:
-            args.model_info = json.load(fp)
-            model_manager = KerasModelManager(
-                keras_model_path=args.model_info["checkpoint"],
-                model_params=args.model_info.get("params", {}),
-                model_dir=args.out_dir)
-            args.transfer_model_checkpoint = model_manager.model_checkpoint
-            warm_start_params = {}
-
-        
-        model_manager = KerasModelManager(model=args.model)
     elif args.model_framework == "pytorch":
         model_manager = PyTorchModelManager(model=args.model)
     else:
