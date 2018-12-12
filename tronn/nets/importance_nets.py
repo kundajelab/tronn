@@ -126,7 +126,7 @@ class FeatureImportanceExtractor(object):
         logging.debug("LAYER: call model and set up backprop")
         layer_key = params.get("layer_key", DataKeys.LOGITS)
         
-        reuse = params.get("model_reuse", True) 
+        reuse = params.get("model_reuse", True)
         with tf.variable_scope("", reuse=reuse):
             logging.info("Calling model fn")
             params.update({
@@ -482,7 +482,7 @@ class DeepLift(FeatureImportanceExtractor):
     
     @classmethod
     def _is_linear_var(cls, var):
-        """check if variable is nonlinear, use names
+        """check if variable is linear, use names
         """
         linear_names = set(["Conv", "conv", "fc"])
         is_linear = False
@@ -492,15 +492,6 @@ class DeepLift(FeatureImportanceExtractor):
                 break
 
         return is_linear
-
-
-    def reveal_cancel_rule(x, y):
-        """reveal cancel rule
-        """
-        # split out positive and negative deltas
-
-        
-        return
     
     
     @classmethod
@@ -528,12 +519,12 @@ class DeepLift(FeatureImportanceExtractor):
                 multipliers = tf.add(positive_multipliers, negative_multipliers)
             else:
                 raise ValueError, "nonlinear fn not implemented!"
-                
+            
             # NOTE that paper says to use gradients when delta_x is small
             # for numerical instability
             multipliers = tf.where(
-                tf.less(delta_x, 1e-8),
-                x=tf.gradients(y, x),
+                tf.less(tf.abs(delta_x), 1e-8),
+                x=tf.gradients(y, x)[0],
                 y=multipliers)
 
             # and chain rule
@@ -543,8 +534,8 @@ class DeepLift(FeatureImportanceExtractor):
             # linear rule
             [weights] = tf.gradients(y, x, grad_ys=old_multipliers)
             multipliers = weights
+            
         else:
-            # TODO implement reveal cancel rule?
             raise ValueError, "{} not recognized as linear or nonlinear".format(y.name)
         
         return multipliers
