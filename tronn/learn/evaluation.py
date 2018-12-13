@@ -9,6 +9,9 @@ import tensorflow as tf
 
 from tensorflow.contrib.metrics import streaming_pearson_correlation
 
+from scipy.stats import spearmanr
+from scipy.stats import pearsonr
+
 from sklearn.metrics import auc
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import roc_auc_score
