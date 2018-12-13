@@ -56,22 +56,22 @@ tronn predict
 
 #### Interpretation
 
-First, with a trained model, get importance scores
+First, with a trained model, scan for motifs
 ```
-tronn extractimportances
-```
-
-Then make motifs using importances
-```
-tronn makemotifs
+tronn scanmotifs
 ```
 
-Bag the motifs by representation in the sequences
+Then call differential peaks with foreground/background using scripts in folder
 ```
-tronn bagmotifs
+call_differential_motifs.py
 ```
 
-Then do in silico mutagenesis to get dependencies between motifs
+Take these and run dmim (deep motif importance maps) to determine synergies and effects by ISM
 ```
-tronn ism
+tronn dmim
+```
+
+Then build grammars
+```
+tronn buildgrammars
 ```
