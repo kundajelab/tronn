@@ -293,7 +293,7 @@ class ModelManager(object):
         """
         # adjust config
         if config is None:
-            session_config = tf.ConfigProto()
+            session_config = tf.ConfigProto(log_device_placement=True) # adjusted for ensembles
             session_config.gpu_options.allow_growth = False #True
             config = tf.estimator.RunConfig(
                 save_summary_steps=30,
@@ -934,12 +934,13 @@ class EnsembleModelManager(ModelManager):
     def __init__(
             self,
             models,
+            num_gpus=1,
             name="ensemble_model"):
         """adjust so that model fn is ensemble
         """
         assert len(models) != 0
         self.name = name
-        self.model_fn = self._build_ensemble_model_fn(models)
+        self.model_fn = self._build_ensemble_model_fn(models, num_gpus=num_gpus)
         self.model_params = {"num_tasks": models[0].model_params["num_tasks"]} # everything already went into model fn, this last bit for model calling again in importance scores
         self.model_dir = [model.model_dir for model in models]
         self.model_checkpoint = [model.model_checkpoint for model in models]
@@ -949,13 +950,18 @@ class EnsembleModelManager(ModelManager):
     def _build_ensemble_model_fn(
             self,
             models,
+            num_gpus=1,
             merge_outputs=True,
             produce_confidence_interval=True):
         """builds an ensemble model fn based on model list
         """
         def ensemble_model_fn(inputs, params):
             outputs = dict(inputs)
+            params["num_models"] = len(models)
+            params["num_gpus"] = num_gpus
             all_logits = []
+
+            # go through models
             for model_idx in xrange(len(models)):
                 new_scope = "model_{}".format(model_idx)
                 logging.info("calling model {}".format(model_idx))
@@ -963,19 +969,26 @@ class EnsembleModelManager(ModelManager):
                 model_params = models[model_idx].model_params
                 params.update(model_params)
 
+                # set up model under new scope
                 with tf.variable_scope(new_scope):
-                    model_outputs, _ = model_fn(inputs, params)
+                    pseudo_count = num_gpus - (len(models) % num_gpus) - 1 # ex 10 models, 3 gpus gives 1. 10m, 4g = 1, 10m, 5g=0
+                    device = "/gpu:{}".format((len(models) + pseudo_count - model_idx) % num_gpus)
+                    print device
+                    with tf.device(device):
+                        model_outputs, _ = model_fn(inputs, params)
                 all_logits.append(model_outputs[DataKeys.LOGITS])
             logits = tf.stack(all_logits, axis=1) # {N, model, task}
-
-            # generate a CI (assume normal distr)
+            
+            # generate a CI (assume normal distr)?
+            # tricky thing is may need to align the regression outputs first
+            # (ie sorta manual adjustment to logits)
             if produce_confidence_interval:
                 pass
             
             # reduce if requested and save out to outputs
             if merge_outputs:
                 # TODO set up fixed term here for saving
-                outputs["logits.multimodel"] = logits
+                outputs["logits.multimodel"] = logits # {N, model, logit}
                 logits = tf.reduce_mean(logits, axis=1)
             outputs[DataKeys.LOGITS] = logits
 
@@ -1308,7 +1321,7 @@ def setup_model_manager(args):
                 # append back to models
                 models.append(sub_model_manager)
             
-            model_manager = EnsembleModelManager(models)
+            model_manager = EnsembleModelManager(models, num_gpus=args.num_gpus)
 
     elif args.model_framework == "keras":
         # load. json minimally has checkpoint, num_tasks in params, name
