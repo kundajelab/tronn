@@ -281,6 +281,9 @@ def _add_model_args(parser):
     parser.add_argument(
         "--logit_indices", nargs="+", default=[], type=int,
         help="which logits from net to load")
+    parser.add_argument(
+        "--num_gpus", default=1, type=int,
+        help="how many GPUs are available")
 
     return None
 
