@@ -138,7 +138,7 @@ class FeatureImportanceExtractor(object):
         inputs[DataKeys.IMPORTANCE_ANCHORS] = tf.gather(
             model_outputs[layer_key],
             params["importance_task_indices"],
-            axis=1)
+            axis=-1)
 
         # save out logits 
         inputs[DataKeys.LOGITS] = model_outputs[DataKeys.LOGITS]
@@ -162,7 +162,7 @@ class FeatureImportanceExtractor(object):
         """
         outputs = dict(inputs)
         anchors = inputs[DataKeys.IMPORTANCE_ANCHORS]
-
+        
         # NOTE: cannot use map_fn here, breaks the connection to the gradients
         importances = []
         gradients = []
@@ -172,6 +172,7 @@ class FeatureImportanceExtractor(object):
             results, _ = cls.get_singletask_feature_importances(inputs, params)
             importances.append(results[DataKeys.FEATURES])
             gradients.append(results[DataKeys.IMPORTANCE_GRADIENTS])
+            
         importances = tf.concat(importances, axis=1)
         gradients = tf.concat(gradients, axis=1)
         
@@ -182,6 +183,42 @@ class FeatureImportanceExtractor(object):
         
         return outputs, params
 
+    
+    @classmethod
+    def get_multimodel_multitask_feature_importances(cls, inputs, params):
+        """do multimodel importances
+        """
+        anchors = inputs[DataKeys.IMPORTANCE_ANCHORS] # {N, model, logit}
+        outputs = dict(inputs)
+        
+        num_models = params["num_models"]
+        num_gpus = params["num_gpus"]
+        
+        importances = []
+        gradients = []
+        for model_idx in range(num_models):
+            pseudo_count = num_gpus - (num_models % num_gpus) - 1 # ex 10 models, 3 gpus gives 1. 10m, 4g = 1, 10m, 5g=0
+            device = "/gpu:{}".format((num_models + pseudo_count - model_idx) % num_gpus)
+            print device
+            with tf.device(device):
+                inputs[DataKeys.IMPORTANCE_ANCHORS] = anchors[:,model_idx] # {N, logit}
+                results, _ = cls.get_multitask_feature_importances(inputs, params)
+
+            importances.append(results[DataKeys.WEIGHTED_SEQ]) # list of {N, task, seqlen, 4}
+            gradients.append(results[DataKeys.IMPORTANCE_GRADIENTS]) # list of {N, task, seqlen, 4}
+
+        importances = tf.stack(importances, axis=1) # {N, model, task, seqlen, 4}
+        gradients = tf.stack(gradients, axis=1)
+        
+        # save out
+        outputs["importances.multimodel"] = importances # in general dont save this, it's big
+        outputs[DataKeys.FEATURES] = tf.reduce_mean(importances, axis=1)
+        outputs[DataKeys.WEIGHTED_SEQ] = tf.reduce_mean(importances, axis=1)
+        outputs[DataKeys.IMPORTANCE_GRADIENTS] = tf.reduce_mean(gradients, axis=1)
+                
+        return outputs, params
+    
+    
 
     def threshold(self, inputs, params):
         """threshold using dinuc shuffles
@@ -208,6 +245,21 @@ class FeatureImportanceExtractor(object):
         
         logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
         logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.WEIGHTED_SEQ_SHUF].get_shape()))
+
+
+        # TEST ensemble
+        get_ensemble_scores = False
+        if get_ensemble_scores:
+            threshold_mask = get_threshold_mask_twotailed(
+                {DataKeys.FEATURES: outputs["sequence-weighted.multimodel"],
+                 DataKeys.WEIGHTED_SEQ_THRESHOLDS: tf.multiply(
+                     outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS], 0.1)},
+                params)[0][DataKeys.FEATURES]
+            outputs["sequence-weighted.multimodel.thresh"] = tf.multiply(
+                threshold_mask,
+                outputs["sequence-weighted.multimodel"])
+
+        
         
         return outputs, params
 
@@ -323,9 +375,51 @@ class FeatureImportanceExtractor(object):
         """put all the pieces together
         """
         outputs, params = self.preprocess(inputs, params)
-        outputs, params = self.run_model_and_get_anchors(outputs, params)
-        outputs, params = self.get_multitask_feature_importances(outputs, params)
-        outputs, params = self.postprocess(outputs, params)
+
+        if "ensemble" in params["model"].name:
+            # TODO potentially split the stack up entirely at this level...
+            if False:
+                params.update({"layer_key": "logits.multimodel"})
+                outputs, params = self.run_model_and_get_anchors(outputs, params)
+                outputs, params = self.get_multimodel_multitask_feature_importances(outputs, params)
+                outputs, params = self.postprocess(outputs, params)
+            else:
+                # separate complete stack here
+                params.update({"layer_key": "logits.multimodel"})
+                outputs, params = self.run_model_and_get_anchors(outputs, params)
+                anchors = outputs[DataKeys.IMPORTANCE_ANCHORS]
+                print anchors
+                
+                num_models = params["num_models"]
+                num_gpus = params["num_gpus"]
+
+                # figure out which things need to be kept
+                
+                importances = []
+                for model_idx in range(num_models):
+                    pseudo_count = num_gpus - (num_models % num_gpus) - 1
+                    device = "/gpu:{}".format((num_models + pseudo_count - model_idx) % num_gpus)
+                    print device
+                    with tf.device(device):
+                        outputs[DataKeys.IMPORTANCE_ANCHORS] = anchors[:,model_idx] # {N, logit}
+                        params.update({"model_string": "model_{}".format(model_idx)})
+                        model_outputs, model_params = self.get_multitask_feature_importances(outputs, params)
+                        model_outputs, _ = self.postprocess(model_outputs, model_params)
+                    importances.append(model_outputs[DataKeys.WEIGHTED_SEQ_ACTIVE])
+                importances = tf.stack(importances, axis=1)
+                outputs["importances.multimodel"] = importances # {N, model, ...}
+                # could use an average pool to be more coarse grained?
+                # TODO this is not exactly right but take a look at it
+                outputs.update(model_outputs)
+
+                
+                # here could add in another filter based on across-model reproducibility
+                
+
+        else:
+            outputs, params = self.run_model_and_get_anchors(outputs, params)
+            outputs, params = self.get_multitask_feature_importances(outputs, params)
+            outputs, params = self.postprocess(outputs, params)
         
         return outputs, params
 
@@ -352,7 +446,7 @@ class InputxGrad(FeatureImportanceExtractor):
         outputs[DataKeys.IMPORTANCE_GRADIENTS] = feature_gradients
 
         return outputs, params
-
+    
     
 class PyTorchInputxGrad(FeatureImportanceExtractor):
     """Runs input x grad"""
@@ -484,7 +578,7 @@ class DeepLift(FeatureImportanceExtractor):
     def _is_linear_var(cls, var):
         """check if variable is linear, use names
         """
-        linear_names = set(["Conv", "conv", "fc"])
+        linear_names = set(["Conv", "conv", "fc", "Reshape", "reshape"])
         is_linear = False
         for linear_name in linear_names:
             if linear_name in var.name:
@@ -550,12 +644,16 @@ class DeepLift(FeatureImportanceExtractor):
         anchor = inputs["anchor"]
         outputs = dict(inputs)
         num_shuffles = params.get("num_shuffles")
-        activations = tf.get_collection("DEEPLIFT_ACTIVATIONS")
+        activations = tf.get_collection("DEEPLIFT_ACTIVATIONS") # TODO this fails on ensembles
+        model_string = params.get("model_string", "")
+        activations = [features] + [activation for activation in activations
+                       if model_string in activation.name]
         
         # go backwards through the variables
         activations.reverse()
         for i in xrange(len(activations)):
             current_activation = activations[i]
+            print current_activation
             
             if i == 0:
                 previous_activation = tf.identity(
