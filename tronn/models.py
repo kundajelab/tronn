@@ -16,6 +16,7 @@ from tensorflow.python.estimator import model_fn as model_fn_lib
 from tensorflow.python.estimator.keras import _clone_and_build_model as build_keras_model
 
 from tensorflow.python.keras import models
+#from tensorflow.python.keras import backend as K
 
 from tensorflow.python.training import monitored_session
 
@@ -208,7 +209,7 @@ class ModelManager(object):
         # build model
         self.model_params.update({"is_training": False})
         outputs, _ = self.model_fn(inputs, self.model_params)
-
+        
         # if adjusting logits, need to be done here
         if len(logit_indices) > 0:
             outputs[logits_key] = tf.gather(outputs[logits_key], logit_indices, axis=1)
@@ -293,7 +294,10 @@ class ModelManager(object):
         """
         # adjust config
         if config is None:
-            session_config = tf.ConfigProto(log_device_placement=True) # adjusted for ensembles
+            session_config = tf.ConfigProto(
+                allow_soft_placement=True,
+                log_device_placement=True) # adjusted for ensembles
+            session_config = tf.ConfigProto()
             session_config.gpu_options.allow_growth = False #True
             config = tf.estimator.RunConfig(
                 save_summary_steps=30,
@@ -341,7 +345,7 @@ class ModelManager(object):
                     if self.model_checkpoint is None:
                         # this is important for py_func wrapped models like pytorch
                         # and/or keras models where we use a py_func op for loading
-                        print "WARNING: NO CHECKPOINT BEING USED"
+                        logging.info("WARNING: NO CHECKPOINT BEING USED")
                         return tf.estimator.EstimatorSpec(mode, predictions=outputs)
                     else:
                         # TODO consider just always building a custom scaffold
@@ -1038,7 +1042,8 @@ class KerasModelManager(ModelManager):
     def __init__(
             self,
             model=None,
-            keras_model=None):
+            keras_model=None,
+            name="keras"):
         """extract the keras model fn and keep the model fn, to be called by 
         tronn estimator. also set up first checkpoint
         
@@ -1047,60 +1052,63 @@ class KerasModelManager(ModelManager):
 
         Draws liberally from tf.keras.estimator.model_to_estimator fn
         """
-        # load in things
+        # name - have keras in the name
+        self.name = name
+        
+        # load keras model
         if model is not None:
             # keras model in h5, load it
             keras_model = models.load_model(model["checkpoint"])
             model_params = model.get("params", {})
             self.model_dir = model["model_dir"]
-        elif keras_model is not None:
-            # keras model
-            keras_model = keras_model
         else:
-            raise ValueError, "no model loaded!"
+            assert keras_model is not None, "no model loaded!"
         
         # set up model fn
         def keras_estimator_fn(inputs, model_fn_params):
             """wrap up keras model call
             """
+            # set up inputs: features, labels
             features = inputs[DataKeys.FEATURES]
             labels = inputs[DataKeys.LABELS]
             outputs = dict(inputs)
             
-            # for mahfuza models
-            features = tf.squeeze(features, axis=1)
+            # for mahfuza models mostly
+            if model_fn_params.get("feature_format", "NHWC") == "NWC":
+                features = tf.squeeze(features, axis=1)
 
-            # build keras model
+            # build keras model, remove sigmoid activation, recompile
             if model_fn_params.get("is_training", False):
                 mode = model_fn_lib.ModeKeys.TRAIN
             else:
                 mode = model_fn_lib.ModeKeys.PREDICT
             model = build_keras_model(mode, keras_model, model_fn_params, features, labels)
-            model.layers.pop() # remove the sigmoid activation
+            model.layers.pop()
             model = tf.keras.models.Model(model.input, model.layers[-1].output)
-
+            
             # set up outputs
             outputs.update(dict(zip(model.output_names, model.outputs)))
-            out_layer_key = "dense_3" # is 12 just the layer num? tODO do this better
-            outputs[DataKeys.LOGITS] = outputs[out_layer_key]
+            keras_logits_key = model_fn_params.get("logits_name", DataKeys.LOGITS)
+            outputs[DataKeys.LOGITS] = outputs[keras_logits_key]
+            
+            # add all variables to MODEL_VARIABLES collection to make sure restored correctly
+            # this is a tf.slim thing, eventually deprecate out
+            for v in tf.global_variables():
+                tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
 
-            # add to collection to make sure restored correctly
-            is_inference = self.model_params.get("inference_mode", False)
-            if not is_inference:
-                # add variables to model variables collection to make
-                # sure they are restored correctly
-                for v in tf.trainable_variables():
-                    tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
-            else:
+            # TODO eventually deprecate this, probably not needed
+            if False:
                 # set up a py_func op for now that has the init fn
                 # and set up a hook to restore from there
                 # build an init fn or init op to run in a KerasRestoreHook
-                def init_fn():
-                    model.set_weights(self.keras_weights)
+                def init_fn(val):
+                    logging.info("called init fn")
+                    model.set_weights(keras_weights)
+                    return 0
                 init_op = tf.py_func(
                     func=init_fn,
-                    inp=[],
-                    Tout=[],
+                    inp=[0],
+                    Tout=[tf.int64],
                     stateful=False,
                     name="init_keras")
                 tf.get_collection("KERAS_INIT")
@@ -1111,57 +1119,70 @@ class KerasModelManager(ModelManager):
         # store fn and params for later
         self.model_fn = keras_estimator_fn
         self.model_params = model_params
-        
-        # set up weights
-        self.keras_weights = keras_model.get_weights()
-        self.transfer_checkpoint = self.save_checkpoint_from_keras_model(keras_model)
-        self.model_checkpoint = None
+        self.model_checkpoint = self.save_checkpoint_from_keras_model(keras_model)
 
         
     def save_checkpoint_from_keras_model(self, keras_model):
         """create a checkpoint from the keras model
 
         draws heavily from _save_first_checkpoint in keras to estimator fn
-        from tensorflow 1.8
         """
         keras_checkpoint = tf.train.latest_checkpoint(self.model_dir)
         if not keras_checkpoint:
             keras_checkpoint = "{}/keras_model.ckpt".format(self.model_dir)
+            keras_weights = keras_model.get_weights()
+            mode = model_fn_lib.ModeKeys.TRAIN
+            
             with tf.Graph().as_default() as g:
                 tf.train.create_global_step(g)
-                mode = model_fn_lib.ModeKeys.TRAIN
+                # set up two models in case doing inference
+                # keras models built with tf.Variable vs tf.get_variable()
+                # so can't share weights in graph! sigh
                 model = build_keras_model(
                     mode, keras_model, self.model_params)
+                model2 = build_keras_model(
+                    mode, keras_model, self.model_params)
+                
                 with tf.Session() as sess:
-                    model.set_weights(self.keras_weights)
+                    model.set_weights(keras_weights)
+                    model2.set_weights(keras_weights)
+
+                    #K._initialize_variables(sess)
+                    
                     # TODO - check if adding to model variables necessary here
-                    for v in tf.trainable_variables():
-                        tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
+                    #for v in tf.trainable_variables():
+                    #    tf.add_to_collection(tf.GraphKeys.MODEL_VARIABLES, v)
                     if False:
-                        print tf.trainable_variables()
+                        #print tf.trainable_variables()
                         print [len(layer.weights) for layer in model.layers]
                         print sum([len(layer.weights) for layer in model.layers])
                         print len([layer.name for layer in model.layers])
                         print len(tf.trainable_variables())
-                        print len(self.keras_weights)
-                        print self.keras_weights[0][:,:,0]
+                        #print len(self.keras_weights)
+                        #print self.keras_weights[0][:,:,0]
                         print sess.run(tf.trainable_variables()[0])[:,:,0]
                     saver = tf.train.Saver()
                     saver.save(sess, keras_checkpoint)
 
-        # test to make sure loading works
-        with tf.Graph().as_default() as g:
-            tf.train.create_global_step(g)
-            features = tf.placeholder(tf.float32, shape=[64,1,1000,4])
-            labels = tf.placeholder(tf.float32, shape=[64,279])
-            inputs = {"features": features, "labels": labels}
-            self.model_fn(inputs, {})
-            with tf.Session() as sess:
-                saver = tf.train.Saver()
-                saver.restore(sess, keras_checkpoint)
-                print tf.trainable_variables()
-                print sess.run(tf.trainable_variables()[0])[:,:,0]
-
+        if False:
+            # test to make sure loading works
+            with tf.Graph().as_default() as g:
+                tf.train.create_global_step(g)
+                features = tf.placeholder(tf.float32, shape=[64,1,1000,4])
+                labels = tf.placeholder(tf.float32, shape=[64,279])
+                inputs = {"features": features, "labels": labels}
+                self.model_fn(inputs, self.model_params)
+                with tf.Session() as sess:
+                    saver = tf.train.Saver()
+                    saver.restore(sess, keras_checkpoint)
+                    for var in tf.trainable_variables():
+                        print var.name
+                    for var in tf.global_variables():
+                        print var.name
+                    print tf.trainable_variables()
+                    print tf.global_variables()
+                    print sess.run(tf.trainable_variables()[0])[:,:,0]
+                
         return keras_checkpoint
 
     
