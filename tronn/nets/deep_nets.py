@@ -292,8 +292,6 @@ def basset_conv_module(features, is_training=True, width_factor=1, is_inferring=
                 activation_fn=None,
                 weights_initializer=layers.variance_scaling_initializer(),
                 biases_initializer=None):
-            if is_inferring:
-                tf.add_to_collection("DEEPLIFT_ACTIVATIONS", features)
             net = slim.conv2d(features, int(width_factor*300), [1, 19], scope="Conv")
             # need to do this for tf_deeplift
             if is_inferring:
