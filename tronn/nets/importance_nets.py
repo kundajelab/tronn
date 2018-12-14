@@ -129,10 +129,9 @@ class FeatureImportanceExtractor(object):
         reuse = params.get("model_reuse", True)
         with tf.variable_scope("", reuse=reuse):
             logging.info("Calling model fn")
-            params.update({
-                "num_tasks": params["model"].model_params["num_tasks"],
-                "is_inferring": True})
-            model_outputs, params = self.model_fn(inputs, params)
+            model_params = params["model"].model_params
+            model_params.update({"is_inferring": True})
+            model_outputs, _ = self.model_fn(inputs, model_params)
         
         # gather anchors
         inputs[DataKeys.IMPORTANCE_ANCHORS] = tf.gather(
