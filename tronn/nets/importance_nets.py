@@ -389,8 +389,8 @@ class FeatureImportanceExtractor(object):
                 anchors = outputs[DataKeys.IMPORTANCE_ANCHORS]
                 print anchors
                 
-                num_models = params["num_models"]
-                num_gpus = params["num_gpus"]
+                num_models = params["model"].model_params["num_models"]
+                num_gpus = params["model"].model_params["num_gpus"]
 
                 # figure out which things need to be kept
                 
