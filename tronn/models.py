@@ -297,7 +297,7 @@ class ModelManager(object):
             session_config = tf.ConfigProto(
                 allow_soft_placement=True,
                 log_device_placement=True) # adjusted for ensembles
-            session_config = tf.ConfigProto()
+            #session_config = tf.ConfigProto()
             session_config.gpu_options.allow_growth = False #True
             config = tf.estimator.RunConfig(
                 save_summary_steps=30,
@@ -826,7 +826,7 @@ class ModelManager(object):
                 h5_handler.flush()
                 h5_handler.chomp_datasets()
 
-        return None
+        return sample_size - total_examples
 
     
     @staticmethod
@@ -944,8 +944,11 @@ class EnsembleModelManager(ModelManager):
         """
         assert len(models) != 0
         self.name = name
-        self.model_fn = self._build_ensemble_model_fn(models, num_gpus=num_gpus)
-        self.model_params = {"num_tasks": models[0].model_params["num_tasks"]} # everything already went into model fn, this last bit for model calling again in importance scores
+        self.model_fn = self._build_ensemble_model_fn(models)
+        self.model_params = {
+            "num_tasks": models[0].model_params["num_tasks"],
+            "num_models": len(models),
+            "num_gpus": num_gpus}
         self.model_dir = [model.model_dir for model in models]
         self.model_checkpoint = [model.model_checkpoint for model in models]
         self.models = models
@@ -954,19 +957,18 @@ class EnsembleModelManager(ModelManager):
     def _build_ensemble_model_fn(
             self,
             models,
-            num_gpus=1,
             merge_outputs=True,
             produce_confidence_interval=True):
         """builds an ensemble model fn based on model list
         """
         def ensemble_model_fn(inputs, params):
             outputs = dict(inputs)
-            params["num_models"] = len(models)
-            params["num_gpus"] = num_gpus
+            num_models = params["num_models"]
+            num_gpus = params["num_gpus"]
             all_logits = []
 
             # go through models
-            for model_idx in xrange(len(models)):
+            for model_idx in xrange(num_models):
                 new_scope = "model_{}".format(model_idx)
                 logging.info("calling model {}".format(model_idx))
                 model_fn = models[model_idx].model_fn
@@ -975,8 +977,8 @@ class EnsembleModelManager(ModelManager):
 
                 # set up model under new scope
                 with tf.variable_scope(new_scope):
-                    pseudo_count = num_gpus - (len(models) % num_gpus) - 1 # ex 10 models, 3 gpus gives 1. 10m, 4g = 1, 10m, 5g=0
-                    device = "/gpu:{}".format((len(models) + pseudo_count - model_idx) % num_gpus)
+                    pseudo_count = num_gpus - (num_models % num_gpus) - 1 # ex 10 models, 3 gpus gives 1. 10m, 4g = 1, 10m, 5g=0
+                    device = "/gpu:{}".format((num_models + pseudo_count - model_idx) % num_gpus)
                     print device
                     with tf.device(device):
                         model_outputs, _ = model_fn(inputs, params)
