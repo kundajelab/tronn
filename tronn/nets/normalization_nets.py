@@ -1,11 +1,82 @@
 """Description: nets for normalizing results
 """
 
+import h5py
 import logging
 
+import numpy as np
 import tensorflow as tf
 
 from tronn.util.utils import DataKeys
+
+
+def _build_multitask_interpolation_fn(x_full, y_full):
+    """assumes 2d matrices, adjusts in place
+    """
+    # build an interp for each task
+    sorted_x_full = np.sort(x_full, axis=0)
+    sorted_y_full = np.sort(y_full, axis=0)
+
+    # build numpy based fn
+    def interp_fn(x_vals):
+        new_x_vals = np.zeros_like(x_vals)
+        for i in range(x_vals.shape[1]):
+            new_x_vals[:,i] = np.interp(
+                x_vals[:,i],
+                sorted_x_full[:,i],
+                sorted_y_full[:,i])
+        return new_x_vals
+    
+    return interp_fn
+
+
+def interpolate_logits_to_labels(inputs, params):
+    """quantile norm between the logit and the label
+    to get them to match as well as possible
+    note that this does NOT change the spearman cor
+    (since rank order does not change) but may improve
+    the pearson cor.
+    """
+    assert params.get("prediction_sample") is not None
+
+    # first, build the comparison vectors
+    with h5py.File(params["prediction_sample"], "r") as hf:
+        labels = hf[DataKeys.LABELS][:] # {N, ...}
+        logits = hf[DataKeys.LOGITS][:] # {N, ...} <- this one changes
+
+    # adjust if ensemble
+    if "ensemble" in params["model"].name:
+        num_models = labels.shape[1]
+        model_norm_fns = []
+        for model_idx in range(num_models):
+            model_norm_fn = _build_multitask_interpolation_fn(
+                logits[:,model_idx], labels)
+            model_norm_fns.append(model_norm_fn)
+
+        def interp(logits):
+            norm_logits = []
+            for model_norm_fn in model_norm_fns:
+                norm_logits.append(model_norm_fn(logits))
+            norm_logits = np.stack(norm_logits, axis=1) # {N, model, logit}
+            return norm_logits
+
+    else:
+        model_norm_fn = _build_multitask_interpolation_fn(
+            logits, labels)
+        
+        def interp(logits):
+            norm_logits = model_norm_fn(logits) # {N, logit}
+            return norm_logits
+            
+    # build py_func
+    inputs[DataKeys.LOGITS] = tf.py_func(
+        func=interp,
+        inp=[inputs[DataKeys.LOGITS]],
+        Tout=tf.float32,
+        stateful=False,
+        name="normalize_logits")
+
+    return inputs, params
 
 
 def normalize_to_importance_logits(inputs, params):
@@ -66,7 +137,7 @@ def normalize_to_importance_logits(inputs, params):
     return outputs, params
 
 # TODO deprecate
-def normalize_to_weights(inputs, params):
+def normalize_to_weights_OLD(inputs, params):
     """Normalize features on a per example basis. Requires a weights vector,
     normally the probabilities at the final point of the output
     (ie, think of if you had a total weight
@@ -113,7 +184,7 @@ def normalize_to_weights(inputs, params):
     return outputs, params
 
 
-def normalize_to_weights_w_shuffles(inputs, params):
+def normalize_to_weights_w_shuffles_OLD(inputs, params):
     """normalize to weights for both the features and the shuffles
     """
     # first the features
@@ -178,7 +249,7 @@ def normalize_to_absolute_one(inputs, params):
     return outputs, params
 
 
-def normalize_to_delta_logits(inputs, params):
+def normalize_to_delta_logits_OLD(inputs, params):
     """Normalize features on a per example basis. Requires a weights vector,
     normally the probabilities at the final point of the output
     (ie, think of if you had a total weight
@@ -222,7 +293,7 @@ def normalize_to_delta_logits(inputs, params):
 
 
 
-def zscore(features, labels, config, is_training=False):
+def zscore_OLD(features, labels, config, is_training=False):
     """Zscore the features.
     """
     assert is_training == False
@@ -239,7 +310,7 @@ def zscore(features, labels, config, is_training=False):
     return features, labels, config
 
 
-def zscore_and_scale_to_weights(features, labels, config, is_training=False):
+def zscore_and_scale_to_weights_OLD(features, labels, config, is_training=False):
     """Zscore such that the standard dev is not 1 but {weight}
     """
     assert is_training == False
