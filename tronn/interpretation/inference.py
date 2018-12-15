@@ -58,18 +58,41 @@ def _setup_output_skip_keys(args):
     return skip_keys
 
 
-def run_inference(
+def run_inference(args, warm_start=False):
+    """convenience wrapper to mask away multi model vs single model runs
+    """
+    # adjust prefix if doing a warm start
+    if warm_start:
+        out_prefix = "{}/{}.{}.prediction_sample".format(
+            args.out_dir, args.prefix, args.subcommand_name)
+    else:
+        out_prefix = None
+        
+    # run all files together or run rotation of models
+    if args.model["name"] == "kfold_models":
+        inference_files = run_multi_model_inference(
+            args, out_prefix=out_prefix, positives_only=True)
+    else:
+        inference_files = run_inference(
+            args, out_prefix=out_prefix, positives_only=True)
+
+    return inference_files
+
+
+def run_single_model_inference(
         args,
-        out_file=None,
+        out_prefix=None,
         positives_only=True,
         kfold=False):
     """wrapper for inference
     """
     # set up out_file
-    if out_file is None:
+    if out_prefix is None:
         out_file = "{}/{}.{}.h5".format(
             args.out_dir, args.prefix, args.subcommand_name)
-
+    else:
+        out_file = "{}.h5".format(out_prefix)
+        
     # set up dataloader
     data_loader = setup_data_loader(args)
 
@@ -134,9 +157,16 @@ def run_inference(
     return [out_file]
 
 
-def run_multi_model_inference(args, positives_only=True):
+def run_multi_model_inference(
+        args,
+        out_prefix=None,
+        positives_only=True):
     """run inference on one model
     """
+    if out_prefix is None:
+        out_prefix = "{}/{}.{}".format(
+            args.out_dir, args.prefix, args.subcommand_name)
+    
     # get the model jsons
     model_jsons = args.model["params"]["models"]
     out_files = []
@@ -148,8 +178,7 @@ def run_multi_model_inference(args, positives_only=True):
             args.model = json.load(fp)
 
         # generate the out file
-        out_file = "{}/{}.{}.model-{}.h5".format(
-            args.out_dir, args.prefix, args.subcommand_name, model_idx)
+        out_file = "{}.model-{}.h5".format(out_prefix, model_idx)
         out_files.append(out_file)
         
         # run inference
