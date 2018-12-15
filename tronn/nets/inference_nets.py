@@ -40,7 +40,8 @@ from tronn.nets.variant_nets import reduce_alleles
 from tronn.util.utils import DataKeys
 
 
-def sequence_to_importance_scores_from_regression(inputs, params):
+# deprecate
+def sequence_to_importance_scores_from_regression_OLD(inputs, params):
     """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
     """
     # get task importances
@@ -49,6 +50,7 @@ def sequence_to_importance_scores_from_regression(inputs, params):
     return outputs, params
 
 
+# rename
 def sequence_to_motif_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
@@ -60,10 +62,6 @@ def sequence_to_motif_scores_from_regression(inputs, params):
         # scan motifs
         outputs, params = get_pwm_scores(outputs, params)
         outputs, params = get_motif_densities(outputs, params)
-
-        # convert sequences to strings
-    
-    print sorted(outputs.keys())
     
     return outputs, params
 
