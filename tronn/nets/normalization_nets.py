@@ -38,25 +38,35 @@ def interpolate_logits_to_labels(inputs, params):
     the pearson cor.
     """
     assert params.get("prediction_sample") is not None
-
+    is_ensemble = params.get("is_ensemble", False)
+    
+    
+    # set up keys
+    if is_ensemble:
+        logit_key = DataKeys.LOGITS_MULTIMODEL
+        new_logit_key = DataKeys.LOGITS_MULTIMODEL_NORM
+    else:
+        logit_key = DataKeys.LOGITS
+        new_logit_key = DataKeys.LOGITS_NORM
+    
     # first, build the comparison vectors
     with h5py.File(params["prediction_sample"], "r") as hf:
         labels = hf[DataKeys.LABELS][:] # {N, ...}
-        logits = hf[DataKeys.LOGITS][:] # {N, ...} <- this one changes
+        logits = hf[logit_key][:] # {N, ...}
 
-    # adjust if ensemble
-    if "ensemble" in params["model"].name:
-        num_models = labels.shape[1]
+    # build interp functions that go into py_func
+    if is_ensemble:
+        num_models = params["num_models"]
         model_norm_fns = []
         for model_idx in range(num_models):
             model_norm_fn = _build_multitask_interpolation_fn(
                 logits[:,model_idx], labels)
             model_norm_fns.append(model_norm_fn)
 
-        def interp(logits):
+        def interp(x_vals):
             norm_logits = []
-            for model_norm_fn in model_norm_fns:
-                norm_logits.append(model_norm_fn(logits))
+            for model_idx in range(num_models):
+                norm_logits.append(model_norm_fns[model_idx](x_vals[:,model_idx]))
             norm_logits = np.stack(norm_logits, axis=1) # {N, model, logit}
             return norm_logits
 
@@ -64,18 +74,27 @@ def interpolate_logits_to_labels(inputs, params):
         model_norm_fn = _build_multitask_interpolation_fn(
             logits, labels)
         
-        def interp(logits):
-            norm_logits = model_norm_fn(logits) # {N, logit}
+        def interp(x_vals):
+            norm_logits = model_norm_fn(x_vals) # {N, logit}
             return norm_logits
-            
+        
     # build py_func
-    inputs[DataKeys.LOGITS] = tf.py_func(
+    old_logits = inputs[logit_key]
+    inputs[new_logit_key] = tf.py_func(
         func=interp,
-        inp=[inputs[DataKeys.LOGITS]],
+        inp=[inputs[logit_key]],
         Tout=tf.float32,
         stateful=False,
         name="normalize_logits")
+    
+    # and have to reset the shape
+    inputs[new_logit_key].set_shape(old_logits.get_shape())
 
+    # and then if ensemble, adjust the logits
+    if is_ensemble:
+        inputs[DataKeys.LOGITS_NORM] = tf.reduce_mean(
+            inputs[DataKeys.LOGITS_MULTIMODEL_NORM], axis=1)
+    
     return inputs, params
 
 
