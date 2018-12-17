@@ -73,8 +73,12 @@ def run_inference(args, warm_start=False):
         inference_files = run_multi_model_inference(
             args, out_prefix=out_prefix, positives_only=True)
     else:
-        inference_files = run_inference(
+        inference_files = run_single_model_inference(
             args, out_prefix=out_prefix, positives_only=True)
+
+    if warm_start:
+        args.model["params"]["prediction_sample"] = inference_files[0]
+        #args.inference_params["prediction_sample"] = inference_files[0] # TODO fix this later
 
     return inference_files
 
