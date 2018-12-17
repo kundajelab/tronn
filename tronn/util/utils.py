@@ -12,8 +12,13 @@ class DataKeys(object):
     LABELS = "labels"
     PROBABILITIES = "probs"
     LOGITS = "logits"
+    LOGITS_NORM = "{}.norm".format(LOGITS)
     ORIG_SEQ = "sequence"
     SEQ_METADATA = "example_metadata"
+
+    # ensembles
+    LOGITS_MULTIMODEL = "{}.multimodel".format(LOGITS)
+    LOGITS_MULTIMODEL_NORM = "{}.norm".format(LOGITS_MULTIMODEL)
 
     # playing with feature transforms
     HIDDEN_LAYER_FEATURES = "{}.nn_transform".format(FEATURES)
