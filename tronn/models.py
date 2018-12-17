@@ -710,10 +710,11 @@ class ModelManager(object):
     def _quantile_norm_logits_to_labels(self, inputs, model_params):
         """use for regression, to make logits more consistent with labels
         """
-        if model_params.get("prediction_sample") is not None:
-            if "ensemble" in self.name:
-                model_params.update({"is_ensemble": True})
-            inputs, _ = interpolate_logits_to_labels(inputs, model_params)
+        if model_params.get("quantile_norm"):
+            if model_params.get("prediction_sample") is not None:
+                if "ensemble" in self.name:
+                    model_params.update({"is_ensemble": True})
+                inputs, _ = interpolate_logits_to_labels(inputs, model_params)
 
         return inputs, model_params
 
