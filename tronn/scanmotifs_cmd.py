@@ -9,7 +9,6 @@ import logging
 from tronn.datalayer import H5DataLoader
 
 from tronn.interpretation.inference import run_inference
-from tronn.interpretation.inference import run_multi_model_inference
 
 from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
@@ -18,9 +17,6 @@ from tronn.interpretation.clustering import visualize_clustered_features_R
 from tronn.interpretation.clustering import visualize_clustered_outputs_R
 from tronn.interpretation.clustering import visualize_multikey_outputs_R
 
-#from tronn.interpretation.motifs import extract_significant_pwms # TODO DEPRECATE
-#from tronn.interpretation.motifs import run_bootstrap_differential_score_test
-#from tronn.interpretation.motifs import test_differential_motifs
 from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
@@ -40,11 +36,17 @@ def run(args):
     else:
         args.tmp_dir = args.out_dir
 
-    # run all files together or run rotation of models
-    if args.model["name"] == "kfold_models":
-        inference_files = run_multi_model_inference(args, positives_only=True)
-    else:
-        inference_files = run_inference(args, positives_only=True)
+    # collect a prediction sample if ensemble (for cross model quantile norm)
+    # but this is also useful for logit to label quantile norm....
+    # in other runs you have preprocessed outputs
+    if args.model["name"] == "ensemble":
+        true_sample_size = args.sample_size
+        args.sample_size = 1000
+        run_inference(args, warm_start=True)
+        args.sample_size = true_sample_size
+
+    # run inference
+    inference_files = run_inference(args)
 
     # put the files into a dataloader
     results_data_log = "{}/dataset.{}.json".format(args.out_dir, args.subcommand_name)
