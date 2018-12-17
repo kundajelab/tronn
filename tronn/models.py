@@ -39,6 +39,7 @@ from tronn.learn.learning import DataSetupHook
 from tronn.learn.learning import DataCleanupHook
 
 from tronn.nets.nets import net_fns
+from tronn.nets.normalization_nets import interpolate_logits_to_labels
 
 #from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
 
@@ -169,6 +170,9 @@ class ModelManager(object):
         if len(logit_indices) > 0:
             outputs[logits_key] = tf.gather(outputs[logits_key], logit_indices, axis=1)
 
+        # and quantile norm if prediction sample is available
+        outputs, _ = self._quantile_norm_logits_to_labels(outputs, self.model_params)
+
         # add loss
         loss = self._add_loss(
             outputs[labels_key],
@@ -213,6 +217,9 @@ class ModelManager(object):
         # if adjusting logits, need to be done here
         if len(logit_indices) > 0:
             outputs[logits_key] = tf.gather(outputs[logits_key], logit_indices, axis=1)
+
+        # and quantile norm if prediction sample is available
+        outputs, _ = self._quantile_norm_logits_to_labels(outputs, self.model_params)
 
         # add final activation
         if not regression:
@@ -699,6 +706,17 @@ class ModelManager(object):
 
         return best_checkpoint
 
+
+    def _quantile_norm_logits_to_labels(self, inputs, model_params):
+        """use for regression, to make logits more consistent with labels
+        """
+        if model_params.get("prediction_sample") is not None:
+            if "ensemble" in self.name:
+                model_params.update({"is_ensemble": True})
+            inputs, _ = interpolate_logits_to_labels(inputs, model_params)
+
+        return inputs, model_params
+
     
     def _add_final_activation_fn(
             self,
@@ -806,6 +824,10 @@ class ModelManager(object):
                         print total_examples
 
                     example = generator.next()
+
+                    import ipdb
+                    ipdb.set_trace()
+                    
                     h5_handler.store_example(example)
                     total_examples += 1
                     
@@ -938,6 +960,7 @@ class EnsembleModelManager(ModelManager):
     def __init__(
             self,
             models,
+            model_params={},
             num_gpus=1,
             name="ensemble_model"):
         """adjust so that model fn is ensemble
@@ -945,10 +968,11 @@ class EnsembleModelManager(ModelManager):
         assert len(models) != 0
         self.name = name
         self.model_fn = self._build_ensemble_model_fn(models)
-        self.model_params = {
+        self.model_params = model_params
+        self.model_params.update({
             "num_tasks": models[0].model_params["num_tasks"],
             "num_models": len(models),
-            "num_gpus": num_gpus}
+            "num_gpus": num_gpus})
         self.model_dir = [model.model_dir for model in models]
         self.model_checkpoint = [model.model_checkpoint for model in models]
         self.models = models
@@ -993,8 +1017,7 @@ class EnsembleModelManager(ModelManager):
             
             # reduce if requested and save out to outputs
             if merge_outputs:
-                # TODO set up fixed term here for saving
-                outputs["logits.multimodel"] = logits # {N, model, logit}
+                outputs[DataKeys.LOGITS_MULTIMODEL] = logits # {N, model, logit}
                 logits = tf.reduce_mean(logits, axis=1)
             outputs[DataKeys.LOGITS] = logits
 
@@ -1344,7 +1367,10 @@ def setup_model_manager(args):
                 # append back to models
                 models.append(sub_model_manager)
             
-            model_manager = EnsembleModelManager(models, num_gpus=args.num_gpus)
+            model_manager = EnsembleModelManager(
+                models,
+                model_params=args.model["params"],
+                num_gpus=args.num_gpus)
 
     elif args.model_framework == "keras":
         # load. json minimally has checkpoint, num_tasks in params, name
