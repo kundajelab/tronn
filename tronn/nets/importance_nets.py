@@ -11,8 +11,12 @@ from tronn.nets.sequence_nets import decode_onehot_sequence
 
 from tronn.nets.filter_nets import filter_and_rebatch
 
+from tronn.nets.normalization_nets import interpolate_logits_to_labels
 from tronn.nets.normalization_nets import normalize_to_importance_logits
 from tronn.nets.normalization_nets import normalize_to_absolute_one
+
+from tronn.nets.stats import get_gaussian_confidence_intervals
+from tronn.nets.stats import check_confidence_intervals
 
 from tronn.nets.threshold_nets import build_null_distribution_threshold_fn
 from tronn.nets.threshold_nets import get_threshold_mask_twotailed
@@ -132,7 +136,7 @@ class FeatureImportanceExtractor(object):
             model_params = params["model"].model_params
             model_params.update({"is_inferring": True})
             model_outputs, _ = self.model_fn(inputs, model_params)
-        
+
         # gather anchors
         inputs[DataKeys.IMPORTANCE_ANCHORS] = tf.gather(
             model_outputs[layer_key],
@@ -141,6 +145,13 @@ class FeatureImportanceExtractor(object):
 
         # save out logits 
         inputs[DataKeys.LOGITS] = model_outputs[DataKeys.LOGITS]
+        if "ensemble" in params["model"].name:
+            inputs[DataKeys.LOGITS_MULTIMODEL] = model_outputs[DataKeys.LOGITS_MULTIMODEL]
+
+        # adjust logits for normalization
+        if params.get("prediction_sample") is not None:
+            # adjust logits here. 
+            inputs, _  = interpolate_logits_to_labels(inputs, params)
 
         # debug
         logging.debug("FEATURES: {}".format(inputs[DataKeys.FEATURES].get_shape()))
@@ -182,7 +193,8 @@ class FeatureImportanceExtractor(object):
         
         return outputs, params
 
-    
+
+    # TODO deprecate, this doesn't get used
     @classmethod
     def get_multimodel_multitask_feature_importances(cls, inputs, params):
         """do multimodel importances
@@ -244,21 +256,6 @@ class FeatureImportanceExtractor(object):
         
         logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
         logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.WEIGHTED_SEQ_SHUF].get_shape()))
-
-
-        # TEST ensemble
-        get_ensemble_scores = False
-        if get_ensemble_scores:
-            threshold_mask = get_threshold_mask_twotailed(
-                {DataKeys.FEATURES: outputs["sequence-weighted.multimodel"],
-                 DataKeys.WEIGHTED_SEQ_THRESHOLDS: tf.multiply(
-                     outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS], 0.1)},
-                params)[0][DataKeys.FEATURES]
-            outputs["sequence-weighted.multimodel.thresh"] = tf.multiply(
-                threshold_mask,
-                outputs["sequence-weighted.multimodel"])
-
-        
         
         return outputs, params
 
@@ -298,18 +295,39 @@ class FeatureImportanceExtractor(object):
         
         return outputs, params
     
+
+    def clip_sequences(self, inputs, params):
+        """clip sequences
+        """
+        assert params.get("left_clip") is not None
+        assert params.get("right_clip") is not None
+        
+        LEFT_CLIP = params["left_clip"]
+        RIGHT_CLIP = params["right_clip"]
+        
+        # create shallow copy
+        outputs = dict(inputs)
+
+        # clip weighted sequences (real and shuf)
+        outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES] # save out from features
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[
+            DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+
+        # clip original sequences (real and shuf)
+        outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[
+            DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
+        outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[
+            DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+
+        return outputs, params
+
     
-    def postprocess(
-            self,
-            inputs,
-            params):
+    def postprocess(self, inputs, params):
         """post processing 
         """
         logging.info("feature importance extractor: postprocess")
         if self.feature_type == "sequence":
-
-            LEFT_CLIP = 420
-            RIGHT_CLIP = 580
 
             # remove the shuffles - weighted seq (orig seq shuffles are already saved)
             params.update({"save_aux": {
@@ -329,46 +347,103 @@ class FeatureImportanceExtractor(object):
             # threshold
             outputs, params = self.threshold(outputs, params)
             
-            # denoise
+            # denoise <- TODO move this later if doing ensemble?
             outputs, params = self.denoise(outputs, params)
             
             # normalize
             outputs, params = self.normalize(outputs, params)
-            
-            # for both raw and weighted, both shuf and not
-            # (1) clip edges
-            outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES] # save out from features
-            outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[
-                DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
-            
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[
-                DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-            outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[
-                DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-            params.update({"left_clip": LEFT_CLIP, "right_clip": RIGHT_CLIP})
 
-            params.update({"decode_key": DataKeys.ORIG_SEQ_ACTIVE})
-            outputs, _ = decode_onehot_sequence(outputs, params)
-            
-            # add in GC content info
-            gc_total= tf.reduce_sum(
-                outputs[DataKeys.ORIG_SEQ_ACTIVE][:,:,:,1:3], axis=(1,2,3))
-            gc_fract = tf.divide(
-                gc_total,
-                outputs[DataKeys.ORIG_SEQ_ACTIVE].get_shape().as_list()[2])
-            outputs[DataKeys.GC_CONTENT] = gc_fract
-            
-            # clear active shuffles
-            del outputs[DataKeys.ACTIVE_SHUFFLES]
-
-            # clear full shuffles (pwms only scores on active segments, and thresholds contain
-            # info for full segments)
-            del outputs[DataKeys.ORIG_SEQ_SHUF]
-            del outputs[DataKeys.WEIGHTED_SEQ_SHUF]
+            # clip
+            outputs, params = self.clip_sequences(outputs, params)
             
         return outputs, params
 
+
+    def cleanup(self, inputs, params):
+        """any clean up operations to perform after all work is done
+        """
+        del inputs[DataKeys.IMPORTANCE_ANCHORS]
+        del inputs[DataKeys.ORIG_SEQ_SHUF]
+        del inputs[DataKeys.WEIGHTED_SEQ_SHUF]
+        del inputs[DataKeys.ACTIVE_SHUFFLES]
+
+        # to consider: do I need original weighted seq, 1000 bp?
+        
+        return inputs, params
+
+
+    def multimodel_merge(self, multimodel_outputs):
+        """given a list of tensor dicts, pull out the ones that need to be merged
+        and merge, and otherwise just grab from model_0.
+        """
+        outputs = dict(multimodel_outputs[0])
+        
+        # concat
+        concat_keys = [
+            DataKeys.WEIGHTED_SEQ_THRESHOLDS,
+            DataKeys.FEATURES,
+            DataKeys.IMPORTANCE_GRADIENTS,
+            DataKeys.WEIGHTED_SEQ,
+            DataKeys.WEIGHTED_SEQ_ACTIVE,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.LOGITS_SHUF]
+        for key in concat_keys:
+            concat_output = []
+            for model_outputs in multimodel_outputs:
+                concat_output.append(model_outputs[key])
+            concat_output = tf.stack(concat_output, axis=1)
+            outputs[key] = concat_output
+
+        # keep out a vector of importances for weighted seq active?
+        if False:
+            # TODO delete this
+            outputs["importances.multimodel"] = outputs[DataKeys.FEATURES]
+        
+        if True:
+            # TODO separate this out to different fn
+            # get confidence interval
+            outputs["multimodel.importances.tmp"] = tf.reduce_sum(
+                outputs[DataKeys.WEIGHTED_SEQ_ACTIVE], axis=-1)
+            ci_params = {
+                "ci_in_key": "multimodel.importances.tmp",
+                "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI}
+            outputs, _ = get_gaussian_confidence_intervals(
+                outputs, ci_params)
+            del outputs["multimodel.importances.tmp"]
+
+            # threshold
+            thresh_params = {
+                "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
+                "ci_pass_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH}
+            outputs, _ = check_confidence_intervals(outputs, thresh_params)
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH] = tf.logical_not(
+                outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH])
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH] = tf.expand_dims(
+                outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], axis=-1)
+            
+        # of concat, some get merged
+        merge_keys = [
+            DataKeys.FEATURES,
+            DataKeys.IMPORTANCE_GRADIENTS,
+            DataKeys.WEIGHTED_SEQ,
+            DataKeys.WEIGHTED_SEQ_ACTIVE,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.LOGITS_SHUF]
+        for key in merge_keys:
+            outputs[key] = tf.reduce_mean(outputs[key], axis=1)
+
+        # TODO and then filter the features and weighted seq
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = tf.multiply(
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE],
+            tf.cast(outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], tf.float32))
+
+        outputs[DataKeys.FEATURES] = tf.multiply(
+            outputs[DataKeys.FEATURES],
+            tf.cast(outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], tf.float32))
+
+        
+        return outputs
+    
 
     def extract(self, inputs, params):
         """put all the pieces together
@@ -378,47 +453,58 @@ class FeatureImportanceExtractor(object):
         if "ensemble" in params["model"].name:
             # TODO potentially split the stack up entirely at this level...
             if False:
-                params.update({"layer_key": "logits.multimodel"})
+                # TODO deprecate this version
+                params.update({"layer_key": DataKeys.LOGITS_MULTIMODEL})
                 outputs, params = self.run_model_and_get_anchors(outputs, params)
                 outputs, params = self.get_multimodel_multitask_feature_importances(outputs, params)
                 outputs, params = self.postprocess(outputs, params)
             else:
                 # separate complete stack here
-                params.update({"layer_key": "logits.multimodel"})
+                params.update({"layer_key": DataKeys.LOGITS_MULTIMODEL})
                 outputs, params = self.run_model_and_get_anchors(outputs, params)
+
+                # pull out key outputs that get used per model
                 anchors = outputs[DataKeys.IMPORTANCE_ANCHORS]
-                print anchors
-                
+                if outputs.get(DataKeys.LOGITS_MULTIMODEL_NORM) is not None:
+                    logits = outputs[DataKeys.LOGITS_MULTIMODEL_NORM]                    
+                else:
+                    logits = outputs[DataKeys.LOGITS_MULTIMODEL]
+
+                # get num models and num gpus
                 num_models = params["model"].model_params["num_models"]
                 num_gpus = params["model"].model_params["num_gpus"]
 
-                # figure out which things need to be kept
-                
-                importances = []
+                # extract relevant keys on a per model basis
+                multimodel_outputs = []
                 for model_idx in range(num_models):
                     pseudo_count = num_gpus - (num_models % num_gpus) - 1
                     device = "/gpu:{}".format((num_models + pseudo_count - model_idx) % num_gpus)
                     print device
                     with tf.device(device):
                         outputs[DataKeys.IMPORTANCE_ANCHORS] = anchors[:,model_idx] # {N, logit}
+                        outputs[DataKeys.LOGITS] = logits[:,model_idx] # {N, logit}
                         params.update({"model_string": "model_{}".format(model_idx)})
                         model_outputs, model_params = self.get_multitask_feature_importances(outputs, params)
                         model_outputs, _ = self.postprocess(model_outputs, model_params)
-                    importances.append(model_outputs[DataKeys.WEIGHTED_SEQ_ACTIVE])
-                importances = tf.stack(importances, axis=1)
-                outputs["importances.multimodel"] = importances # {N, model, ...}
-                # could use an average pool to be more coarse grained?
-                # TODO this is not exactly right but take a look at it
-                outputs.update(model_outputs)
+                        multimodel_outputs.append(model_outputs)
 
+                # merge the outputs
+                outputs = self.multimodel_merge(multimodel_outputs)
+                if outputs.get(DataKeys.LOGITS_MULTIMODEL_NORM) is not None:
+                    outputs[DataKeys.LOGITS] = outputs[DataKeys.LOGITS_NORM]
                 
-                # here could add in another filter based on across-model reproducibility
-                
+                # TODO build a function to calculate correlations across pairs
+
+                # TODO build a separate function that calculates confidence intervals
+                # over an axis
 
         else:
             outputs, params = self.run_model_and_get_anchors(outputs, params)
             outputs, params = self.get_multitask_feature_importances(outputs, params)
             outputs, params = self.postprocess(outputs, params)
+
+        # cleanup
+        outputs, params = self.cleanup(outputs, params)
         
         return outputs, params
 
