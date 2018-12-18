@@ -406,7 +406,8 @@ class FeatureImportanceExtractor(object):
                 outputs[DataKeys.WEIGHTED_SEQ_ACTIVE], axis=-1)
             ci_params = {
                 "ci_in_key": "multimodel.importances.tmp",
-                "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI}
+                "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
+                "std_thresh": 1.645} # 90% confidence interval
             outputs, _ = get_gaussian_confidence_intervals(
                 outputs, ci_params)
             del outputs["multimodel.importances.tmp"]
@@ -420,6 +421,9 @@ class FeatureImportanceExtractor(object):
                 outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH])
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH] = tf.expand_dims(
                 outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], axis=-1)
+
+            # TODO maybe need to do this for shuffles also...?
+            # to make it consistent for the motif scanning?
             
         # of concat, some get merged
         merge_keys = [
@@ -494,9 +498,6 @@ class FeatureImportanceExtractor(object):
                     outputs[DataKeys.LOGITS] = outputs[DataKeys.LOGITS_NORM]
                 
                 # TODO build a function to calculate correlations across pairs
-
-                # TODO build a separate function that calculates confidence intervals
-                # over an axis
 
         else:
             outputs, params = self.run_model_and_get_anchors(outputs, params)
