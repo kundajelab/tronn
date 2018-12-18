@@ -664,7 +664,7 @@ class DeepLift(FeatureImportanceExtractor):
     def _is_linear_var(cls, var):
         """check if variable is linear, use names
         """
-        linear_names = set(["Conv", "conv", "fc", "Reshape", "reshape"])
+        linear_names = set(["Conv", "conv", "fc", "Reshape", "reshape", "anchor"])
         is_linear = False
         for linear_name in linear_names:
             if linear_name in var.name:
@@ -716,6 +716,7 @@ class DeepLift(FeatureImportanceExtractor):
             multipliers = weights
             
         else:
+            # just use linear rule if not recognized?
             raise ValueError, "{} not recognized as linear or nonlinear".format(y.name)
         
         return multipliers
@@ -727,13 +728,13 @@ class DeepLift(FeatureImportanceExtractor):
         """
         # inputs
         features = inputs[DataKeys.FEATURES]
-        anchor = inputs["anchor"]
+        anchor = tf.identity(inputs["anchor"], name="anchor")
         outputs = dict(inputs)
         num_shuffles = params.get("num_shuffles")
         activations = tf.get_collection("DEEPLIFT_ACTIVATIONS") # TODO this fails on ensembles
         model_string = params.get("model_string", "")
         activations = [features] + [activation for activation in activations
-                       if model_string in activation.name]
+                       if model_string in activation.name] + [anchor]
         
         # go backwards through the variables
         activations.reverse()
@@ -754,7 +755,7 @@ class DeepLift(FeatureImportanceExtractor):
                 previous_activation,
                 num_shuffles,
                 multipliers)
-
+            
         # save out multipliers as gradients
         outputs[DataKeys.IMPORTANCE_GRADIENTS] = multipliers
         outputs[DataKeys.FEATURES] = tf.multiply(features, multipliers)
