@@ -731,7 +731,7 @@ class DeepLift(FeatureImportanceExtractor):
         anchor = tf.identity(inputs["anchor"], name="anchor")
         outputs = dict(inputs)
         num_shuffles = params.get("num_shuffles")
-        activations = tf.get_collection("DEEPLIFT_ACTIVATIONS") # TODO this fails on ensembles
+        activations = tf.get_collection("DEEPLIFT_ACTIVATIONS")
         model_string = params.get("model_string", "")
         activations = [features] + [activation for activation in activations
                        if model_string in activation.name] + [anchor]
