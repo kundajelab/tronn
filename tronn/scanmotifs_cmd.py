@@ -10,7 +10,7 @@ from tronn.datalayer import H5DataLoader
 
 from tronn.interpretation.inference import run_inference
 
-from tronn.interpretation.clustering import run_clustering
+#from tronn.interpretation.clustering import run_clustering
 from tronn.interpretation.clustering import summarize_clusters_on_manifold
 from tronn.interpretation.clustering import get_cluster_bed_files
 from tronn.interpretation.clustering import visualize_clustered_features_R
