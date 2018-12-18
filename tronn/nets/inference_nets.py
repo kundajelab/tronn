@@ -3,7 +3,8 @@
 import tensorflow as tf
 
 from tronn.nets.filter_nets import filter_by_accuracy
-from tronn.nets.filter_nets import filter_singleton_labels
+#from tronn.nets.filter_nets import filter_singleton_labels
+#from tronn.nets.filter_nets import produce_confidence_interval_on_outputs
 
 from tronn.nets.importance_nets import get_task_importances
 from tronn.nets.importance_nets import run_dfim
@@ -29,6 +30,8 @@ from tronn.nets.mutate_nets import mutate_weighted_motif_sites_combinatorially
 
 # TODO move this out
 from tronn.nets.sequence_nets import onehot_to_string
+from tronn.nets.sequence_nets import calc_gc_content
+from tronn.nets.sequence_nets import decode_onehot_sequence
 
 from tronn.nets.util_nets import build_stack
 
@@ -54,9 +57,15 @@ def sequence_to_importance_scores_from_regression_OLD(inputs, params):
 def sequence_to_motif_scores_from_regression(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
+    #outputs, params = produce_confidence_interval_on_outputs(inputs, params)
+    params.update({"left_clip": 420, "right_clip": 580})
+    
     # get importances
     outputs, params = get_task_importances(inputs, params)
-
+    outputs, _ = calc_gc_content(outputs, params)
+    params.update({"decode_key": DataKeys.ORIG_SEQ_ACTIVE})
+    outputs, _ = decode_onehot_sequence(outputs, params)
+    
     # move to CPU - GPU mostly needed for gradient calc in model
     with tf.device("/cpu:0"):
         # scan motifs
