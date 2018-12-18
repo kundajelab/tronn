@@ -112,6 +112,24 @@ def generate_dinucleotide_shuffles(inputs, params):
     return outputs, params
 
 
+def calc_gc_content(inputs, params):
+    """get the GC content of the sequence
+    """
+    # get sequence key
+    seq_key = DataKeys.ORIG_SEQ_ACTIVE
+    outputs = dict(inputs)
+    
+    # add in GC content info
+    gc_total= tf.reduce_sum(
+        outputs[seq_key][:,:,:,1:3], axis=(1,2,3))
+    gc_fract = tf.divide(
+        gc_total,
+        outputs[seq_key].get_shape().as_list()[2])
+    outputs[DataKeys.GC_CONTENT] = gc_fract
+    
+    return outputs, params
+
+
 # TODO clean this up
 def generate_scaled_inputs(inputs, params):
     """generate scaled inputs (mostly for integrated gradients)
