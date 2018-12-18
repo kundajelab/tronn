@@ -5,7 +5,11 @@ import numpy as np
 
 import tensorflow as tf
 
+from tronn.nets.stats import get_gaussian_confidence_intervals
+from tronn.nets.stats import check_confidence_intervals
 from tronn.nets.util_nets import rebatch
+
+from tronn.util.utils import DataKeys
 
 
 def filter_and_rebatch(inputs, params):
@@ -81,7 +85,8 @@ def filter_by_labels(inputs, params):
     return outputs, params
 
 
-def filter_singleton_labels(inputs, params):
+# TODO deprecate this
+def filter_singleton_labels_OLD(inputs, params):
     """Remove examples that are positive only in a single case in the subset
     """
     # assertions
@@ -187,4 +192,29 @@ def filter_by_activation_pattern(inputs, params):
     params.update({"name": "activation_pattern_filter"})
     outputs, params = filter_and_rebatch(outputs, params)
 
+    return outputs, params
+
+
+
+def produce_confidence_interval_on_outputs(inputs, params):
+    """given ensemble of outputs, build a confidence interval
+    and threshold
+    """
+    ci_params = {
+        "ci_in_key": DataKeys.LOGITS_MULTIMODEL_NORM,
+        "ci_out_key": DataKeys.LOGITS_CI}
+    outputs, _ = get_gaussian_confidence_intervals(inputs, ci_params)
+
+    thresh_params = {
+        "true_val_key_for_ci": DataKeys.LABELS,
+        "ci_out_key": DataKeys.LOGITS_CI,
+        "ci_pass_key": DataKeys.LOGITS_CI_THRESH}
+    outputs, _ = check_confidence_intervals(outputs, thresh_params)
+
+    # eventually filter on this
+    # to finish fleshing this out - need an arg for which outputs to filter on?
+    # also the filter can't be ALL, needs to be something looser than that
+    
+    
+    
     return outputs, params
