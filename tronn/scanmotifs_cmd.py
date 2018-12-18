@@ -11,13 +11,13 @@ from tronn.datalayer import H5DataLoader
 from tronn.interpretation.inference import run_inference
 
 #from tronn.interpretation.clustering import run_clustering
-from tronn.interpretation.clustering import summarize_clusters_on_manifold
-from tronn.interpretation.clustering import get_cluster_bed_files
-from tronn.interpretation.clustering import visualize_clustered_features_R
-from tronn.interpretation.clustering import visualize_clustered_outputs_R
-from tronn.interpretation.clustering import visualize_multikey_outputs_R
+#from tronn.interpretation.clustering import summarize_clusters_on_manifold
+#from tronn.interpretation.clustering import get_cluster_bed_files
+#from tronn.interpretation.clustering import visualize_clustered_features_R
+#from tronn.interpretation.clustering import visualize_clustered_outputs_R
+#from tronn.interpretation.clustering import visualize_multikey_outputs_R
 
-from tronn.interpretation.motifs import visualize_significant_pwms_R
+#from tronn.interpretation.motifs import visualize_significant_pwms_R
 
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.h5_utils import copy_h5_datasets
