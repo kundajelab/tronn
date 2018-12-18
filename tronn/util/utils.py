@@ -19,7 +19,9 @@ class DataKeys(object):
     # ensembles
     LOGITS_MULTIMODEL = "{}.multimodel".format(LOGITS)
     LOGITS_MULTIMODEL_NORM = "{}.norm".format(LOGITS_MULTIMODEL)
-
+    LOGITS_CI = "{}.ci".format(LOGITS)
+    LOGITS_CI_THRESH = "{}.thresh".format(LOGITS_CI)
+    
     # playing with feature transforms
     HIDDEN_LAYER_FEATURES = "{}.nn_transform".format(FEATURES)
     
@@ -34,6 +36,9 @@ class DataKeys(object):
     ORIG_SEQ_ACTIVE_STRING = "{}.string".format(ORIG_SEQ_ACTIVE)
     WEIGHTED_SEQ_ACTIVE = "{}.active".format(WEIGHTED_SEQ)
     GC_CONTENT = "{}.gc_fract".format(ORIG_SEQ_ACTIVE)
+
+    WEIGHTED_SEQ_ACTIVE_CI = "{}.ci".format(WEIGHTED_SEQ_ACTIVE)
+    WEIGHTED_SEQ_ACTIVE_CI_THRESH = "{}.thresh".format(WEIGHTED_SEQ_ACTIVE_CI)
     
     # for shuffles (generated for null models)
     SHUFFLE_SUFFIX = "shuffles"
