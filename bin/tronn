@@ -320,6 +320,12 @@ def _setup_model_args(args):
     # update checkpoint if needed
     if args.model_checkpoint is not None:
         args.model["checkpoint"] = args.model_checkpoint
+
+    # and update for model json dir
+    if args.model_json is not None:
+        args.model["checkpoint"] = "{}/train/{}".format(
+            os.path.dirname(args.model_json),
+            os.path.basename(args.model["checkpoint"]))
         
     # update model dir (and checkpoint location) if needed
     if args.model_dir is not None:
