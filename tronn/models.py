@@ -38,8 +38,10 @@ from tronn.learn.learning import KerasRestoreHook
 from tronn.learn.learning import DataSetupHook
 from tronn.learn.learning import DataCleanupHook
 
+from tronn.nets.filter_nets import produce_confidence_interval_on_outputs
 from tronn.nets.nets import net_fns
 from tronn.nets.normalization_nets import interpolate_logits_to_labels
+
 
 #from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
 
@@ -710,11 +712,14 @@ class ModelManager(object):
     def _quantile_norm_logits_to_labels(self, inputs, model_params):
         """use for regression, to make logits more consistent with labels
         """
-        if model_params.get("quantile_norm"):
-            if model_params.get("prediction_sample") is not None:
+        if model_params.get("prediction_sample") is not None:
+            if model_params.get("quantile_norm"):
                 if "ensemble" in self.name:
                     model_params.update({"is_ensemble": True})
                 inputs, _ = interpolate_logits_to_labels(inputs, model_params)
+                if "ensemble" in self.name:
+                    inputs, _ = produce_confidence_interval_on_outputs(
+                        inputs, model_params)
 
         return inputs, model_params
 
@@ -825,10 +830,6 @@ class ModelManager(object):
                         print total_examples
 
                     example = generator.next()
-
-                    import ipdb
-                    ipdb.set_trace()
-                    
                     h5_handler.store_example(example)
                     total_examples += 1
                     
@@ -982,8 +983,7 @@ class EnsembleModelManager(ModelManager):
     def _build_ensemble_model_fn(
             self,
             models,
-            merge_outputs=True,
-            produce_confidence_interval=True):
+            merge_outputs=True):
         """builds an ensemble model fn based on model list
         """
         def ensemble_model_fn(inputs, params):
@@ -1002,19 +1002,15 @@ class EnsembleModelManager(ModelManager):
 
                 # set up model under new scope
                 with tf.variable_scope(new_scope):
-                    pseudo_count = num_gpus - (num_models % num_gpus) - 1 # ex 10 models, 3 gpus gives 1. 10m, 4g = 1, 10m, 5g=0
+                    # adjust GPUs as possible
+                    # ex 10 models, 3 gpus gives 1. 10m, 4g = 1, 10m, 5g=0
+                    pseudo_count = num_gpus - (num_models % num_gpus) - 1 
                     device = "/gpu:{}".format((num_models + pseudo_count - model_idx) % num_gpus)
                     print device
                     with tf.device(device):
                         model_outputs, _ = model_fn(inputs, params)
                 all_logits.append(model_outputs[DataKeys.LOGITS])
             logits = tf.stack(all_logits, axis=1) # {N, model, task}
-            
-            # generate a CI (assume normal distr)?
-            # tricky thing is may need to align the regression outputs first
-            # (ie sorta manual adjustment to logits)
-            if produce_confidence_interval:
-                pass
             
             # reduce if requested and save out to outputs
             if merge_outputs:
