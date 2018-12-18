@@ -61,10 +61,12 @@ def _setup_output_skip_keys(args):
 def run_inference(args, warm_start=False):
     """convenience wrapper to mask away multi model vs single model runs
     """
-    # adjust prefix if doing a warm start
+    # adjust prefix and inference fn if doing a prediction warm start
     if warm_start:
         out_prefix = "{}/{}.{}.prediction_sample".format(
             args.out_dir, args.prefix, args.subcommand_name)
+        real_inference_fn = args.inference_params["inference_fn_name"]
+        args.inference_params["inference_fn_name"] = "empty_net"
     else:
         out_prefix = None
         
@@ -78,6 +80,7 @@ def run_inference(args, warm_start=False):
 
     if warm_start:
         args.model["params"]["prediction_sample"] = inference_files[0]
+        args.inference_params["inference_fn_name"] = real_inference_fn
         #args.inference_params["prediction_sample"] = inference_files[0] # TODO fix this later
 
     return inference_files
