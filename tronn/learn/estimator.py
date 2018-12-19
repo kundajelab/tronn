@@ -2,6 +2,7 @@
 """
 
 import time
+import logging
 
 import tensorflow as tf
 
@@ -51,7 +52,7 @@ class TronnEstimator(tf.estimator.Estimator):
                         scaffold=estimator_spec.scaffold,
                         config=self._session_config),
                     hooks=all_hooks) as mon_sess:
-                print "session created"
+                logging.info("session created")
                 init_time = time.time()
                 batches_run = 0
                 warmup_num = 10
@@ -64,7 +65,7 @@ class TronnEstimator(tf.estimator.Estimator):
                     if warmup_num != batches_run:
                         time_per_batch = (new_time - init_time) / (batches_run - warmup_num)
                     #time_per_batch = new_time - init_time
-                    print "run session {}".format(time_per_batch)
+                    logging.info("run session {}".format(time_per_batch))
                     #init_time = new_time
                     if not yield_single_examples:
                         yield preds_evaluated
