@@ -14,7 +14,7 @@ def get_gaussian_confidence_intervals(inputs, params):
     # get inputs
     input_key = params["ci_in_key"]
     out_key = params["ci_out_key"]
-    std_thresh = params.get("std_thresh", 2.0)
+    std_thresh = params.get("std_thresh", 1.96)
     axis = params.get("axis", 1)
     features = inputs[input_key]
     outputs = dict(inputs)

@@ -407,7 +407,7 @@ class FeatureImportanceExtractor(object):
             ci_params = {
                 "ci_in_key": "multimodel.importances.tmp",
                 "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
-                "std_thresh": 1.645} # 90% confidence interval
+                "std_thresh": 1.96} # 90% confidence interval 1.645, 95% is 1.96
             outputs, _ = get_gaussian_confidence_intervals(
                 outputs, ci_params)
             del outputs["multimodel.importances.tmp"]
