@@ -18,14 +18,17 @@ def get_gaussian_confidence_intervals(inputs, params):
     axis = params.get("axis", 1)
     features = inputs[input_key]
     outputs = dict(inputs)
-
-    # get mean and var
+    num_samples = features.get_shape().as_list()[axis]
+    
+    # get mean and standard error
     mean, var = tf.nn.moments(features, [axis])
     std = tf.sqrt(var)
-
+    se = tf.divide(std, tf.sqrt(tf.cast(num_samples, tf.float32)))
+    se_limit = tf.multiply(se, std_thresh)
+    
     # get CI
-    upper_bound = tf.add(mean, tf.multiply(std, std_thresh))
-    lower_bound = tf.subtract(mean, tf.multiply(std, std_thresh)) # {N, 10, 160}
+    upper_bound = tf.add(mean, se_limit)
+    lower_bound = tf.subtract(mean, se_limit) # {N, 10, 160}
     confidence_intervals = tf.stack(
         [upper_bound, lower_bound], axis=1) # {N, 2, ...}
     outputs[out_key] = confidence_intervals
