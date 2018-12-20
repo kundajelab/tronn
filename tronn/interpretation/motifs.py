@@ -15,7 +15,7 @@ from tronn.stats.nonparametric import select_features_by_permutation_test
 from tronn.stats.nonparametric import threshold_by_qvalues
 from tronn.stats.parametric import run_hypergeometric_test
 
-from tronn.interpretation.clustering import get_clusters_from_h5
+#from tronn.interpretation.clustering import get_clusters_from_h5
 
 from tronn.util.pwms import MotifSetManager
 from tronn.util.utils import DataKeys
