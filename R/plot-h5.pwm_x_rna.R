@@ -121,9 +121,9 @@ make_heatmap <- function(data, data_max, use_colsep, use_labrow) {
 
 # grab grob fn
 grab_grob <- function(fn) {
-    grid.echo(fn)
-    #grid.grabExpr(grid.echo(fn))
-    grid.grab()
+    #grid.echo(fn)
+    grid.grabExpr(grid.echo(fn))
+    #grid.grab()
 }
 
 
