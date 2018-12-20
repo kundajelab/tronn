@@ -827,7 +827,7 @@ class ModelManager(object):
             try:
                 for i in xrange(1, sample_size):
                     if total_examples % 1000 == 0:
-                        print total_examples
+                        logging.info("finished {}".format(total_examples))
 
                     example = generator.next()
                     h5_handler.store_example(example)
