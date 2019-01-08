@@ -71,12 +71,13 @@ def threshold_w_dinuc_shuffle_null(inputs, params):
 
     
     # apply
-    threshold_mask = get_threshold_mask_twotailed(
-        {DataKeys.FEATURES: features, thresholds_key: thresholds},
-        {"thresholds_key": thresholds_key})[0][DataKeys.FEATURES]
-    outputs[DataKeys.FEATURES] = tf.multiply(threshold_mask, features)
+    if False:
+        threshold_mask = get_threshold_mask_twotailed(
+            {DataKeys.FEATURES: features, thresholds_key: thresholds},
+            {"thresholds_key": thresholds_key})[0][DataKeys.FEATURES]
+        outputs[DataKeys.FEATURES] = tf.multiply(threshold_mask, features)
 
-    logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
     
     return outputs, params
 
@@ -115,21 +116,29 @@ class FeatureImportanceExtractor(object):
             # update params for where to put the dinuc shuffles
             params.update({"aux_key": DataKeys.ORIG_SEQ_SHUF})
             params.update({"num_shuffles": self.num_shuffles})
+
+            # generate dinuc shuffles
             inputs, params = generate_dinucleotide_shuffles(inputs, params)
 
             # and attach the shuffles (aux_key points to ORIG_SEQ_SHUF)
             params.update({"name": "attach_dinuc_seq"})
             inputs, params = attach_auxiliary_tensors(inputs, params)
 
+            # in params keep info about which tensors to detach later, and where
+            params.update({"save_aux": {
+                DataKeys.FEATURES: DataKeys.WEIGHTED_SEQ_SHUF,
+                DataKeys.LOGITS: DataKeys.LOGITS_SHUF}})
+            
         return inputs, params
             
             
     def run_model_and_get_anchors(self, inputs, params):
         """run the model fn with preprocessed inputs
         """
-        logging.debug("LAYER: call model and set up backprop")
+        logging.debug(">>> BACKPROP ON MODEL")
         layer_key = params.get("layer_key", DataKeys.LOGITS)
-        
+
+        # run model fn
         reuse = params.get("model_reuse", True)
         with tf.variable_scope("", reuse=reuse):
             logging.info("Calling model fn")
@@ -155,6 +164,7 @@ class FeatureImportanceExtractor(object):
 
         # debug
         logging.debug("FEATURES: {}".format(inputs[DataKeys.FEATURES].get_shape()))
+        logging.info("")
         
         return inputs, params
 
@@ -193,112 +203,168 @@ class FeatureImportanceExtractor(object):
         
         return outputs, params
 
-
-    # TODO deprecate, this doesn't get used
-    @classmethod
-    def get_multimodel_multitask_feature_importances(cls, inputs, params):
-        """do multimodel importances
+    
+    def adjust_aux_axes(self, inputs, params):
+        """rotate aux axes
         """
-        anchors = inputs[DataKeys.IMPORTANCE_ANCHORS] # {N, model, logit}
         outputs = dict(inputs)
         
-        num_models = params["num_models"]
-        num_gpus = params["num_gpus"]
-        
-        importances = []
-        gradients = []
-        for model_idx in range(num_models):
-            pseudo_count = num_gpus - (num_models % num_gpus) - 1 # ex 10 models, 3 gpus gives 1. 10m, 4g = 1, 10m, 5g=0
-            device = "/gpu:{}".format((num_models + pseudo_count - model_idx) % num_gpus)
-            print device
-            with tf.device(device):
-                inputs[DataKeys.IMPORTANCE_ANCHORS] = anchors[:,model_idx] # {N, logit}
-                results, _ = cls.get_multitask_feature_importances(inputs, params)
+        outputs[DataKeys.ORIG_SEQ_SHUF] = tf.transpose(
+            outputs[DataKeys.ORIG_SEQ_SHUF], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
+        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.transpose(
+            outputs[DataKeys.WEIGHTED_SEQ_SHUF], perm=[0,2,1,3,4])
+        outputs[DataKeys.LOGITS_SHUF] = tf.transpose(
+            outputs[DataKeys.LOGITS_SHUF], perm=[0,2,1])
 
-            importances.append(results[DataKeys.WEIGHTED_SEQ]) # list of {N, task, seqlen, 4}
-            gradients.append(results[DataKeys.IMPORTANCE_GRADIENTS]) # list of {N, task, seqlen, 4}
-
-        importances = tf.stack(importances, axis=1) # {N, model, task, seqlen, 4}
-        gradients = tf.stack(gradients, axis=1)
-        
-        # save out
-        outputs["importances.multimodel"] = importances # in general dont save this, it's big
-        outputs[DataKeys.FEATURES] = tf.reduce_mean(importances, axis=1)
-        outputs[DataKeys.WEIGHTED_SEQ] = tf.reduce_mean(importances, axis=1)
-        outputs[DataKeys.IMPORTANCE_GRADIENTS] = tf.reduce_mean(gradients, axis=1)
-                
         return outputs, params
+
     
+    def _threshold_multiple(self, inputs, params, keys, thresholds):
+        """helper function for thresholding multiple tensors
+        """
+        outputs = dict(inputs)
+        params.update({"thresholds_key": DataKeys.WEIGHTED_SEQ_THRESHOLDS})
+        for key in keys:
+            logging.debug("thresholding {} {}".format(key, inputs[key].get_shape().as_list()))
+            threshold_mask = get_threshold_mask_twotailed(
+                {DataKeys.FEATURES: inputs[key],
+                 DataKeys.WEIGHTED_SEQ_THRESHOLDS: thresholds},
+                params)[0][DataKeys.FEATURES]
+            outputs[key] = tf.multiply(
+                threshold_mask, inputs[key])
+        
+        return outputs
     
 
     def threshold(self, inputs, params):
         """threshold using dinuc shuffles
         """
-        logging.info("TRANSFORM: threshold features")
-        
+        logging.info(">>> THRESHOLDING")
+        outputs = dict(inputs)
+
         SHUFFLE_PVAL = 0.01
-        #SHUFFLE_PVAL = 0.05
-
-        # threshold main features
-        inputs.update({DataKeys.ACTIVE_SHUFFLES: inputs[DataKeys.WEIGHTED_SEQ_SHUF]})
         params.update({"pval_thresh": SHUFFLE_PVAL})
-        params.update({"thresholds_key": DataKeys.WEIGHTED_SEQ_THRESHOLDS})
-        outputs, params = threshold_w_dinuc_shuffle_null(inputs, params)
-
-        # apply to shuffles
-        threshold_mask = get_threshold_mask_twotailed(
-            {DataKeys.FEATURES: outputs[DataKeys.WEIGHTED_SEQ_SHUF],
-             DataKeys.WEIGHTED_SEQ_THRESHOLDS: outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]},
-            params)[0][DataKeys.FEATURES]
-        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.multiply(
-            threshold_mask,
-            outputs[DataKeys.WEIGHTED_SEQ_SHUF])
         
-        logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
-        logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.WEIGHTED_SEQ_SHUF].get_shape()))
+        # check if thresholds are already present or not, and pull out
+        if inputs.get(DataKeys.WEIGHTED_SEQ_THRESHOLDS) is None:
+            # need to get the thresholds fresh
+            inputs.update({DataKeys.ACTIVE_SHUFFLES: inputs[DataKeys.WEIGHTED_SEQ_SHUF]})
+            outputs, params = threshold_w_dinuc_shuffle_null(inputs, params)
+            thresholds = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]
+        else:
+            # need to check if ensemble or not, to adjust appropriately
+            if "ensemble" in params["model"].name:
+                model_idx = int(params["model_string"].split("_")[1])
+                thresholds = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS][:,model_idx]
+                outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS] = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS][:,model_idx]
+            else:
+                thresholds = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]
+
+        to_threshold = params.get("to_threshold", [])
+        outputs = self._threshold_multiple(outputs, params, to_threshold, thresholds)
+        logging.debug("")
         
         return outputs, params
 
+    
+    def _denoise_aux(self, inputs, params, keys, aux_axis=2):
+        """denoise the aux, adjusting for aux axis
+        """
+        outputs = dict(inputs)
+        for key in keys:
+            outputs[key] = transform_auxiliary_tensor(
+                filter_singles_twotailed, key, outputs, params, aux_axis=aux_axis)
+
+        return outputs
+    
 
     def denoise(self, inputs, params):
         """perform any de-noising as desired
         """
-        logging.info("TRANSFORM: denoise by removing alone bps")
+        logging.info(">>> DENOISING")
+
+        # TODO move these somewhere else?
         SINGLES_FILT_WINDOW = 7
         SINGLES_FILT_WINDOW_MIN = float(2) / SINGLES_FILT_WINDOW
         
         params.update({"window": SINGLES_FILT_WINDOW, "min_fract": SINGLES_FILT_WINDOW_MIN})
         outputs, params = filter_singles_twotailed(inputs, params)
-        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = transform_auxiliary_tensor(
-            filter_singles_twotailed, DataKeys.WEIGHTED_SEQ_SHUF, outputs, params, aux_axis=2)
 
-        logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        # denoise aux tensors too
+        to_denoise_aux = params.get("to_denoise_aux", [])
+        outputs = self._denoise_aux(outputs, params, to_denoise_aux)
+        
+        #outputs[DataKeys.WEIGHTED_SEQ_SHUF] = transform_auxiliary_tensor(
+        #    filter_singles_twotailed, DataKeys.WEIGHTED_SEQ_SHUF, outputs, params, aux_axis=2)
+        
+        #logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        logging.debug("")
         
         return outputs, params
 
 
+    def _normalize_aux(self, inputs, params, keys):
+        """normalize
+        """
+        outputs = dict(inputs)
+        for tensor_key, weight_key in keys:
+            print tensor_key, weight_key
+            params.update({"weight_key": weight_key})
+            outputs[tensor_key] = normalize_to_importance_logits(
+                {DataKeys.FEATURES: outputs[tensor_key],
+                 weight_key: outputs[weight_key]}, params)[0][DataKeys.FEATURES]
+        
+        return outputs
+    
+    
     def normalize(self, inputs, params):
         """normalize
         """
-        logging.info("TRANSFORM: normalize importance scores")
+        logging.info(">>> NORMALIZATION")
         # normalize to logits
         params.update({"weight_key": DataKeys.LOGITS})
         outputs, params = normalize_to_importance_logits(inputs, params)
-        params.update({"weight_key": DataKeys.LOGITS_SHUF})
+
+        # normalize any aux
         params.update({"task_axis": 1})
-        outputs[DataKeys.WEIGHTED_SEQ_SHUF] = normalize_to_importance_logits(
-            {DataKeys.FEATURES: outputs[DataKeys.WEIGHTED_SEQ_SHUF],
-             DataKeys.LOGITS_SHUF: outputs[DataKeys.LOGITS_SHUF]}, params)[0][DataKeys.FEATURES]
+        to_normalize = params.get("to_normalize_aux", [])
+        outputs = self._normalize_aux(outputs, params, to_normalize)
         del params["task_axis"]
         
         logging.info("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        logging.debug("")
         
         return outputs, params
-    
 
+
+    def _clip_sequences_multiple(self, inputs, params, keys):
+        """clip sequences
+        """
+        LEFT_CLIP = params["left_clip"]
+        RIGHT_CLIP = params["right_clip"]
+        outputs = dict(inputs)
+        for key, out_key in keys:
+            outputs[out_key] = inputs[key][:,:,LEFT_CLIP:RIGHT_CLIP]
+        
+        return outputs
+
+
+    def _clip_sequences_aux_multiple(self, inputs, params, keys):
+        """clip sequences
+        """
+        LEFT_CLIP = params["left_clip"]
+        RIGHT_CLIP = params["right_clip"]
+        outputs = dict(inputs)
+        for key, out_key in keys:
+            outputs[out_key] = inputs[key][:,:,:,LEFT_CLIP:RIGHT_CLIP]
+
+        return outputs
+
+    
     def clip_sequences(self, inputs, params):
         """clip sequences
         """
+        logging.info(">>> CLIPPING")
         assert params.get("left_clip") is not None
         assert params.get("right_clip") is not None
         
@@ -308,17 +374,14 @@ class FeatureImportanceExtractor(object):
         # create shallow copy
         outputs = dict(inputs)
 
-        # clip weighted sequences (real and shuf)
-        outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,LEFT_CLIP:RIGHT_CLIP,:]
-        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES] # save out from features
-        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = outputs[
-            DataKeys.WEIGHTED_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        # clip sequences
+        to_clip = params.get("to_clip", [])
+        outputs = self._clip_sequences_multiple(outputs, params, to_clip)
 
-        # clip original sequences (real and shuf)
-        outputs[DataKeys.ORIG_SEQ_ACTIVE] = outputs[
-            DataKeys.ORIG_SEQ][:,:,LEFT_CLIP:RIGHT_CLIP,:]            
-        outputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = outputs[
-            DataKeys.ORIG_SEQ_SHUF][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
+        # clip aux sequences
+        to_clip = params.get("to_clip_aux", [])
+        outputs = self._clip_sequences_aux_multiple(outputs, params, to_clip)
+        logging.debug("")
 
         return outputs, params
 
@@ -330,30 +393,30 @@ class FeatureImportanceExtractor(object):
         if self.feature_type == "sequence":
 
             # remove the shuffles - weighted seq (orig seq shuffles are already saved)
-            params.update({"save_aux": {
-                DataKeys.FEATURES: DataKeys.WEIGHTED_SEQ_SHUF,
-                DataKeys.LOGITS: DataKeys.LOGITS_SHUF}})
             params.update({"rebatch_name": "detach_dinuc_seq"})
             outputs, params = detach_auxiliary_tensors(inputs, params)
-
-            # adjust the axes for the saved shuffles so that task comes before shuffle
-            outputs[DataKeys.ORIG_SEQ_SHUF] = tf.transpose(
-                outputs[DataKeys.ORIG_SEQ_SHUF], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
-            outputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.transpose(
-                outputs[DataKeys.WEIGHTED_SEQ_SHUF], perm=[0,2,1,3,4])
-            outputs[DataKeys.LOGITS_SHUF] = tf.transpose(
-                outputs[DataKeys.LOGITS_SHUF], perm=[0,2,1])
-
+            outputs, params = self.adjust_aux_axes(outputs, params)
+            
             # threshold
+            params.update({"to_threshold": [DataKeys.FEATURES, DataKeys.WEIGHTED_SEQ_SHUF]})
             outputs, params = self.threshold(outputs, params)
             
             # denoise <- TODO move this later if doing ensemble?
+            params.update({"to_denoise_aux": [DataKeys.WEIGHTED_SEQ_SHUF]})
             outputs, params = self.denoise(outputs, params)
             
             # normalize
+            params.update({"to_normalize_aux": [(DataKeys.WEIGHTED_SEQ_SHUF, DataKeys.LOGITS_SHUF)]})
             outputs, params = self.normalize(outputs, params)
 
             # clip
+            params.update({"to_clip": [
+                (DataKeys.FEATURES, DataKeys.FEATURES),
+                (DataKeys.WEIGHTED_SEQ, DataKeys.WEIGHTED_SEQ_ACTIVE),
+                (DataKeys.ORIG_SEQ, DataKeys.ORIG_SEQ_ACTIVE)]})
+            params.update({"to_clip_aux": [
+                (DataKeys.WEIGHTED_SEQ_SHUF, DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF),
+                (DataKeys.ORIG_SEQ_SHUF, DataKeys.ORIG_SEQ_ACTIVE_SHUF)]})
             outputs, params = self.clip_sequences(outputs, params)
             
         return outputs, params
@@ -362,16 +425,61 @@ class FeatureImportanceExtractor(object):
     def cleanup(self, inputs, params):
         """any clean up operations to perform after all work is done
         """
-        del inputs[DataKeys.IMPORTANCE_ANCHORS]
-        del inputs[DataKeys.ORIG_SEQ_SHUF]
-        del inputs[DataKeys.WEIGHTED_SEQ_SHUF]
-        del inputs[DataKeys.ACTIVE_SHUFFLES]
-
-        # to consider: do I need original weighted seq, 1000 bp?
+        delete_keys = [
+            DataKeys.IMPORTANCE_ANCHORS,
+            DataKeys.ORIG_SEQ_SHUF,
+            DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.ACTIVE_SHUFFLES]
+        for key in delete_keys:
+            if inputs.get(key) is not None:
+                del inputs[key]
         
         return inputs, params
 
 
+    def build_confidence_intervals(self, inputs):
+        """build confidence intervals when multimodel
+        """
+        outputs = dict(inputs)
+        
+        # get confidence interval
+        outputs["multimodel.importances.tmp"] = tf.reduce_sum(
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE], axis=-1)
+        ci_params = {
+            "ci_in_key": "multimodel.importances.tmp",
+            "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
+            "std_thresh": 2.576} # 90% confidence interval 1.645, 95% is 1.96
+        outputs, _ = get_gaussian_confidence_intervals(
+            outputs, ci_params)
+        del outputs["multimodel.importances.tmp"]
+
+        # threshold
+        thresh_params = {
+            "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
+            "ci_pass_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH}
+        outputs, _ = check_confidence_intervals(outputs, thresh_params)
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH] = tf.logical_not(
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH])
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH] = tf.expand_dims(
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], axis=-1)
+
+        return outputs
+
+    
+    def filter_with_confidence_intervals(self, inputs):
+        """which tensors to filter
+        """
+        outputs = dict(inputs)
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = tf.multiply(
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE],
+            tf.cast(outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], tf.float32))
+        outputs[DataKeys.FEATURES] = tf.multiply(
+            outputs[DataKeys.FEATURES],
+            tf.cast(outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], tf.float32))
+
+        return outputs
+    
+    
     def multimodel_merge(self, multimodel_outputs):
         """given a list of tensor dicts, pull out the ones that need to be merged
         and merge, and otherwise just grab from model_0.
@@ -386,44 +494,24 @@ class FeatureImportanceExtractor(object):
             DataKeys.WEIGHTED_SEQ,
             DataKeys.WEIGHTED_SEQ_ACTIVE,
             DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
-            DataKeys.LOGITS_SHUF]
+            DataKeys.LOGITS_SHUF,
+            DataKeys.MUT_MOTIF_LOGITS] # keep the logits?
         for key in concat_keys:
-            concat_output = []
-            for model_outputs in multimodel_outputs:
-                concat_output.append(model_outputs[key])
-            concat_output = tf.stack(concat_output, axis=1)
-            outputs[key] = concat_output
+            if multimodel_outputs[0].get(key) is not None:
+                concat_output = []
+                for model_outputs in multimodel_outputs:
+                    concat_output.append(model_outputs[key])
+                concat_output = tf.stack(concat_output, axis=1)
+                outputs[key] = concat_output
 
-        # keep out a vector of importances for weighted seq active?
-        if False:
-            # TODO delete this
-            outputs["importances.multimodel"] = outputs[DataKeys.FEATURES]
-        
-        if True:
-            # TODO separate this out to different fn
-            # get confidence interval
-            outputs["multimodel.importances.tmp"] = tf.reduce_sum(
-                outputs[DataKeys.WEIGHTED_SEQ_ACTIVE], axis=-1)
-            ci_params = {
-                "ci_in_key": "multimodel.importances.tmp",
-                "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
-                "std_thresh": 2.576} # 90% confidence interval 1.645, 95% is 1.96
-            outputs, _ = get_gaussian_confidence_intervals(
-                outputs, ci_params)
-            del outputs["multimodel.importances.tmp"]
+        outputs = self.build_confidence_intervals(outputs)
+        # TODO maybe need to do this for shuffles also...?
+        # to make it consistent for the motif scanning?
 
-            # threshold
-            thresh_params = {
-                "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
-                "ci_pass_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH}
-            outputs, _ = check_confidence_intervals(outputs, thresh_params)
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH] = tf.logical_not(
-                outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH])
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH] = tf.expand_dims(
-                outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], axis=-1)
-
-            # TODO maybe need to do this for shuffles also...?
-            # to make it consistent for the motif scanning?
+        if outputs.get(DataKeys.MUT_MOTIF_LOGITS) is not None:
+            outputs["logits.motif_mut.multimodel"] = outputs[DataKeys.MUT_MOTIF_LOGITS]
+            outputs["logits.motif_mut.multimodel"] = tf.transpose(
+                outputs["logits.motif_mut.multimodel"], perm=[0,2,1,3])
             
         # of concat, some get merged
         merge_keys = [
@@ -432,19 +520,13 @@ class FeatureImportanceExtractor(object):
             DataKeys.WEIGHTED_SEQ,
             DataKeys.WEIGHTED_SEQ_ACTIVE,
             DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
-            DataKeys.LOGITS_SHUF]
+            DataKeys.LOGITS_SHUF,
+            DataKeys.MUT_MOTIF_LOGITS]
         for key in merge_keys:
-            outputs[key] = tf.reduce_mean(outputs[key], axis=1)
+            if outputs.get(key) is not None:
+                outputs[key] = tf.reduce_mean(outputs[key], axis=1)
 
-        # TODO and then filter the features and weighted seq
-        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = tf.multiply(
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE],
-            tf.cast(outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], tf.float32))
-
-        outputs[DataKeys.FEATURES] = tf.multiply(
-            outputs[DataKeys.FEATURES],
-            tf.cast(outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], tf.float32))
-
+        outputs = self.filter_with_confidence_intervals(outputs)
         
         return outputs
     
@@ -487,7 +569,7 @@ class FeatureImportanceExtractor(object):
                     with tf.device(device):
                         outputs[DataKeys.IMPORTANCE_ANCHORS] = anchors[:,model_idx] # {N, logit}
                         outputs[DataKeys.LOGITS] = logits[:,model_idx] # {N, logit}
-                        params.update({"model_string": "model_{}".format(model_idx)})
+                        params.update({"model_string": "model_{}".format(model_idx)}) # important for choosing vals
                         model_outputs, model_params = self.get_multitask_feature_importances(outputs, params)
                         model_outputs, _ = self.postprocess(model_outputs, model_params)
                         multimodel_outputs.append(model_outputs)
@@ -780,150 +862,221 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         params.update({"name": "attach_mut_motif_seq"})
         inputs, params = attach_auxiliary_tensors(inputs, params)
         logging.debug("After attaching aux: {}".format(inputs[DataKeys.FEATURES].get_shape()))
+
+        # for later to detach auxiliary tensors
+        params.update({"save_aux": {
+            DataKeys.FEATURES: DataKeys.MUT_MOTIF_WEIGHTED_SEQ,
+            DataKeys.LOGITS: DataKeys.MUT_MOTIF_LOGITS}})
         
         return inputs, params
 
     
-    def postprocess(self, inputs, params):
-        """postprocess
+    def adjust_aux_axes(self, inputs, params):
+        """rotate aux axes
         """
-        LEFT_CLIP = 420
-        RIGHT_CLIP = 580
+        outputs = dict(inputs)
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.transpose(
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
+        outputs[DataKeys.MUT_MOTIF_POS] = tf.transpose(
+            outputs[DataKeys.MUT_MOTIF_POS], perm=[0,2,1,3,4])
+        outputs[DataKeys.MUT_MOTIF_LOGITS] = tf.transpose(
+            outputs[DataKeys.MUT_MOTIF_LOGITS], perm=[0,2,1])
+        
+        return outputs, params
 
-        # remove the mutations - weighted seq (orig seq shuffles are already saved)
-        params.update({"save_aux": {
-            DataKeys.FEATURES: DataKeys.MUT_MOTIF_WEIGHTED_SEQ,
-            DataKeys.LOGITS: DataKeys.MUT_MOTIF_LOGITS}})
-        params.update({"rebatch_name": "detach_mut_motif_seq"})
-        outputs, params = detach_auxiliary_tensors(inputs, params)
-        logging.debug("FEATURES: {}".format(outputs[DataKeys.FEATURES].get_shape()))
-        logging.debug("MUT_MOTIF_WEIGHTED_SEQ: {}".format(
-            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ].get_shape()))
-        logging.debug("MUT_MOTIF_LOGITS: {}".format(outputs[DataKeys.MUT_MOTIF_LOGITS].get_shape()))
+    
+    def adjust_aux_axes_final(self, inputs, params):
+        """rotate aux axes BACK for downstream analyses
+        """
+        outputs = dict(inputs)
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.transpose(
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
+        outputs[DataKeys.FEATURES] = tf.transpose(
+            outputs[DataKeys.FEATURES], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
+        outputs[DataKeys.MUT_MOTIF_POS] = tf.transpose(
+            outputs[DataKeys.MUT_MOTIF_POS], perm=[0,2,1,3,4])
+        outputs[DataKeys.DFIM_SCORES] = tf.transpose(
+            outputs[DataKeys.DFIM_SCORES], perm=[0,2,1,3,4])
+        outputs[DataKeys.MUT_MOTIF_LOGITS] = tf.transpose(
+            outputs[DataKeys.MUT_MOTIF_LOGITS], perm=[0,2,1])
+        outputs[DataKeys.DFIM_SCORES_DX] = tf.transpose(
+            outputs[DataKeys.DFIM_SCORES_DX], perm=[0,2,1])
         
-        # apply thresholds to normal and mut sequences
-        # NOTE: for now, only deal with positives
-        thresholds = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]
-        
-        features = outputs[DataKeys.FEATURES]
-        pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
-        pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
-        passed_thresholds = tf.add(pass_positive_thresh, pass_negative_thresh)
-        outputs[DataKeys.FEATURES] = tf.multiply(
-            passed_thresholds, outputs[DataKeys.FEATURES])
-        outputs[DataKeys.FEATURES] = tf.nn.relu(outputs[DataKeys.FEATURES])
-
-        thresholds = tf.expand_dims(thresholds, axis=1)
-        features = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ]
-        pass_positive_thresh = tf.cast(tf.greater(features, thresholds), tf.float32)
-        pass_negative_thresh = tf.cast(tf.less(features, -thresholds), tf.float32)
-        passed_thresholds = tf.add(pass_positive_thresh, pass_negative_thresh)
-        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.multiply(
-            passed_thresholds, outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ])
-        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.nn.relu(outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ])
-        
-        # denoise - this is same as above?
-        # can it be made the same by attach.detach?
-        logging.info("TRANSFORM: denoise by removing alone bps")
-        SINGLES_FILT_WINDOW = 7
-        SINGLES_FILT_WINDOW_MIN = float(2) / SINGLES_FILT_WINDOW
-        
-        params.update({"window": SINGLES_FILT_WINDOW, "min_fract": SINGLES_FILT_WINDOW_MIN})
-        outputs, params = filter_singles_twotailed(outputs, params)
-        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = transform_auxiliary_tensor( # except this is not
-            filter_singles_twotailed, DataKeys.MUT_MOTIF_WEIGHTED_SEQ, outputs, params, aux_axis=2)
-
-        # normalize
-        params.update({"weight_key": DataKeys.LOGITS})        
-        outputs, params = normalize_to_importance_logits(outputs, params)
-        params.update({"weight_key": DataKeys.MUT_MOTIF_LOGITS})
-        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = normalize_to_importance_logits(
-            {DataKeys.FEATURES: outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-             DataKeys.MUT_MOTIF_LOGITS: outputs[DataKeys.MUT_MOTIF_LOGITS]},
-            params)[0][DataKeys.FEATURES]
-        
-        # TODO
+        return outputs, params
+    
+    
+    def calculate_deltas(self, inputs, params):
+        """calculate dy and dx
+        """
+        logging.info(">>> CALCULATE DELTAS")
         # (1) features divide by total, multiply by logits - this gives you features normalized to logits
         # (2) 1ST OUTPUT - dy/dx, where you get dy by subtracting orig from mut response, and
         #     dx is subtracting orig from mut at the mut position(s). this is used for permute test
         # (3) 2ND OUTPUT - just the subtraction, which is used for ranking/vis
-        # normalization - NOTE: this function normalizes while blanking the motif site
-        outputs[DataKeys.FEATURES] = tf.expand_dims(outputs[DataKeys.FEATURES], axis=1)
-        if False:
-            outputs, params = normalize_to_absolute_one(outputs, params)
-            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = normalize_to_absolute_one(
-                {DataKeys.FEATURES: outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-                 DataKeys.MUT_MOTIF_POS: outputs[DataKeys.MUT_MOTIF_POS]},
-                params)[0][DataKeys.FEATURES]
-        
-        # for both raw and weighted, both shuf and not
-        # (1) clip edges
-        # if all is correct, only need to chop the features and the mut motif seqs
-        # this is same as above
-        # and clip the position mask also (for blanking at the motif level)
-        outputs[DataKeys.FEATURES] = outputs[DataKeys.FEATURES][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-        outputs[DataKeys.MUT_MOTIF_ORIG_SEQ] = outputs[DataKeys.MUT_MOTIF_ORIG_SEQ][
-            :,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ][
-            :,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-        outputs[DataKeys.MUT_MOTIF_POS] = outputs[DataKeys.MUT_MOTIF_POS][:,:,:,LEFT_CLIP:RIGHT_CLIP,:]
-
-        params.update({"decode_key": DataKeys.MUT_MOTIF_ORIG_SEQ})
-        outputs, _ = decode_onehot_sequence(outputs, params)
+        outputs = dict(inputs)
         
         # calculate deltas scores (DFIM). leave as aux (to attach later)
         # this is dy
         outputs[DataKeys.DFIM_SCORES] = tf.subtract(
-            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-            outputs[DataKeys.FEATURES])
+            inputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
+            inputs[DataKeys.FEATURES])
 
         # dx
         #  {N, mut, pos, 4}
         orig_x = tf.reduce_sum(tf.multiply(
             outputs[DataKeys.FEATURES],
-            outputs[DataKeys.MUT_MOTIF_POS]), axis=[2,3,4])
+            outputs[DataKeys.MUT_MOTIF_POS]), axis=[3,4])
 
         mut_x = tf.reduce_sum(tf.multiply(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-            outputs[DataKeys.MUT_MOTIF_POS]), axis=[2,3,4])
+            outputs[DataKeys.MUT_MOTIF_POS]), axis=[3,4])
 
         # can keep this separate for now
         outputs[DataKeys.DFIM_SCORES_DX] = tf.subtract(mut_x, orig_x)
+        logging.debug("")
         
-        # zero out the ones that shouldn't have responded
-        # they already give low responses, but easiest to just zero them out
-        if True:
-            mut_motif_present = tf.cast(outputs[DataKeys.MUT_MOTIF_PRESENT], tf.float32)
+        return outputs, params
 
-            # NOTE: turn on for synergy scores!!
-            if params["cmd_name"] == "synergy":
-                print "WARNING USING SYNERGY SCORE VERSION"
-                mut_motif_present = outputs[DataKeys.MUT_MOTIF_PRESENT]
-                mut_motif_present = tf.cast(
-                    tf.reduce_all(mut_motif_present, axis=1, keepdims=True),
-                    tf.float32) # {N, 1}
-            else:
-                # TURN THIS OFF FOR DMIM
-                print "WARNING USING DMIM VERSION"
+
+    def denoise_motifs(self, inputs, params):
+        """zero out the ones that shouldn't have responded
+        """
+        logging.info(">>> ZERO OUT MOTIF NON HITS")
+        mut_motif_present = inputs[DataKeys.MUT_MOTIF_PRESENT]
+        outputs = dict(inputs)
+        
+        # NOTE: turn on for synergy scores!!
+        if params["cmd_name"] == "synergy":
+            print "WARNING USING SYNERGY SCORE VERSION"
+            mut_motif_present = tf.cast(
+                tf.reduce_all(mut_motif_present, axis=1, keepdims=True),
+                tf.float32) # {N, 1}
+        else:
+            print "WARNING USING DMIM VERSION"
+            mut_motif_present = tf.cast(inputs[DataKeys.MUT_MOTIF_PRESENT], tf.float32)
+
+        # get shape
+        mut_motif_shape = mut_motif_present.get_shape().as_list()
+        feature_shape = inputs[DataKeys.DFIM_SCORES].get_shape().as_list()
+        mut_motif_present = tf.reshape(
+            mut_motif_present,
+            mut_motif_shape + [1 for i in xrange(len(feature_shape) - len(mut_motif_shape))])
+        mut_motif_present = tf.transpose(mut_motif_present, perm=[0,2,1,3,4])
+        outputs[DataKeys.DFIM_SCORES] = tf.multiply(
+            mut_motif_present,
+            inputs[DataKeys.DFIM_SCORES])
+        logging.debug("")
+        
+        return outputs, params
+
+    
+    def postprocess(self, inputs, params):
+        """postprocess
+        """
+        logging.info("feature importance extractor: postprocess")
+        if self.feature_type == "sequence":
+
+            # remove the shuffles - weighted seq (orig seq shuffles are already saved)
+            params.update({"rebatch_name": "detach_mut_motif_seq"})
+            outputs, params = detach_auxiliary_tensors(inputs, params)
+            outputs, params = self.adjust_aux_axes(outputs, params)
+        
+            # threshold
+            params.update({"to_threshold": [DataKeys.FEATURES, DataKeys.MUT_MOTIF_WEIGHTED_SEQ]})
+            outputs, params = self.threshold(outputs, params)
             
-            mut_motif_shape = mut_motif_present.get_shape().as_list()
-            feature_shape = outputs[DataKeys.DFIM_SCORES].get_shape().as_list()
-            mut_motif_present = tf.reshape(
-                mut_motif_present,
-                mut_motif_shape + [1 for i in xrange(len(feature_shape) - len(mut_motif_shape))])
-            outputs[DataKeys.DFIM_SCORES] = tf.multiply(
-                mut_motif_present,
-                outputs[DataKeys.DFIM_SCORES])
-        
+            # denoise
+            params.update({"to_denoise_aux": [DataKeys.MUT_MOTIF_WEIGHTED_SEQ]})
+            outputs, params = self.denoise(outputs, params)
+            
+            # normalize
+            params.update({"to_normalize_aux": [(DataKeys.MUT_MOTIF_WEIGHTED_SEQ, DataKeys.MUT_MOTIF_LOGITS)]})
+            outputs, params = self.normalize(outputs, params)
+
+            # clip
+            outputs[DataKeys.FEATURES] = tf.expand_dims(outputs[DataKeys.FEATURES], axis=2)
+            params.update({"to_clip_aux": [
+                (DataKeys.FEATURES, DataKeys.FEATURES),                
+                (DataKeys.MUT_MOTIF_WEIGHTED_SEQ, DataKeys.MUT_MOTIF_WEIGHTED_SEQ),
+                (DataKeys.MUT_MOTIF_POS, DataKeys.MUT_MOTIF_POS)]}) # TODO is this even used anymore?
+            outputs, params = self.clip_sequences(outputs, params)
+
+            # TODO figure out better place to put this?
+            params.update({"decode_key": DataKeys.MUT_MOTIF_ORIG_SEQ})
+            outputs, _ = decode_onehot_sequence(outputs, params)
+
+            # calculate the deltas
+            outputs, _ = self.calculate_deltas(outputs, params)
+
+            # zero out those that should have been zero
+            outputs, _ = self.denoise_motifs(outputs, params)
+
+        # put in features tensor
         outputs[DataKeys.FEATURES] = outputs[DataKeys.DFIM_SCORES]
-        
+
+
+        outputs, _ = self.adjust_aux_axes_final(outputs, params) # {N, mutM, task, seqlen, 4}
         # calculate the delta logits later, in post analysis
         
         # Q: is there a way to get the significance of a delta score even here?
         # ie, what is the probability of a delta score by chance?
+
+        # at what point do I use the nulls? <- for motifs
+        
         
         return outputs, params
     
+
+    def build_confidence_intervals(self, inputs):
+        """build confidence intervals when multimodel
+        """
+        outputs = dict(inputs)
+        
+        # get confidence interval
+        outputs["multimodel.importances.tmp"] = tf.reduce_sum(
+            outputs[DataKeys.FEATURES], axis=-1)
+        ci_params = {
+            "ci_in_key": "multimodel.importances.tmp",
+            "ci_out_key": DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI,
+            "std_thresh": 2.576} # 90% confidence interval 1.645, 95% is 1.96
+        outputs, _ = get_gaussian_confidence_intervals(
+            outputs, ci_params)
+        del outputs["multimodel.importances.tmp"]
+        
+        # threshold
+        thresh_params = {
+            "ci_out_key": DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI,
+            "ci_pass_key": DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH}
+        outputs, _ = check_confidence_intervals(outputs, thresh_params)
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH] = tf.logical_not(
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH])
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH] = tf.expand_dims(
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH], axis=-1)
+
+        return outputs
+
+    
+    def filter_with_confidence_intervals(self, inputs):
+        """which tensors to filter
+        """
+        outputs = dict(inputs)
+        outputs[DataKeys.FEATURES] = tf.multiply(
+            outputs[DataKeys.FEATURES],
+            tf.cast(outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH], tf.float32))
+
+        # after using, flip axes for the CI to keep when extracting null muts
+        outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI] = tf.transpose(
+            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI], perm=[0,2,1,3,4])
+        
+        # also filter the weighted seq again
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = tf.multiply(
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE],
+            tf.cast(outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], tf.float32))
+
+
+
+        return outputs
+
     
     
 def get_task_importances(inputs, params):
