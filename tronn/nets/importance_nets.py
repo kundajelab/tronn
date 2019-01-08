@@ -223,7 +223,6 @@ class FeatureImportanceExtractor(object):
         """helper function for thresholding multiple tensors
         """
         outputs = dict(inputs)
-        params.update({"thresholds_key": DataKeys.WEIGHTED_SEQ_THRESHOLDS})
         for key in keys:
             logging.debug("thresholding {} {}".format(key, inputs[key].get_shape().as_list()))
             threshold_mask = get_threshold_mask_twotailed(
@@ -244,6 +243,7 @@ class FeatureImportanceExtractor(object):
 
         SHUFFLE_PVAL = 0.01
         params.update({"pval_thresh": SHUFFLE_PVAL})
+        params.update({"thresholds_key": DataKeys.WEIGHTED_SEQ_THRESHOLDS})
         
         # check if thresholds are already present or not, and pull out
         if inputs.get(DataKeys.WEIGHTED_SEQ_THRESHOLDS) is None:
