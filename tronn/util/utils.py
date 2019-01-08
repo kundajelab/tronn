@@ -112,9 +112,13 @@ class DataKeys(object):
     MUT_MOTIF_LOGITS_SIG = "{}.motif_mut.sig".format(LOGITS)
     DFIM_SCORES = "{}.delta".format(MUT_MOTIF_WEIGHTED_SEQ)
     DFIM_SCORES_DX = "{}.delta.dx".format(MUT_MOTIF_WEIGHTED_SEQ)
+    
+    MUT_MOTIF_WEIGHTED_SEQ_CI = "{}.ci".format(MUT_MOTIF_WEIGHTED_SEQ)
+    MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH = "{}.thresh".format(MUT_MOTIF_WEIGHTED_SEQ_CI)
 
     # dmim agg results keys
     DMIM_SCORES = "dmim.motif_mut.scores"
+    DMIM_SCORES_SIG = "{}.sig".format(DMIM_SCORES)
     DMIM_DIFF_GROUP = "dmim.differential"
     DMIM_PVALS = "dmim.pvals"
     DMIM_SIG_ROOT = "dmim.sig"
