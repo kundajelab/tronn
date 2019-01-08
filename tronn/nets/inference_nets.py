@@ -111,12 +111,6 @@ def sequence_to_dmim(inputs, params):
         outputs, _ = extract_null_results(outputs, params)
         outputs, _ = get_sig_mut_motifs(outputs, params)
         outputs, _ = get_sig_mut_logits(outputs, params)
-
-    import ipdb
-    ipdb.set_trace()
-        
-    print "quit statement in inference_nets.py"
-    quit()
         
     return outputs, params
 
