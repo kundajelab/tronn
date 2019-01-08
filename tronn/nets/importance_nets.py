@@ -1001,7 +1001,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             params.update({"to_clip_aux": [
                 (DataKeys.FEATURES, DataKeys.FEATURES),                
                 (DataKeys.MUT_MOTIF_WEIGHTED_SEQ, DataKeys.MUT_MOTIF_WEIGHTED_SEQ),
-                (DataKeys.MUT_MOTIF_POS, DataKeys.MUT_MOTIF_POS)]}) # TODO is this even used anymore?
+                (DataKeys.MUT_MOTIF_POS, DataKeys.MUT_MOTIF_POS)]})
             outputs, params = self.clip_sequences(outputs, params)
 
             # TODO figure out better place to put this?
