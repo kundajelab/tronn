@@ -65,7 +65,7 @@ def threshold_w_dinuc_shuffle_null(inputs, params):
     feature_shape = features.get_shape().as_list()
     thresholds = tf.reshape(
         thresholds,
-        feature_shape[0:2] + [1 for i in xrange(len(feature_shape[2:]))])
+        feature_shape[0:2] + [1 for i in xrange(len(feature_shape[2:]))]) # {N, task, 1, 1}
     outputs[thresholds_key] = thresholds
     logging.debug("...thresholds: {}".format(thresholds.get_shape()))
 
@@ -258,7 +258,7 @@ class FeatureImportanceExtractor(object):
                 thresholds = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS][:,model_idx]
                 outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS] = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS][:,model_idx]
             else:
-                thresholds = outputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]
+                thresholds = inputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS]
 
         to_threshold = params.get("to_threshold", [])
         outputs = self._threshold_multiple(outputs, params, to_threshold, thresholds)
@@ -412,12 +412,15 @@ class FeatureImportanceExtractor(object):
             # clip
             params.update({"to_clip": [
                 (DataKeys.FEATURES, DataKeys.FEATURES),
-                (DataKeys.WEIGHTED_SEQ, DataKeys.WEIGHTED_SEQ_ACTIVE),
+                #(DataKeys.WEIGHTED_SEQ, DataKeys.WEIGHTED_SEQ_ACTIVE),
                 (DataKeys.ORIG_SEQ, DataKeys.ORIG_SEQ_ACTIVE)]})
             params.update({"to_clip_aux": [
                 (DataKeys.WEIGHTED_SEQ_SHUF, DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF),
                 (DataKeys.ORIG_SEQ_SHUF, DataKeys.ORIG_SEQ_ACTIVE_SHUF)]})
             outputs, params = self.clip_sequences(outputs, params)
+
+            # TODO - replace weighted seq active with features?
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES]
             
         return outputs, params
 
@@ -1170,7 +1173,7 @@ def filter_singles_twotailed(inputs, params):
 
     # reduce to put all bases in one dimension
     pos_features = tf.reduce_sum(pos_features, axis=3, keepdims=True)
-    neg_features = tf.reduce_sum(pos_features, axis=3, keepdims=True)
+    neg_features = tf.reduce_sum(neg_features, axis=3, keepdims=True)
 
     # get masks
     pos_mask = filter_singles({DataKeys.FEATURES: pos_features}, params)[0][DataKeys.FEATURES]
