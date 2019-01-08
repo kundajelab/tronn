@@ -99,7 +99,6 @@ def get_threshold_mask_twotailed(inputs, params):
     """apply a threshold and return a boolean mask for things
     that pass the threshold in both the positive and negative directions
     """
-    logging.info("LAYER: apply thresholds")
     features = inputs[DataKeys.FEATURES]
     thresholds = tf.abs(inputs[params["thresholds_key"]]) # abs is just in case
     outputs = dict(inputs)
@@ -120,7 +119,7 @@ def get_threshold_mask_twotailed(inputs, params):
     pass_thresh = tf.add(pass_positive_thresh, pass_negative_thresh)
     outputs[DataKeys.FEATURES] = pass_thresh
 
-    logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+    #logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
     
     return outputs, params
 
