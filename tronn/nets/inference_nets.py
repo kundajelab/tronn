@@ -19,6 +19,7 @@ from tronn.nets.motif_nets import filter_for_any_sig_pwms
 from tronn.nets.motif_nets import run_dmim
 from tronn.nets.motif_nets import extract_null_results
 from tronn.nets.motif_nets import get_sig_mut_logits
+from tronn.nets.motif_nets import get_sig_mut_motifs
 
 from tronn.nets.mutate_nets import dfim
 from tronn.nets.mutate_nets import motif_dfim
@@ -79,6 +80,8 @@ def sequence_to_dmim(inputs, params):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
     """
+    params.update({"left_clip": 420, "right_clip": 580})
+        
     # here - assume sequence to motif scores has already been run
     # if not set up in another fn
     print "WARNING ASSUMES PROCESSED INPUTS"
@@ -106,7 +109,14 @@ def sequence_to_dmim(inputs, params):
         # and then run dmim
         outputs, params = run_dmim(outputs, params)
         outputs, _ = extract_null_results(outputs, params)
+        outputs, _ = get_sig_mut_motifs(outputs, params)
         outputs, _ = get_sig_mut_logits(outputs, params)
+
+    import ipdb
+    ipdb.set_trace()
+        
+    print "quit statement in inference_nets.py"
+    quit()
         
     return outputs, params
 

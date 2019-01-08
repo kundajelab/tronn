@@ -590,15 +590,44 @@ def extract_null_results(inputs, params):
             inputs[key] = motif_mut_tensors
             inputs[null_key] = null_tensors
 
-    # TODO also need to adjust features?
-    
+    # also need to adjust features
+    inputs[DataKeys.FEATURES] = inputs[DataKeys.FEATURES][:,:-num_null]
+
     return inputs, params
+
+
+def get_sig_mut_motifs(inputs, params):
+    """make CIs on the null mutants and use to filter the actual scores
+    """
+    z_thresh = 1.645 # 90% CI
+    dmim_mut_scores = inputs[DataKeys.DMIM_SCORES]
+    dmim_null_scores = inputs[DataKeys.DMIM_SCORES.replace("motif_mut", "null_mut")]
+    outputs = dict(inputs)
+    
+    # get mean, var
+    mean, var = tf.nn.moments(dmim_null_scores, axes=[1], keep_dims=True) # {N, 1, task, M}
+    std = tf.sqrt(var)
+    
+    # cutoff
+    passed_threshold = tf.subtract(dmim_mut_scores, mean)
+    passed_threshold = tf.greater_equal(tf.abs(passed_threshold), z_thresh*std)
+
+    # it's only real if the motif was present
+    passed_threshold = tf.multiply(
+        tf.cast(passed_threshold, tf.float32),
+        dmim_mut_scores)
+    
+    outputs[DataKeys.DMIM_SCORES_SIG] = passed_threshold
+
+    return outputs, params
 
 
 def get_sig_mut_logits(inputs, params):
     """given null mutation logits, build a distribution and
     get cutoff for significant change
     """
+    # TODO need to think about how this shifts if have ensemble of results.
+    z_thresh = 0.645 # 90% CI
     null_mut_logits = inputs[DataKeys.MUT_MOTIF_LOGITS.replace("motif_mut", "null_mut")]
     motif_mut_logits = inputs[DataKeys.MUT_MOTIF_LOGITS]
     outputs = dict(inputs)
@@ -608,7 +637,7 @@ def get_sig_mut_logits(inputs, params):
     
     # cutoff
     passed_threshold = tf.subtract(motif_mut_logits, mean)
-    passed_threshold = tf.greater_equal(tf.abs(passed_threshold), 2*std)
+    passed_threshold = tf.greater_equal(tf.abs(passed_threshold), z_thresh*std)
 
     # it's only real if the motif was present
     passed_threshold = tf.multiply(
@@ -618,6 +647,16 @@ def get_sig_mut_logits(inputs, params):
     outputs[DataKeys.MUT_MOTIF_LOGITS_SIG] = passed_threshold
     
     return outputs, params
+
+
+def cleanup_null_muts(inputs, params):
+    """ delete a bunch of tensors
+    """
+    
+
+    
+
+    return
 
 
 def get_motif_densities(inputs, params):
