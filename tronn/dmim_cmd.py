@@ -8,7 +8,7 @@ import logging
 import numpy as np
 
 from tronn.interpretation.inference import run_inference
-from tronn.interpretation.inference import run_multi_model_inference
+#from tronn.interpretation.inference import run_multi_model_inference
 from tronn.interpretation.motifs import get_sig_pwm_vector
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.scripts import parse_multi_target_selection_strings
@@ -41,16 +41,12 @@ def run(args):
         new_filter_targets += keys_and_indices
     args.filter_targets = [(new_filter_targets, {"reduce_type": "any"})]
 
-    
     # TODO add option to ignore long PWMs (later)
     args.inference_params.update({"sig_pwms": sig_pwms})
     logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
-    
-    # run all files together or run rotation of models
-    if args.model["name"] == "kfold_models":
-        run_multi_model_inference(args, positives_only=True)
-    else:
-        run_inference(args, positives_only=True)
+
+    # run inference
+    inference_files = run_inference(args)
 
     # add in PWM names to the datasets
     add_pwm_names_to_h5(
