@@ -47,9 +47,6 @@ from tronn.util.utils import DataKeys
 def sequence_to_pwm_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
-    # GGR specific, where to move this?
-    params.update({"left_clip": 420, "right_clip": 580})
-    
     # get importances
     outputs, params = get_task_importances(inputs, params)
     outputs, _ = calc_gc_content(outputs, params)
@@ -64,37 +61,25 @@ def sequence_to_pwm_scores(inputs, params):
     return outputs, params
 
 
-def sequence_to_dmim(inputs, params):
+def pwm_scores_to_dmim(inputs, params):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
     """
-    params.update({"left_clip": 420, "right_clip": 580})
-        
     # here - assume sequence to motif scores has already been run
     # if not set up in another fn
     print "WARNING ASSUMES PROCESSED INPUTS"
     outputs = dict(inputs)
 
+    # filter and mutate
     with tf.device("/cpu:0"):
-
-        # TODO i think eventually load the different objects here
-        # so that it's easier to intersperse new functions at the right places
-        # ex: loading null muts and removing null muts
-        
-        # filtering
         outputs, params = filter_for_any_sig_pwms(inputs, params)
-        #outputs, params = filter_for_significant_pwms(inputs, params) # still do this, requires {N, M}
-        #outputs, params = score_distances_on_manifold(outputs, params) # throw this away
-        #outputs, params = filter_by_manifold_distances(outputs, params) # throw this away
-        
-        # mutate
         outputs, params = mutate_weighted_motif_sites(outputs, params)
 
     # run dfim
     outputs, params = run_dfim(outputs, params)
 
+    # dmim and sig results
     with tf.device("/cpu:0"):
-        # and then run dmim
         outputs, params = run_dmim(outputs, params)
         outputs, _ = extract_null_results(outputs, params)
         outputs, _ = get_sig_mut_motifs(outputs, params)

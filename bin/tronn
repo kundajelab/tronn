@@ -539,6 +539,12 @@ def _add_interpretation_args(parser, inference_fn="sequence_to_motif_scores"):
         "--inference_fn", default=inference_fn,
         help="inference stack")
     parser.add_argument(
+        "--left_clip", default=420, type=int,
+        help="how much to clip off the left sequence flank")
+    parser.add_argument(
+        "--right_clip", default=580, type=int,
+        help="how much to clip off the right sequence flank")
+    parser.add_argument(
         "--pwm_file", default=None,
         help="pwm file")
     parser.add_argument(
@@ -583,6 +589,8 @@ def _setup_interpretation_args(args):
         "inference_fn_name": args.inference_fn,
         "importance_task_indices": args.inference_targets,
         "backprop": args.backprop,
+        "left_clip": args.left_clip,
+        "right_clip": args.right_clip,
         "pwms": args.pwm_list}
     
     return
