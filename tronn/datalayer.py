@@ -33,7 +33,7 @@ class DataLoader(object):
         """set up dataloader. minimally should require the data directory,
         and body of this function collects the files.
         """
-        raise NotImplementedError, "required method, implement in child class!"
+        raise NotImplementedError("required method, implement in child class!")
 
     
     @abc.abstractmethod
@@ -42,7 +42,7 @@ class DataLoader(object):
         must return the generator, a dict of tf dtypes, and a dict of shapes
         generator is expected to return one example at a time.
         """
-        raise NotImplementedError, "required method, implement in child class!"
+        raise NotImplementedError("required method, implement in child class!")
 
     
     @staticmethod
@@ -104,7 +104,7 @@ class DataLoader(object):
                 positive_num = tf.reduce_sum(tf.cast(filter_targets, tf.float32))
                 passes_filter = tf.less_equal(positive_num, max_count)
             else:
-                raise NotImplementedError, "requested filter type not implemented!"
+                raise NotImplementedError("requested filter type not implemented!")
             return passes_filter
         
         return filter_fn
@@ -163,7 +163,7 @@ class DataLoader(object):
             return dataset
         
         # set up interleaved datasets
-        dataset = tf.data.Dataset.from_tensor_slices(range(len(self.data_files))).apply(
+        dataset = tf.data.Dataset.from_tensor_slices(list(range(len(self.data_files)))).apply(
             tf.contrib.data.parallel_interleave(
                 lambda file_idx: from_generator(file_idx),
                 #lambda filename: from_generator(filename),
@@ -220,13 +220,13 @@ class DataLoader(object):
         # set up generator and ordered keys, dtypes
         generator, dtypes_dict, shapes_dict = self.build_generator(
             batch_size=batch_size, shuffle=shuffle, lock=lock, **kwargs)
-        ordered_keys = dtypes_dict.keys()
+        ordered_keys = list(dtypes_dict.keys())
         ordered_dtypes = [dtypes_dict[key] for key in ordered_keys]
         h5_to_generator = generator(h5_file, yield_single_examples=False)
             
         # wrapper function to get generator into py func
         def h5_to_tensors(batch_id):
-            slice_array, _ = h5_to_generator.next()
+            slice_array, _ = next(h5_to_generator)
             results = []
             for key in ordered_keys:
                 results.append(slice_array[key])
@@ -241,12 +241,12 @@ class DataLoader(object):
             name='py_func_batch_id_to_examples')
         
         # set shape
-        for i in xrange(len(ordered_keys)):
+        for i in range(len(ordered_keys)):
             inputs[i].set_shape(
                 [batch_size]+list(shapes_dict[ordered_keys[i]]))
                 
         # back to dict
-        inputs = dict(zip(ordered_keys, inputs))
+        inputs = dict(list(zip(ordered_keys, inputs)))
 
         return inputs
 
@@ -268,7 +268,7 @@ class DataLoader(object):
 
         # gather in place
         keep_indices = tf.reshape(tf.where(passes_filter), [-1])
-        for key in inputs.keys():
+        for key in list(inputs.keys()):
             inputs[key] = tf.gather(inputs[key], keep_indices)
 
         # rebatch
@@ -542,9 +542,9 @@ class H5DataLoader(DataLoader):
             lists - (positives, training negatives, genomewide negatives)
         """
         if genome == "human":
-            chroms = ["chr{}".format(i) for i in xrange(1,23)] + ["chrX", "chrY"]
+            chroms = ["chr{}".format(i) for i in range(1,23)] + ["chrX", "chrY"]
         else:
-            raise Exception, "unrecognized genome!"
+            raise Exception("unrecognized genome!")
 
         # save into a chromosome dict
         # TODO(dk) eventually adjust this to check h5 attributes instead of filename, safer that way
@@ -708,12 +708,12 @@ class H5DataLoader(DataLoader):
                 if "metadata" in key:
                     slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                     slice_pad = np.array(
-                        ["features=chr1:0-1000" for i in xrange(batch_padding_num)]).reshape(
+                        ["features=chr1:0-1000" for i in range(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
                 elif "string" in key:
                     slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                     slice_pad = np.array(
-                        ["N" for i in xrange(batch_padding_num)]).reshape(
+                        ["N" for i in range(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
                 else:
                     slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
@@ -746,7 +746,7 @@ class H5DataLoader(DataLoader):
                 elif reduce_type == "none":
                     labels_subset = labels_subset
                 else:
-                    raise ValueError, "reduce type not recognized!"
+                    raise ValueError("reduce type not recognized!")
                     
                 # then append to labels
                 labels.append(labels_subset)
@@ -776,7 +776,7 @@ class H5DataLoader(DataLoader):
         test_h5 = self.h5_files[test_file_idx]
         with h5py.File(test_h5, "r") as h5_handle:
             if len(keys) == 0:
-                keys = h5_handle.keys()
+                keys = list(h5_handle.keys())
             num_examples = h5_handle[example_key].shape[0]
             
             for key in keys:
@@ -811,7 +811,7 @@ class H5DataLoader(DataLoader):
             dtypes_dict = {}
             shapes_dict = {}
             for key in keys:
-                if isinstance(h5_handle[key][0], basestring):
+                if isinstance(h5_handle[key][0], str):
                     dtypes_dict[key] = tf.string
                     shapes_dict[key] = [1]
                 elif h5_handle[key][0].dtype.char == "S":
@@ -921,7 +921,7 @@ class H5DataLoader(DataLoader):
                 
                 # open h5 file
                 with h5py.File(h5_file, "r") as h5_handle:
-                    test_key = h5_handle.keys()[0]
+                    test_key = list(h5_handle.keys())[0]
 
                     # if using examples, then get the indices and change batch size to 1
                     if len(examples_subset) != 0:
@@ -934,7 +934,7 @@ class H5DataLoader(DataLoader):
                     else:
                         # set up batch id total and get batches
                         max_batches = int(math.ceil(h5_handle[test_key].shape[0]/float(batch_size)))
-                        batch_ids = range(max_batches)
+                        batch_ids = list(range(max_batches))
 
                     # shuffle batches as needed
                     if shuffle:
@@ -965,7 +965,7 @@ class H5DataLoader(DataLoader):
                             
                             # yield
                             if yield_single_examples: # NOTE: this is the most limiting step
-                                for i in xrange(batch_size):
+                                for i in range(batch_size):
                                     yield ({
                                         key: value[i]
                                         for key, value in six.iteritems(slice_array)
@@ -980,7 +980,7 @@ class H5DataLoader(DataLoader):
 
                     finally:
                         converter.close()
-                        print "finished {}".format(h5_file)
+                        print("finished {}".format(h5_file))
                             
         # instantiate
         generator = Generator(self.fasta, batch_size)
@@ -1151,7 +1151,7 @@ class H5DataLoader(DataLoader):
             # go through the files and sum up
             total_examples = 0
             positives = np.zeros((num_tasks))
-            for i in xrange(len(self.h5_files)):
+            for i in range(len(self.h5_files)):
                 with h5py.File(self.h5_files[i], "r") as hf:
                     total_examples += hf[key].shape[0]
                     if len(indices) == 0:
@@ -1192,7 +1192,7 @@ class H5DataLoader(DataLoader):
 
             # go through the files and sum up
             total_examples = 0
-            for i in xrange(len(self.h5_files)):
+            for i in range(len(self.h5_files)):
                 with h5py.File(self.h5_files[i], "r") as hf:
                     total_examples += hf[key].shape[0]
 
@@ -1352,7 +1352,7 @@ class BedDataLoader(DataLoader):
                     
                     # set up batch id total and get batches
                     max_batches = int(math.ceil(h5_handle[test_key].shape[0]/float(batch_size)))
-                    batch_ids = range(max_batches)
+                    batch_ids = list(range(max_batches))
 
                     # shuffle batches as needed
                     if shuffle:
@@ -1383,7 +1383,7 @@ class BedDataLoader(DataLoader):
                             
                             # yield
                             if yield_single_examples: # NOTE: this is the most limiting step
-                                for i in xrange(batch_size):
+                                for i in range(batch_size):
                                     yield ({
                                         key: value[i]
                                         for key, value in six.iteritems(slice_array)
@@ -1398,7 +1398,7 @@ class BedDataLoader(DataLoader):
 
                     finally:
                         converter.close()
-                        print "finished {}".format(h5_file)
+                        print("finished {}".format(h5_file))
                             
         # instantiate
         generator = Generator(self.fasta, batch_size)
@@ -1434,7 +1434,7 @@ class BedDataLoader(DataLoader):
             self.fasta_file,
             batch_size=batch_size)
         def example_generator(batch_id):
-            return iterator.next()
+            return next(iterator)
         tensor_dtypes = [tf.string, tf.uint8]
         keys = ["example_metadata", "features"]
         
@@ -1446,14 +1446,14 @@ class BedDataLoader(DataLoader):
             stateful=False, name='py_func_batch_id_to_examples')
 
         # set shapes
-        for i in xrange(len(inputs)):
+        for i in range(len(inputs)):
             if "metadata" in keys[i]:
                 inputs[i].set_shape([1, 1])
             else:
                 inputs[i].set_shape([1, 1000])
 
         # set as dict
-        inputs = dict(zip(keys, inputs))
+        inputs = dict(list(zip(keys, inputs)))
         
         # batch
         inputs = tf.train.batch(
@@ -1468,7 +1468,7 @@ class BedDataLoader(DataLoader):
             DataLoader.encode_onehot_sequence,
             inputs["features"],
             dtype=tf.float32)
-        print inputs["features"]
+        print(inputs["features"])
         
         return inputs
 
@@ -1499,8 +1499,8 @@ def setup_data_loader(args):
             dataset_json=args.dataset_json,
             fasta=args.fasta)
     elif args.data_format == "bed":
-        raise ValueError, "implement!"
+        raise ValueError("implement!")
     else:
-        raise ValueError, "unrecognized data format!"
+        raise ValueError("unrecognized data format!")
 
     return data_loader
