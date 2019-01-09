@@ -44,21 +44,10 @@ from tronn.nets.variant_nets import reduce_alleles
 from tronn.util.utils import DataKeys
 
 
-# deprecate
-def sequence_to_importance_scores_from_regression_OLD(inputs, params):
-    """Go from sequence (N, 1, pos, 4) to importance scores (N, 1, pos, 4)
-    """
-    # get task importances
-    outputs, params = get_task_importances(inputs, params)
-    
-    return outputs, params
-
-
-# rename
-def sequence_to_motif_scores_from_regression(inputs, params):
+def sequence_to_pwm_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
-    #outputs, params = produce_confidence_interval_on_outputs(inputs, params)
+    # GGR specific, where to move this?
     params.update({"left_clip": 420, "right_clip": 580})
     
     # get importances
@@ -69,7 +58,6 @@ def sequence_to_motif_scores_from_regression(inputs, params):
     
     # move to CPU - GPU mostly needed for gradient calc in model
     with tf.device("/cpu:0"):
-        # scan motifs
         outputs, params = get_pwm_scores(outputs, params)
         outputs, params = get_motif_densities(outputs, params)
     
