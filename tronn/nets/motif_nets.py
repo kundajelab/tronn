@@ -283,8 +283,11 @@ class MotifScannerWithThresholds(MotifScanner):
         # get shuffle results, only keep positive values in active shuffles
         shuffle_scanner = ShufflesMotifScanner(features_key=self.shuffles_key)
         shuffle_results = shuffle_scanner.scan(inputs, params)[0]
-        outputs[DataKeys.ACTIVE_SHUFFLES] = tf.nn.relu(shuffle_results[DataKeys.FEATURES])
-        
+        if False:
+            outputs[DataKeys.ACTIVE_SHUFFLES] = tf.nn.relu(shuffle_results[DataKeys.FEATURES]) # TODO remove this?
+        else:
+              outputs[DataKeys.ACTIVE_SHUFFLES] = shuffle_results[DataKeys.FEATURES]
+              
         # get thresholds
         params.update({"pval": self.pval})
         outputs[self.out_hits_key] = MotifScannerWithThresholds.threshold(
@@ -440,8 +443,10 @@ def get_pwm_scores(inputs, params):
         outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH], axis=2) # {N, 1, M}
 
     # relu on the weighted scores for now
-    outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.nn.relu(
-        outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]) # {N, task, pos, M}
+    # TODO remove this?
+    if False:
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.nn.relu(
+            outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]) # {N, task, pos, M}
 
     outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] = tf.reduce_sum(
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH], axis=2) # {N, task, M}
@@ -774,6 +779,8 @@ def run_dmim(inputs, params):
 
 def filter_by_any_motif_present(inputs, params):
     """check if any motif was marked present to filter out zeros
+    NOTE: requires motif be POSITIVE
+    
     """
     # features
     features = inputs[DataKeys.FEATURES] # {N, task, M}
@@ -781,9 +788,9 @@ def filter_by_any_motif_present(inputs, params):
     # adjust
     batch_size = features.get_shape().as_list()[0]
 
-    # see if any hits
+    # see if any positive hits
     any_motif_present = tf.reduce_any(
-        tf.not_equal(features, 0),
+        tf.greater(features, 0),
         axis=range(len(features.get_shape()))[1:])
     
     # condition mask
