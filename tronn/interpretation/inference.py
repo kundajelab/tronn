@@ -81,7 +81,9 @@ def run_inference(args, warm_start=False):
     if warm_start:
         args.model["params"]["prediction_sample"] = inference_files[0]
         args.inference_params["inference_fn_name"] = real_inference_fn
-        #args.inference_params["prediction_sample"] = inference_files[0] # TODO fix this later
+        args.inference_params["prediction_sample"] = inference_files[0] # TODO fix this later
+
+        
 
     return inference_files
 
