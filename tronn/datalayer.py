@@ -241,7 +241,7 @@ class DataLoader(object):
             name='py_func_batch_id_to_examples')
         
         # set shape
-        for i in range(len(ordered_keys)):
+        for i in xrange(len(ordered_keys)):
             inputs[i].set_shape(
                 [batch_size]+list(shapes_dict[ordered_keys[i]]))
                 
@@ -542,7 +542,7 @@ class H5DataLoader(DataLoader):
             lists - (positives, training negatives, genomewide negatives)
         """
         if genome == "human":
-            chroms = ["chr{}".format(i) for i in range(1,23)] + ["chrX", "chrY"]
+            chroms = ["chr{}".format(i) for i in xrange(1,23)] + ["chrX", "chrY"]
         else:
             raise Exception, "unrecognized genome!"
 
@@ -708,12 +708,12 @@ class H5DataLoader(DataLoader):
                 if "metadata" in key:
                     slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                     slice_pad = np.array(
-                        ["features=chr1:0-1000" for i in range(batch_padding_num)]).reshape(
+                        ["features=chr1:0-1000" for i in xrange(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
                 elif "string" in key:
                     slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                     slice_pad = np.array(
-                        ["N" for i in range(batch_padding_num)]).reshape(
+                        ["N" for i in xrange(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
                 else:
                     slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
@@ -965,7 +965,7 @@ class H5DataLoader(DataLoader):
                             
                             # yield
                             if yield_single_examples: # NOTE: this is the most limiting step
-                                for i in range(batch_size):
+                                for i in xrange(batch_size):
                                     yield ({
                                         key: value[i]
                                         for key, value in six.iteritems(slice_array)
@@ -1151,7 +1151,7 @@ class H5DataLoader(DataLoader):
             # go through the files and sum up
             total_examples = 0
             positives = np.zeros((num_tasks))
-            for i in range(len(self.h5_files)):
+            for i in xrange(len(self.h5_files)):
                 with h5py.File(self.h5_files[i], "r") as hf:
                     total_examples += hf[key].shape[0]
                     if len(indices) == 0:
@@ -1192,7 +1192,7 @@ class H5DataLoader(DataLoader):
 
             # go through the files and sum up
             total_examples = 0
-            for i in range(len(self.h5_files)):
+            for i in xrange(len(self.h5_files)):
                 with h5py.File(self.h5_files[i], "r") as hf:
                     total_examples += hf[key].shape[0]
 
@@ -1383,7 +1383,7 @@ class BedDataLoader(DataLoader):
                             
                             # yield
                             if yield_single_examples: # NOTE: this is the most limiting step
-                                for i in range(batch_size):
+                                for i in xrange(batch_size):
                                     yield ({
                                         key: value[i]
                                         for key, value in six.iteritems(slice_array)
@@ -1446,7 +1446,7 @@ class BedDataLoader(DataLoader):
             stateful=False, name='py_func_batch_id_to_examples')
 
         # set shapes
-        for i in range(len(inputs)):
+        for i in xrange(len(inputs)):
             if "metadata" in keys[i]:
                 inputs[i].set_shape([1, 1])
             else:
