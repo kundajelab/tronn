@@ -45,6 +45,14 @@ def run(args):
     args.inference_params.update({"sig_pwms": sig_pwms})
     logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
 
+    # collect a prediction sample if ensemble (for cross model quantile norm)
+    # always need to do this if you're repeating backprop
+    if args.model["name"] == "ensemble":
+        true_sample_size = args.sample_size
+        args.sample_size = 1000
+        run_inference(args, warm_start=True)
+        args.sample_size = true_sample_size
+    
     # run inference
     inference_files = run_inference(args)
 
