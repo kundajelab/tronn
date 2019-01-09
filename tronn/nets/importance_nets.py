@@ -159,8 +159,10 @@ class FeatureImportanceExtractor(object):
 
         # adjust logits for normalization
         if params.get("prediction_sample") is not None:
-            # adjust logits here. 
-            inputs, _  = interpolate_logits_to_labels(inputs, params)
+            if "ensemble" in params["model"].name:
+                params["model"].model_params.update({"is_ensemble": True})
+            inputs, _  = interpolate_logits_to_labels(
+                inputs, params["model"].model_params)
 
         # debug
         logging.debug("FEATURES: {}".format(inputs[DataKeys.FEATURES].get_shape()))
@@ -498,7 +500,7 @@ class FeatureImportanceExtractor(object):
             DataKeys.WEIGHTED_SEQ_ACTIVE,
             DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
             DataKeys.LOGITS_SHUF,
-            DataKeys.MUT_MOTIF_LOGITS] # keep the logits?
+            DataKeys.MUT_MOTIF_LOGITS]
         for key in concat_keys:
             if multimodel_outputs[0].get(key) is not None:
                 concat_output = []
@@ -510,7 +512,7 @@ class FeatureImportanceExtractor(object):
         outputs = self.build_confidence_intervals(outputs)
         # TODO maybe need to do this for shuffles also...?
         # to make it consistent for the motif scanning?
-
+        
         if outputs.get(DataKeys.MUT_MOTIF_LOGITS) is not None:
             outputs["logits.motif_mut.multimodel"] = outputs[DataKeys.MUT_MOTIF_LOGITS]
             outputs["logits.motif_mut.multimodel"] = tf.transpose(
@@ -551,14 +553,14 @@ class FeatureImportanceExtractor(object):
                 # separate complete stack here
                 params.update({"layer_key": DataKeys.LOGITS_MULTIMODEL})
                 outputs, params = self.run_model_and_get_anchors(outputs, params)
-
+                
                 # pull out key outputs that get used per model
                 anchors = outputs[DataKeys.IMPORTANCE_ANCHORS]
                 if outputs.get(DataKeys.LOGITS_MULTIMODEL_NORM) is not None:
                     logits = outputs[DataKeys.LOGITS_MULTIMODEL_NORM]                    
                 else:
                     logits = outputs[DataKeys.LOGITS_MULTIMODEL]
-
+                    
                 # get num models and num gpus
                 num_models = params["model"].model_params["num_models"]
                 num_gpus = params["model"].model_params["num_gpus"]
@@ -571,7 +573,7 @@ class FeatureImportanceExtractor(object):
                     print device
                     with tf.device(device):
                         outputs[DataKeys.IMPORTANCE_ANCHORS] = anchors[:,model_idx] # {N, logit}
-                        outputs[DataKeys.LOGITS] = logits[:,model_idx] # {N, logit}
+                        outputs[DataKeys.LOGITS] = logits[:,model_idx] # {N, logit}, for weights
                         params.update({"model_string": "model_{}".format(model_idx)}) # important for choosing vals
                         model_outputs, model_params = self.get_multitask_feature_importances(outputs, params)
                         model_outputs, _ = self.postprocess(model_outputs, model_params)
@@ -981,6 +983,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
 
             # remove the shuffles - weighted seq (orig seq shuffles are already saved)
             params.update({"rebatch_name": "detach_mut_motif_seq"})
+            
             outputs, params = detach_auxiliary_tensors(inputs, params)
             outputs, params = self.adjust_aux_axes(outputs, params)
         
