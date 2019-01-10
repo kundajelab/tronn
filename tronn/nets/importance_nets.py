@@ -15,6 +15,8 @@ from tronn.nets.normalization_nets import interpolate_logits_to_labels
 from tronn.nets.normalization_nets import normalize_to_importance_logits
 from tronn.nets.normalization_nets import normalize_to_absolute_one
 
+from tronn.nets.qc_nets import get_multimodel_score_relationships
+
 from tronn.nets.stats import get_gaussian_confidence_intervals
 from tronn.nets.stats import check_confidence_intervals
 
@@ -509,9 +511,12 @@ class FeatureImportanceExtractor(object):
                 concat_output = tf.stack(concat_output, axis=1)
                 outputs[key] = concat_output
 
+        # TODO this is where to look at importances before they get merged away
+        if True:
+            outputs["importances.multimodel.tmp"] = outputs[DataKeys.WEIGHTED_SEQ_ACTIVE]
+
+        # is it important to do this for shuffles?
         outputs = self.build_confidence_intervals(outputs)
-        # TODO maybe need to do this for shuffles also...?
-        # to make it consistent for the motif scanning?
         
         if outputs.get(DataKeys.MUT_MOTIF_LOGITS) is not None:
             outputs["logits.motif_mut.multimodel"] = outputs[DataKeys.MUT_MOTIF_LOGITS]
@@ -532,7 +537,11 @@ class FeatureImportanceExtractor(object):
                 outputs[key] = tf.reduce_mean(outputs[key], axis=1)
 
         outputs = self.filter_with_confidence_intervals(outputs)
-        
+
+        if True:
+            outputs, _ = get_multimodel_score_relationships(outputs, {})
+            #del outputs["importances.multimodel.tmp"]
+            
         return outputs
     
 
@@ -1007,6 +1016,9 @@ class DeltaFeatureImportanceMapper(InputxGrad):
                 (DataKeys.MUT_MOTIF_POS, DataKeys.MUT_MOTIF_POS)]})
             outputs, params = self.clip_sequences(outputs, params)
 
+            # TODO save out weighted seq again?
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = tf.squeeze(outputs[DataKeys.FEATURES], axis=2)
+
             # TODO figure out better place to put this?
             params.update({"decode_key": DataKeys.MUT_MOTIF_ORIG_SEQ})
             outputs, _ = decode_onehot_sequence(outputs, params)
@@ -1092,7 +1104,6 @@ def get_task_importances(inputs, params):
     input x grad
     integrated gradients
     deeplift
-    saturation mutagenesis
 
     """
     backprop = params["backprop"]
@@ -1107,14 +1118,14 @@ def get_task_importances(inputs, params):
         extractor = IntegratedGradients(model_fn)
     elif backprop == "deeplift":
         extractor = DeepLift(model_fn)
-    elif backprop == "saturation_mutagenesis":
-        raise ValueError, "backprop method not implemented!"
     else:
         raise ValueError, "backprop method not implemented!"
-    
+
+    # run extractor
     outputs, params = extractor.extract(inputs, params)
     
     # filter by importance
+    # TODO this is technically separate, pull out?
     if params.get("use_filtering", True):
         print "using filtering"
         MIN_IMPORTANCE_BP = 10
