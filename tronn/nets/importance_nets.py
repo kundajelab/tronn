@@ -71,15 +71,7 @@ def threshold_w_dinuc_shuffle_null(inputs, params):
     outputs[thresholds_key] = thresholds
     logging.debug("...thresholds: {}".format(thresholds.get_shape()))
 
-    
-    # apply
-    if False:
-        threshold_mask = get_threshold_mask_twotailed(
-            {DataKeys.FEATURES: features, thresholds_key: thresholds},
-            {"thresholds_key": thresholds_key})[0][DataKeys.FEATURES]
-        outputs[DataKeys.FEATURES] = tf.multiply(threshold_mask, features)
-
-        logging.debug("RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+    # TODO remove active shuffles?
     
     return outputs, params
 
@@ -270,6 +262,68 @@ class FeatureImportanceExtractor(object):
         
         return outputs, params
 
+    @staticmethod
+    def filter_singles(inputs, params):
+        """Filter out singlets to remove noise
+        """
+        # inputs
+        features = inputs[DataKeys.FEATURES]
+        window = params.get("window", 7)
+        min_features = params.get("min_fract", float(2)/7)
+        outputs = dict(inputs)
+        
+        # binarize features and get fraction in windows
+        features_present = tf.cast(tf.not_equal(features, 0), tf.float32)
+        feature_counts_in_window = tf.layers.average_pooling2d(
+            features_present, [1, window], [1,1], padding="same")
+
+        # and mask
+        feature_mask = tf.cast(tf.greater_equal(feature_counts_in_window, min_features), tf.float32)
+        features = tf.multiply(features, feature_mask)
+        outputs[DataKeys.FEATURES] = tf.greater(features, 0)
+
+        return outputs, params
+
+    
+    @classmethod
+    def filter_singles_twotailed(cls, inputs, params):
+        """Filter out singlets, removing positive and negative singlets separately
+        """
+        assert inputs.get(DataKeys.FEATURES) is not None
+
+        # get features
+        features = inputs[DataKeys.FEATURES]
+        outputs = dict(inputs)
+
+        # split features
+        pos_features = tf.cast(tf.greater(features, 0), tf.float32)
+        neg_features = tf.cast(tf.less(features, 0), tf.float32)
+
+        # reduce to put all bases in one dimension
+        pos_features = tf.reduce_sum(pos_features, axis=3, keepdims=True)
+        neg_features = tf.reduce_sum(neg_features, axis=3, keepdims=True)
+
+        # get masks
+        pos_mask = cls.filter_singles({DataKeys.FEATURES: pos_features}, params)[0][DataKeys.FEATURES]
+        neg_mask = cls.filter_singles({DataKeys.FEATURES: neg_features}, params)[0][DataKeys.FEATURES]
+        keep_mask = tf.cast(tf.logical_or(pos_mask, neg_mask), tf.float32)
+
+        # mask features
+        features = tf.multiply(features, keep_mask)
+
+        # TODO - what do I use this for?
+        # output for later
+        num_positive_features = tf.reduce_sum(
+            tf.cast(
+                tf.greater(
+                    tf.reduce_max(features, axis=[1,3]), [0]),
+                tf.float32), axis=1, keepdims=True)
+
+        # save desired outputs
+        outputs[DataKeys.FEATURES] = features
+
+        return outputs, params
+    
     
     def _denoise_aux(self, inputs, params, keys, aux_axis=2):
         """denoise the aux, adjusting for aux axis
@@ -277,7 +331,7 @@ class FeatureImportanceExtractor(object):
         outputs = dict(inputs)
         for key in keys:
             outputs[key] = transform_auxiliary_tensor(
-                filter_singles_twotailed, key, outputs, params, aux_axis=aux_axis)
+                self.filter_singles_twotailed, key, outputs, params, aux_axis=aux_axis)
 
         return outputs
     
@@ -292,16 +346,13 @@ class FeatureImportanceExtractor(object):
         SINGLES_FILT_WINDOW_MIN = float(2) / SINGLES_FILT_WINDOW
         
         params.update({"window": SINGLES_FILT_WINDOW, "min_fract": SINGLES_FILT_WINDOW_MIN})
-        outputs, params = filter_singles_twotailed(inputs, params)
+        outputs, params = self.filter_singles_twotailed(inputs, params)
 
         # denoise aux tensors too
         to_denoise_aux = params.get("to_denoise_aux", [])
         outputs = self._denoise_aux(outputs, params, to_denoise_aux)
-        
-        #outputs[DataKeys.WEIGHTED_SEQ_SHUF] = transform_auxiliary_tensor(
-        #    filter_singles_twotailed, DataKeys.WEIGHTED_SEQ_SHUF, outputs, params, aux_axis=2)
-        
-        #logging.debug("...TRANSFORM RESULTS: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+        del params["to_denoise_aux"]
+
         logging.debug("")
         
         return outputs, params
@@ -551,49 +602,41 @@ class FeatureImportanceExtractor(object):
         outputs, params = self.preprocess(inputs, params)
 
         if "ensemble" in params["model"].name:
-            # TODO potentially split the stack up entirely at this level...
-            if False:
-                # TODO deprecate this version
-                params.update({"layer_key": DataKeys.LOGITS_MULTIMODEL})
-                outputs, params = self.run_model_and_get_anchors(outputs, params)
-                outputs, params = self.get_multimodel_multitask_feature_importances(outputs, params)
-                outputs, params = self.postprocess(outputs, params)
+            # run full ensemble together and change logits key to get logits per model
+            params.update({"layer_key": DataKeys.LOGITS_MULTIMODEL})
+            outputs, params = self.run_model_and_get_anchors(outputs, params)
+
+            # pull out key outputs that get used per model
+            anchors = outputs[DataKeys.IMPORTANCE_ANCHORS]
+            if outputs.get(DataKeys.LOGITS_MULTIMODEL_NORM) is not None:
+                logits = outputs[DataKeys.LOGITS_MULTIMODEL_NORM]                    
             else:
-                # separate complete stack here
-                params.update({"layer_key": DataKeys.LOGITS_MULTIMODEL})
-                outputs, params = self.run_model_and_get_anchors(outputs, params)
-                
-                # pull out key outputs that get used per model
-                anchors = outputs[DataKeys.IMPORTANCE_ANCHORS]
-                if outputs.get(DataKeys.LOGITS_MULTIMODEL_NORM) is not None:
-                    logits = outputs[DataKeys.LOGITS_MULTIMODEL_NORM]                    
-                else:
-                    logits = outputs[DataKeys.LOGITS_MULTIMODEL]
-                    
-                # get num models and num gpus
-                num_models = params["model"].model_params["num_models"]
-                num_gpus = params["model"].model_params["num_gpus"]
+                logits = outputs[DataKeys.LOGITS_MULTIMODEL]
 
-                # extract relevant keys on a per model basis
-                multimodel_outputs = []
-                for model_idx in range(num_models):
-                    pseudo_count = num_gpus - (num_models % num_gpus) - 1
-                    device = "/gpu:{}".format((num_models + pseudo_count - model_idx) % num_gpus)
-                    print device
-                    with tf.device(device):
-                        outputs[DataKeys.IMPORTANCE_ANCHORS] = anchors[:,model_idx] # {N, logit}
-                        outputs[DataKeys.LOGITS] = logits[:,model_idx] # {N, logit}, for weights
-                        params.update({"model_string": "model_{}".format(model_idx)}) # important for choosing vals
-                        model_outputs, model_params = self.get_multitask_feature_importances(outputs, params)
-                        model_outputs, _ = self.postprocess(model_outputs, model_params)
-                        multimodel_outputs.append(model_outputs)
+            # get num models and num gpus
+            num_models = params["model"].model_params["num_models"]
+            num_gpus = params["model"].model_params["num_gpus"]
 
-                # merge the outputs
-                outputs = self.multimodel_merge(multimodel_outputs)
-                if outputs.get(DataKeys.LOGITS_MULTIMODEL_NORM) is not None:
-                    outputs[DataKeys.LOGITS] = outputs[DataKeys.LOGITS_NORM]
-                
-                # TODO build a function to calculate correlations across pairs
+            # extract relevant keys on a per model basis
+            multimodel_outputs = []
+            for model_idx in range(num_models):
+                pseudo_count = num_gpus - (num_models % num_gpus) - 1
+                device = "/gpu:{}".format((num_models + pseudo_count - model_idx) % num_gpus)
+                with tf.device(device):
+                    # adjust necessary outputs
+                    outputs[DataKeys.IMPORTANCE_ANCHORS] = anchors[:,model_idx] # {N, logit}
+                    outputs[DataKeys.LOGITS] = logits[:,model_idx] # {N, logit}, for weights
+                    params.update({"model_string": "model_{}".format(model_idx)}) # important for choosing vals
+                    # get importances
+                    model_outputs, model_params = self.get_multitask_feature_importances(outputs, params)
+                    # postprocess
+                    model_outputs, _ = self.postprocess(model_outputs, model_params)
+                    multimodel_outputs.append(model_outputs)
+
+            # merge the outputs
+            outputs = self.multimodel_merge(multimodel_outputs)
+            if outputs.get(DataKeys.LOGITS_MULTIMODEL_NORM) is not None:
+                outputs[DataKeys.LOGITS] = outputs[DataKeys.LOGITS_NORM]
 
         else:
             outputs, params = self.run_model_and_get_anchors(outputs, params)
@@ -873,8 +916,9 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # attach the mutations (interleaved)
         logging.info("LAYER: attaching {}".format(DataKeys.MUT_MOTIF_ORIG_SEQ))
         params.update({"aux_key": DataKeys.MUT_MOTIF_ORIG_SEQ})        
-        params.update({"name": "attach_mut_motif_seq"})
+        #params.update({"name": "attach_mut_motif_seq"})
         inputs, params = attach_auxiliary_tensors(inputs, params)
+        del params["aux_key"]
         logging.debug("After attaching aux: {}".format(inputs[DataKeys.FEATURES].get_shape()))
 
         # for later to detach auxiliary tensors
@@ -1091,8 +1135,6 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE],
             tf.cast(outputs[DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH], tf.float32))
 
-
-
         return outputs
 
     
@@ -1144,70 +1186,6 @@ def run_dfim(inputs, params):
     extractor = DeltaFeatureImportanceMapper(params["model"].model_fn)
     outputs, params = extractor.extract(inputs, params)
     
-    return outputs, params
-
-
-
-def filter_singles(inputs, params):
-    """Filter out singlets to remove noise
-    """
-    # features
-    features = inputs[DataKeys.FEATURES]
-    outputs = dict(inputs)
-
-    # params
-    window = params.get("window", 7)
-    min_features = params.get("min_fract", float(2)/7)
-
-    # binarize features and get fraction in windows
-    features_present = tf.cast(tf.not_equal(features, 0), tf.float32)
-    feature_counts_in_window = tf.layers.average_pooling2d(
-        features_present, [1, window], [1,1], padding="same")
-
-    # and mask
-    feature_mask = tf.cast(tf.greater_equal(feature_counts_in_window, min_features), tf.float32)
-    features = tf.multiply(features, feature_mask)
-    outputs[DataKeys.FEATURES] = tf.greater(features, 0)
-    
-    return outputs, params
-
-
-def filter_singles_twotailed(inputs, params):
-    """Filter out singlets, removing positive and negative singlets separately
-    """
-    assert inputs.get(DataKeys.FEATURES) is not None
-    
-    # get features
-    features = inputs[DataKeys.FEATURES]
-    outputs = dict(inputs)
-    
-    # split features
-    pos_features = tf.cast(tf.greater(features, 0), tf.float32)
-    neg_features = tf.cast(tf.less(features, 0), tf.float32)
-
-    # reduce to put all bases in one dimension
-    pos_features = tf.reduce_sum(pos_features, axis=3, keepdims=True)
-    neg_features = tf.reduce_sum(neg_features, axis=3, keepdims=True)
-
-    # get masks
-    pos_mask = filter_singles({DataKeys.FEATURES: pos_features}, params)[0][DataKeys.FEATURES]
-    neg_mask = filter_singles({DataKeys.FEATURES: neg_features}, params)[0][DataKeys.FEATURES]
-    keep_mask = tf.cast(tf.logical_or(pos_mask, neg_mask), tf.float32)
-
-    # mask features
-    features = tf.multiply(features, keep_mask)
-
-    # TODO - what do I use this for?
-    # output for later
-    num_positive_features = tf.reduce_sum(
-        tf.cast(
-            tf.greater(
-                tf.reduce_max(features, axis=[1,3]), [0]),
-            tf.float32), axis=1, keepdims=True)
-
-    # save desired outputs
-    outputs[DataKeys.FEATURES] = features
-
     return outputs, params
 
 
