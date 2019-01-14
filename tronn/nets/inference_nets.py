@@ -14,7 +14,7 @@ from tronn.nets.manifold_nets import filter_by_manifold_distances
 
 from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import get_motif_densities
-from tronn.nets.motif_nets import filter_for_significant_pwms
+#from tronn.nets.motif_nets import filter_for_significant_pwms
 from tronn.nets.motif_nets import filter_for_any_sig_pwms
 from tronn.nets.motif_nets import run_dmim
 from tronn.nets.motif_nets import extract_null_results

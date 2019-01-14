@@ -350,23 +350,16 @@ class DeltaMotifImportanceMapper(MotifScanner):
         # utilizing existing pwm hits, mask the scores
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
-            inputs[DataKeys.ORIG_SEQ_PWM_HITS])
-        
-        if False:
-            weighted_scores = inputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]
-            features = tf.divide(features, weighted_scores) # i think this as written is weighted?
-
-            features = tf.where(
-                tf.is_finite(features),
-                features,
-                tf.zeros_like(features))
+            inputs[DataKeys.ORIG_SEQ_PWM_HITS]) # {N*mutM, task, pos, M}
             
         # adjust shape
         features_shape = features.get_shape().as_list()
         features = tf.reshape(features, [1, -1] + features_shape[1:])
 
-        # TODO sum or mean?
+        # sum across positions
         features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
+
+        # save out to appropriate tensors
         inputs[DataKeys.FEATURES] = features
         inputs[DataKeys.DMIM_SCORES] = features
 
@@ -375,9 +368,8 @@ class DeltaMotifImportanceMapper(MotifScanner):
         for key in inputs.keys():
             outputs[key] = tf.gather(inputs[key], [0])
 
-        # TODO save out as extra aux tensor
-
         # rebatch
+        params.update({"name": "rebatch_after_dmim"})
         outputs, _ = rebatch(outputs, params)
         
         return outputs, params
@@ -720,7 +712,7 @@ def filter_for_any_sig_pwms(inputs, params):
 
 
 
-def filter_for_significant_pwms(inputs, params):
+def filter_for_significant_pwms_OLD(inputs, params):
     """this is specifically if you have clusters
     """
     assert inputs.get(DataKeys.ORIG_SEQ_PWM_HITS) is not None # {N, task, pos, M}
