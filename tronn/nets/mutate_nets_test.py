@@ -49,10 +49,6 @@ class MutagenizerTests(tf.test.TestCase):
             outputs, params = mutagenizer.preprocess(inputs, params)
             results = self.evaluate(outputs)
 
-        #for key in sorted(results.keys()):
-        #    print key, results[key].shape
-        #print params
-
         # assert: create new val/idx tensors with correct shapes
         assert results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT].shape == (1,3,1)
         assert results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT].shape == (1,3,1)
@@ -81,10 +77,6 @@ class MutagenizerTests(tf.test.TestCase):
             # act: run preprocess fn and eval
             outputs, params = mutagenizer.preprocess(inputs, params)
             results = self.evaluate(outputs)
-
-        for key in sorted(results.keys()):
-            print key, results[key].shape
-        print params
         
         # assert: create new val/idx tensors with correct shapes
         assert results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT].shape == (1,3,1)
@@ -98,7 +90,6 @@ class MutagenizerTests(tf.test.TestCase):
         """test shuffle mutagenizer
         """
         example = np.squeeze(self.one_hot_sequence, axis=1)
-        print example.shape
         motif_present = True
         positions = np.sum(np.zeros_like(example), axis=-1, keepdims=True)
         positions[0,500,0] = 1
@@ -173,17 +164,13 @@ class MutagenizerTests(tf.test.TestCase):
         indices[0,2,0] = 500
 
         mut_motif_present = np.expand_dims(np.array([True, True, True]), axis=0)
-        
-        #vals = np.ones((1,12,1))
-        #sig_pwms = np.zeros((12))
-        #sig_pwms[[1,3,5]] = 1
         gradients = -self.one_hot_sequence
         
         with self.test_session():
             # arrange
             mutagenizer = Mutagenizer(mutation_type="shuffle")
             inputs = {
-                DataKeys.ORIG_SEQ: tf.convert_to_tensor(self.one_hot_sequence),
+                DataKeys.ORIG_SEQ: tf.convert_to_tensor(self.one_hot_sequence, dtype=tf.float32),
                 DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT: tf.convert_to_tensor(indices),
                 DataKeys.MUT_MOTIF_PRESENT: tf.convert_to_tensor(mut_motif_present),
                 DataKeys.IMPORTANCE_GRADIENTS: tf.convert_to_tensor(gradients)}
@@ -197,4 +184,90 @@ class MutagenizerTests(tf.test.TestCase):
             print key, results[key].shape
         print params
 
-        # assert
+        # assert: mutations occurred in expected places
+        example = self.one_hot_sequence[0]
+        
+        mut_example = results[DataKeys.MUT_MOTIF_ORIG_SEQ][0,0]
+        left_unchanged = np.all(np.equal(example[:,:445], mut_example[:,:445]))
+        assert left_unchanged, "left is not unchanged"
+        right_unchanged = np.all(np.equal(example[:,455:], mut_example[:,455:]))
+        assert right_unchanged, "right is not unchanged"
+        shuffle_changed = np.any(np.not_equal(example[:,445:455], mut_example[:,445:455]))
+        assert shuffle_changed, "did not change sequence. is random, if fails try run tests again"
+        
+        mut_example = results[DataKeys.MUT_MOTIF_ORIG_SEQ][0,1]
+        left_unchanged = np.all(np.equal(example[:,:470], mut_example[:,:470]))
+        assert left_unchanged, "left is not unchanged"
+        right_unchanged = np.all(np.equal(example[:,480:], mut_example[:,480:]))
+        assert right_unchanged, "right is not unchanged"
+        shuffle_changed = np.any(np.not_equal(example[:,470:480], mut_example[:,470:480]))
+        assert shuffle_changed, "did not change sequence. is random, if fails try run tests again"
+        
+        mut_example = results[DataKeys.MUT_MOTIF_ORIG_SEQ][0,2]
+        left_unchanged = np.all(np.equal(example[:,:495], mut_example[:,:495]))
+        assert left_unchanged, "left is not unchanged"
+        right_unchanged = np.all(np.equal(example[:,505:], mut_example[:,505:]))
+        assert right_unchanged, "right is not unchanged"
+        shuffle_changed = np.any(np.not_equal(example[:,495:505], mut_example[:,495:505]))
+        assert shuffle_changed, "did not change sequence. is random, if fails try run tests again"
+
+        
+    def test_point_mutagenize_multiple(self):
+        """make sure properly mutagenizes multiple sites
+        """
+        # necessary inputs
+        indices = np.zeros((1,3,1), dtype=np.int64)
+        indices[0,0,0] = 450
+        indices[0,1,0] = 475
+        indices[0,2,0] = 500
+
+        mut_motif_present = np.expand_dims(np.array([True, True, True]), axis=0)
+        grad_mins = np.copy(self.one_hot_sequence)
+        grad_mins[0,0,450,:] = np.array([0,0,0,1])
+        grad_mins[0,0,475,:] = np.array([0,0,0,1])
+        grad_mins[0,0,500,:] = np.array([0,0,0,1])
+        
+        with self.test_session():
+            # arrange
+            mutagenizer = Mutagenizer(mutation_type="point")
+            inputs = {
+                DataKeys.ORIG_SEQ: tf.convert_to_tensor(self.one_hot_sequence, dtype=tf.float32),
+                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT: tf.convert_to_tensor(indices),
+                DataKeys.MUT_MOTIF_PRESENT: tf.convert_to_tensor(mut_motif_present),
+                "grad_mins": tf.convert_to_tensor(grad_mins, dtype=tf.float32)}
+            params = {}
+            
+            # act: run preprocess fn and eval
+            outputs, params = mutagenizer.mutagenize_multiple_motifs(inputs, params)
+            results = self.evaluate(outputs)
+
+        for key in sorted(results.keys()):
+            print key, results[key].shape
+        print params
+
+        # assert: mutations occurred in expected places
+        example = self.one_hot_sequence[0]
+        
+        mut_example = results[DataKeys.MUT_MOTIF_ORIG_SEQ][0,0]
+        left_unchanged = np.all(np.equal(example[:,:450], mut_example[:,:450]))
+        assert left_unchanged, "left is not unchanged"
+        right_unchanged = np.all(np.equal(example[:,451:], mut_example[:,451:]))
+        assert right_unchanged, "right is not unchanged"
+        shuffle_changed = np.all(np.equal(mut_example[:,450], np.array([0,0,0,1])))
+        assert shuffle_changed, "did not change sequence. is random, if fails try run tests again"
+        
+        mut_example = results[DataKeys.MUT_MOTIF_ORIG_SEQ][0,1]
+        left_unchanged = np.all(np.equal(example[:,:475], mut_example[:,:475]))
+        assert left_unchanged, "left is not unchanged"
+        right_unchanged = np.all(np.equal(example[:,476:], mut_example[:,476:]))
+        assert right_unchanged, "right is not unchanged"
+        shuffle_changed = np.all(np.equal(mut_example[:,475], np.array([0,0,0,1])))
+        assert shuffle_changed, "did not change sequence. is random, if fails try run tests again"
+        
+        mut_example = results[DataKeys.MUT_MOTIF_ORIG_SEQ][0,2]
+        left_unchanged = np.all(np.equal(example[:,:500], mut_example[:,:500]))
+        assert left_unchanged, "left is not unchanged"
+        right_unchanged = np.all(np.equal(example[:,501:], mut_example[:,501:]))
+        assert right_unchanged, "right is not unchanged"
+        shuffle_changed = np.all(np.equal(mut_example[:,500], np.array([0,0,0,1])))
+        assert shuffle_changed, "did not change sequence. is random, if fails try run tests again"

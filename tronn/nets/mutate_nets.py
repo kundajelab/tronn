@@ -48,7 +48,6 @@ class Mutagenizer(object):
         # and add null indices if present
         if inputs.get(DataKeys.NULL_PWM_POSITION_INDICES) is not None:
             outputs, _ = attach_null_indices(outputs, params)
-
         
         if self.mutation_type == "point":
             # set up gradients
@@ -57,6 +56,13 @@ class Mutagenizer(object):
             grad_mins = tf.argmin(grad_mins, axis=3) # {N, 1, 1000}
             grad_mins = tf.one_hot(grad_mins, 4) # {N, 1, 1000, 4}
             outputs["grad_mins"] = grad_mins
+
+            # TODO reselect positions based on best gradeint change within k bp?
+            # for mutM in all mutMs:
+            # mask the sequence, then get min val/idx from grad mins
+            # and replace MAX_VAL_MUT and MAX_IDX_MUT
+            
+            
 
         return outputs, params
 
@@ -76,7 +82,7 @@ class Mutagenizer(object):
         
         # adjust tensor
         example_mut = tf.where(
-            tf.not_equal(positions, 0),
+            tf.equal(positions, 0),
             example,
             grad_mins) # {1, 1000, 4}
 
@@ -151,16 +157,15 @@ class Mutagenizer(object):
         features = inputs[DataKeys.ORIG_SEQ] # {N, 1, 1000, 4}
         orig_seq_len = features.get_shape().as_list()[2]
         position_indices = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT]
-        #LEFT_CLIP = 420
-        #position_indices = tf.add(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], LEFT_CLIP) # {N, mut_M, k}
-        #inputs["test.position_indices"] = position_indices
         motif_present = inputs[DataKeys.MUT_MOTIF_PRESENT] # {N, mut_M}
         
         # choose what kind of mutagenesis
         if self.mutation_type == "point":
             mutagenize_fn = self.point_mutagenize_example
+            replace_seq = inputs["grad_mins"]
         else:
             mutagenize_fn = self.shuffle_mutagenize_example
+            replace_seq = tf.identity(features)
 
         all_mut_sequences = []
         all_mut_positions = []
@@ -174,7 +179,7 @@ class Mutagenizer(object):
             mut_motif_present = motif_present[:,mut_i] # {N}
             mut_sequences, mut_positions = tf.map_fn(
                 mutagenize_fn,
-                [features, mut_motif_present, mut_positions],
+                [features, mut_motif_present, mut_positions, replace_seq],
                 dtype=(tf.float32, tf.float32)) # {N, 1, 1000, 4}
             all_mut_sequences.append(mut_sequences)
             all_mut_positions.append(mut_positions)
