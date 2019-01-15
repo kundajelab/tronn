@@ -81,9 +81,6 @@ def attach_auxiliary_tensors(inputs, params):
     outputs = dict(inputs)
     batch_size = np.ceil(old_batch_size / float(num_aux_examples+1)) * (num_aux_examples+1)
     
-    # params
-    filter_name = params["name"]
-    
     # interleave in the aux features
     main_features = tf.expand_dims(main_features, axis=aux_axis)
     features = tf.concat([main_features, aux_features], axis=1)
@@ -97,13 +94,16 @@ def attach_auxiliary_tensors(inputs, params):
     params.update({"num_aux_examples": num_aux_examples})
     params.update({"ignore_keys": [DataKeys.FEATURES]})
     outputs, _ = pad_inputs(outputs, params)
+    del params["ignore_keys"]
     
     # rebatch? depends
     # NOTE this rebatch needs to be a factor of num_aux_features + 1
     if False:
+        filter_name = params["name"]
         outputs, _ = rebatch(outputs, {"name": filter_name, "batch_size": batch_size})
 
     logging.debug("RESULT: {}".format(outputs[DataKeys.FEATURES].get_shape()))
+
     
     return outputs, params
 
