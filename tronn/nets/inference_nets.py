@@ -21,10 +21,10 @@ from tronn.nets.motif_nets import extract_null_results
 from tronn.nets.motif_nets import get_sig_mut_logits
 from tronn.nets.motif_nets import get_sig_mut_motifs
 
-from tronn.nets.mutate_nets import dfim
-from tronn.nets.mutate_nets import motif_dfim
-from tronn.nets.mutate_nets import delta_logits
-from tronn.nets.mutate_nets import blank_motif_sites
+#from tronn.nets.mutate_nets import dfim
+#from tronn.nets.mutate_nets import motif_dfim
+#from tronn.nets.mutate_nets import delta_logits
+#from tronn.nets.mutate_nets import blank_motif_sites
 
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites_combinatorially

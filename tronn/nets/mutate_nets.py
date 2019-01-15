@@ -68,16 +68,22 @@ class Mutagenizer(object):
         # extract tensors
         example = tensors[0] # {1, 1000, 4}
         motif_present = tensors[1]
-        pos = tensors[2] # {1, 1000, 1}
+        positions = tensors[2] # {1, 1000, 1}
         grad_mins = tensors[3] # {tasks, 1000, 4}
 
+        # adjust positions for tf.where
+        positions = tf.concat([positions]*4, axis=2)
+        
         # adjust tensor
-        example_mut = tf.where(positions, example, grad_mins) # {1, 1000, 4}
+        example_mut = tf.where(
+            tf.not_equal(positions, 0),
+            example,
+            grad_mins) # {1, 1000, 4}
 
         # but only actually adjust if the motif actually there
         example = tf.cond(motif_present, lambda: example_mut, lambda: example)
         
-        return example, pos
+        return example, positions
 
 
     @staticmethod
@@ -287,7 +293,7 @@ def mutate_weighted_motif_sites_combinatorially(inputs, params):
 
 
 
-def blank_mutation_site(inputs, params):
+def blank_mutation_site_OLD(inputs, params):
     """cover up the mutation site when scanning for motifs
     """
     assert inputs.get(DataKeys.FEATURES) is not None # {N, mutM, 1, pos, 4}
@@ -309,7 +315,7 @@ def blank_mutation_site(inputs, params):
 
 
 
-def calculate_delta_scores(inputs, params):
+def calculate_delta_scores_OLD(inputs, params):
     """assumes the the first example is the ref. 
     """
     features = inputs[DataKeys.FEATURES]
@@ -333,7 +339,7 @@ def calculate_delta_scores(inputs, params):
 
 # OLD BELOW
 
-def blank_motif_sites(inputs, params):
+def blank_motif_sites_OLD(inputs, params):
     """given the shuffle positions, zero out this range
     NOTE: only built to block one site per example at the moment
     """
@@ -388,7 +394,7 @@ def blank_motif_sites(inputs, params):
     return outputs, params
 
 
-def generate_mutation_batch(inputs, params):
+def generate_mutation_batch_OLD(inputs, params):
     """Given motif map (x position), mutate at strongest hit position
     and pass back a mutation batch, also track how big the batch is
     """
@@ -504,7 +510,7 @@ def generate_mutation_batch(inputs, params):
     return outputs, params
 
 
-def run_model_on_mutation_batch(inputs, params):
+def run_model_on_mutation_batch_OLD(inputs, params):
     """Run the model on the mutation batch
     """
     # assertions
@@ -525,7 +531,7 @@ def run_model_on_mutation_batch(inputs, params):
     return outputs, params
 
 
-def delta_logits(inputs, params):
+def delta_logits_OLD(inputs, params):
     """Extract the delta logits and save out
     """
     # assertions
@@ -576,7 +582,7 @@ def delta_logits(inputs, params):
     return outputs, params
 
 
-def dfim(inputs, params):
+def dfim_OLD(inputs, params):
     """Given motif scores on mutated sequences, get the differences and return
     currently assumes that 1 batch is 1 reference sequence, with the rest
     being mutations of that reference.
@@ -595,7 +601,7 @@ def dfim(inputs, params):
     return outputs, params
 
 
-def motif_dfim(inputs, params):
+def motif_dfim_OLD(inputs, params):
     """Readjust the dimensions to get correct batch out
     """
     # assertions
