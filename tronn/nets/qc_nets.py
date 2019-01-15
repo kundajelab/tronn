@@ -9,14 +9,13 @@ from tronn.util.utils import DataKeys
 def get_multimodel_score_relationships(inputs, params):
     """given the consensus after using all, get correlation compared to final clean results
     """
-    multimodel_importances = tf.reduce_sum(inputs["importances.multimodel.tmp"], axis=-1) # {N, model, task, seqlen}
+    multimodel_importances = inputs[DataKeys.WEIGHTED_SEQ_MULTIMODEL]
     importances = tf.reduce_sum(inputs[DataKeys.WEIGHTED_SEQ_ACTIVE], axis=-1) # {N, task, seqlen}
+    num_models = multimodel_importances.get_shape().as_list()[1]
     outputs = dict(inputs)
 
-    num_models = multimodel_importances.get_shape().as_list()[1]
-
     if False:
-        # try cosine similarity?
+        # cosine similarity
         # problem - this ignores the zero values so artificially inflates correspondence
         tiled_consensus_importances = []
         for model_i in range(num_models):
@@ -24,32 +23,37 @@ def get_multimodel_score_relationships(inputs, params):
         consensus_importances = tf.stack(tiled_consensus_importances, axis=1) # {N, model, task, seqlen}
 
         # normalize
-        #multimodel_importances_norm = tf.nn.l2_normalize(multimodel_importances, axis=(0,1,2))
-        #consensus_importances_norm = tf.nn.l2_normalize(consensus_importances, axis=(0,1,2))
         multimodel_importances_norm = tf.nn.l2_normalize(multimodel_importances, axis=(3))
         consensus_importances_norm = tf.nn.l2_normalize(consensus_importances, axis=(3))
 
         # get similarity
-        cosine_similarities = tf.reduce_sum(
+        similarities = tf.reduce_sum(
             tf.multiply(multimodel_importances_norm, consensus_importances_norm),
             axis=(3))
     else:
         # try jaccard, split up neg and pos
         importances = tf.expand_dims(importances, axis=1)
 
-                
-        min_vals = tf.nn.relu(tf.minimum(importances, multimodel_importances))
-        #min_neg_vals = tf.nn.relu(tf.minimum(-importances, -multimodel_importances))
-        #min_vals = tf.add(min_pos_vals, min_neg_vals)
-        
-        max_vals = tf.maximum(importances, multimodel_importances)
-        #max_neg_vals = tf.maximum(-importances, -multimodel_importances)
-        #max_vals = tf.add(max_pos_vals, max_neg_vals)
+        # positive side
+        min_pos_vals = tf.minimum(tf.nn.relu(importances), tf.nn.relu(multimodel_importances))
+        max_pos_vals = tf.maximum(tf.nn.relu(importances), tf.nn.relu(multimodel_importances))
 
-        similarities = tf.divide(
-            tf.reduce_sum(min_vals, axis=-1),
-            tf.reduce_sum(max_vals, axis=-1))
-        
+        # negative side
+        min_neg_vals = tf.minimum(tf.nn.relu(-importances), tf.nn.relu(-multimodel_importances))
+        max_neg_vals = tf.maximum(tf.nn.relu(-importances), tf.nn.relu(-multimodel_importances))
+
+        # sum all min vals
+        min_val_sum = tf.add(
+            tf.reduce_sum(min_pos_vals, axis=-1),
+            tf.reduce_sum(min_neg_vals, axis=-1))
+
+        # sum all max vals
+        max_val_sum = tf.add(
+            tf.reduce_sum(max_pos_vals, axis=-1),
+            tf.reduce_sum(max_neg_vals, axis=-1))
+
+        # and divide
+        similarities = tf.divide(min_val_sum, max_val_sum)
 
     outputs["multimodel.importances.similarities"] = similarities
 

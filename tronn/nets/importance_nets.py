@@ -501,15 +501,12 @@ class FeatureImportanceExtractor(object):
         outputs = dict(inputs)
         
         # get confidence interval
-        outputs["multimodel.importances.tmp"] = tf.reduce_sum(
-            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE], axis=-1)
         ci_params = {
-            "ci_in_key": "multimodel.importances.tmp",
+            "ci_in_key": DataKeys.WEIGHTED_SEQ_MULTIMODEL,
             "ci_out_key": DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
             "std_thresh": 2.576} # 90% confidence interval 1.645, 95% is 1.96
         outputs, _ = get_gaussian_confidence_intervals(
             outputs, ci_params)
-        del outputs["multimodel.importances.tmp"]
 
         # threshold
         thresh_params = {
@@ -562,9 +559,9 @@ class FeatureImportanceExtractor(object):
                 concat_output = tf.stack(concat_output, axis=1)
                 outputs[key] = concat_output
 
-        # TODO this is where to look at importances before they get merged away
-        if False:
-            outputs["importances.multimodel.tmp"] = outputs[DataKeys.WEIGHTED_SEQ_ACTIVE]
+        # keep the multimodel importances for confidence intervals and cross model comparison
+        outputs[DataKeys.WEIGHTED_SEQ_MULTIMODEL] = tf.reduce_sum(
+            outputs[DataKeys.WEIGHTED_SEQ_ACTIVE], axis=-1)
 
         # is it important to do this for shuffles?
         outputs = self.build_confidence_intervals(outputs)
@@ -591,7 +588,9 @@ class FeatureImportanceExtractor(object):
 
         if False:
             outputs, _ = get_multimodel_score_relationships(outputs, {})
-            #del outputs["importances.multimodel.tmp"]
+            
+        # delete the multimodel importances
+        del outputs[DataKeys.WEIGHTED_SEQ_MULTIMODEL]
             
         return outputs
     

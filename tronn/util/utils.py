@@ -39,6 +39,7 @@ class DataKeys(object):
 
     WEIGHTED_SEQ_ACTIVE_CI = "{}.ci".format(WEIGHTED_SEQ_ACTIVE)
     WEIGHTED_SEQ_ACTIVE_CI_THRESH = "{}.thresh".format(WEIGHTED_SEQ_ACTIVE_CI)
+    WEIGHTED_SEQ_MULTIMODEL = "{}.multimodel".format(WEIGHTED_SEQ_ACTIVE)
     
     # for shuffles (generated for null models)
     SHUFFLE_SUFFIX = "shuffles"
@@ -115,6 +116,7 @@ class DataKeys(object):
     
     MUT_MOTIF_WEIGHTED_SEQ_CI = "{}.ci".format(MUT_MOTIF_WEIGHTED_SEQ)
     MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH = "{}.thresh".format(MUT_MOTIF_WEIGHTED_SEQ_CI)
+    MUT_MOTIF_LOGITS_MULTIMODEL = "{}.multimodel".format(MUT_MOTIF_LOGITS)
 
     # dmim agg results keys
     DMIM_SCORES = "dmim.motif_mut.scores"
