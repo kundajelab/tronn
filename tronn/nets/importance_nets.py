@@ -563,7 +563,7 @@ class FeatureImportanceExtractor(object):
                 outputs[key] = concat_output
 
         # TODO this is where to look at importances before they get merged away
-        if True:
+        if False:
             outputs["importances.multimodel.tmp"] = outputs[DataKeys.WEIGHTED_SEQ_ACTIVE]
 
         # is it important to do this for shuffles?
@@ -589,7 +589,7 @@ class FeatureImportanceExtractor(object):
 
         outputs = self.filter_with_confidence_intervals(outputs)
 
-        if True:
+        if False:
             outputs, _ = get_multimodel_score_relationships(outputs, {})
             #del outputs["importances.multimodel.tmp"]
             
