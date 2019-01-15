@@ -10,23 +10,27 @@ Easiest way is to first install anaconda, and set up an environment.
 conda create -n tronn python=2 anaconda
 ```
 
-Within the environment, install tensorflow according to tensorflow instructions for installing in Anaconda
-(currently on tensorflow 1.7)
+Within the environment, install tensorflow according to tensorflow instructions for installing in Anaconda. Please use tensorflow 1.9 or 1.10.
+
+Use the `pip install` way to install tensorflow, NOT the conda install. (use `which pip` to make sure it's the pip associated with your conda environment)
 
 ```
-pip install --ignore-installed --upgrade https://storage.googleapis.com/tensorflow/linux/gpu/tensorflow_gpu-1.4.0-cp27-none-linux_x86_64.whl
+# example install command, adjust tensorflow version as needed
+pip install --ignore-installed --upgrade https://storage.googleapis.com/tensorflow/linux/gpu/tensorflow_gpu-1.10.0-cp27-none-linux_x86_64.whl
 ```
 
-Also may require seqtk, bedtools/2.26.0+, ucsc_tools
+Make sure that you have bedtools v2.26.0+
+
+If you are running preprocessing, make sure to additionally have ucsc_tools.
+
+For variants, install seqtk.
 
 Then, install tronn.
 
 ```
+# cd into tronn repo
 python setup.py develop
 ```
-
-Finally, install Phenograph (from python2 compatible package)
-
 
 ---
 ### Quick start
