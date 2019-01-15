@@ -37,6 +37,9 @@ def filter_and_rebatch(inputs, params):
     if use_queue:
         params.update({"batch_size": batch_size})
         outputs, _ = rebatch(inputs, params)
+    else:
+        outputs = dict(inputs)
+    
         
     # and delete the condition mask and name
     del outputs["condition_mask"]

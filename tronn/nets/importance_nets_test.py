@@ -7,6 +7,7 @@ import tensorflow as tf
 
 from tronn.nets.importance_nets import InputxGrad
 from tronn.nets.importance_nets import DeltaFeatureImportanceMapper
+from tronn.nets.importance_nets import filter_by_importance
 from tronn.util.utils import DataKeys
 
 
@@ -226,6 +227,58 @@ class DeltaFeatureImportanceMapperTests(tf.test.TestCase):
     # elsewhere, test attach/detach aux tensors
     # elsewhere, test normalization
     # elsewhere, check confidence intervals
+
+@pytest.mark.usefixtures("one_hot_sequence")
+class FilterImportanceSumTests(tf.test.TestCase):
+
+
+    def test_filter_importances(self):
+        """test filtering by importance sum
+        """
+        # set up features to test filtering
+        test_features = []
+        desired_results = []
+        num_positions = self.one_hot_sequence.shape[2]
         
+        # 1) has greater than min num
+        indices = np.random.choice(range(num_positions), size=11)
+        mask_array = np.zeros(num_positions)
+        mask_array[indices] = 1
+        mask_array = np.reshape(mask_array, (1,1,1000,1))
+        masked_sequence = np.multiply(mask_array, self.one_hot_sequence)
+
+        test_features.append(masked_sequence)
+        desired_results.append(masked_sequence)
+
+        # 2) has less than min num
+        indices = np.random.choice(range(num_positions), size=9)
+        mask_array = np.zeros(num_positions)
+        mask_array[indices] = 1
+        mask_array = np.reshape(mask_array, (1,1,1000,1))
+        masked_sequence = np.multiply(mask_array, self.one_hot_sequence)
+        test_features.append(masked_sequence)
+
+        # concatenate
+        features = np.concatenate(test_features, axis=0)
+        desired_results = np.concatenate(desired_results, axis=0)
+
+        with self.test_session():
+            # arrange: need class instance, features tensor, no params (minimal inputs)
+            inputs = {
+                DataKeys.FEATURES: tf.convert_to_tensor(features, dtype=tf.float32)}
+            params = {"cutoff": 10, "positive_only": True, "use_queue": False}
+
+            # act: run preprocess fn and eval
+            outputs, params = filter_by_importance(inputs, params)
+            results = self.evaluate(outputs)
+
+        # assert: correct things were filtered
+        results_match_desired = np.equal(results[DataKeys.FEATURES], desired_results)
+        assert np.all(results_match_desired)
+
+        # assert: other tensors were correctly filtered too
+        
+    
+    
 if __name__ == '__main__':
     tf.test.main()
