@@ -57,9 +57,10 @@ def run(args):
     inference_files = run_inference(args)
 
     # add in PWM names to the datasets
-    add_pwm_names_to_h5(
-        results_h5_file,
-        [pwm.name for pwm in args.pwm_list],
-        other_keys=[DataKeys.FEATURES])
+    for inference_file in inference_files:
+        add_pwm_names_to_h5(
+            inference_file,
+            [pwm.name for pwm in args.pwm_list],
+            other_keys=[DataKeys.FEATURES])
 
     return None
