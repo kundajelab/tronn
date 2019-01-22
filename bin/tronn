@@ -714,6 +714,9 @@ def add_buildgrammars_parser(subparsers):
     group_dataset.add_argument(
         "--scan_file", required=True,
         help="h5 file of scan results")
+    group_dataset.add_argument(
+        "--foreground_targets", required=True,
+        help="key to pvals")
     #group_dataset.add_argument(
     #    "--scan_key",
     #    help="dataset key with scores") # either motifs {N, task, M} or dmim {N, mutM, task, M}, with dmim need to consider outputs logits {N, mutM, logits}
