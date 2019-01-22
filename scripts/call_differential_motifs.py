@@ -178,6 +178,7 @@ def main():
             background_data_loader, targets, {"reduce_type": "none"})
         selected_targets.append(found_targets)
     inference_targets = np.concatenate(selected_targets, axis=1)
+    # TODO need to bring in target_indices to be completely consistent
     inference_target_indices = args.inference["inference_targets"]
     if len(inference_target_indices) > 0:
         inference_targets = inference_targets[:,inference_target_indices]

@@ -80,7 +80,7 @@ def main():
     args = parse_args()
     # make sure out dir exists
     os.system("mkdir -p {}".format(args.out_dir))
-    setup_run_logs(args)
+    setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
 
     # get all gml files and load in
     grammar_files = glob.glob("{}/*gml".format(args.grammars_dir))
