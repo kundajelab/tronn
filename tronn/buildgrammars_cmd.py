@@ -17,6 +17,7 @@ from tronn.interpretation.networks import annotate_subgraphs_with_pwm_scores
 from tronn.interpretation.networks import build_full_graph
 from tronn.interpretation.networks import get_maxsize_k_subgraphs
 from tronn.interpretation.networks import attach_mut_logits
+from tronn.interpretation.networks import attach_data_summary
 from tronn.interpretation.networks import write_bed_from_graph
 from tronn.interpretation.networks import stringize_nx_graph
 
@@ -34,20 +35,29 @@ def run(args):
     with h5py.File(args.sig_pwms_file, "r") as hf:
         sig_pwms = hf[args.sig_pwms_key][args.foreground_targets]["sig"][:]
         sig_pwms_indices = np.where(sig_pwms != 0)[0]
+
+    # adjust the min number of regions based on min fract and min support
+    with h5py.File(args.scan_file, "r") as hf:
+        total_examples = hf[DataKeys.FEATURES].shape[0]
+    min_support = max(total_examples * args.min_support_fract, args.min_support)
     
     # make graph
     graph = build_full_graph(
         args.scan_file,
         sig_pwms_indices,
         min_positive_tasks=args.min_positive_tasks,
-        min_region_num=args.min_support)
+        min_region_num=min_support)
 
     # get subgraphs
-    subgraphs = get_maxsize_k_subgraphs(graph, args.min_support)
+    subgraphs = get_maxsize_k_subgraphs(graph, min_support)
 
     # attach delta logits to nodes
     subgraphs = attach_mut_logits(subgraphs, args.scan_file)
 
+    # attach other things to nodes
+    for key in args.aux_data_keys:
+        subgraphs = attach_data_summary(subgraphs, args.scan_file, key)
+        
     # for each subgraph, produce:
     # 1) gml file that keeps the network structure
     # 3) BED file of regions to check functional enrichment

@@ -698,14 +698,17 @@ def add_buildgrammars_parser(subparsers):
         "--subgraph_max_k", default=3, type=int,
         help="when searching graph, max nodes to include in a subgraph")
     group_analysis.add_argument(
-        "--min_support", default=500, type=int,
+        "--min_support_fract", default=0.10, type=float,
+        help="minimum region fract that is required for a grammar (overruled by min support if min support is larger)")
+    group_analysis.add_argument(
+        "--min_support", default=200, type=int,
         help="min number of examples needed to support a grammar")
-    group_analysis.add_argument(
-        "--max_overlap_fraction", default=0.3, type=float,
-        help="max fraction of regions that can overlap between two subgraphs")
-    group_analysis.add_argument(
-        "--return_top_k", type=int,
-        help="if requested return just the top k subgraphs, ranked by output strength")
+    #group_analysis.add_argument(
+    #    "--max_overlap_fraction", default=0.3, type=float,
+    #    help="max fraction of regions that can overlap between two subgraphs")
+    #group_analysis.add_argument(
+    #    "--return_top_k", type=int,
+    #    help="if requested return just the top k subgraphs, ranked by output strength")
 
     
     # group for dataset
@@ -717,6 +720,9 @@ def add_buildgrammars_parser(subparsers):
     group_dataset.add_argument(
         "--foreground_targets", required=True,
         help="key to pvals")
+    group_dataset.add_argument(
+        "--aux_data_keys", nargs="+", default=[],
+        help="extra dataset summaries to add")
     #group_dataset.add_argument(
     #    "--scan_key",
     #    help="dataset key with scores") # either motifs {N, task, M} or dmim {N, mutM, task, M}, with dmim need to consider outputs logits {N, mutM, logits}

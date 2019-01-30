@@ -804,7 +804,7 @@ def build_full_graph(
     with h5py.File(dmim_h5_file, "r") as hf:
         dmim_scores = hf[dmim_scores_key][:]
     #assert sig_mut_outputs.shape[1] == len(sig_pwms_indices)
-    print dmim_scores.shape
+    #print dmim_scores.shape
     synergy_edges = _build_synergy_edges(
         graph,
         dmim_scores,
@@ -902,6 +902,25 @@ def get_maxsize_k_subgraphs(graph, min_region_count, k=3):
         subgraphs += get_size_k_subgraphs(graph, min_region_count, i+1)
         logging.info("Found {} subgraphs for size {}".format(len(subgraphs), i+1))
         
+    return subgraphs
+
+
+def attach_data_summary(subgraphs, dmim_h5_file, key):
+    """attach relevant details to subgraphs
+    """
+    # extract the data given the key
+    with h5py.File(dmim_h5_file, "r") as hf:
+        data = hf[key][:] # {N, logit/signal/label}
+        example_metadata = hf[DataKeys.SEQ_METADATA][:,0]
+
+    # for each subgraph, attach to graph
+    gml_key = key.replace("-", "").replace(".", "").replace("_", "")
+    for subgraph in subgraphs:
+        examples = sorted(list(subgraph.graph["examples"]))
+        example_indices = np.where(np.isin(example_metadata, examples))[0]
+        subgraph_data = np.mean(data[example_indices], axis=0)
+        subgraph.graph[gml_key] = subgraph_data
+
     return subgraphs
 
 
@@ -1220,7 +1239,7 @@ def stringize_nx_graph(nx_graph):
     """
     # graph attributes
     for key in nx_graph.graph.keys():
-        if isinstance(nx_graph.graph[key], (list, set)):
+        if isinstance(nx_graph.graph[key], (list, set, np.ndarray)):
             nx_graph.graph[key] = ",".join([
                 str(val) for val in list(nx_graph.graph[key])])
 
