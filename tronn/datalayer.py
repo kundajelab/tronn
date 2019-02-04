@@ -697,10 +697,12 @@ class H5DataLoader(DataLoader):
         if end_idx < h5_handle[keys_to_load[0]].shape[0]:
             for key in keys_to_load:
                 if h5_handle[key][0].dtype.char == "S":
-                    try:
-                        slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1)) # TODO don't reshape?
-                    except:
-                        print "S issue at ", key
+                    # reshape if len(dims) is 1
+                    # TODO - don't do this anymore?
+                    if len(h5_handle[key][0].shape) == 1:
+                        slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1))
+                    else:
+                        slices[key] = h5_handle[key][start_idx:end_idx]
                 else:
                     slices[key] = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
         else:
@@ -713,14 +715,17 @@ class H5DataLoader(DataLoader):
                     slice_pad = np.array(
                         ["features=chr1:0-1000" for i in range(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
-                elif "string" in key:
-                    slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
-                    try:
+                elif h5_handle[key][0].dtype.char == "S":
+                    if len(h5_handle[key][0].shape) == 1:
+                        # reshape if len(dims) is 1
+                        slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                         slice_pad = np.array(
                             ["N" for i in range(batch_padding_num)]).reshape(
                                 (batch_padding_num, 1))
-                    except:
-                        print "string issue at ", key
+                    else:
+                        slice_tmp = h5_handle[key][start_idx:end_idx]
+                        slice_pad = np.array(
+                            ["N" for i in range(batch_padding_num)])
                 else:
                     slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
                     slice_pad_shape = [batch_padding_num] + list(slice_tmp.shape[1:])
