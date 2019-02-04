@@ -551,6 +551,9 @@ def _add_interpretation_args(parser, inference_fn="sequence_to_motif_scores"):
         "--sample_size", default=100000, type=int,
         help="total regions (post filtering) to return")
     parser.add_argument(
+        "--prediction_sample", default=None,
+        help="file of predictions for quantile norm")
+    parser.add_argument(
         "--debug", action="store_true",
         help="visualize outputs to help debug. NOTE: use small sample size!")
     
@@ -591,6 +594,7 @@ def _setup_interpretation_args(args):
         "backprop": args.backprop,
         "left_clip": args.left_clip,
         "right_clip": args.right_clip,
+        "prediction_sample": args.prediction_sample,
         "pwms": args.pwm_list}
     
     return
@@ -802,7 +806,7 @@ def add_synergy_parser(subparsers):
     group_dataset.add_argument(
         "--processed_inputs", action="store_true",
         help="inputs are already preprocessed through some inference stack")
-
+    
     # group for model
     group_model = cmd_argparser.add_argument_group(
         "Model arguments")

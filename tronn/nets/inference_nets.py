@@ -92,7 +92,7 @@ def sequence_to_synergy(inputs, params):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
     """
-    # here - assume sequence to motif scores has already been run
+    # here - assume sequence to dmim scores has already been run
     # if not set up in another fn
     print "WARNING ASSUMES PROCESSED INPUTS"
     outputs = dict(inputs)

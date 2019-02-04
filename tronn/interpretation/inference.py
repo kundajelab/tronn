@@ -67,6 +67,11 @@ def run_inference(args, warm_start=False):
             args.out_dir, args.prefix, args.subcommand_name)
         real_inference_fn = args.inference_params["inference_fn_name"]
         args.inference_params["inference_fn_name"] = "empty_net"
+        
+        # now adjust the prefix if there was a prediction sample
+        # this way, since file exists, inference won't run
+        if args.prediction_sample is not None:
+            out_prefix = args.prediction_sample.split(".h5")[0]
     else:
         out_prefix = None
         
@@ -82,8 +87,6 @@ def run_inference(args, warm_start=False):
         args.model["params"]["prediction_sample"] = inference_files[0]
         args.inference_params["inference_fn_name"] = real_inference_fn
         args.inference_params["prediction_sample"] = inference_files[0] # TODO fix this later
-
-        
 
     return inference_files
 
