@@ -36,7 +36,7 @@ def run(args):
 
     # load in gml, extract example subset and pass to input fn
     grammar = nx.read_gml(args.grammar_file)
-    args.examples_subset = grammar.graph["examples"].split(",")
+    args.dataset_examples = grammar.graph["examples"].split(",")
     logging.info("Running {} examples from grammar".format(len(args.examples_subset)))
     
     # set up sig pwms
