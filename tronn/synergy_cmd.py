@@ -10,6 +10,8 @@ import pandas as pd
 import networkx as nx
 
 from tronn.datalayer import setup_data_loader
+from tronn.interpretation.inference import run_inference
+
 from tronn.models import setup_model_manager
 
 from tronn.interpretation.combinatorial import setup_combinations
@@ -35,16 +37,17 @@ def run(args):
     # load in gml, extract example subset and pass to input fn
     grammar = nx.read_gml(args.grammar_file)
     args.examples_subset = grammar.graph["examples"].split(",")
-
+    logging.info("Running {} examples from grammar".format(len(args.examples_subset)))
+    
     # set up sig pwms
     sig_pwms = np.zeros((len(args.pwm_list)))
-    sig_indices = nx.get_node_attributes(grammar, "responderidx")
+    sig_indices = nx.get_node_attributes(grammar, "pwmidx")
     for pwm_key in sig_indices.keys():
         sig_pwms[sig_indices[pwm_key]] = 1
     args.inference_params.update({"sig_pwms": sig_pwms})
     logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
 
-    # set up pwm names
+    # set up sigm pwm names
     sig_indices = np.where(sig_pwms != 0)[0].tolist()
     sig_pwms_names = []
     for sig_index in sig_indices:
@@ -68,19 +71,25 @@ def run(args):
     combinations_df = pd.DataFrame(np.transpose(1 - combinations).astype(int), columns=sig_pwms_names)
     combinations_df.to_csv(combinations_file, sep="\t")
 
-    # run all files together or run rotation of models
-    if args.model["name"] == "kfold_models":
-        run_multi_model_inference(args, positives_only=True)
-    else:
-        run_inference(args, positives_only=True)
+    # collect a prediction sample if ensemble (for cross model quantile norm)
+    # always need to do this if you're repeating backprop
+    if args.model["name"] == "ensemble":
+        true_sample_size = args.sample_size
+        args.sample_size = 1000
+        run_inference(args, warm_start=True)
+        args.sample_size = true_sample_size
+    
+    # run inference
+    inference_files = run_inference(args)
 
     # add in PWM names to the datasets
-    add_pwm_names_to_h5(
-        results_h5_file,
-        [pwm.name for pwm in args.pwm_list],
-        other_keys=[])
+    for inference_file in inference_files:
+        add_pwm_names_to_h5(
+            inference_file,
+            [pwm.name for pwm in args.pwm_list],
+            other_keys=[DataKeys.FEATURES])
 
-    # and also attach the sig pwm names to the features
+    # attach sig pwm names
     with h5py.File(results_h5_file, "a") as hf:
         hf[DataKeys.FEATURES].attrs[AttrKeys.PWM_NAMES] = sig_pwms_names
         hf[DataKeys.MUT_MOTIF_LOGITS].attrs[AttrKeys.PWM_NAMES] = sig_pwms_names
