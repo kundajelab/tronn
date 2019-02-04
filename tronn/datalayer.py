@@ -700,7 +700,7 @@ class H5DataLoader(DataLoader):
                     try:
                         slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1)) # TODO don't reshape?
                     except:
-                        print key
+                        print "S issue at ", key
                 else:
                     slices[key] = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
         else:
@@ -715,9 +715,12 @@ class H5DataLoader(DataLoader):
                             (batch_padding_num, 1))
                 elif "string" in key:
                     slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
-                    slice_pad = np.array(
-                        ["N" for i in range(batch_padding_num)]).reshape(
-                            (batch_padding_num, 1))
+                    try:
+                        slice_pad = np.array(
+                            ["N" for i in range(batch_padding_num)]).reshape(
+                                (batch_padding_num, 1))
+                    except:
+                        print "string issue at ", key
                 else:
                     slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
                     slice_pad_shape = [batch_padding_num] + list(slice_tmp.shape[1:])
