@@ -289,7 +289,7 @@ def annotate_one_grammar(
     results["nodes"] = clean_node_names
 
     # attach TF names
-    # TODO ideally adjust for only the RNAs that had matched the pattern
+    # TODO ideally adjust for only the RNAs that had matched the pattern (good correlation)
     rna_node_names = ",".join(
         [pwm_to_rna_dict[node_name] for node_name in grammar.nodes])
     results["nodes_rna"] = rna_node_names
@@ -411,7 +411,116 @@ def annotate_one_grammar(
     return results
 
 
-def _merge(grammar_files, out_dir):
+def merge_graph_attrs(main_graph, merge_graph, key, merge_type="mean"):
+    """merge graph attributes
+    """
+    if merge_type == "mean":
+        # main graph
+        main_graph_attr = np.array(
+            [float(val) for val in main_graph.graph[key].split(",")])
+        main_graph_examples = main_graph.graph["numexamples"]
+        # merge graph
+        merge_graph_attr = np.array(
+            [float(val) for val in merge_graph.graph[key].split(",")])
+        merge_graph_examples = merge_graph.graph["numexamples"]
+        # merge
+        merged_attr = np.divide(
+            np.add(
+                np.multiply(main_graph_examples, main_graph_attr),
+                np.multiply(merge_graph_examples, merge_graph_attr)),
+            np.add(main_graph_examples, merge_graph_examples))
+        main_graph.graph[key] = merged_attr
+    elif merge_type == "str_concat":
+        main_graph.graph[key] = "{},{}".format(main_graph.graph[key], merge_graph.graph[key])
+    elif merge_type == "sum":
+        main_graph.graph[key] = main_graph.graph[key] + merge_graph.graph[key]
+
+    return main_graph
+
+
+def merge_multiple_node_attrs(main_graph, merge_graph, key, merge_type="mean"):
+    """merge multiple
+    """
+    nodes = list(main_graph.nodes)
+    for node in nodes:
+        merge_node_attrs(main_graph, merge_graph, node, key, merge_type=merge_type)
+    
+    return main_graph
+
+
+def merge_node_attrs(main_graph, merge_graph, node, key, merge_type="mean"):
+    """
+    """
+    if merge_type == "mean":
+        # main graph
+        main_graph_attr = np.array(
+            [float(val) for val in main_graph.node[node][key].split(",")])
+        main_graph_examples = main_graph.node[node]["numexamples"]
+        # merge graph
+        merge_graph_attr = np.array(
+            [float(val) for val in merge_graph.node[node][key].split(",")])
+        merge_graph_examples = merge_graph.node[node]["numexamples"]
+        # merge
+        merged_attr = np.divide(
+            np.add(
+                np.multiply(main_graph_examples, main_graph_attr),
+                np.multiply(merge_graph_examples, merge_graph_attr)),
+            np.add(main_graph_examples, merge_graph_examples))
+        main_graph.node[node][key] = merged_attr
+    elif merge_type == "str_concat":
+        main_graph.node[node][key] = "{},{}".format(
+            main_graph.node[node][key], merge_graph.node[node][key])
+    elif merge_type == "sum":
+        main_graph.node[node][key] = main_graph.node[node][key] + merge_graph.node[node][key]
+
+    return main_graph
+
+
+def merge_multiple_edge_attrs(main_graph, merge_graph, key, merge_type="mean"):
+    """merge multiple
+    """
+    edges = list(main_graph.edges)
+    for edge in edges:
+        try:
+            merge_edge_attrs(main_graph, merge_graph, edge, edge, key, merge_type=merge_type)
+        except KeyError as e:
+            edge_flipped = (edge[1], edge[0], edge[2])
+            merge_edge_attrs(main_graph, merge_graph, edge, edge_flipped, key, merge_type=merge_type)
+    
+    return main_graph
+
+
+def merge_edge_attrs(
+        main_graph, merge_graph, main_edge, merge_edge, key, merge_type="mean"):
+    """
+    """
+    if merge_type == "mean":
+        # main graph
+        main_graph_attr = np.array(
+            [float(val) for val in main_graph.edges[main_edge][key].split(",")])
+        main_graph_examples = main_graph.edges[main_edge]["numexamples"]
+        # merge graph
+        merge_graph_attr = np.array(
+            [float(val) for val in merge_graph.edges[merge_edge][key].split(",")])
+        merge_graph_examples = merge_graph.edges[merge_edge]["numexamples"]
+        # merge
+        merged_attr = np.divide(
+            np.add(
+                np.multiply(main_graph_examples, main_graph_attr),
+                np.multiply(merge_graph_examples, merge_graph_attr)),
+            np.add(main_graph_examples, merge_graph_examples))
+        main_graph.edges[main_edge][key] = merged_attr
+    elif merge_type == "str_concat":
+        main_graph.edges[main_edge][key] = "{},{}".format(
+            main_graph.edges[main_edge][key], merge_graph.edges[merge_edge][key])
+    elif merge_type == "sum":
+        main_graph.edges[main_edge][key] = main_graph.edges[main_edge][key] + merge_graph.edges[merge_edge][key]
+
+    return main_graph
+
+
+
+def merge_grammars_from_files(grammar_files, out_dir):
     """take two gmls and produce a new one
     """
     # read in grammars
@@ -426,14 +535,39 @@ def _merge(grammar_files, out_dir):
     new_grammar_file = "{}/{}.gml".format(out_dir, prefix)
     print new_grammar_file
     print grammars[0].nodes
-    quit()
 
     # merge
     for grammar_idx in range(len(grammars)):
-        pass
+        old_grammar = grammars[grammar_idx]
+        if grammar_idx == 0:
+            new_grammar = old_grammar
+        else:
+            # merge graph: RNASIGNALS, ATACSIGNALSNORM, logitsnorm, examples, numexamples
+            merge_graph_attrs(new_grammar, old_grammar, "RNASIGNALS", merge_type="mean")
+            merge_graph_attrs(new_grammar, old_grammar, "ATACSIGNALSNORM", merge_type="mean")
+            merge_graph_attrs(new_grammar, old_grammar, "logitsnorm", merge_type="mean")
+            merge_graph_attrs(new_grammar, old_grammar, "examples", merge_type="str_concat")
+            merge_graph_attrs(new_grammar, old_grammar, "numexamples", merge_type="sum")
 
-    return
+            # merge nodes: deltalogits, examples, numexamples
+            merge_multiple_node_attrs(
+                new_grammar, old_grammar, "deltalogits", merge_type="mean")
+            merge_multiple_node_attrs(
+                new_grammar, old_grammar, "examples", merge_type="str_concat")
+            merge_multiple_node_attrs(
+                new_grammar, old_grammar, "numexamples", merge_type="sum")
 
+            # merge edges: examples, numexamples
+            merge_multiple_edge_attrs(
+                new_grammar, old_grammar, "examples", merge_type="str_concat")
+            merge_multiple_edge_attrs(
+                new_grammar, old_grammar, "numexamples", merge_type="sum")
+
+    # save out to new name
+    nx.write_gml(stringize_nx_graph(new_grammar), new_grammar_file)
+            
+    return new_grammar_file
+        
 
 def merge_duplicates(
         filt_summary_file,
@@ -448,7 +582,7 @@ def merge_duplicates(
     do not adjust df in place, make a new df
     """
     # read in table and sort - that way, can just go straight down the column
-    grammars_df = pd.read_table(filt_summary_file)
+    grammars_df = pd.read_table(filt_summary_file, index_col=0)
     grammars_df = grammars_df.sort_values("nodes")
 
     # set up starting point
@@ -475,6 +609,8 @@ def merge_duplicates(
         # check next line
         next_nodes = grammars_df["nodes"].iloc[line_idx+1]
         next_grammar = grammars_df["filename"].iloc[line_idx+1]
+
+        # TODO check that all nodes and edges are same
         
         # if same, add (do all merging at end)
         if next_nodes == curr_nodes:
@@ -482,10 +618,16 @@ def merge_duplicates(
         else:
             # merge and save out to new df
             if len(curr_grammars) > 1:
+                print [nx.read_gml(grammar).nodes for grammar in curr_grammars]
+                print [nx.read_gml(grammar).edges(data="edgetype") for grammar in curr_grammars]
+                
                 # merge
-                merged_grammar_file = _merge(curr_grammars, out_dir)
+                merged_grammar_file = merge_grammars_from_files(curr_grammars, out_dir)
                 merged_grammar = nx.read_gml(merged_grammar_file)
-                new_grammar_file = "" # TODO
+                merged_grammar.graph["examples"] = set(
+                    merged_grammar.graph["examples"].split(","))
+                new_grammar_file = "{}/{}".format(
+                    out_dir, os.path.basename(merged_grammar_file))
                 grammar_results = annotate_one_grammar(
                     merged_grammar_file,
                     merged_grammar,
@@ -514,10 +656,11 @@ def merge_duplicates(
         line_idx += 1
 
     # finally save into new filt file
-        
-    quit()
+    summary_df = pd.DataFrame(results)
+    new_filt_summary_file = "{}/grammar_summary.filt.dedup.txt".format(out_dir)
+    summary_df.to_csv(new_filt_summary_file, sep="\t")
     
-    return
+    return new_filt_summary_file
 
 
 def annotate_grammars(args, merge_grammars=True):
@@ -574,7 +717,7 @@ def annotate_grammars(args, merge_grammars=True):
         "downstream_interesting": [],
         "GO_terms": []}
 
-    if False:
+    if True:
         # for each grammar, run analyses:
         for grammar_idx in range(len(grammars)):
 
@@ -642,8 +785,11 @@ def annotate_grammars(args, merge_grammars=True):
             args.background_rna,
             args.out_dir,
             max_dist=500000)
+        
+    # TODO make a function to adjust grammar colors?
+    # color by function (not by ordering across time)?
+    
 
-    quit()
     return filt_summary_file
 
 
@@ -656,7 +802,8 @@ def plot_results(filt_summary_file, out_dir):
     3) RNA pattern for each grammar
     """
     grammars_df = pd.read_table(filt_summary_file)
-
+    print grammars_df.shape
+    
     # remove the lowest signals
     vals = grammars_df["ATAC_signal"].values
     print np.min(vals), np.max(vals)
@@ -695,14 +842,15 @@ def plot_results(filt_summary_file, out_dir):
     for line_idx in range(num_grammars):
         grammar = nx.read_gml(grammars_df["filename"].iloc[line_idx])
         grammar_traj = int(
-            grammars_df["filename"].iloc[line_idx].split("/")[1].split(".")[1].split("-")[1])
+            grammars_df["filename"].iloc[line_idx].split(
+                "/")[1].split(".")[1].split("-")[1].split("_")[0])
         
         # get motifs and merge into motif df
-        motifs = grammars_df["nodes_rna"].iloc[line_idx].split(",")
+        motifs = grammars_df["nodes"].iloc[line_idx].split(",")
         motif_presence = pd.DataFrame(
             num_to_order_val[grammar_traj]*np.ones(len(motifs)),
             index=motifs,
-            columns=[grammars_df["nodes"].iloc[line_idx]])
+            columns=[grammars_df["nodes_rna"].iloc[line_idx]])
         if line_idx == 0:
             motifs_all = motif_presence
         else:
@@ -744,22 +892,6 @@ def plot_results(filt_summary_file, out_dir):
     atac_df = pd.DataFrame(atac_all)
     rna_df = pd.DataFrame(rna_all)
     
-    # remove duplicates
-    # TODO this should happen earlier - figure out how to correctly merge things
-    if True:
-        #dup_indices = motifs_all[motifs_all.duplicated()].index.values
-        dup_indices = np.where(motifs_all.duplicated().values)[0]
-        #print dup_indices
-        #print motifs_all.index[dup_indices]
-        
-        motifs_all = motifs_all.drop(motifs_all.index[dup_indices], axis=0)
-        atac_df = atac_df.drop(atac_df.index[dup_indices], axis=0)
-        rna_df = rna_df.drop(rna_df.index[dup_indices], axis=0)
-        print motifs_all.shape
-        print atac_df.shape
-        print rna_df.shape
-
-        
     if False:
         # remove solos from motifs and adjust all matrices accordingly
         motif_indices = np.where(np.sum(motifs_all, axis=0) <= 1)[0]
@@ -768,10 +900,10 @@ def plot_results(filt_summary_file, out_dir):
         motifs_all = motifs_all.drop(motifs_all.index[orphan_grammar_indices], axis=0)
         atac_df = atac_df.drop(atac_df.index[orphan_grammar_indices], axis=0)
         rna_df = rna_df.drop(rna_df.index[orphan_grammar_indices], axis=0)
-        print motifs_all.shape
-        print atac_df.shape
-        print rna_df.shape
         
+    print motifs_all.shape
+    print atac_df.shape
+    print rna_df.shape
 
     motifs_file = "{}/grammars.filt.motif_presence.mat.txt".format(out_dir)
     motifs_all.to_csv(motifs_file, sep="\t")
