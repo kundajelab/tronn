@@ -7,10 +7,11 @@ import logging
 
 import numpy as np
 
+from tronn.datalayer import H5DataLoader
 from tronn.interpretation.inference import run_inference
-#from tronn.interpretation.inference import run_multi_model_inference
 from tronn.interpretation.motifs import get_sig_pwm_vector
 from tronn.util.h5_utils import add_pwm_names_to_h5
+from tronn.util.formats import write_to_json
 from tronn.util.scripts import parse_multi_target_selection_strings
 from tronn.util.utils import DataKeys
 
@@ -63,4 +64,26 @@ def run(args):
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
 
+    # save out dataset json
+    results_data_log = "{}/dataset.{}.json".format(args.out_dir, args.subcommand_name)
+    results_data_loader = H5DataLoader(
+        data_dir=args.out_dir, data_files=inference_files, fasta=args.fasta)
+    dataset = results_data_loader.describe()
+    dataset.update({
+        "targets": args.targets,
+        "target_indices": args.target_indices})
+    write_to_json(dataset, results_data_log)
+
+    # save out inference json
+    infer_log = "{}/infer.{}.json".format(args.out_dir, args.subcommand_name)
+    infer_vals = {
+        "infer_dir": args.out_dir,
+        "model_json": args.model_json,
+        "targets": args.targets,
+        "inference_targets": args.inference_targets,
+        "target_indices": args.target_indices,
+        "pwm_file": args.pwm_file}
+    write_to_json(infer_vals, infer_log)
+
+    
     return None
