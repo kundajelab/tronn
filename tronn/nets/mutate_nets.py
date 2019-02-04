@@ -57,15 +57,66 @@ class Mutagenizer(object):
             grad_mins = tf.one_hot(grad_mins, 4) # {N, 1, 1000, 4}
             outputs["grad_mins"] = grad_mins
 
-            # TODO reselect positions based on best gradeint change within k bp?
-            # for mutM in all mutMs:
-            # mask the sequence, then get min val/idx from grad mins
-            # and replace MAX_VAL_MUT and MAX_IDX_MUT
+            # adjust positions
+            outputs, _ = self.select_best_point_mutants_multiply(outputs, params)
             
-            
-
         return outputs, params
 
+    
+    @staticmethod
+    def select_best_point_mutants(positions, gradients, orig_seq_len):
+        """adjust positions for those with worst gradients (which are also the
+        base pairs to change to)
+        """
+        # positions {N, mutM}
+        # grad_mins {N, 1, 1000, 4}
+        window_size = 10
+        
+        # set up mask positions
+        mut_masks = []
+        for mut_i in xrange(positions.get_shape().as_list()[1]):
+            mut_positions = positions[:,mut_i] # {N}
+            mut_positions = tf.one_hot(mut_positions, orig_seq_len) # {N, 1000}
+            #mut_positions = tf.reduce_max(mut_positions, axis=1) # {N, 1000}
+            mut_positions = tf.expand_dims(mut_positions, axis=2) # {N, 1000, 1}
+            mut_positions = tf.expand_dims(mut_positions, axis=1) # {N, 1, 1000, 1}
+            mut_positions = tf.nn.max_pool(
+                mut_positions, [1,1,window_size,1], [1,1,1,1], padding="SAME")
+            mut_positions = tf.cast(tf.not_equal(mut_positions, 0), tf.float32)
+            mut_masks.append(mut_positions)
+            
+        mut_masks = tf.concat(mut_masks, axis=1) # {N, 3, 1000, 1}
+
+        # multiply with grad mins
+        masked_grad_mins = tf.multiply(gradients, mut_masks) # {N, 3, 1000, 4}
+        masked_grad_mins = tf.reduce_min(masked_grad_mins, axis=-1) # {N, 3, 1000}
+        
+        vals, indices = tf.nn.top_k(masked_grad_mins, k=1, sorted=True) # {N, 3, 1}
+        new_positions = tf.squeeze(vals, axis=-1) # {N, 3}
+        
+        return new_positions
+
+
+    @classmethod
+    def select_best_point_mutants_multiple(cls, inputs, params):
+        """do this across k positions per example
+        """
+        k = outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT].get_shape().as_list()[2]
+        grad_mins = outputs["grad_mins"]
+
+        positions = []
+        for k_idx in range(k):
+            new_positions = cls.select_best_point_mutants(
+                outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT][:,:,k_idx],
+                grad_mins,
+                outputs[DataKeys.ORIG_SEQ].get_shape().as_list()[2])
+            positions.append(new_positions)
+
+        positions = tf.stack(positions, axis=-1)
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = positions
+        
+        return outputs, params
+    
     
     @staticmethod
     def point_mutagenize_example(tensors):
@@ -210,8 +261,61 @@ class Mutagenizer(object):
 class SynergyMutagenizer(Mutagenizer):
     """Generates sequences for synergy scores"""
 
+        
+    def preprocess(self, inputs, params):
+        """extract the positions for only the desired motifs (sig pwms)
+        """
+        assert inputs.get(DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX) is not None
+        assert inputs.get(DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL) is not None
+        assert params.get("sig_pwms") is not None
+
+        # collect features, TODO move others to old?
+        indices = tf.cast(inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], tf.int64)
+        vals = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL]
+        outputs = dict(inputs)
+        
+        # gather sig pwm max positions and vals
+        sig_pwms_indices = np.where(params["sig_pwms"])[0] # {mutM}
+        params["num_aux_examples"] = sig_pwms_indices.shape[0]
+        indices = tf.gather(indices, sig_pwms_indices, axis=1) # {N, mutM, 1}
+        vals = tf.gather(vals, sig_pwms_indices, axis=1) # {N, mutM, 1}
+        assert indices.get_shape().as_list()[2] == 1
+        
+        # and adjust for combinations
+        mut_combinations = params["combinations"]
+        mut_combinations = np.expand_dims(mut_combinations, axis=0) # {1, mutM, 2**mutM}        
+        combination_indices = tf.multiply(indices, mut_combinations) # {N, mutM, 2**mutM}
+        combination_indices = tf.transpose(combination_indices, perm=[0,2,1]) # {N, 2**mutM, mutM}
+        combination_vals = tf.multiply(vals, mut_combinations) # {N, mutM, 2**mutM}
+        combination_vals = tf.transpose(combination_vals, perm=[0,2,1]) # {N, 2**mutM, mutM}
+        
+        # save adjusted
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = combination_vals # {N, mut_M, 2**mutM}
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = combination_indices # {N, mut_M, 2**mutM}
+        outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.reduce_all(tf.greater(vals, 0), axis=(1,2)) # {N}
+        outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.stack(
+            [outputs[DataKeys.MUT_MOTIF_PRESENT]]*indices.get_shape().as_list()[1], axis=-1) # {N, mutM}
+
+        # and add null indices if present
+        #if inputs.get(DataKeys.NULL_PWM_POSITION_INDICES) is not None:
+        #    outputs, _ = attach_null_indices(outputs, params)
+        
+        if self.mutation_type == "point":
+            # set up gradients
+            grad = inputs[DataKeys.IMPORTANCE_GRADIENTS]
+            grad_mins = tf.reduce_min(grad, axis=1, keepdims=True) # {N, 1, 1000, 4}
+            grad_mins = tf.argmin(grad_mins, axis=3) # {N, 1, 1000}
+            grad_mins = tf.one_hot(grad_mins, 4) # {N, 1, 1000, 4}
+            outputs["grad_mins"] = grad_mins
+
+            # adjust positions
+            outputs, _ = self.select_best_point_mutants_multiply(outputs, params)
+            
+        return outputs, params
+
     
-    def mutagenize_multiple_motifs(self, inputs, params):
+    
+    def mutagenize_multiple_motifs_OLD(self, inputs, params):
         """change this from the Mutagenizer class
         """
         assert inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] is not None # {N, mut_M, k}
@@ -228,15 +332,18 @@ class SynergyMutagenizer(Mutagenizer):
         # choose what kind of mutagenesis
         if self.mutation_type == "point":
             mutagenize_fn = self.point_mutagenize_example
+            replace_seq = inputs["grad_mins"]
         else:
             mutagenize_fn = self.shuffle_mutagenize_example
+            replace_seq = tf.identity(features)
 
         all_mut_sequences = []
         all_mut_positions = []
 
-        assert position_indices.get_shape().as_list()[2] == 1
-
+        # TODO be aware of nulls!
+        
         # get the combinatorial matrix to use
+        assert position_indices.get_shape().as_list()[2] == 1
         mut_combinations = params["combinations"]
         mut_combinations = np.expand_dims(mut_combinations, axis=0) # {1, mutM, 2**mutM}        
         
