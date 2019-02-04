@@ -697,7 +697,10 @@ class H5DataLoader(DataLoader):
         if end_idx < h5_handle[keys_to_load[0]].shape[0]:
             for key in keys_to_load:
                 if h5_handle[key][0].dtype.char == "S":
-                    slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1)) # TODO don't reshape?
+                    try:
+                        slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1)) # TODO don't reshape?
+                    except:
+                        print key
                 else:
                     slices[key] = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
         else:
