@@ -31,8 +31,14 @@ def parse_args():
         help="h5 file with synergy results")
     parser.add_argument(
         "--calculations", nargs="+", default=[],
-        help="calculations to perform, in the format {FOREGROUND}/{BACKGROUND} - ex 110;100")
+        help="calculations to perform, in the format {FOREGROUND}/{BACKGROUND} - ex 110/100")
 
+    # out
+    parser.add_argument(
+        "-o", "--out_dir", dest="out_dir", type=str,
+        default="./",
+        help="out directory")
+    
     # parse args
     args = parser.parse_args()
 
@@ -94,8 +100,8 @@ def main():
     """
     # set up args
     args = parse_args()
-    args.out_dir = os.path.dirname(args.synergy_file)
-    setup_run_logs(args)
+    os.system("mkdir -p {}".format(args.out_dir))
+    setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
 
     # now set up the indices
     parse_calculation_strings(args)
