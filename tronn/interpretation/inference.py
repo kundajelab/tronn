@@ -29,6 +29,7 @@ def _setup_input_skip_keys(args):
             DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
             DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES,
             DataKeys.MUT_MOTIF_ORIG_SEQ,
+            "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ),
             DataKeys.MUT_MOTIF_WEIGHTED_SEQ,
             DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT,
             DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT,
@@ -39,6 +40,8 @@ def _setup_input_skip_keys(args):
             DataKeys.MUT_MOTIF_LOGITS,
             DataKeys.MUT_MOTIF_LOGITS_SIG,
             DataKeys.MUT_MOTIF_LOGITS_MULTIMODEL,
+            DataKeys.DFIM_SCORES,
+            DataKeys.DFIM_SCORES_DX,
             DataKeys.DMIM_SCORES,
             DataKeys.DMIM_SCORES_SIG,
             DataKeys.FEATURES]
