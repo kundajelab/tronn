@@ -89,7 +89,9 @@ def plot_weights_given_ax(
         subticks_frequency,
         highlight,
         colors=default_colors,
-        plot_funcs=default_plot_funcs):
+        plot_funcs=default_plot_funcs,
+        user_pos_height=None,
+        user_neg_height=None):
     if len(array.shape)==3:
         array = np.squeeze(array)
     assert len(array.shape)==2, array.shape
@@ -141,17 +143,26 @@ def plot_weights_given_ax(
     ax.xaxis.set_ticks(np.arange(0.0, array.shape[0]+1, subticks_frequency))
     height_padding = max(abs(min_neg_height)*(height_padding_factor),
                          abs(max_pos_height)*(height_padding_factor))
-    
+
+    if user_pos_height is not None:
+        max_pos_height = user_pos_height
+    if user_neg_height is not None:
+        min_neg_height = user_neg_height
+        
     ax.set_ylim(min_neg_height-height_padding, max_pos_height+height_padding)
 
+
+    
 # TODO - give height axis settings
 def plot_weights(
         array,
         fig_name, 
-        figsize=(150,2), # 20,2
+        figsize=(20,1.75), # (150,2), # 20,2
+        user_pos_height=None,
+        user_neg_height=None,
         height_padding_factor=0.2,
-        length_padding=0.1, #1.0,
-        subticks_frequency=1.0,
+        length_padding=1.0, #1.0,
+        subticks_frequency=10.0,
         colors=default_colors,
         plot_funcs=default_plot_funcs,
         highlight={}):
@@ -159,13 +170,17 @@ def plot_weights(
     """
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111) 
-    plot_weights_given_ax(ax=ax, array=array,
+    plot_weights_given_ax(
+        ax=ax,
+        array=array,
         height_padding_factor=height_padding_factor,
         length_padding=length_padding,
         subticks_frequency=subticks_frequency,
         colors=colors,
         plot_funcs=plot_funcs,
-        highlight=highlight)
+        highlight=highlight,
+        user_pos_height=user_pos_height,
+        user_neg_height=user_neg_height)
     plt.savefig(fig_name)
     plt.close()
 
