@@ -217,10 +217,6 @@ class Mutagenizer(object):
         else:
             mutagenize_fn = self.shuffle_mutagenize_example
             replace_seq = tf.identity(features)
-
-        print position_indices
-        print motif_present
-        quit()
             
         all_mut_sequences = []
         all_mut_positions = []
@@ -284,7 +280,6 @@ class SynergyMutagenizer(Mutagenizer):
         indices = tf.gather(indices, sig_pwms_indices, axis=1) # {N, mutM, 1}
         vals = tf.gather(vals, sig_pwms_indices, axis=1) # {N, mutM, 1}
         assert indices.get_shape().as_list()[2] == 1
-        num_motifs = indices.get_shape().as_list()[1] # mutM
         
         # and adjust for combinations
         mut_combinations = params["combinations"]
@@ -293,18 +288,14 @@ class SynergyMutagenizer(Mutagenizer):
         combination_indices = tf.transpose(combination_indices, perm=[0,2,1]) # {N, 2**mutM, mutM}
         combination_vals = tf.multiply(vals, mut_combinations) # {N, mutM, 2**mutM}
         combination_vals = tf.transpose(combination_vals, perm=[0,2,1]) # {N, 2**mutM, mutM}
+        num_combinations = combination_indices.get_shape().as_list()[1]
         
         # save adjusted
-        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = combination_vals # {N, mut_M, 2**mutM}
-        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = combination_indices # {N, mut_M, 2**mutM}
-        print vals
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = combination_vals # {N, 2**mutM, mutM}
+        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = combination_indices # {N, 2**mutM, mutM}
         outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.reduce_all(tf.greater(vals, 0), axis=(1,2)) # {N}
-        print outputs[DataKeys.MUT_MOTIF_PRESENT]
         outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.stack(
-            [outputs[DataKeys.MUT_MOTIF_PRESENT] for i in range(num_motifs)], axis=1) # {N, mutM}
-        print outputs[DataKeys.MUT_MOTIF_PRESENT]
-        print combination_vals
-        print combination_indices
+            [outputs[DataKeys.MUT_MOTIF_PRESENT] for i in range(num_combinations)], axis=1) # {N, 2**mutM, mutM}
 
         # and add null indices if present
         #if inputs.get(DataKeys.NULL_PWM_POSITION_INDICES) is not None:
