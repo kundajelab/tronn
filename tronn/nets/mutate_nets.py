@@ -293,9 +293,13 @@ class SynergyMutagenizer(Mutagenizer):
         # save adjusted
         outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = combination_vals # {N, mut_M, 2**mutM}
         outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = combination_indices # {N, mut_M, 2**mutM}
+        print vals
         outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.reduce_all(tf.greater(vals, 0), axis=(1,2)) # {N}
+        print outputs[DataKeys.MUT_MOTIF_PRESENT]
         outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.stack(
             [outputs[DataKeys.MUT_MOTIF_PRESENT] for i in range(num_motifs)], axis=1) # {N, mutM}
+        print outputs[DataKeys.MUT_MOTIF_PRESENT]
+        quit()
 
         # and add null indices if present
         #if inputs.get(DataKeys.NULL_PWM_POSITION_INDICES) is not None:
