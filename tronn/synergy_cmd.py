@@ -90,7 +90,7 @@ def run(args):
             other_keys=[DataKeys.FEATURES])
 
     # attach sig pwm names
-    with h5py.File(results_h5_file, "a") as hf:
+    with h5py.File(inference_file, "a") as hf:
         hf[DataKeys.FEATURES].attrs[AttrKeys.PWM_NAMES] = sig_pwms_names
         hf[DataKeys.MUT_MOTIF_LOGITS].attrs[AttrKeys.PWM_NAMES] = sig_pwms_names
     
