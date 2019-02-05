@@ -28,10 +28,23 @@ def _setup_input_skip_keys(args):
             DataKeys.WEIGHTED_SEQ_PWM_SCORES,
             DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
             DataKeys.WEIGHTED_SEQ_SHUF_PWM_SCORES,
+            DataKeys.MUT_MOTIF_ORIG_SEQ,
+            DataKeys.MUT_MOTIF_WEIGHTED_SEQ,
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT,
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT,
+            DataKeys.MUT_MOTIF_POS,
+            DataKeys.MUT_MOTIF_PRESENT,
+            DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI,
+            DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI_THRESH,
+            DataKeys.MUT_MOTIF_LOGITS,
+            DataKeys.MUT_MOTIF_LOGITS_SIG,
+            DataKeys.MUT_MOTIF_LOGITS_MULTIMODEL,
             DataKeys.DMIM_SCORES,
-            DataKeys.DMIM_SCORES.replace("motif_mut", "null_mut"),
             DataKeys.DMIM_SCORES_SIG,
             DataKeys.FEATURES]
+        for key in skip_keys:
+            if "motif_mut" in key:
+                skip_keys.append(key.replace("motif_mut", "null_mut"))
     elif (args.subcommand_name == "scanmotifs"):
         skip_keys = []
     else:
