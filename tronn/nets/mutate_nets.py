@@ -218,9 +218,13 @@ class Mutagenizer(object):
             mutagenize_fn = self.shuffle_mutagenize_example
             replace_seq = tf.identity(features)
 
+        print position_indices
+        print motif_present
+        quit()
+            
         all_mut_sequences = []
         all_mut_positions = []
-        for mut_i in xrange(position_indices.get_shape().as_list()[1]):
+        for mut_i in range(position_indices.get_shape().as_list()[1]):
             
             mut_positions = position_indices[:,mut_i,:] # {N, k}
             mut_positions = tf.one_hot(mut_positions, orig_seq_len) # {N, k, 1000}
@@ -299,7 +303,8 @@ class SynergyMutagenizer(Mutagenizer):
         outputs[DataKeys.MUT_MOTIF_PRESENT] = tf.stack(
             [outputs[DataKeys.MUT_MOTIF_PRESENT] for i in range(num_motifs)], axis=1) # {N, mutM}
         print outputs[DataKeys.MUT_MOTIF_PRESENT]
-        quit()
+        print combination_vals
+        print combination_indices
 
         # and add null indices if present
         #if inputs.get(DataKeys.NULL_PWM_POSITION_INDICES) is not None:
