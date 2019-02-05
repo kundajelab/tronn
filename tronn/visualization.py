@@ -141,6 +141,7 @@ def plot_weights_given_ax(
             
     ax.set_xlim(-length_padding, array.shape[0]+length_padding)
     ax.xaxis.set_ticks(np.arange(0.0, array.shape[0]+1, subticks_frequency))
+    ax.tick_params(labelbottom=False)
     height_padding = max(abs(min_neg_height)*(height_padding_factor),
                          abs(max_pos_height)*(height_padding_factor))
 
@@ -157,12 +158,12 @@ def plot_weights_given_ax(
 def plot_weights(
         array,
         fig_name, 
-        figsize=(20,1.75), # (150,2), # 20,2
+        figsize=(20,1.5), # (150,2), # 20,2
         user_pos_height=None,
         user_neg_height=None,
         height_padding_factor=0.2,
-        length_padding=1.0, #1.0,
-        subticks_frequency=10.0,
+        length_padding=1.0,
+        subticks_frequency=5.0,
         colors=default_colors,
         plot_funcs=default_plot_funcs,
         highlight={}):
@@ -181,7 +182,8 @@ def plot_weights(
         highlight=highlight,
         user_pos_height=user_pos_height,
         user_neg_height=user_neg_height)
-    plt.savefig(fig_name)
+    plt.axhline(y=0.0, color="silver", linestyle="dashed")
+    plt.savefig(fig_name, bbox_inches="tight")
     plt.close()
 
 
