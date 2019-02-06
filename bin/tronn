@@ -600,6 +600,23 @@ def _setup_interpretation_args(args):
     return
 
 
+def _add_mutate_args(parser):
+    """add args for mutational analyses
+    """
+    parser.add_argument(
+        "--mutate_type", default="shuffle",
+        help="what kind of mutation to do (point or shuffle)")
+    
+    return
+
+def _setup_mutate_args(args):
+    """add in mutate args as needed
+    """
+    args.inference_params.update({"mutate_type": args.mutate_type})
+    
+    return
+
+
 def _add_sig_pwms_args(parser):
     """add in args to use sig pwm vectors
     """
@@ -770,6 +787,8 @@ def add_dmim_parser(subparsers):
     _add_interpretation_args(
         group_interpret,
         inference_fn="sequence_to_dmim")
+    _add_mutate_args(
+        group_interpret)
     _add_visualization_args(group_interpret)
 
     # group for cmd specific functions
@@ -821,6 +840,8 @@ def add_synergy_parser(subparsers):
     _add_interpretation_args(
         group_interpret,
         inference_fn="sequence_to_synergy")
+    _add_mutate_args(
+        group_interpret)
     _add_visualization_args(group_interpret)
 
     # group for cmd specific functions
@@ -1092,6 +1113,7 @@ def main():
         run(args)
     elif subcommand == "dmim":
         _setup_interpretation_args(args)
+        _setup_mutate_args(args)
         _setup_dataset_args(args)
         _setup_model_args(args)
         _setup_visualization_args(args)
@@ -1102,6 +1124,7 @@ def main():
         run(args)
     elif subcommand == "synergy":
         _setup_interpretation_args(args)
+        _setup_mutate_args(args)
         _setup_dataset_args(args)
         _setup_model_args(args)
         _setup_visualization_args(args)
