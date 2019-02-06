@@ -2,6 +2,7 @@
 """
 
 import h5py
+import logging
 import itertools
 
 import numpy as np
