@@ -59,7 +59,7 @@ class Mutagenizer(object):
             outputs["grad_mins"] = grad_mins
 
             # adjust positions
-            outputs, _ = self.select_best_point_mutants_multiply(outputs, params)
+            outputs, _ = self.select_best_point_mutants_multiple(outputs, params)
             
         return outputs, params
 
@@ -78,7 +78,6 @@ class Mutagenizer(object):
         for mut_i in xrange(positions.get_shape().as_list()[1]):
             mut_positions = positions[:,mut_i] # {N}
             mut_positions = tf.one_hot(mut_positions, orig_seq_len) # {N, 1000}
-            #mut_positions = tf.reduce_max(mut_positions, axis=1) # {N, 1000}
             mut_positions = tf.expand_dims(mut_positions, axis=2) # {N, 1000, 1}
             mut_positions = tf.expand_dims(mut_positions, axis=1) # {N, 1, 1000, 1}
             mut_positions = tf.nn.max_pool(
@@ -86,14 +85,15 @@ class Mutagenizer(object):
             mut_positions = tf.cast(tf.not_equal(mut_positions, 0), tf.float32)
             mut_masks.append(mut_positions)
             
-        mut_masks = tf.concat(mut_masks, axis=1) # {N, 3, 1000, 1}
+        mut_masks = tf.concat(mut_masks, axis=1) # {N, mutM, 1000, 1}
 
         # multiply with grad mins
-        masked_grad_mins = tf.multiply(gradients, mut_masks) # {N, 3, 1000, 4}
-        masked_grad_mins = tf.reduce_min(masked_grad_mins, axis=-1) # {N, 3, 1000}
-        
-        vals, indices = tf.nn.top_k(masked_grad_mins, k=1, sorted=True) # {N, 3, 1}
-        new_positions = tf.squeeze(vals, axis=-1) # {N, 3}
+        masked_grad_mins = tf.multiply(gradients, mut_masks) # {N, mutM, 1000, 4}
+        masked_grad_mins = tf.reduce_min(masked_grad_mins, axis=-1) # {N, mutM, 1000}
+
+        # get best indices
+        _, new_positions = tf.nn.top_k(-masked_grad_mins, k=1, sorted=True) # {N, mutM, 1}
+        new_positions = tf.squeeze(new_positions, axis=-1) # {N, mutM}
         
         return new_positions
 
@@ -102,21 +102,22 @@ class Mutagenizer(object):
     def select_best_point_mutants_multiple(cls, inputs, params):
         """do this across k positions per example
         """
-        k = outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT].get_shape().as_list()[2]
-        grad_mins = outputs["grad_mins"]
+        # get positions and gradients
+        k = inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT].get_shape().as_list()[2]
 
+        # for each position, select best point mutant
         positions = []
         for k_idx in range(k):
             new_positions = cls.select_best_point_mutants(
-                outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT][:,:,k_idx],
-                grad_mins,
-                outputs[DataKeys.ORIG_SEQ].get_shape().as_list()[2])
+                inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:,:,k_idx], # {N, mutM}
+                inputs[DataKeys.IMPORTANCE_GRADIENTS],
+                inputs[DataKeys.ORIG_SEQ].get_shape().as_list()[2]) # {N, mutM}
             positions.append(new_positions)
 
-        positions = tf.stack(positions, axis=-1)
-        outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT] = positions
+        positions = tf.stack(positions, axis=-1) # {N, mutM, k}
+        inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT] = positions
         
-        return outputs, params
+        return inputs, params
     
     
     @staticmethod
@@ -127,10 +128,10 @@ class Mutagenizer(object):
         example = tensors[0] # {1, 1000, 4}
         motif_present = tensors[1]
         positions = tensors[2] # {1, 1000, 1}
-        grad_mins = tensors[3] # {tasks, 1000, 4}
+        grad_mins = tensors[3] # {1, 1000, 4}
 
         # adjust positions for tf.where
-        positions = tf.concat([positions]*4, axis=2)
+        positions = tf.concat([positions]*4, axis=2) # {1, 1000, 4}
         
         # adjust tensor
         example_mut = tf.where(

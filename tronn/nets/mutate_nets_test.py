@@ -58,32 +58,50 @@ class MutagenizerTests(tf.test.TestCase):
         """make sure preprocess correctly pulls out values
         """
         # necessary inputs
-        indices = np.zeros((1,12,1))
-        vals = np.ones((1,12,1))
-        sig_pwms = np.zeros((12))
-        sig_pwms[[1,3,5]] = 1
-        gradients = -self.one_hot_sequence
+        indices = np.ones((1,12,1)) * np.reshape(500 + 20*np.arange(12), (1, 12, 1))
+        vals = np.ones((1,12,1)) # all vals are 1
+        sig_pwms = np.zeros((12)) # sig pwms is 12
+        sig_pwms[[1,3,5]] = 1 # indices 1 3 5 and are actually sig
+        gradients = -np.copy(self.one_hot_sequence)
+
+        # adjust gradients to get desired changes
+        desired_seq = np.copy(self.one_hot_sequence)
+        gradients[0,0,515,0] = -3 # for sig pwm 1 (at 520), adjust to get pos 515 and 0
+        desired_seq[0,0,515,:] = np.array([1,0,0,0])
+        gradients[0,0,563,1] = -3 # for sig pwm 3 (at 560), adjust to get pos 563 and 1
+        desired_seq[0,0,563,:] = np.array([0,1,0,0])
+        gradients[0,0,600,2] = -3 # for sig pwm 5 (at 600), adjust to get pos 600 and 2
+        desired_seq[0,0,600,:] = np.array([0,0,1,0])
         
         with self.test_session():
             # arrange
             mutagenizer = Mutagenizer(mutation_type="point")
             inputs = {
-                DataKeys.FEATURES: tf.convert_to_tensor(self.one_hot_sequence),
-                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: tf.convert_to_tensor(indices),
-                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: tf.convert_to_tensor(vals),
-                DataKeys.IMPORTANCE_GRADIENTS: tf.convert_to_tensor(gradients)}
+                DataKeys.ORIG_SEQ: tf.convert_to_tensor(
+                    self.one_hot_sequence, dtype=tf.float32),
+                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: tf.convert_to_tensor(
+                    indices, dtype=tf.float32),
+                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: tf.convert_to_tensor(
+                    vals, dtype=tf.float32),
+                DataKeys.IMPORTANCE_GRADIENTS: tf.convert_to_tensor(
+                    gradients, dtype=tf.float32)}
             params = {"sig_pwms": sig_pwms}
 
             # act: run preprocess fn and eval
             outputs, params = mutagenizer.preprocess(inputs, params)
             results = self.evaluate(outputs)
+
+        # assert original indices/vals didn't change
+        assert np.all(np.equal(results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX], indices))
+        assert np.all(np.equal(results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL], vals))
         
         # assert: create new val/idx tensors with correct shapes
         assert results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT].shape == (1,3,1)
         assert results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT].shape == (1,3,1)
 
-        # assert: grad_mins is the min gradient value
-        assert np.all(np.equal(results["grad_mins"], self.one_hot_sequence))
+        # assert: correct indices pulled
+        assert np.all(np.equal(results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT], np.array(
+            [515, 563, 600]).reshape((1,3,1))))
 
 
     def test_shuffle_mutagenize_single(self):
