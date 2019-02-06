@@ -90,7 +90,8 @@ def _make_conditional_string(foreground_strings, background_strings):
     assert len(changing) == 1
 
     # make string
-    new_string = "f({} | {})".format(changing[0], ",".join(conditioned_on))
+    #new_string = "f({} | {})".format(changing[0], ",".join(conditioned_on))
+    new_string = "f(seq | do({}), {})".format(changing[0], ",".join(conditioned_on))
     
     return new_string
 
