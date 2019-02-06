@@ -699,7 +699,7 @@ class H5DataLoader(DataLoader):
                 if h5_handle[key][0].dtype.char == "S":
                     # reshape if len(dims) is 1
                     # TODO - don't do this anymore?
-                    if len(h5_handle[key][0].shape) == 1:
+                    if len(h5_handle[key][0].shape) == 0:
                         slices[key] = h5_handle[key][start_idx:end_idx].reshape((batch_size, 1))
                     else:
                         slices[key] = h5_handle[key][start_idx:end_idx]
@@ -716,7 +716,7 @@ class H5DataLoader(DataLoader):
                         ["features=chr1:0-1000" for i in range(batch_padding_num)]).reshape(
                             (batch_padding_num, 1))
                 elif h5_handle[key][0].dtype.char == "S":
-                    if len(h5_handle[key][0].shape) == 1:
+                    if len(h5_handle[key][0].shape) == 0:
                         # reshape if len(dims) is 1
                         slice_tmp = h5_handle[key][start_idx:end_idx].reshape((end_idx-start_idx, 1))
                         slice_pad = np.array(
