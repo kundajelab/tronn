@@ -473,7 +473,8 @@ def get_pwm_max_vals_and_positions(inputs, params):
     # get the max positions ON THE ACTIVE REGION
     # NOTE that these are indices for the short region!!
     vals, indices = tf.nn.top_k(features, k=1, sorted=True)
-
+    indices = tf.add(indices, int(params["filter_width"] / 2.))
+    
     # adjust for clipping
     if params.get("left_clip") is not None:
         indices = tf.add(indices, params["left_clip"])
