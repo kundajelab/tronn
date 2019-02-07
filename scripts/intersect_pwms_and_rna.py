@@ -172,8 +172,8 @@ def main():
 
     # set up blacklist motifs filter (ignore long pwms)
     blacklisted_pwms = np.ones(len(pwm_list))
-    for pwm_idx in range(len(pwms)):
-        pwm = pwms[pwm_idx]
+    for pwm_idx in range(len(pwm_list)):
+        pwm = pwm_list[pwm_idx]
         if pwm.weights.shape[1] > args.max_pwm_length:
             blacklisted_pwms[pwm_idx] = 0
     
