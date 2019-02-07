@@ -85,6 +85,11 @@ def parse_args():
     parser.add_argument(
         "--rna_expression_file",
         help="RNA file if adding in RNA expression information")
+
+    # other filtering
+    parser.add_argument(
+        "--max_pwm_length", default=50, type=int,
+        help="max pwm length allowed as significant (weed out long non-informative pwms)")
     
     # other
     parser.add_argument(
@@ -164,6 +169,13 @@ def main():
     pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
     pwm_metadata = pd.read_table(args.pwm_metadata_file, sep="\t")
     tf_expressed = pwm_metadata[args.pwm_metadata_expr_col_key].notnull().values
+
+    # set up blacklist motifs filter (ignore long pwms)
+    blacklisted_pwms = np.ones(len(pwm_list))
+    for pwm_idx in range(len(pwms)):
+        pwm = pwms[pwm_idx]
+        if pwm.weights.shape[1] > args.max_pwm_length:
+            blacklisted_pwms[pwm_idx] = 0
     
     # STAGE 1 - filter for expressed
     expr_pvals_file = "{}/pvals.rna_filt.h5".format(args.out_dir)
@@ -189,6 +201,11 @@ def main():
         sig_pwms_filt = np.multiply(
             old_sig_pwms,
             tf_expressed)
+
+        # and filter blacklist
+        sig_pwms_filt = np.multiply(
+            sig_pwms_filt,
+            blacklisted_pwms)
 
         # save out with attributes
         with h5py.File(expr_pvals_file, "a") as out:
