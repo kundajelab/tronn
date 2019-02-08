@@ -316,7 +316,7 @@ class SynergyMutagenizer(Mutagenizer):
             outputs["grad_mins"] = grad_mins
 
             # adjust positions
-            outputs, _ = self.select_best_point_mutants_multiply(outputs, params)
+            outputs, _ = self.select_best_point_mutants_multiple(outputs, params)
             
         return outputs, params
 
