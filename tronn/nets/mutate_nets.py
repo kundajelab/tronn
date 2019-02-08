@@ -56,7 +56,7 @@ class Mutagenizer(object):
             grad_mins = tf.reduce_min(grad, axis=1, keepdims=True) # {N, 1, 1000, 4}
             grad_mins = tf.argmin(grad_mins, axis=3) # {N, 1, 1000}
             grad_mins = tf.one_hot(grad_mins, 4) # {N, 1, 1000, 4}
-            outputs["grad_mins"] = grad_mins
+            outputs["grad_mins"] = grad_mins # these are the worst case base pairs at each position
 
             # adjust positions
             outputs, _ = self.select_best_point_mutants_multiple(outputs, params)
@@ -65,7 +65,7 @@ class Mutagenizer(object):
 
     
     @staticmethod
-    def select_best_point_mutants(positions, gradients, orig_seq_len):
+    def select_best_point_mutants(positions, importances, gradients, orig_seq_len):
         """adjust positions for those with worst gradients (which are also the
         base pairs to change to)
         """
@@ -79,21 +79,22 @@ class Mutagenizer(object):
             mut_positions = positions[:,mut_i] # {N}
             mut_positions = tf.one_hot(mut_positions, orig_seq_len) # {N, 1000}
             mut_positions = tf.expand_dims(mut_positions, axis=2) # {N, 1000, 1}
-            mut_positions = tf.expand_dims(mut_positions, axis=1) # {N, 1, 1000, 1}
+            mut_positions = tf.expand_dims(mut_positions, axis=1) # {N, 1, 1000, 1}, nn.max_pool requires 4D tensor
             mut_positions = tf.nn.max_pool(
                 mut_positions, [1,1,window_size,1], [1,1,1,1], padding="SAME")
             mut_positions = tf.cast(tf.not_equal(mut_positions, 0), tf.float32)
             mut_masks.append(mut_positions)
-            
         mut_masks = tf.concat(mut_masks, axis=1) # {N, mutM, 1000, 1}
-
+        
         # multiply with grad mins
-        gradients = tf.reduce_min(gradients, axis=1, keepdims=True) # {N, 1, 1000, 4}
-        masked_grad_mins = tf.multiply(gradients, mut_masks) # {N, mutM, 1000, 4}
-        masked_grad_mins = tf.reduce_min(masked_grad_mins, axis=-1) # {N, mutM, 1000}
+        # TODO try using the HIGHEST importance position, and replace with WORST gradient base pair
+        importance_max = tf.reduce_max(importances, axis=(1,3), keepdims=True) # {N, 1, 1000, 1}
+        #gradients = tf.reduce_min(gradients, axis=1, keepdims=True) # {N, 1, 1000, 4}
+        masked_importance_max = tf.multiply(importance_max, mut_masks) # {N, mutM, 1000, 1}
+        masked_importance_max = tf.reduce_max(masked_importance_max, axis=-1) # {N, mutM, 1000}
 
         # get best indices
-        _, new_positions = tf.nn.top_k(-masked_grad_mins, k=1, sorted=True) # {N, mutM, 1}
+        _, new_positions = tf.nn.top_k(masked_importance_max, k=1, sorted=True) # {N, mutM, 1}
         new_positions = tf.squeeze(new_positions, axis=-1) # {N, mutM}
         
         return new_positions
@@ -111,6 +112,7 @@ class Mutagenizer(object):
         for k_idx in range(k):
             new_positions = cls.select_best_point_mutants(
                 inputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:,:,k_idx], # {N, mutM}
+                inputs[DataKeys.WEIGHTED_SEQ],
                 inputs[DataKeys.IMPORTANCE_GRADIENTS],
                 inputs[DataKeys.ORIG_SEQ].get_shape().as_list()[2]) # {N, mutM}
             positions.append(new_positions)
