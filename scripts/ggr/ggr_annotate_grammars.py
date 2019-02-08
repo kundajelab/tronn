@@ -54,7 +54,7 @@ GOOD_GO_TERMS = [
     "adhesion",
     "lipase activity",
     "fatty acid",
-    "sphingomyelin",
+    "sphingolipid",
     "glycerolipid"]
 
 
@@ -128,6 +128,18 @@ def get_atac_signal(gml_file):
                 break
 
     return max_signal
+
+
+def get_edge_type(gml_file):
+    edge_type = "co_occurrence"
+    with open(gml_file, "r") as fp:
+        for line in fp:
+            if "edgetype" in line:
+                if "directed" in line:
+                    edge_type = "directed"
+                    break
+
+    return edge_type
 
 
 def _run_great(bed_file, out_dir):
@@ -294,7 +306,7 @@ def annotate_one_grammar(
     rna_node_names = ",".join(
         [pwm_to_rna_dict[node_name] for node_name in grammar.nodes])
     results["nodes_rna"] = rna_node_names
-
+    
     # make a BED file, get num regions
     grammar_bed = "{}/{}.bed".format(
         out_dir, os.path.basename(grammar_file).split(".gml")[0])
@@ -304,6 +316,7 @@ def annotate_one_grammar(
     # get signal and delta scores
     results["ATAC_signal"] = get_atac_signal(grammar_file)
     results["delta_logit"] = get_max_delta_logit(grammar_file)
+    results["edge_type"] = get_edge_type(grammar_file)
 
     # run proximal RNA based analyses
     # get nearby genes
@@ -603,6 +616,7 @@ def merge_duplicates(
         "region_to_rna": [],
         "MSE": [],
         "downstream_interesting": [],
+        "edge_type": [],
         "GO_terms": []}
     
     line_idx = 0
@@ -716,6 +730,7 @@ def annotate_grammars(args, merge_grammars=True):
         "region_to_rna": [],
         "MSE": [],
         "downstream_interesting": [],
+        "edge_type": [],
         "GO_terms": []}
 
     if False:
@@ -804,20 +819,21 @@ def plot_results(filt_summary_file, out_dir):
     """
     grammars_df = pd.read_table(filt_summary_file)
     print grammars_df.shape
-    
-    # remove the lowest signals
-    vals = grammars_df["ATAC_signal"].values
-    print np.min(vals), np.max(vals)
-    grammars_df = grammars_df[grammars_df["ATAC_signal"] > 2.85]
 
-    # remove the poorest performers
-    vals = grammars_df["delta_logit"].values
-    print np.min(vals), np.max(vals)
-    grammars_df = grammars_df[grammars_df["delta_logit"] < -0.09] # 0.8
+    if False:
+        # remove the lowest signals
+        vals = grammars_df["ATAC_signal"].values
+        print np.min(vals), np.max(vals)
+        grammars_df = grammars_df[grammars_df["ATAC_signal"] > 2.85]
 
-    # don't mess with RNA
-    vals = grammars_df["max_rna_vals"].values
-    print np.min(vals), np.max(vals)
+        # remove the poorest performers
+        vals = grammars_df["delta_logit"].values
+        print np.min(vals), np.max(vals)
+        grammars_df = grammars_df[grammars_df["delta_logit"] < -0.09] # 0.8
+
+        # don't mess with RNA
+        vals = grammars_df["max_rna_vals"].values
+        print np.min(vals), np.max(vals)
 
     # get number of grammars
     num_grammars = grammars_df.shape[0]
