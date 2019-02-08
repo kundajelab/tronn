@@ -28,6 +28,7 @@ from tronn.util.scripts import setup_run_logs
 
 # manually curated pwms to blacklist
 MANUAL_BLACKLIST_PWMS = [
+    "NANOG",
     "SMARC",
     "ZFP82",
     "ZNF667",
@@ -717,7 +718,7 @@ def annotate_grammars(args, merge_grammars=True):
         "downstream_interesting": [],
         "GO_terms": []}
 
-    if True:
+    if False:
         # for each grammar, run analyses:
         for grammar_idx in range(len(grammars)):
 
@@ -915,7 +916,10 @@ def plot_results(filt_summary_file, out_dir):
     rna_df.to_csv(rna_file, sep="\t")
     
     # run R script
-    
+    plot_file = "{}/grammars.filt.summary.pdf".format(out_dir)
+    plot_summary = "ggr_plot_grammar_summary.R {} {} {} {}".format(
+        motifs_file, atac_file, rna_file, plot_file)
+    os.system(plot_summary)
     
     return
 

@@ -14,7 +14,7 @@ args <- commandArgs(trailingOnly=TRUE)
 motif_presence_file <- args[1]
 atac_file <- args[2]
 rna_file <- args[3]
-
+plot_file <- args[4]
 
 my_hclust <- function(data) {
     hc <- hclust(data, method="ward.D2")
@@ -141,7 +141,7 @@ grob_list <- list(
     "3"=grab_grob(fn3))
 
 pdf(
-    file="grammar_summary.pdf",
+    file=plot_file,
     height=12, width=14, onefile=FALSE)
 grid.newpage()
 grid.arrange(grobs=grob_list, nrow=1, ncol=3, heights=c(10), widths=c(8, 2, 2), clip=FALSE)
