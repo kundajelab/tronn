@@ -11,7 +11,7 @@ if __name__== "__main__":
         author_email="danielskim@stanford.edu",
         url="https://github.com/kundajelab/tronn",
         license="MIT",
-        install_requires=["numpy", "tensorflow-gpu", "six", "networkx"],
+        install_requires=["numpy", "tensorflow-gpu", "six", "networkx", "seaborn"],
         packages=find_packages(),
         scripts=['bin/tronn'] + glob.glob("R/*.R") + glob.glob("R/ggr/*R") + glob.glob("scripts/*py") + glob.glob("scripts/ggr/*py")
     )
