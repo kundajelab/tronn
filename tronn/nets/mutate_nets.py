@@ -88,6 +88,7 @@ class Mutagenizer(object):
         mut_masks = tf.concat(mut_masks, axis=1) # {N, mutM, 1000, 1}
 
         # multiply with grad mins
+        gradients = tf.reduce_min(gradients, axis=1, keepdims=True) # {N, 1, 1000, 4}
         masked_grad_mins = tf.multiply(gradients, mut_masks) # {N, mutM, 1000, 4}
         masked_grad_mins = tf.reduce_min(masked_grad_mins, axis=-1) # {N, mutM, 1000}
 
