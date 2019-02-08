@@ -647,7 +647,48 @@ class FeatureImportanceExtractor(object):
         
         return outputs, params
 
+
+    
+class PreCalculatedScores(FeatureImportanceExtractor):
+    """Essentially just runs the post-processing on raw importance scores"""
+
+    def preprocess(self, inputs, params):
+        """attach in the shuffles (that were precalculated)
+        """
+        # save out orig sequence
+        inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
+
+        # update params for where to put the dinuc shuffles
+        params.update({"aux_key": DataKeys.ORIG_SEQ_SHUF})
+        params.update({"num_shuffles": self.num_shuffles})
+
+        # and attach the shuffles (aux_key points to ORIG_SEQ_SHUF)
+        params.update({"name": "attach_dinuc_seq"})
+        inputs, params = attach_auxiliary_tensors(inputs, params)
+
+        # TODO - need to properly attach logits from shuffles
         
+        # in params keep info about which tensors to detach later, and where
+        params.update({"save_aux": {
+            DataKeys.FEATURES: DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.LOGITS: DataKeys.LOGITS_SHUF}})
+
+        return None
+
+    
+    def run_model_and_get_anchors(self, inputs, params):
+        """do nothing
+        """
+        return inputs, params
+
+    
+    def get_multitask_feature_importances(self, inputs, params):
+        """do nothing
+        """
+        return inputs, params
+    
+
+    
 class InputxGrad(FeatureImportanceExtractor):
     """Runs input x grad"""
 
@@ -1159,6 +1200,8 @@ def get_task_importances(inputs, params):
         extractor = IntegratedGradients(model_fn)
     elif backprop == "deeplift":
         extractor = DeepLift(model_fn)
+    elif backprop == "precalculated":
+        extractor = PreCalculatedScores(None)
     else:
         raise ValueError, "backprop method not implemented!"
 
