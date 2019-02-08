@@ -1,4 +1,7 @@
+#!/usr/bin/env python
 
+import os
+import sys
 import h5py
 import argparse
 
@@ -6,6 +9,22 @@ import pandas as pd
 import numpy as np
 
 from tronn.util.scripts import setup_run_logs
+
+BLACKLIST_MOTIFS = [
+    "SMARC",
+    "NANOG"]
+
+
+def get_blacklist_indices(df):
+    """search for blacklist substrings and return a list of indices
+    """
+    blacklist_indices = []
+    for i in range(df.shape[0]):
+        for substring in BLACKLIST_MOTIFS:
+            if substring in df.index[i]:
+                blacklist_indices.append(df.index[i])
+
+    return blacklist_indices
 
 
 def parse_args():
@@ -21,6 +40,9 @@ def parse_args():
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
         help="out directory")
+    parser.add_argument(
+        "--prefix",
+        help="prefix to attach to output files")
     
     args = parser.parse_args()
 
@@ -34,10 +56,13 @@ def main():
     args = parse_args()
     os.system("mkdir -p {}".format(args.out_dir))
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
-
+    prefix = "{}/{}".format(args.out_dir, args.prefix)
+    
     # GGR ordered trajectory indices
     indices = [0,7,8,9,10,11,12,13,14,1,2,3,4,5]
-    labels = ["TRAJ-{}".format(val) for val in range(1,14)]
+    labels = ["TRAJ-{}".format(val) for val in range(1,15)]
+    days  = ["day {0:.1f}".format(float(val))
+             for val in [0,1,1.5,2,2.5,3,4.5,5,6]]
 
     # go through each index to collect
     for i in range(len(indices)):
@@ -93,13 +118,37 @@ def main():
     motif_patterns = motif_patterns.groupby(motif_patterns.index).mean() # right now, just average across trajectories (though not great)
     motif_patterns = motif_patterns.reindex(traj_pwms.index)
 
-    # filtering on specific TFs and motifs to exclude
-    
+    # fix column names
+    traj_pwms.columns = labels
+    motif_patterns.columns = days
+    traj_tfs.columns = labels
+    tf_patterns.columns = days
 
-    traj_tfs.to_csv("tfs_corr_summary.txt", sep="\t")
-    traj_pwms.to_csv("pwms_present_summary.txt", sep="\t")
-    tf_patterns.to_csv("tfs_patterns_summary.txt", sep="\t")
-    motif_patterns.to_csv("pwms_patterns_summary.txt", sep="\t")
+    # remove blacklist
+    motif_indices = get_blacklist_indices(motif_patterns)
+    traj_pwms = traj_pwms.drop(index=motif_indices)
+    motif_patterns = motif_patterns.drop(index=motif_indices)
+
+    tf_indices = get_blacklist_indices(tf_patterns)
+    traj_tfs = traj_tfs.drop(index=tf_indices)
+    tf_patterns = tf_patterns.drop(index=tf_indices)
+    
+    # filtering on specific TFs and motifs to exclude
+    traj_tfs_file = "{}.tfs_corr_summary.txt".format(prefix)
+    traj_pwms_file = "{}.pwms_present_summary.txt".format(prefix)
+    tf_patterns_file = "{}.tfs_patterns_summary.txt".format(prefix)
+    motif_patterns_file = "{}.pwms_patterns_summary.txt".format(prefix)
+    
+    traj_tfs.to_csv(traj_tfs_file, sep="\t")
+    traj_pwms.to_csv(traj_pwms_file, sep="\t")
+    tf_patterns.to_csv(tf_patterns_file, sep="\t")
+    motif_patterns.to_csv(motif_patterns_file, sep="\t")
+
+    # and R script?
+    plot_results = "ggr_plot_motif_summary.R {} {} {} {}".format(
+        traj_pwms_file, motif_patterns_file, traj_tfs_file, tf_patterns_file)
+    print plot_results
+    os.system(plot_results)
     
     return
 
