@@ -3,8 +3,6 @@
 import tensorflow as tf
 
 from tronn.nets.filter_nets import filter_by_accuracy
-#from tronn.nets.filter_nets import filter_singleton_labels
-#from tronn.nets.filter_nets import produce_confidence_interval_on_outputs
 
 from tronn.nets.importance_nets import get_task_importances
 from tronn.nets.importance_nets import run_dfim
@@ -14,17 +12,11 @@ from tronn.nets.manifold_nets import filter_by_manifold_distances
 
 from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import get_motif_densities
-#from tronn.nets.motif_nets import filter_for_significant_pwms
 from tronn.nets.motif_nets import filter_for_any_sig_pwms
 from tronn.nets.motif_nets import run_dmim
 from tronn.nets.motif_nets import extract_null_results
 from tronn.nets.motif_nets import get_sig_mut_logits
 from tronn.nets.motif_nets import get_sig_mut_motifs
-
-#from tronn.nets.mutate_nets import dfim
-#from tronn.nets.mutate_nets import motif_dfim
-#from tronn.nets.mutate_nets import delta_logits
-#from tronn.nets.mutate_nets import blank_motif_sites
 
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites_combinatorially
