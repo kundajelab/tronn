@@ -655,18 +655,18 @@ class PreCalculatedScores(FeatureImportanceExtractor):
     def preprocess(self, inputs, params):
         """attach in the shuffles (that were precalculated)
         """
-        # save out orig sequence
-        inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
-
+        # get num shuffles
+        num_shuffles = inputs[DataKeys.WEIGHTED_SEQ_SHUF].get_shape().as_list()[1]
+        
         # update params for where to put the dinuc shuffles
-        params.update({"aux_key": DataKeys.ORIG_SEQ_SHUF})
-        params.update({"num_shuffles": self.num_shuffles})
+        params.update({"aux_key": DataKeys.WEIGHTED_SEQ_SHUF})
+        params.update({"num_shuffles": num_shuffles})
 
         # and attach the shuffles (aux_key points to ORIG_SEQ_SHUF)
         params.update({"name": "attach_dinuc_seq"})
         inputs, params = attach_auxiliary_tensors(inputs, params)
 
-        # TODO - need to properly attach logits from shuffles
+        # TODO - need to properly attach logits from shuffles? <- not really, in the detach should be fine...
         
         # in params keep info about which tensors to detach later, and where
         params.update({"save_aux": {
