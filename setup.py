@@ -13,5 +13,5 @@ if __name__== "__main__":
         license="MIT",
         install_requires=["numpy", "tensorflow-gpu", "six", "networkx"],
         packages=find_packages(),
-        scripts=['bin/tronn'] + glob.glob("R/*.R") + glob.glob("scripts/*py") + glob.glob("scripts/ggr/*py")
+        scripts=['bin/tronn'] + glob.glob("R/*.R") + glob.glob("R/ggr/*R") + glob.glob("scripts/*py") + glob.glob("scripts/ggr/*py")
     )
