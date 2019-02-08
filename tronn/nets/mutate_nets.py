@@ -225,10 +225,13 @@ class Mutagenizer(object):
             
         all_mut_sequences = []
         all_mut_positions = []
+        edge_mask = tf.cast(tf.greater(tf.range(orig_seq_len), 10), tf.float32) # {1000}
+        edge_mask = tf.reshape(edge_mask, (1, 1, orig_seq_len))
         for mut_i in range(position_indices.get_shape().as_list()[1]):
             
             mut_positions = position_indices[:,mut_i,:] # {N, k}
             mut_positions = tf.one_hot(mut_positions, orig_seq_len) # {N, k, 1000}
+            mut_positions = tf.multiply(edge_mask, mut_positions) # mask out positions at edge (not real)
             mut_positions = tf.reduce_max(mut_positions, axis=1) # {N, 1000}
             mut_positions = tf.expand_dims(mut_positions, axis=2) # {N, 1000, 1}
             mut_positions = tf.expand_dims(mut_positions, axis=1) # {N, 1, 1000, 1}
