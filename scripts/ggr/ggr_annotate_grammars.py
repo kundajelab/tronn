@@ -733,7 +733,7 @@ def annotate_grammars(args, merge_grammars=True):
         "edge_type": [],
         "GO_terms": []}
 
-    if False:
+    if True:
         # for each grammar, run analyses:
         for grammar_idx in range(len(grammars)):
 
