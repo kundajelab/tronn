@@ -10,8 +10,12 @@ import logging
 import argparse
 
 import numpy as np
+import networkx as nx
 
 from tronn.interpretation.combinatorial import setup_combinations
+from tronn.interpretation.networks import attach_mut_logits
+from tronn.interpretation.networks import attach_data_summary
+from tronn.interpretation.networks import stringize_nx_graph
 from tronn.stats.nonparametric import run_delta_permutation_test
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
@@ -32,7 +36,10 @@ def parse_args():
     parser.add_argument(
         "--calculations", nargs="+", default=[],
         help="calculations to perform, in the format {FOREGROUND}/{BACKGROUND} - ex 110/100")
-
+    parser.add_argument(
+        "--refine", action="store_true",
+        help="get regions with sig synergy and save out new gml")
+    
     # out
     parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
@@ -96,6 +103,54 @@ def _make_conditional_string(foreground_strings, background_strings):
     return new_string
 
 
+def build_graph(
+        h5_file,
+        differential,
+        sig_pwms_names_full,
+        sig_pwms_names,
+        min_sig=3):
+    """build nx graph
+    """
+    # get examples
+    differential = np.greater_equal(np.sum(differential != 0, axis=1), min_sig)
+    with h5py.File(h5_file, "r") as hf:
+        example_metadata = hf[DataKeys.SEQ_METADATA][:,0]
+    examples = example_metadata[np.where(differential)[0]]
+    num_examples = len(examples)
+
+    # set up graph
+    graph = nx.MultiDiGraph()
+    graph.graph["examples"] = examples
+    graph.graph["numexamples"] = num_examples
+    
+    # add nodes
+    nodes = []
+    for node_idx in range(len(sig_pwms_names_full)):
+        node = [
+            sig_pwms_names_full[node_idx],
+            {"examples": examples,
+             "numexamples": num_examples,
+             "mutidx": node_idx+1}]
+        nodes.append(node)
+    graph.add_nodes_from(nodes)
+        
+    # add edges
+    edges = []
+    for node_idx in range(1, len(sig_pwms_names_full)):
+        edge_attrs = {
+            "examples": examples,
+            "numexamples": num_examples,
+            "edgetype": "directed"}
+        edge = (
+            sig_pwms_names_full[node_idx-1],
+            sig_pwms_names_full[node_idx],
+            edge_attrs)
+        edges.append(edge)
+    graph.add_edges_from(edges)
+
+    return graph
+
+
 def main():
     """run calculations
     """
@@ -111,8 +166,9 @@ def main():
     with h5py.File(args.synergy_file, "r") as hf:
         outputs = hf[DataKeys.MUT_MOTIF_LOGITS][:] # {N, mutM_combos, logit}
         sig_pwms_names = hf[DataKeys.MUT_MOTIF_LOGITS].attrs[AttrKeys.PWM_NAMES]
-
+        
     # clean up names
+    sig_pwms_names_full = sig_pwms_names
     sig_pwms_names = [
         re.sub(r"HCLUST-\d+_", "", pwm_name)
         for pwm_name in sig_pwms_names]
@@ -181,6 +237,65 @@ def main():
         hf.create_dataset(DataKeys.SYNERGY_SCORES, data=results)
         hf[DataKeys.SYNERGY_SCORES].attrs[AttrKeys.PLOT_LABELS] = labels
 
+    # refine:
+    if args.refine:
+        assert len(args.calculations) == 2
+        stdev_thresh = 1.0
+
+        # run differential test (assume simple gaussian on differences)
+        synergy_diffs = results[:,0] - results[:,1] # {N, logit}
+        
+        # remove outliers first to stabilize gaussian calc
+        outlier_thresholds = np.percentile(
+            np.abs(synergy_diffs), 75, axis=0, keepdims=True)
+        synergy_diffs_filt = np.where(
+            np.greater(np.abs(synergy_diffs), outlier_thresholds),
+            0, synergy_diffs)
+        synergy_diffs_filt = np.where(
+            np.isclose(synergy_diffs_filt, 0),
+            np.nan, synergy_diffs_filt)
+
+        # get stds
+        stdevs = np.nanstd(synergy_diffs_filt, axis=0, keepdims=True)
+        means = np.nanmean(synergy_diffs_filt, axis=0, keepdims=True)
+        
+        # differential
+        #differential = np.abs(synergy_diffs) > stdev_thresh * stdevs
+        differential = synergy_diffs > stdev_thresh * stdevs
+        print np.sum(differential, axis=0)
+        
+        # add in new dataset that marks differential
+        with h5py.File(args.synergy_file, "a") as hf:
+            if hf.get(DataKeys.SYNERGY_DIFF) is not None:
+                del hf[DataKeys.SYNERGY_DIFF]
+            hf.create_dataset(DataKeys.SYNERGY_DIFF, data=results)
+            hf[DataKeys.SYNERGY_DIFF].attrs[AttrKeys.PLOT_LABELS] = labels
+        
+        # take these new regions and save out gml
+        # get logits, atac signals, delta logits, etc
+        graph = build_graph(
+            args.synergy_file,
+            differential,
+            sig_pwms_names_full,
+            sig_pwms_names)
+
+        # attach delta logits
+        [graph] = attach_mut_logits([graph], args.synergy_file)
+
+        # attach other keys
+        other_keys = [
+            "logits.norm",
+            "ATAC_SIGNALS.NORM"]
+        for key in other_keys:
+            [graph] = attach_data_summary([graph], args.synergy_file, key)
+
+        # write out gml
+        gml_file = "{}/synergy.grammar.gml".format(args.out_dir)
+        nx.write_gml(stringize_nx_graph(graph), gml_file)
+
+        # and look at it?
+            
+    
     # and plot
     
     
