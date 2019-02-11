@@ -135,6 +135,7 @@ class DataKeys(object):
     # synergy keys
     SYNERGY_ROOT = "synergy"
     SYNERGY_SCORES = "{}.scores".format(SYNERGY_ROOT)
+    SYNERGY_DIFF = "{}.diff".format(SYNERGY_SCORES)
     
     # split
     TASK_IDX_ROOT = "taskidx"
