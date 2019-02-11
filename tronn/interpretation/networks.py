@@ -1259,7 +1259,7 @@ def stringize_nx_graph(nx_graph):
         for edge_idx in xrange(len(nx_graph[start_node][end_node])):
             edge_attrs = nx_graph[start_node][end_node][edge_idx]
             for key in edge_attrs.keys():
-                if isinstance(edge_attrs[key], (list, set)):
+                if isinstance(edge_attrs[key], (list, set, np.ndarray)):
                     nx_graph[start_node][end_node][edge_idx][key] = ",".join([
                         str(val) for val in nx_graph[start_node][end_node][edge_idx][key]])
                     
