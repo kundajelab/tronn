@@ -112,7 +112,10 @@ rna <- read.table(rna_file, header=TRUE, row.names=1)
 if (TRUE) {
     my_dist <- dist(cbind(motif_presence, atac, rna))
     hc <- my_hclust(my_dist)
-    ordering <- hc$order
+    hc_dend <- as.dendrogram(hc)
+    hc_dend[[2]] <- rev(hc_dend[[2]])
+    ordering <- order.dendrogram(hc_dend)
+    #ordering <- hc$order
 } else {
     library(cluster)
     hc <- diana(cbind(motif_presence, atac, rna))
