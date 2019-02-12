@@ -2,6 +2,7 @@
 
 import os
 import gzip
+import logging
 
 
 # basically generate two fasta files, and then
@@ -13,11 +14,16 @@ def generate_new_fasta(vcf_file, fasta_file, out_fasta_file, ref=True):
     """given a variant file and choice of ref or alt, adjust the fasta at those
     positions
     """
+    logging.info("WARNING: when processing the VCF, grabs the first base pair given")
     # set up the tmp snp file
     if ref:
-        tmp_snp_file = "{}.ref.snp".format(vcf_file.split(".gz")[0])
+        tmp_snp_file = "{}/{}.ref.snp".format(
+            os.path.dirname(out_fasta_file),
+            os.path.basename(vcf_file).split(".gz")[0])
     else:
-        tmp_snp_file = "{}.alt.snp".format(vcf_file.split(".gz")[0])
+        tmp_snp_file = "{}/{}.alt.snp".format(
+            os.path.dirname(out_fasta_file),
+            os.path.basename(vcf_file).split(".gz")[0])
     with open(tmp_snp_file, "w") as out:
         with open(vcf_file, "r") as fp:
             for line in fp:
@@ -26,17 +32,17 @@ def generate_new_fasta(vcf_file, fasta_file, out_fasta_file, ref=True):
                 fields = line.strip().split()
                 chrom, pos, snp_id = fields[0], int(fields[1]), fields[2]
                 if ref:
-                    basepair = fields[3]
+                    basepair = fields[3][0]
                 else:
-                    basepair = fields[4]
-                out.write("{}\t{}\t{}\t{}\n".format(chrom, pos, snp_id, basepair))
+                    basepair = fields[4][0]
+                out.write("chr{}\t{}\t{}\t{}\n".format(chrom, pos, snp_id, basepair))
                 
     # adjust the fasta
     mutate = "seqtk mutfa {} {} > {}".format(fasta_file, tmp_snp_file, out_fasta_file)
     print mutate
     os.system(mutate)
     
-    return None
+    return out_fasta_file
 
 
 def generate_bed_file_from_variant_file(vcf_file, out_bed_file, bin_size):
