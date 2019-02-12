@@ -904,15 +904,20 @@ def add_analyzevariants_parser(subparsers):
     """
     cmd_argparser = subparsers.add_parser(
         "analyzevariants",
-        help="Scan sequence with motifs from a PWM file")
+        help="Analyze variants from a VCF file")
 
     # group for dataset
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
-    _add_dataset_args(group_dataset)
     group_dataset.add_argument(
-        "--processed_inputs", action="store_true",
-        help="inputs are already preprocessed through some inference stack")
+        "--data_format", default="vcf",
+        help="format for dataloader")
+    group_dataset.add_argument(
+        "--vcf_file",
+        help="VCF formatted input file of variants")
+    group_dataset.add_argument(
+        "--fasta",
+        help="fasta file")
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -922,15 +927,22 @@ def add_analyzevariants_parser(subparsers):
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
-    _add_interpretation_args(group_interpret)
-
+    group_interpret.add_argument(
+        "--batch_size", default=32, type=int,
+        help="batch size")
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="variants_to_scores")
+    _add_visualization_args(group_interpret)
+    
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="motifs")
     group_output.add_argument(
         '--tmp_dir',
-        help='temporary scratch directory as needed')
+        help='temporary scratch directory')
+
     
     return
 
@@ -1137,8 +1149,8 @@ def main():
         from tronn.dream_cmd import run
         run(args)
     elif subcommand == "analyzevariants":
-        _setup_dataset_args(args)
-        _setup_model(args)
+        _setup_interpretation_args(args)
+        _setup_model_args(args)
         from tronn.analyzevariants_cmd import run
         run(args)
     elif subcommand == "baseline":
