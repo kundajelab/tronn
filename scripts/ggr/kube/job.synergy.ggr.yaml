@@ -20,7 +20,7 @@ spec:
           - name: FOREGROUND
             value: "TRAJ_LABELS=11"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/synergy && mkdir -p $OUT_DIR && python /datasets/software/run_synergy_cmds.py $MODEL_DIR $MODEL $INFER_DIR $OUT_DIR $FOREGROUND"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/synergy && mkdir -p $OUT_DIR && python /datasets/software/git/tronn/scripts/ggr/kube/run_synergy_cmds.py $MODEL_DIR $MODEL $INFER_DIR $OUT_DIR $FOREGROUND"]
           resources:
             limits:
               nvidia.com/gpu: 6

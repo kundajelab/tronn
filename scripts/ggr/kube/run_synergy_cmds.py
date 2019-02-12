@@ -15,7 +15,6 @@ def main():
     OUT_DIR = sys.argv[4]
 
     # TODO adjust work dir
-    #WORK_DIR = "/srv/scratch/dskim89/ggr/ggr.tronn.2019-02-05.inference"
     grammars_file = "{}/grammars.annotated/grammar_summary.filt.dedup.txt".format(INFER_DIR)
     
     # now read in table
@@ -49,7 +48,7 @@ def main():
         os.system("mkdir -p {}".format(out_dir))
             
         # go to synergy run script
-        run_cmd = "/datasets/software/synergy.ggr.bash {} {} {} {} {} {}".format(
+        run_cmd = "/datasets/software/git/tronn/scripts/ggr/kube/synergy.ggr.bash {} {} {} {} {} {}".format(
             MODEL_DIR,
             MODEL,
             "{}/dmim.{}".format(INFER_DIR, traj_labels[0]),
@@ -58,8 +57,6 @@ def main():
             out_dir)
         print run_cmd
         os.system(run_cmd)
-        quit()
-    
     
     return
 
