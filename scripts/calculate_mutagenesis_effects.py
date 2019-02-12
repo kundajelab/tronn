@@ -209,7 +209,8 @@ def main():
         #print "background:", " ".join(background_strings)
 
         # and adjust to conditional string
-        conditional_string = _make_conditional_string(foreground_strings, background_strings)
+        conditional_string = _make_conditional_string(
+            foreground_strings, background_strings)
         labels.append(conditional_string)
         
         # log scale, so subtract
@@ -217,9 +218,7 @@ def main():
         
         # convert out of log?
         #results[:,i] = np.power(2, outputs[:,foreground_idx] - outputs[:,background_idx])
-        
-        # print mean result?
-        print np.mean(np.power(2, results[:,i]), axis=0)
+
 
     # TODO calculate all sig levels?
     for i in xrange(results.shape[1]):
@@ -228,10 +227,8 @@ def main():
                 continue
             
             # calculate sig
-            print "{} vs {}".format(labels[i], labels[j])
             delta_results = results[:,i] - results[:,j]
             pvals = run_delta_permutation_test(delta_results)
-            print pvals
     
     # save out into h5 file
     # TODO consider saving out under new keys each time
@@ -245,7 +242,7 @@ def main():
     # refine:
     if args.refine:
         assert len(args.calculations) == 2
-        stdev_thresh = 1.0
+        stdev_thresh = 2.0
         
         # while here, calculate index diff (pwm position diff)
         with h5py.File(args.synergy_file, "a") as hf:
@@ -279,7 +276,7 @@ def main():
         # differential
         #differential = np.abs(synergy_diffs) > stdev_thresh * stdevs
         differential = synergy_diffs > stdev_thresh * stdevs
-        print np.sum(differential, axis=0)
+        differential[np.abs(distances) < 12] = 0
         
         # add in new dataset that marks differential
         with h5py.File(args.synergy_file, "a") as hf:
