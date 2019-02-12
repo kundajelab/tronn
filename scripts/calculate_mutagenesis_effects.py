@@ -45,6 +45,9 @@ def parse_args():
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
         help="out directory")
+    parser.add_argument(
+        "--prefix",
+        help="prefix for files")
     
     # parse args
     args = parser.parse_args()
@@ -158,7 +161,8 @@ def main():
     args = parse_args()
     os.system("mkdir -p {}".format(args.out_dir))
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
-
+    out_prefix = "{}/{}".format(args.out_dir, args.prefix)
+    
     # now set up the indices
     parse_calculation_strings(args)
 
@@ -237,13 +241,26 @@ def main():
         hf.create_dataset(DataKeys.SYNERGY_SCORES, data=results)
         hf[DataKeys.SYNERGY_SCORES].attrs[AttrKeys.PLOT_LABELS] = labels
 
+    
     # refine:
     if args.refine:
         assert len(args.calculations) == 2
         stdev_thresh = 1.0
+        
+        # while here, calculate index diff (pwm position diff)
+        with h5py.File(args.synergy_file, "a") as hf:
+            indices = hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:]
+            distances = indices[:,3,0] - indices[:,3,1] # {N}
+            if hf.get(DataKeys.SYNERGY_DIST) is not None:
+                del hf[DataKeys.SYNERGY_DIST]
+            hf.create_dataset(DataKeys.SYNERGY_DIST, data=distances)
 
-        # run differential test (assume simple gaussian on differences)
+        # get diffs and save out
         synergy_diffs = results[:,0] - results[:,1] # {N, logit}
+        with h5py.File(args.synergy_file, "a") as hf:
+            if hf.get(DataKeys.SYNERGY_DIFF) is not None:
+                del hf[DataKeys.SYNERGY_DIFF]
+            hf.create_dataset(DataKeys.SYNERGY_DIFF, data=synergy_diffs)
         
         # remove outliers first to stabilize gaussian calc
         outlier_thresholds = np.percentile(
@@ -266,10 +283,10 @@ def main():
         
         # add in new dataset that marks differential
         with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(DataKeys.SYNERGY_DIFF) is not None:
-                del hf[DataKeys.SYNERGY_DIFF]
-            hf.create_dataset(DataKeys.SYNERGY_DIFF, data=results)
-            hf[DataKeys.SYNERGY_DIFF].attrs[AttrKeys.PLOT_LABELS] = labels
+            if hf.get(DataKeys.SYNERGY_DIFF_SIG) is not None:
+                del hf[DataKeys.SYNERGY_DIFF_SIG]
+            hf.create_dataset(DataKeys.SYNERGY_DIFF_SIG, data=differential)
+            hf[DataKeys.SYNERGY_DIFF_SIG].attrs[AttrKeys.PLOT_LABELS] = labels
         
         # take these new regions and save out gml
         # get logits, atac signals, delta logits, etc
@@ -289,15 +306,24 @@ def main():
         for key in other_keys:
             [graph] = attach_data_summary([graph], args.synergy_file, key)
 
-        # write out gml
-        gml_file = "{}/synergy.grammar.gml".format(args.out_dir)
+        # write out gml (to run downstream with annotate)
+        gml_file = "{}.grammar.gml".format(out_prefix) # TODO have a better name!
         nx.write_gml(stringize_nx_graph(graph), gml_file)
 
-        # and look at it?
-            
-    
-    # and plot
-    
+    # plot each task idx? 19 + 19 outputs
+        
+    # and plot:
+    # 1) comparison between the two FCs
+    # 2) plot with distance and other things
+    plot_cmd = "Rscript ~/git/tronn/R/plot-h5.synergy_results.2.R {} {} {} {} {} {}".format(
+        args.synergy_file,
+        DataKeys.SYNERGY_SCORES,
+        DataKeys.SYNERGY_DIFF,
+        DataKeys.SYNERGY_DIFF_SIG,
+        DataKeys.SYNERGY_DIST,
+        out_prefix)
+    print plot_cmd
+    os.system(plot_cmd)
     
     
     return None
