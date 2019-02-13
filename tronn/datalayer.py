@@ -316,15 +316,23 @@ class DataLoader(object):
         capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
 
         # shuffle batch join
-        inputs = tf.train.shuffle_batch_join(
-            example_slices_list,
-            batch_size,
-            capacity=capacity,
-            min_after_dequeue=min_after_dequeue,
-            seed=42,
-            enqueue_many=True,
-            name='batcher')
-
+        if shuffle:
+            inputs = tf.train.shuffle_batch_join(
+                example_slices_list,
+                batch_size,
+                capacity=capacity,
+                min_after_dequeue=min_after_dequeue,
+                seed=42,
+                enqueue_many=True,
+                name='batcher')
+        else:
+            inputs = tf.train.batch_join(
+                example_slices_list,
+                batch_size,
+                capacity=capacity,
+                enqueue_many=True,
+                name='batcher')
+            
         # filter on specific keys and indices
         if len(filter_targets) != 0:
             filter_idx = 0
@@ -1312,38 +1320,52 @@ class VariantDataLoader(DataLoader):
     def setup_strided_positions(
             chrom,
             pos,
+            snp_id,
+            snp_info,
             num_positions,
-            active_sequence_length=200,
+            active_sequence_length=120,
             full_sequence_length=1000):
         """
         """
         # start from the middle and adjust left and right
         seq_metadata = []
-        positions = []
+        ids = []
+        snp_metadata = []
         active_extend_len = int(active_sequence_length / 2.)
         full_extend_len = int(full_sequence_length / 2.)
         
         # calculate stride and determine offsets
         stride = int(active_sequence_length / float(num_positions))
         center_point = int(full_sequence_length / 2.)
-        offset = center_point - (num_positions / 2) * stride
-        mid_positions = np.arange(0, stride*num_positions, stride) + offset + pos
+        #offset = center_point - (num_positions / 2) * stride
+        strided_positions = np.arange(0, stride*num_positions, stride)
+
+        # example positions are distributed around the center point
+        example_positions = (strided_positions - np.median(strided_positions) + center_point).astype(int)
+
+        # genomic positions need to add the position and remove center point
+        genomic_positions = example_positions - center_point + pos
         
-        for mid_position in mid_positions:
+        for position_idx in range(len(example_positions)):
+            genomic_position = genomic_positions[position_idx]
             # VCF is 1 based and bedtools is 0 based for start!
-            region = "{}:{}-{}".format(chrom, mid_position-1, mid_position)
-            active = "{}:{}-{}".format(chrom, mid_position-active_extend_len, mid_position+active_extend_len)
-            features = "{}:{}-{}".format(chrom, mid_position-full_extend_len, mid_position+full_extend_len)
+            region = "{}:{}-{}".format(chrom, pos-1, pos)
+            active = "{}:{}-{}".format(
+                chrom, genomic_position-active_extend_len, genomic_position+active_extend_len)
+            features = "{}:{}-{}".format(
+                chrom, genomic_position-full_extend_len, genomic_position+full_extend_len)
             metadata = "region={};active={};features={}".format(
                 region, active, features)
             seq_metadata.append(metadata)
-            positions.append(mid_position-1)
+            ids.append(snp_id)
+            snp_metadata.append(snp_info)
 
-        # adjust dims
+        # adjust dims/make array
         seq_metadata = np.expand_dims(np.array(seq_metadata), axis=-1)
-        positions = np.array(positions)
+        ids = np.array(ids)
+        snp_metadata = np.array(snp_metadata)
         
-        return seq_metadata, positions
+        return seq_metadata, example_positions, ids, snp_metadata
     
         
     def build_generator(
@@ -1365,10 +1387,14 @@ class VariantDataLoader(DataLoader):
         dtypes_dict = {
             DataKeys.SEQ_METADATA: tf.string,
             DataKeys.VARIANT_IDX: tf.int64,
+            DataKeys.VARIANT_ID: tf.string,
+            DataKeys.VARIANT_INFO: tf.string,
             DataKeys.FEATURES: tf.uint8}
         shapes_dict = {
             DataKeys.SEQ_METADATA: [1],
             DataKeys.VARIANT_IDX: [],
+            DataKeys.VARIANT_ID: [],
+            DataKeys.VARIANT_INFO: [],
             DataKeys.FEATURES: [seq_len]}
         
         class Generator(object):
@@ -1394,10 +1420,13 @@ class VariantDataLoader(DataLoader):
                         fields = line.strip().split("\t")
                         chrom = "chr{}".format(fields[0])
                         pos = int(fields[1])
+                        snp_id = fields[2]
+                        snp_info = fields[7]
 
                         # set up strided reps
-                        seq_metadata, variant_positions = VariantDataLoader.setup_strided_positions(
-                            chrom, pos, strided_reps, full_sequence_length=seq_len) # {strided_rep*N}
+                        seq_metadata, positions, ids, snp_metadata = VariantDataLoader.setup_strided_positions(
+                            chrom, pos, snp_id, snp_info, strided_reps,
+                            full_sequence_length=seq_len) # {strided_rep*N}
                         
                         # get sequence
                         ref_features = ref_converter.convert(seq_metadata)
@@ -1409,7 +1438,9 @@ class VariantDataLoader(DataLoader):
                         # put into array
                         slice_array = {
                             DataKeys.SEQ_METADATA: seq_metadata,
-                            DataKeys.VARIANT_IDX: variant_positions,
+                            DataKeys.VARIANT_IDX: positions,
+                            DataKeys.VARIANT_ID: ids,
+                            DataKeys.VARIANT_INFO: snp_metadata,
                             DataKeys.FEATURES: features}
 
                         # and adjust to interleave - {strided_rep*N*2}
