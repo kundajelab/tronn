@@ -14,7 +14,13 @@ from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
 
 
-def get_significant_delta_logit_responses(
+
+
+
+
+
+
+def get_significant_delta_logit_responses_OLD(
         h5_file,
         clusters_key,
         true_logits_key=DataKeys.LOGITS,
@@ -43,7 +49,7 @@ def get_significant_delta_logit_responses(
 
 
 # TODO rename this and move somewhere else! interpretation.dmim?
-def run_permutation_dmim_score_test(
+def run_permutation_dmim_score_test_OLD(
         h5_file,
         target_key,
         target_indices,
@@ -140,7 +146,7 @@ def run_permutation_dmim_score_test(
     
 
 
-def get_interacting_motifs(
+def get_interacting_motifs_OLD(
         h5_file,
         clusters_key, # need this to get sig pwms and then sig names and that's it
         out_key,
@@ -201,7 +207,7 @@ def get_interacting_motifs(
 
 
 
-def visualize_interacting_motifs_R(
+def visualize_interacting_motifs_R_OLD(
         h5_file,
         visualize_key,
         pwm_names_attr_key=AttrKeys.PWM_NAMES):
