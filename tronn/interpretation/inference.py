@@ -160,7 +160,7 @@ def run_single_model_inference(
     # also check if processed inputs, if processed then remove model
     # and replace with empty net (just send tensors through)
     if args.processed_inputs:
-        args.model[""] = "empty_net"
+        args.model["name"] = "empty_net"
         args.inference_params.update({"model_reuse": False})
         model_manager = setup_model_manager(args)
     else:
