@@ -1370,7 +1370,7 @@ class VariantDataLoader(DataLoader):
         
     def build_generator(
             self,
-            batch_size=256,
+            batch_size=16,
             task_indices=[],
             keys=[],
             skip_keys=[],
@@ -1410,13 +1410,33 @@ class VariantDataLoader(DataLoader):
                 # build converters
                 ref_converter = GenomicIntervalConverter(lock, self.ref_fasta, 1)
                 alt_converter = GenomicIntervalConverter(lock, self.alt_fasta, 1)
-                
-                # and then go through each
+
+                # determine padding amount at end of file
+                num_variants = 0
                 with open(vcf_file, "r") as fp:
                     for line in fp:
                         if line.startswith("#"):
                             continue
+                        num_variants += 1
+                padding_num = batch_size - (num_variants % batch_size)
+                logging.info("will pad variants with {}".format(padding_num))
+                total_generator_calls = num_variants + padding_num
+                    
+                # and then go through each
+                generator_calls = 0
+                fake_data = False
+                with open(vcf_file, "r") as fp:
+                    while generator_calls < total_generator_calls:
+                        line = fp.readline()
                         
+                        if line.startswith("#"):
+                            continue
+
+                        if len(line) == 0:
+                            # empty, end of file - use previous line
+                            fake_data = True
+                            line = prev_line
+                            
                         fields = line.strip().split("\t")
                         chrom = "chr{}".format(fields[0])
                         pos = int(fields[1])
@@ -1427,6 +1447,12 @@ class VariantDataLoader(DataLoader):
                         seq_metadata, positions, ids, snp_metadata = VariantDataLoader.setup_strided_positions(
                             chrom, pos, snp_id, snp_info, strided_reps,
                             full_sequence_length=seq_len) # {strided_rep*N}
+
+                        # adjust if fake data
+                        if fake_data:
+                            seq_metadata = ["features=chr1:0-1000"
+                                            for i in range(seq_metadata.shape[0])]
+                            seq_metadata = np.expand_dims(np.array(seq_metadata), axis=1)
                         
                         # get sequence
                         ref_features = ref_converter.convert(seq_metadata)
@@ -1454,6 +1480,8 @@ class VariantDataLoader(DataLoader):
                                 [-1] + list(slice_array[key].shape[2:]))
                             
                         # yield
+                        generator_calls += 1
+                        prev_line = line
                         yield (slice_array, 1.)
                 
         # instantiate
