@@ -337,7 +337,10 @@ class DeltaMotifImportanceMapper(MotifScanner):
 
         # rebatch to mut size
         # TODO rebatch multiple mutants
-        outputs, _ = rebatch(outputs, {"name": "rebatch_dfim", "batch_size": features_shape[1]})
+        with tf.variable_scope(params.get("dmim_scope", "")):
+            outputs, _ = rebatch(
+                outputs,
+                {"name": "rebatch_dfim", "batch_size": features_shape[1]})
 
         outputs, params = super(DeltaMotifImportanceMapper, self).preprocess(outputs, params)
         
@@ -350,27 +353,28 @@ class DeltaMotifImportanceMapper(MotifScanner):
         # utilizing existing pwm hits, mask the scores
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
-            inputs[DataKeys.ORIG_SEQ_PWM_HITS]) # {N*mutM, task, pos, M}
+            inputs[DataKeys.ORIG_SEQ_PWM_HITS]) # {1*mutM, task, pos, M}
 
         # adjust shape
         features_shape = features.get_shape().as_list()
         features = tf.reshape(features, [1, -1] + features_shape[1:])
 
         # sum across positions
-        features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
+        features = tf.reduce_sum(features, axis=3) # {1, mutM, task, M}
 
         # save out to appropriate tensors
         inputs[DataKeys.FEATURES] = features
         inputs[DataKeys.DMIM_SCORES] = features
-
+        
         # gather correctly
         outputs = {}
         for key in inputs.keys():
             outputs[key] = tf.gather(inputs[key], [0])
 
         # rebatch
-        params.update({"name": "rebatch_after_dmim"})
-        outputs, _ = rebatch(outputs, params)
+        with tf.variable_scope(params.get("dmim_scope", "")):
+            params.update({"name": "rebatch_after_dmim"})
+            outputs, _ = rebatch(outputs, params)
         
         return outputs, params
     
