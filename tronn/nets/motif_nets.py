@@ -351,7 +351,7 @@ class DeltaMotifImportanceMapper(MotifScanner):
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
             inputs[DataKeys.ORIG_SEQ_PWM_HITS]) # {N*mutM, task, pos, M}
-            
+
         # adjust shape
         features_shape = features.get_shape().as_list()
         features = tf.reshape(features, [1, -1] + features_shape[1:])
@@ -451,7 +451,8 @@ def get_pwm_scores(inputs, params):
     outputs, _ = get_pwm_null_positions(outputs, params)
     
     # filter for just those with a motif present
-    outputs, _ = filter_by_any_motif_present(outputs, params)
+    if params.get("use_filtering", True):
+        outputs, _ = filter_by_any_motif_present(outputs, params)
     
     return outputs, params
 
