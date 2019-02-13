@@ -138,6 +138,11 @@ class DataKeys(object):
     SYNERGY_DIFF = "{}.diff".format(SYNERGY_SCORES)
     SYNERGY_DIFF_SIG = "{}.sig".format(SYNERGY_DIFF)
     SYNERGY_DIST = "{}.dist".format(SYNERGY_ROOT)
+
+    # variant keys
+    VARIANT_ROOT = "variants"
+    VARIANT_IDX = "{}.idx".format(VARIANT_ROOT)
+    VARIANT_DMIM = "{}.dmim".format(VARIANT_ROOT)
     
     # split
     TASK_IDX_ROOT = "taskidx"

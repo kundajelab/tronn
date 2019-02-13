@@ -22,11 +22,11 @@ from tronn.nets.mutate_nets import mutate_weighted_motif_sites
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites_combinatorially
 
 # TODO move this out
-from tronn.nets.sequence_nets import onehot_to_string
+#from tronn.nets.sequence_nets import onehot_to_string
 from tronn.nets.sequence_nets import calc_gc_content
 from tronn.nets.sequence_nets import decode_onehot_sequence
 
-from tronn.nets.util_nets import build_stack
+#from tronn.nets.util_nets import build_stack
 
 # clean up
 from tronn.nets.variant_nets import get_variant_importance_scores
@@ -99,65 +99,67 @@ def sequence_to_synergy(inputs, params):
     return outputs, params
 
 
-
-
-
-def variants_to_predictions(inputs, params):
-    """assumes an interleaved set of features to run in model
+def variants_to_scores(inputs, params):
+    """variants tensor to outputs
     """
-
-    # need to read out:
-    # logits on the ref/alt - {N, task, 2} ref/alt
-    # delta motif scores at the original site - {N, delta_motif}
-    # importance scores at the original site - {N, task, 2} ref/alt - Ignore this for now
-    # delta motif scores elsewhere - {N, delta_motif} (reverse mask of above)
-    # position of the delta motif scores relative to position
-
-    # params
-    params["is_training"] = False
-    params["raw-sequence-key"] = "raw-sequence"
-    params["raw-sequence-clipped-key"] = "raw-sequence-clipped"
-    params["raw-pwm-scores-key"] = "raw-pwm-scores"
+    # first run importance scores/pwm scores
+    params.update({"use_filtering": False})
+    outputs, params = sequence_to_pwm_scores(inputs, params)
     
-    # set up importance logits
-    inputs["importance_logits"] = inputs["logits"]
+    # TO CONSIDER
+    # run some nulls? <- figure out how to harness mutagenizer to do a few, if desired
+    # note that would need to run nulls for BOTH ref and alt allele...
 
-    if params.get("raw-sequence-key") is not None:
-        inputs[params["raw-sequence-key"]] = inputs["features"]
-    if params.get("raw-sequence-clipped-key") is not None:
-        inputs[params["raw-sequence-clipped-key"]] = inputs["features"]
+    # adjust tensors, put variant in axis=1
+    for key in outputs.keys():
+        outputs[key] = tf.reshape(
+            outputs[key],
+            [-1, 2] + list(outputs[key].get_shape().as_list()[1:]))
+
+    # some manual adjustments
+    outputs[DataKeys.ORIG_SEQ_PWM_HITS] = tf.reduce_max(
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS], axis=1)
+        
+    # now most simply, you might want:
+    # 1) the motif scores at the variant
+    # 2) the delta motif scores elsewhere
+    # maybe just write a custom script for this than trying to couple dfim/dmim.
+
+    # so just calculate_deltas
+    outputs[DataKeys.DFIM_SCORES] = tf.subtract(
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE][:,0],
+        outputs[DataKeys.WEIGHTED_SEQ_ACTIVE][:,1]) # {N, task, seqlen, 4}
+    outputs[DataKeys.FEATURES] = tf.expand_dims(
+        outputs[DataKeys.DFIM_SCORES], axis=1) # {N, 1, task, seqlen, 4}
     
-    inference_stack = [
-        (onehot_to_string, {}),
-        
-        # get importance scores        
-        (multitask_importances, {"relu": False}),
-        (threshold_gaussian, {"stdev": 3, "two_tailed": True}),
-        (normalize_to_weights, {"weight_key": "probs"}), 
+    # set up variant mask
+    seq_len = outputs[DataKeys.ORIG_SEQ].get_shape().as_list()[3]
+    variant_mask = tf.one_hot(
+        outputs[DataKeys.VARIANT_IDX][:,0],
+        seq_len) # {N, 1000}
+    variant_mask = tf.reshape(
+        variant_mask,
+        [-1, 1, seq_len, 1])
+    variant_mask = tf.nn.max_pool(
+        variant_mask, [1,1,10,1], [1,1,1,1], padding="SAME")
+    left_clip = params["left_clip"]
+    right_clip = params["right_clip"]
+    variant_mask = variant_mask[:,:,left_clip:right_clip]
+    variant_mask = tf.expand_dims(variant_mask, axis=1)
+    outputs[DataKeys.MUT_MOTIF_POS] = variant_mask
+    
+    # first dfim for the non variant sites
+    outputs, params = run_dmim(outputs, params)
 
-        # collect importance scores at these locations
-        (get_variant_importance_scores, {}),
+    # and dmim for the variant site itself
+    outputs[DataKeys.MUT_MOTIF_POS] = tf.cast(
+        tf.equal(outputs[DataKeys.MUT_MOTIF_POS], 0),
+        tf.float32) # flip mask
+    outputs[DataKeys.FEATURES] = tf.expand_dims(
+        outputs[DataKeys.DFIM_SCORES], axis=1)
+    outputs[DataKeys.VARIANT_DMIM] = run_dmim(outputs, params)[0][DataKeys.DMIM_SCORES]
 
-        # think about whether to have this here or not
-        (filter_singles_twotailed, {"window": 7, "min_fract": float(2)/7}),
-        
-        # blank the sequence, but then put together? {N, task+mask, seqlen, 4}
-        (blank_variant_sequence, {}),
-        
-        # clip edges NOTE this has to happen after, for the coordinates to line up
-        (clip_edges, {"left_clip": 400, "right_clip": 600, "clip_string": True}),
-
-        # scan motifs
-        # NOTE - no RELU here!!
-        (pwm_match_filtered_convolve, {"positional-pwm-scores-key": None}), # TODO set up to adjust keys?
-        (pwm_position_squeeze, {"squeeze_type": "max"}),
-
-        # and then readjust for variant read outs
-        (reduce_alleles, {})
-    ]
-
-    # build inference stack
-    outputs, params = build_inference_stack(
-        inputs, params, inference_stack)
-
+    # finally, adjust for strided rep
+    
+    
     return outputs, params
