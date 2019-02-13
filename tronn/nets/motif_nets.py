@@ -319,31 +319,19 @@ class DeltaMotifImportanceMapper(MotifScanner):
         mask = tf.cast(tf.equal(inputs[DataKeys.MUT_MOTIF_POS], 0), tf.float32)
         outputs = dict(inputs)
         
-        # blank out motif sites
-        # TODO extend the blanking, if using single?
+        # blank out motif sites using pre-prepped mask
         features = tf.multiply(features, mask) # {N, mutM, task, pos, 4}
         
-        # join dims for scanning
+        # reshape for scanning
         features_shape = features.get_shape().as_list()
         params["batch_size"] = features_shape[0]
         features = tf.reshape(features, [-1]+features_shape[2:]) # {N*mutM, task, pos, 4}
-        new_batch_size = features.get_shape().as_list()[0]
         outputs[DataKeys.FEATURES] = features
-        
-        # and pad
-        params.update({"num_aux_examples": features_shape[1]-1})
-        params.update({"ignore_keys": [DataKeys.FEATURES]})
-        outputs, _ = pad_inputs(outputs, params)
 
-        # rebatch to mut size
-        # TODO rebatch multiple mutants
-        with tf.variable_scope(params.get("dmim_scope", "")):
-            outputs, _ = rebatch(
-                outputs,
-                {"name": "rebatch_dfim", "batch_size": features_shape[1]})
+        # preprocess
+        outputs, params = super(DeltaMotifImportanceMapper, self).preprocess(
+            outputs, params)
 
-        outputs, params = super(DeltaMotifImportanceMapper, self).preprocess(outputs, params)
-        
         return outputs, params
 
     
@@ -353,32 +341,24 @@ class DeltaMotifImportanceMapper(MotifScanner):
         # utilizing existing pwm hits, mask the scores
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
-            inputs[DataKeys.ORIG_SEQ_PWM_HITS]) # {1*mutM, task, pos, M}
+            inputs[DataKeys.ORIG_SEQ_PWM_HITS]) # {N*mutM, task, pos, M}
 
-        # adjust shape
+        # reshape back
+        original_batch_size = params["batch_size"]
         features_shape = features.get_shape().as_list()
-        features = tf.reshape(features, [1, -1] + features_shape[1:])
+        features = tf.reshape(
+            features, [original_batch_size, -1] + features_shape[1:])
 
         # sum across positions
-        features = tf.reduce_sum(features, axis=3) # {1, mutM, task, M}
+        features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
 
         # save out to appropriate tensors
         inputs[DataKeys.FEATURES] = features
         inputs[DataKeys.DMIM_SCORES] = features
-        
-        # gather correctly
-        outputs = {}
-        for key in inputs.keys():
-            outputs[key] = tf.gather(inputs[key], [0])
 
-        # rebatch
-        with tf.variable_scope(params.get("dmim_scope", "")):
-            params.update({"name": "rebatch_after_dmim"})
-            outputs, _ = rebatch(outputs, params)
-        
-        return outputs, params
+        return inputs, params
+
     
-
 def get_pwm_scores(inputs, params):
     """scan raw and weighted sequence with shuffles, and threshold
     using shuffles as null distribution
