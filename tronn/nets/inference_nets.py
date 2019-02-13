@@ -1,5 +1,7 @@
 # Description: joins various smaller nets to run analyses after getting predictions
 
+import logging
+
 import tensorflow as tf
 
 from tronn.nets.filter_nets import filter_by_accuracy
@@ -105,7 +107,7 @@ def variants_to_scores(inputs, params):
     # first run importance scores/pwm scores
     params.update({"use_filtering": False})
     outputs, params = sequence_to_pwm_scores(inputs, params)
-    
+
     # TO CONSIDER
     # run some nulls? <- figure out how to harness mutagenizer to do a few, if desired
     # note that would need to run nulls for BOTH ref and alt allele...
@@ -119,6 +121,7 @@ def variants_to_scores(inputs, params):
     # some manual adjustments
     outputs[DataKeys.ORIG_SEQ_PWM_HITS] = tf.reduce_max(
         outputs[DataKeys.ORIG_SEQ_PWM_HITS], axis=1)
+    outputs["check_metadata.string"] = outputs[DataKeys.SEQ_METADATA] # a backcheck
     outputs[DataKeys.SEQ_METADATA] = outputs[DataKeys.SEQ_METADATA][:,0]
         
     # now most simply, you might want:
@@ -130,8 +133,7 @@ def variants_to_scores(inputs, params):
     outputs[DataKeys.DFIM_SCORES] = tf.subtract(
         outputs[DataKeys.WEIGHTED_SEQ_ACTIVE][:,0],
         outputs[DataKeys.WEIGHTED_SEQ_ACTIVE][:,1]) # {N, task, seqlen, 4}
-    outputs[DataKeys.FEATURES] = tf.expand_dims(
-        outputs[DataKeys.DFIM_SCORES], axis=1) # {N, 1, task, seqlen, 4}
+    dfim_scores = tf.expand_dims(outputs[DataKeys.DFIM_SCORES], axis=1) # {N, 1, task, seqlen, 4}
     
     # set up variant mask
     seq_len = outputs[DataKeys.ORIG_SEQ].get_shape().as_list()[3]
@@ -146,21 +148,24 @@ def variants_to_scores(inputs, params):
     left_clip = params["left_clip"]
     right_clip = params["right_clip"]
     variant_mask = variant_mask[:,:,left_clip:right_clip]
-    variant_mask = tf.expand_dims(variant_mask, axis=1)
+    variant_mask = tf.expand_dims(variant_mask, axis=1) # {N, 1, 1, seqlen, 1}
+    
+    # first dmim for the non variant sites
+    # set up NEW outputs to make sure the variant site run doesn't conflict
+    outputs[DataKeys.FEATURES] = dfim_scores
     outputs[DataKeys.MUT_MOTIF_POS] = variant_mask
-    
-    # first dfim for the non variant sites
-    outputs, params = run_dmim(outputs, params)
+    params.update({"dmim_scope": "nonvariant"})
+    final_outputs, _ = run_dmim(outputs, params)
 
-    # and dmim for the variant site itself
+    # and then for the variant site itself
     outputs[DataKeys.MUT_MOTIF_POS] = tf.cast(
-        tf.equal(outputs[DataKeys.MUT_MOTIF_POS], 0),
+        tf.equal(variant_mask, 0),
         tf.float32) # flip mask
-    outputs[DataKeys.FEATURES] = tf.expand_dims(
-        outputs[DataKeys.DFIM_SCORES], axis=1)
-    outputs[DataKeys.VARIANT_DMIM] = run_dmim(outputs, params)[0][DataKeys.DMIM_SCORES]
+    params.update({"dmim_scope": "variant"})
+    final_outputs[DataKeys.VARIANT_DMIM] = run_dmim(
+        outputs, params)[0][DataKeys.DMIM_SCORES]
 
-    # finally, adjust for strided rep
-    
+    # and then save out final outputs
+    outputs = final_outputs
     
     return outputs, params
