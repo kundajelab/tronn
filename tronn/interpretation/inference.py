@@ -145,6 +145,7 @@ def run_single_model_inference(
     # data file adjustments done, set up input fn
     input_fn = data_loader.build_input_fn(
         args.batch_size,
+        shuffle=not args.fifo if args.fifo is not None else True,
         targets=args.targets,
         target_indices=args.target_indices,
         filter_targets=args.filter_targets,

@@ -225,6 +225,9 @@ def _add_dataset_args(parser):
     parser.add_argument(
         "--dataset_examples", nargs="+", default=[],
         help="option to throw in specific examples to run")
+    parser.add_argument(
+        "--fifo", action="store_true",
+        help="don't shuffle data")
 
     return None
 

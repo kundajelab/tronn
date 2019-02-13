@@ -35,6 +35,7 @@ def run(args):
     args.singleton_filter_targets = []
     args.dataset_examples = None
     args.processed_inputs = False
+    args.fifo = True
         
     # set up ref fasta
     args.ref_fasta = "{}/{}.ref.fasta".format(
