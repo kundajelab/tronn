@@ -119,6 +119,7 @@ def variants_to_scores(inputs, params):
     # some manual adjustments
     outputs[DataKeys.ORIG_SEQ_PWM_HITS] = tf.reduce_max(
         outputs[DataKeys.ORIG_SEQ_PWM_HITS], axis=1)
+    outputs[DataKeys.SEQ_METADATA] = outputs[DataKeys.SEQ_METADATA][:,0]
         
     # now most simply, you might want:
     # 1) the motif scores at the variant
