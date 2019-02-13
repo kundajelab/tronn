@@ -223,7 +223,7 @@ class DataLoader(object):
         ordered_keys = list(dtypes_dict.keys())
         ordered_dtypes = [dtypes_dict[key] for key in ordered_keys]
         h5_to_generator = generator(h5_file, yield_single_examples=False)
-            
+
         # wrapper function to get generator into py func
         def h5_to_tensors(batch_id):
             slice_array, _ = next(h5_to_generator)
@@ -1292,15 +1292,139 @@ class ArrayDataLoader(DataLoader):
 class VariantDataLoader(DataLoader):
     """build a dataloader that starts from a vcf file"""
 
-    def __init__(self, vcf_file, fasta_file):
+    def __init__(self, vcf_file, ref_fasta, alt_fasta):
         self.vcf_file = vcf_file
-        self.fasta_file = fasta_file
+        self.data_files = [vcf_file]
+        self.ref_fasta = ref_fasta
+        self.alt_fasta = alt_fasta
 
-    def load_raw_data(self, batch_size):
+    def setup_positives_only_dataloader(self):
+        """don't adjust positives
+        """
+        return self
 
-        return None
+    @staticmethod
+    def setup_strided_positions(
+            chrom,
+            pos,
+            num_positions,
+            active_sequence_length=200,
+            full_sequence_length=1000):
+        """
+        """
+        # start from the middle and adjust left and right
+        seq_metadata = []
+        positions = []
+        active_extend_len = int(active_sequence_length / 2.)
+        full_extend_len = int(full_sequence_length / 2.)
+        
+        # calculate stride and determine offsets
+        stride = int(active_sequence_length / float(num_positions))
+        center_point = int(full_sequence_length / 2.)
+        offset = center_point - (num_positions / 2) * stride
+        mid_positions = np.arange(0, stride*num_positions, stride) + offset
+        
+        for mid_position in mid_positions:
+            # VCF is 1 based and bedtools is 0 based for start!
+            region = "{}:{}-{}".format(chrom, mid_position-1, mid_position)
+            active = "{}:{}-{}".format(chrom, mid_position-active_extend_len, mid_position+active_extend_len)
+            features = "{}:{}-{}".format(chrom, mid_position-full_extend_len, mid_position+full_extend_len)
+            metadata = "region={};active={};features={}".format(
+                region, active, features)
+            seq_metadata.append(metadata)
+            positions.append(mid_position-1)
+
+        # adjust dims
+        seq_metadata = np.expand_dims(np.array(seq_metadata), axis=-1)
+        positions = np.array(positions)
+        
+        return seq_metadata, positions
     
+        
+    def build_generator(
+            self,
+            batch_size=256,
+            task_indices=[],
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            strided_reps=1,
+            lock=threading.Lock(),
+            shuffle=True):
+        """build generator function
+        """
+        # tensors: example_metadata, features
+        dtypes_dict = {
+            DataKeys.SEQ_METADATA: tf.string,
+            DataKeys.VARIANT_IDX: tf.int64,
+            DataKeys.FEATURES: tf.uint8}
+        shapes_dict = {
+            DataKeys.SEQ_METADATA: [1],
+            DataKeys.VARIANT_IDX: [],
+            DataKeys.FEATURES: [seq_len]}
+        
+        class Generator(object):
 
+            def __init__(self, ref_fasta, alt_fasta, batch_size):
+                self.ref_fasta = ref_fasta
+                self.alt_fasta = alt_fasta
+                self.batch_size = batch_size
+            
+            def __call__(self, vcf_file, yield_single_examples=True):
+                """call generator
+                """
+                # build converters
+                ref_converter = GenomicIntervalConverter(lock, self.ref_fasta, 1)
+                alt_converter = GenomicIntervalConverter(lock, self.alt_fasta, 1)
+                
+                # and then go through each
+                with open(vcf_file, "r") as fp:
+                    for line in fp:
+                        if line.startswith("#"):
+                            continue
+                        
+                        fields = line.strip().split("\t")
+                        chrom = "chr{}".format(fields[0])
+                        pos = int(fields[1])
+
+                        # set up strided reps
+                        seq_metadata, variant_positions = VariantDataLoader.setup_strided_positions(
+                            chrom, pos, strided_reps, full_sequence_length=seq_len) # {strided_rep*N}
+                        
+                        # get sequence
+                        ref_features = ref_converter.convert(seq_metadata)
+                        alt_features = alt_converter.convert(seq_metadata)
+                        
+                        # combine them
+                        features = np.stack([ref_features, alt_features], axis=1) # {strided_rep*N, 2}
+
+                        # put into array
+                        slice_array = {
+                            DataKeys.SEQ_METADATA: seq_metadata,
+                            DataKeys.VARIANT_IDX: variant_positions,
+                            DataKeys.FEATURES: features}
+
+                        # and adjust to interleave - {strided_rep*N*2}
+                        for key in slice_array.keys():
+                            if key != DataKeys.FEATURES:
+                                # adjust for interleaving
+                                slice_array[key] = np.stack([slice_array[key]]*2, axis=1)
+                            # interleave
+                            slice_array[key] = np.reshape(
+                                slice_array[key],
+                                [-1] + list(slice_array[key].shape[2:]))
+                            
+                        # yield
+                        yield (slice_array, 1.)
+                
+        # instantiate
+        generator = Generator(self.ref_fasta, self.alt_fasta, batch_size)
+        
+        return generator, dtypes_dict, shapes_dict
+        
     
 class BedDataLoader(DataLoader):
     """build a dataloader starting from a bed file"""
@@ -1483,15 +1607,6 @@ class BedDataLoader(DataLoader):
         
         return inputs
 
-
-class VcfDataLoader(DataLoader):
-    """Loads data from VCF file to run variants"""
-
-    def build_generator():
-        pass
-
-
-    
     
 def setup_data_loader(args):
     """wrapper function to deal with dataloading 
@@ -1509,6 +1624,11 @@ def setup_data_loader(args):
             data_files=args.data_files,
             dataset_json=args.dataset_json,
             fasta=args.fasta)
+    elif args.data_format == "vcf":
+        data_loader = VariantDataLoader(
+            vcf_file=args.vcf_file,
+            ref_fasta=args.ref_fasta,
+            alt_fasta=args.alt_fasta)
     elif args.data_format == "bed":
         raise ValueError("implement!")
     else:
