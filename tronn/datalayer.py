@@ -1303,6 +1303,11 @@ class VariantDataLoader(DataLoader):
         """
         return self
 
+    def get_chromosomes(self):
+        """get chroms
+        """
+        return ["NA"]
+    
     @staticmethod
     def setup_strided_positions(
             chrom,
@@ -1322,7 +1327,7 @@ class VariantDataLoader(DataLoader):
         stride = int(active_sequence_length / float(num_positions))
         center_point = int(full_sequence_length / 2.)
         offset = center_point - (num_positions / 2) * stride
-        mid_positions = np.arange(0, stride*num_positions, stride) + offset
+        mid_positions = np.arange(0, stride*num_positions, stride) + offset + pos
         
         for mid_position in mid_positions:
             # VCF is 1 based and bedtools is 0 based for start!
