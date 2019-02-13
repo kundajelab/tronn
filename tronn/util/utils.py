@@ -141,6 +141,8 @@ class DataKeys(object):
 
     # variant keys
     VARIANT_ROOT = "variants"
+    VARIANT_ID = "{}.id.string".format(VARIANT_ROOT)
+    VARIANT_INFO = "{}.info.string".format(VARIANT_ROOT)
     VARIANT_IDX = "{}.idx".format(VARIANT_ROOT)
     VARIANT_DMIM = "{}.dmim".format(VARIANT_ROOT)
     
