@@ -312,7 +312,7 @@ class DeltaMotifImportanceMapper(MotifScanner):
         """assertions, and blank the motif site
         """
         assert inputs.get(DataKeys.FEATURES) is not None # {N, mutM, task, pos, 4}
-        assert inputs.get(DataKeys.MUT_MOTIF_POS) is not None # {N, mut_M, 1, pos, 1}
+        assert inputs.get(DataKeys.MUT_MOTIF_MASK) is not None # {N, mut_M, 1, pos, 1}
 
         # features - these are dfim scores
         features = inputs[DataKeys.FEATURES]
