@@ -2,15 +2,8 @@
 
 import os
 import h5py
-import glob
 import logging
 
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-
-from collections import Counter
-from tronn.datalayer import H5DataLoader
 from tronn.interpretation.inference import run_inference
 from tronn.interpretation.variants import get_differential_variants
 from tronn.interpretation.variants import annotate_variants
