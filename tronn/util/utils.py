@@ -145,6 +145,7 @@ class DataKeys(object):
     VARIANT_INFO = "{}.info.string".format(VARIANT_ROOT)
     VARIANT_IDX = "{}.idx".format(VARIANT_ROOT)
     VARIANT_DMIM = "{}.dmim".format(VARIANT_ROOT)
+    VARIANT_SIG = "{}.sig".format(VARIANT_ROOT)
     
     # split
     TASK_IDX_ROOT = "taskidx"
