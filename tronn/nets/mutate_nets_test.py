@@ -53,6 +53,8 @@ class MutagenizerTests(tf.test.TestCase):
         assert results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT].shape == (1,3,1)
         assert results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT].shape == (1,3,1)
 
+        # TODO - check on the blanking mask produced
+
         
     def test_preprocess_for_point_mut(self):
         """make sure preprocess correctly pulls out values
@@ -64,6 +66,12 @@ class MutagenizerTests(tf.test.TestCase):
         sig_pwms[[1,3,5]] = 1 # indices 1 3 5 and are actually sig
         gradients = -np.copy(self.one_hot_sequence)
 
+        # make weighted seq to define positions to change
+        weighted_seq = np.copy(self.one_hot_sequence)
+        weighted_seq[0,0,515,0] = 3
+        weighted_seq[0,0,563,1] = 3
+        weighted_seq[0,0,600,2] = 3
+        
         # adjust gradients to get desired changes
         desired_seq = np.copy(self.one_hot_sequence)
         gradients[0,0,515,0] = -3 # for sig pwm 1 (at 520), adjust to get pos 515 and 0
@@ -79,6 +87,8 @@ class MutagenizerTests(tf.test.TestCase):
             inputs = {
                 DataKeys.ORIG_SEQ: tf.convert_to_tensor(
                     self.one_hot_sequence, dtype=tf.float32),
+                DataKeys.WEIGHTED_SEQ: tf.convert_to_tensor(
+                    weighted_seq, dtype=tf.float32),
                 DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: tf.convert_to_tensor(
                     indices, dtype=tf.float32),
                 DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: tf.convert_to_tensor(
@@ -102,6 +112,8 @@ class MutagenizerTests(tf.test.TestCase):
         # assert: correct indices pulled
         assert np.all(np.equal(results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT], np.array(
             [515, 563, 600]).reshape((1,3,1))))
+
+        # TODO check on the blanking mask produced
 
 
     def test_shuffle_mutagenize_single(self):
