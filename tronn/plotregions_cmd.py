@@ -12,6 +12,8 @@ def run(args):
     logger = logging.getLogger(__name__)
     logger.info("plotting region(s)...")
 
+    # NOTE: this is necessary for situations where you have ONLY the model (no processed outputs)
+    
     # check whether region id or bed is defined, set up data loader
     # accordingly
     # need to build a function to create a tiling array
