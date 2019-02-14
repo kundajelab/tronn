@@ -4,13 +4,8 @@ import logging
 
 import tensorflow as tf
 
-from tronn.nets.filter_nets import filter_by_accuracy
-
 from tronn.nets.importance_nets import get_task_importances
 from tronn.nets.importance_nets import run_dfim
-
-from tronn.nets.manifold_nets import score_distances_on_manifold
-from tronn.nets.manifold_nets import filter_by_manifold_distances
 
 from tronn.nets.motif_nets import get_pwm_scores
 from tronn.nets.motif_nets import get_motif_densities
@@ -23,17 +18,8 @@ from tronn.nets.motif_nets import get_sig_mut_motifs
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites
 from tronn.nets.mutate_nets import mutate_weighted_motif_sites_combinatorially
 
-# TODO move this out
-#from tronn.nets.sequence_nets import onehot_to_string
 from tronn.nets.sequence_nets import calc_gc_content
 from tronn.nets.sequence_nets import decode_onehot_sequence
-
-#from tronn.nets.util_nets import build_stack
-
-# clean up
-from tronn.nets.variant_nets import get_variant_importance_scores
-from tronn.nets.variant_nets import blank_variant_sequence
-from tronn.nets.variant_nets import reduce_alleles
 
 from tronn.util.utils import DataKeys
 
