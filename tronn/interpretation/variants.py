@@ -1,9 +1,11 @@
 # description: code for dealing with variants/mutants
 
 import h5py
+import re
 import logging
 
 import numpy as np
+import pandas as pd
 
 from tronn.interpretation.clustering import get_clusters_from_h5
 
@@ -14,208 +16,112 @@ from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
 
 
-
-
-
-
-
-
-def get_significant_delta_logit_responses_OLD(
+def get_differential_variants(
         h5_file,
-        clusters_key,
-        true_logits_key=DataKeys.LOGITS,
-        mut_logits_key=DataKeys.MUT_MOTIF_LOGITS):
-    """get delta responses
+        stdev_thresh=2,
+        logits_key=DataKeys.LOGITS):
+    """calculate differences and assume a gaussian distribution of differences
     """
     with h5py.File(h5_file, "r") as hf:
-        true_logits = np.expand_dims(hf[DataKeys.LOGITS][:], axis=1)
-        mut_logits = hf[DataKeys.MUT_MOTIF_LOGITS][:]
-        delta_logits = np.subtract(mut_logits, true_logits)
-        
-    clusters = get_clusters_from_h5(h5_file, clusters_key)
-    generator = clusters.cluster_mask_generator()
-    cluster_idx = 0
-    for cluster_id, cluster_mask in generator:
+        variant_logits = hf[logits_key][:]
 
-        cluster_delta_logits = delta_logits[np.where(cluster_mask)[0],:,:]
-        
-        cluster_sig_motifs = run_delta_permutation_test(cluster_delta_logits)
+    # get diffs
+    diffs = variant_logits[:,0] - variant_logits[:,1]
 
-        import ipdb
-        ipdb.set_trace()
 
     
+    # get mean and stds
+    stdevs = np.std(diffs, axis=0, keepdims=True)
+    means = np.mean(diffs, axis=0, keepdims=True)
+    differential = np.abs(diffs) > stdev_thresh * stdevs
+    
+    # and save into file
+    with h5py.File(h5_file, "a") as hf:
+        if hf.get(DataKeys.VARIANT_SIG) is not None:
+            del hf[DataKeys.VARIANT_SIG]
+        hf.create_dataset(DataKeys.VARIANT_SIG, data=differential)
+        
     return
 
 
-# TODO rename this and move somewhere else! interpretation.dmim?
-def run_permutation_dmim_score_test_OLD(
+def annotate_variants(
         h5_file,
-        target_key,
-        target_indices,
-        overall_sig_pwms,
-        sig_pwms_key,
-        dmim_score_key=DataKeys.FEATURES,
-        qval_thresh=0.05,
-        reduce_sig_type="any",
-        num_threads=24):
-    """given a differential score, test to see if this score could have 
-    arisen by chance (paired permutation test)
+        pwms,
+        sig_only=True):
+    """annotate variants with extra information
     """
-    # get foregound info
+    # get indices and diff
     with h5py.File(h5_file, "r") as hf:
-        targets = hf[target_key][:] # {N, target}
-        dmim_scores = hf[dmim_score_key][:] # {N, mutM, task, M}
-        dx = hf["dx"][:] # {N, mutM}
-        #pwm_names = hf[dmim_score_key].attrs[AttrKeys.PWM_NAMES]
-
-    # adjust indices and filter
-    if len(target_indices) == 0:
-        target_indices = range(targets.shape[1])
-    targets = targets[:,target_indices]
-    
-    # and iterate through for each set
-    for target_idx in xrange(targets.shape[1]):
-        logging.info("Running target idx {}".format(target_idx))
-
-        subset_key = "{}/{}/{}".format(
-            DataKeys.DMIM_DIFF_GROUP,
-            target_key,
-            target_indices[target_idx])
-        
-        # set up sig pwms
-        subset_sig_pwms_key = "{}/{}/{}/{}".format(
-            sig_pwms_key, target_key, target_indices[target_idx], DataKeys.PWM_SIG_ROOT)
-        with h5py.File(h5_file, "r") as hf:
-            subset_sig_pwms = hf[subset_sig_pwms_key][:] # {M}
-        subset_sig_pwms = subset_sig_pwms[np.where(overall_sig_pwms)[0]]
-        keep_pwms = np.where(subset_sig_pwms != 0)[0]
-        
-        # get region set
-        subset_indices = np.where(targets[:,target_idx] > 0)[0]
-        subset_scores = dmim_scores[subset_indices][:,keep_pwms]
-        subset_dx = dx[subset_indices][:,keep_pwms]
-
-        # only look at the mut motifs
-        if True:
-            subset_scores = subset_scores[:,:,:,np.where(subset_sig_pwms != 0)[0]]
-        
-        # set up dy/dx
-        # remember that dy/dx is POSITIVE if the feature drops in response to mutation
-        # the dy/dx is NEGATIVE if the feature increases in response to the mutation
-        dx = np.reshape(
-            dx,
-            list(dx.shape) + [1 for i in xrange(len(subset_scores.shape)-len(dx.shape))])
-        dydx = np.divide(subset_scores, dx, out=np.zeros_like(subset_scores), where=dx!=0)
-
-        # run permutation test
-        pvals = run_delta_permutation_test(
-            dydx, qval_thresh=0.10, num_threads=num_threads) # {mutM, task, M}
-
-        # use qvals to threshold
-        pass_qval_thresh = threshold_by_qvalues(
-            pvals, qval_thresh=qval_thresh, num_bins=50)
-
-        # also get a condensed view across tasks
-        if reduce_sig_type == "any":
-            reduce_fn = np.any
+        if sig_only:
+            indices = np.where(
+                np.any(hf[DataKeys.VARIANT_SIG][:] != 0, axis=1))[0]
         else:
-            reduce_fn = np.all
-        sig_dmim = reduce_fn(pass_qval_thresh, axis=1) # {mutM, M}
+            indices = np.array(range(hf[DataKeys.VARIANT_SIG].shape[0]))
+        diffs = hf[DataKeys.LOGITS][:,0] - hf[DataKeys.LOGITS][:,1] # ref - alt
+        diffs = diffs[indices]
+        variant_ids = hf[DataKeys.VARIANT_ID][:,0][indices]
+        orig_indices = np.arange(hf[DataKeys.VARIANT_SIG].shape[0])[indices]
 
-        # and save all of this out
-        with h5py.File(h5_file, "a") as hf:
-            pvals_key = "{}/{}".format(subset_key, DataKeys.DMIM_PVALS)
-            if hf.get(pvals_key) is not None:
-                del hf[pvals_key]
-            hf.create_dataset(pvals_key, data=pvals)
-
-            sig_full_key = "{}/{}".format(subset_key, DataKeys.DMIM_SIG_ALL)
-            if hf.get(sig_full_key) is not None:
-                del hf[sig_full_key]
-            hf.create_dataset(sig_full_key, data=pass_qval_thresh)
-            
-            sig_dmim_key = "{}/{}".format(subset_key, DataKeys.DMIM_SIG_ROOT)
-            if hf.get(sig_dmim_key) is not None:
-                del hf[sig_dmim_key]
-            hf.create_dataset(sig_dmim_key, data=sig_dmim)
-        
-    return
-
-
+    # ignore H3K4me1 for now
+    diffs = diffs[:,0:16]
     
-
-
-def get_interacting_motifs_OLD(
-        h5_file,
-        clusters_key, # need this to get sig pwms and then sig names and that's it
-        out_key,
-        mut_effects_key=DataKeys.FEATURES):
-    """determine which motifs responded to muts
-    """
+    # get max best PWM at variant site
     with h5py.File(h5_file, "r") as hf:
-        mut_data = hf[mut_effects_key][:] # {N, mutM, task, M}
-        sig_pwms = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL][:]
-        pwm_names = hf[DataKeys.MANIFOLD_PWM_SIG_CLUST_ALL].attrs[AttrKeys.PWM_NAMES]
-        dx = hf["dx"][:] # {N, mutM}
-        # TODO - also logits? {N, mutM, task, 1}
-        # if have this can also plot out logits according to muts
+        #for key in sorted(hf.keys()): print key, hf[key].shape
+        variant_dmim = hf[DataKeys.VARIANT_DMIM] # {N, 1, 10, 187}
+        variant_dmim = np.max(np.abs(variant_dmim), axis=(1,2)) # {N, 187}
+
+        # set up a filter fn
+        dmim_zero = np.equal(np.sum(variant_dmim, axis=1), 0)
+        dmim_zero = np.expand_dims(dmim_zero, axis=1)
+
+        # get top k and blank out rows where no motif implicated
+        variant_dmim = np.argsort(variant_dmim, axis=1)[:,-3:]
+        variant_dmim = np.where(dmim_zero, [[-1,-1,-1]], variant_dmim)
+        variant_dmim = variant_dmim[indices]
         
-    # subset down for time sake
-    mut_data = mut_data[:,:,:,np.where(sig_pwms > 0)[0]] #in practice DONT need to do this!
-    
-    # and get dy/dx
-    dx = np.reshape(dx, list(dx.shape) + [1 for i in xrange(len(mut_data.shape)-len(dx.shape))])
-    dydx = np.divide(mut_data, dx)
-    dydx = np.where(
-        np.isfinite(dydx),
-        dydx,
-        np.zeros_like(dydx))
-                    
-    # try global first
-    # remember that dy/dx is POSITIVE if the feature drops in response to mutation
-    # the dy/dx is NEGATIVE if the feature increases in response to the mutation
-    pvals, sig_responses = run_delta_permutation_test(dydx) # {mutM, task, M}
-    #sig_responses = np.ones(dydx.shape[1:])
+        if False:
+            variant_dmim = np.argmax(variant_dmim, axis=1) # {N}
+            variant_dmim = np.where(dmim_zero, -1, variant_dmim)
+            variant_dmim = variant_dmim[indices]
+    print variant_dmim.shape
+            
+    # get names
+    best_pwm_names = []
+    for var_idx in range(variant_dmim.shape[0]):
+        pwm_names = []
+        for indices_idx in range(variant_dmim.shape[1]):
+            if variant_dmim[var_idx,indices_idx] != -1:
+                pwm_name = pwms[variant_dmim[var_idx,indices_idx]].name
+                pwm_name = re.sub("HCLUST-\d+.", "", pwm_name)
+                pwm_name = pwm_name.replace(".UNK.0.A", "")
+                pwm_names.append(pwm_name)
+        best_pwm_names.append(",".join(pwm_names))
+            
+    # aggregate results
+    results = {
+        "diff_abs": np.abs(np.max(diffs, axis=1)),
+        "pwm": best_pwm_names,
+        "example_indices": orig_indices,
+        "id": variant_ids}
+    for task_idx in range(diffs.shape[1]):
+        key = "diffs-{:02d}".format(task_idx)
+        results[key] = diffs[:,task_idx]
 
-    # get mean for places where this score exists
-    if True:
-        #agg_mut_data = np.divide(
-        #    np.sum(mut_data, axis=0),
-        #    np.sum(mut_data != 0, axis=0))
-        #agg_mut_data = np.sum(mut_data, axis=0)
-        agg_mut_data = np.mean(mut_data, axis=0)
-    else:
-        agg_mut_data = np.sum(mut_data != 0, axis=0)
+    if False:
+        for key in results.keys():
+            try:
+                print key, results[key].shape
+            except:
+                print key
         
-    # multiply by the scores
-    agg_mut_data_sig = np.multiply(sig_responses, agg_mut_data)
-    agg_mut_data_sig = np.where(
-        np.isfinite(agg_mut_data_sig),
-        agg_mut_data_sig,
-        np.zeros_like(agg_mut_data_sig))
-
-    # save this to the h5 file
-    # TODO save out the sig mask also
-    with h5py.File(h5_file, "a") as out:
-        if out.get(out_key) is not None:
-            del out[out_key]
-        out.create_dataset(out_key, data=agg_mut_data_sig)
-        out[out_key].attrs[AttrKeys.PWM_NAMES] = pwm_names
-
-    return None
-
-
-
-def visualize_interacting_motifs_R_OLD(
-        h5_file,
-        visualize_key,
-        pwm_names_attr_key=AttrKeys.PWM_NAMES):
-    """visualize results
-    """
+    summary = pd.DataFrame(results)
+    summary = summary.sort_values("diff_abs", ascending=False)
+    summary.to_csv("test.txt", sep="\t")
     
-    r_cmd = "plot-h5.dmim_sig_agg.R {} {} {}".format(
-        h5_file, visualize_key, pwm_names_attr_key)
-    print r_cmd
+    # get max best DMIM PWM (at variant site) (top 3)
+
+    # get max best DMIM PWM (at non variant site) (top 3)
+
     
-    return None
+    return

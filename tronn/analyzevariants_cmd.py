@@ -12,6 +12,8 @@ import tensorflow as tf
 from collections import Counter
 from tronn.datalayer import H5DataLoader
 from tronn.interpretation.inference import run_inference
+from tronn.interpretation.variants import get_differential_variants
+from tronn.interpretation.variants import annotate_variants
 from tronn.preprocess.variants import generate_new_fasta
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.utils import DataKeys
@@ -66,6 +68,18 @@ def run(args):
             inference_file,
             [pwm.name for pwm in args.pwm_list],
             other_keys=[DataKeys.FEATURES])
+
+    # and mark which ones are differential
+    get_differential_variants(inference_files[0])
+
+    # and plot out with R
+    plot_cmd = "Rscript ~/git/tronn/R/plot-h5.variants.R {} {}/{}".format(
+        inference_files[0], args.out_dir, args.prefix)
+    print plot_cmd
+    #os.system(plot_cmd)
+
+    # and annotate the differential
+    annotate_variants(inference_files[0], args.pwm_list)
     
     return None
 
