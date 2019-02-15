@@ -13,7 +13,6 @@ from tronn.nets.filter_nets import filter_and_rebatch
 
 from tronn.nets.normalization_nets import interpolate_logits_to_labels
 from tronn.nets.normalization_nets import normalize_to_importance_logits
-from tronn.nets.normalization_nets import normalize_to_absolute_one
 
 from tronn.nets.qc_nets import get_multimodel_score_relationships
 
@@ -474,7 +473,7 @@ class FeatureImportanceExtractor(object):
                 (DataKeys.ORIG_SEQ_SHUF, DataKeys.ORIG_SEQ_ACTIVE_SHUF)]})
             outputs, params = self.clip_sequences(outputs, params)
 
-            # TODO - replace weighted seq active with features?
+            # replace weighted seq active with features
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES]
             
         return outputs, params
@@ -1075,15 +1074,11 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # put in features tensor
         outputs[DataKeys.FEATURES] = outputs[DataKeys.DFIM_SCORES]
 
-
+        # final adjust axes
         outputs, _ = self.adjust_aux_axes_final(outputs, params) # {N, mutM, task, seqlen, 4}
-        # calculate the delta logits later, in post analysis
         
         # Q: is there a way to get the significance of a delta score even here?
         # ie, what is the probability of a delta score by chance?
-
-        # at what point do I use the nulls? <- for motifs
-        
         
         return outputs, params
     
