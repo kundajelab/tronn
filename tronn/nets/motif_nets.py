@@ -316,7 +316,7 @@ class DeltaMotifImportanceMapper(MotifScanner):
 
         # features - these are dfim scores
         features = inputs[DataKeys.FEATURES]
-        mask = tf.cast(tf.equal(inputs[DataKeys.MUT_MOTIF_POS], 0), tf.float32)
+        mask = tf.cast(tf.equal(inputs[DataKeys.MUT_MOTIF_MASK], 0), tf.float32)
         outputs = dict(inputs)
         
         # blank out motif sites using pre-prepped mask
