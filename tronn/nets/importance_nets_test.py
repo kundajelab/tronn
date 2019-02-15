@@ -30,14 +30,6 @@ def one_hot_sequence(request):
     sequence = np.expand_dims(sequence, axis=0)
     request.cls.one_hot_sequence = sequence
     
-            
-@pytest.fixture
-def input_x_grad_extractor():
-    """fixture that makes an 
-    """
-    
-    pass
-
 
 @pytest.mark.usefixtures("one_hot_sequence")
 class FeatureImportanceExtractorTests(tf.test.TestCase):
