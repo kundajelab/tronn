@@ -933,8 +933,6 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         outputs = dict(inputs)
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.transpose(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
-        outputs[DataKeys.MUT_MOTIF_POS] = tf.transpose(
-            outputs[DataKeys.MUT_MOTIF_POS], perm=[0,2,1,3,4])
         outputs[DataKeys.MUT_MOTIF_LOGITS] = tf.transpose(
             outputs[DataKeys.MUT_MOTIF_LOGITS], perm=[0,2,1])
         
@@ -949,8 +947,6 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
         outputs[DataKeys.FEATURES] = tf.transpose(
             outputs[DataKeys.FEATURES], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
-        outputs[DataKeys.MUT_MOTIF_POS] = tf.transpose(
-            outputs[DataKeys.MUT_MOTIF_POS], perm=[0,2,1,3,4])
         outputs[DataKeys.DFIM_SCORES] = tf.transpose(
             outputs[DataKeys.DFIM_SCORES], perm=[0,2,1,3,4])
         outputs[DataKeys.MUT_MOTIF_LOGITS] = tf.transpose(
@@ -965,31 +961,12 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         """calculate dy and dx
         """
         logging.info(">>> CALCULATE DELTAS")
-        # (1) features divide by total, multiply by logits - this gives you features normalized to logits
-        # (2) 1ST OUTPUT - dy/dx, where you get dy by subtracting orig from mut response, and
-        #     dx is subtracting orig from mut at the mut position(s). this is used for permute test
-        # (3) 2ND OUTPUT - just the subtraction, which is used for ranking/vis
         outputs = dict(inputs)
         
-        # calculate deltas scores (DFIM). leave as aux (to attach later)
-        # this is dy
+        # calculate deltas scores (DFIM)
         outputs[DataKeys.DFIM_SCORES] = tf.subtract(
             inputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
             inputs[DataKeys.FEATURES])
-
-        # dx
-        #  {N, mut, pos, 4}
-        orig_x = tf.reduce_sum(tf.multiply(
-            outputs[DataKeys.FEATURES],
-            outputs[DataKeys.MUT_MOTIF_POS]), axis=[3,4])
-
-        mut_x = tf.reduce_sum(tf.multiply(
-            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-            outputs[DataKeys.MUT_MOTIF_POS]), axis=[3,4])
-
-        # can keep this separate for now
-        outputs[DataKeys.DFIM_SCORES_DX] = tf.subtract(mut_x, orig_x)
-        logging.debug("")
         
         return outputs, params
 
@@ -1055,6 +1032,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             params.update({"to_clip_aux": [
                 (DataKeys.FEATURES, DataKeys.FEATURES),                
                 (DataKeys.MUT_MOTIF_WEIGHTED_SEQ, DataKeys.MUT_MOTIF_WEIGHTED_SEQ),
+                (DataKeys.MUT_MOTIF_MASK, DataKeys.MUT_MOTIF_MASK),
                 (DataKeys.MUT_MOTIF_POS, DataKeys.MUT_MOTIF_POS)]})
             outputs, params = self.clip_sequences(outputs, params)
 
