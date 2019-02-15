@@ -211,9 +211,8 @@ class MutagenizerTests(tf.test.TestCase):
         shuffle_changed = np.any(np.not_equal(example[:,445:455], mut_example[:,445:455]))
         assert shuffle_changed, "did not change sequence. is random, if fails try run tests again"
 
-        # TODO write a test here
-        print results[DataKeys.MUT_MOTIF_MASK][0,0,0,440:460,0]
-        print results[DataKeys.MUT_MOTIF_POS][0,0,0,440:460,0]
+        assert np.sum(results[DataKeys.MUT_MOTIF_MASK][0,0,0,440:460,0]) == 14.
+        assert np.sum(results[DataKeys.MUT_MOTIF_POS][0,0,0,440:460,0]) == 10.
         
         mut_example = results[DataKeys.MUT_MOTIF_ORIG_SEQ][0,1]
         left_unchanged = np.all(np.equal(example[:,:470], mut_example[:,:470]))
@@ -272,6 +271,9 @@ class MutagenizerTests(tf.test.TestCase):
         assert right_unchanged, "right is not unchanged"
         shuffle_changed = np.all(np.equal(mut_example[:,450], np.array([0,0,0,1])))
         assert shuffle_changed, "did not change sequence. is random, if fails try run tests again"
+
+        assert np.sum(results[DataKeys.MUT_MOTIF_MASK][0,0,0,440:460,0]) == 14.
+        assert np.sum(results[DataKeys.MUT_MOTIF_POS][0,0,0,440:460,0]) == 1.
         
         mut_example = results[DataKeys.MUT_MOTIF_ORIG_SEQ][0,1]
         left_unchanged = np.all(np.equal(example[:,:475], mut_example[:,:475]))
