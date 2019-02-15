@@ -155,14 +155,10 @@ class MotifScanner(object):
     def scan(self, inputs, params):
         """put all the pieces together
         """
-        # run preprocess
         inputs, params = self.preprocess(inputs, params)
-        # convolve: NOTE this returns pos and neg scores!
         outputs, params = self.convolve_motifs(inputs, params)
-        # postprocess
         outputs, params = self.postprocess(outputs, params)
 
-        # returns {N, task, pos, M}
         return outputs, params
 
 
