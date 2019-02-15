@@ -144,7 +144,6 @@ class MutagenizerTests(tf.test.TestCase):
         """test shuffle mutagenizer
         """
         example = np.squeeze(self.one_hot_sequence, axis=1)
-        print example.shape
         motif_present = True
         positions = np.sum(np.zeros_like(example), axis=-1, keepdims=True)
         positions[0,500,0] = 1
@@ -199,10 +198,6 @@ class MutagenizerTests(tf.test.TestCase):
             # act: run preprocess fn and eval
             outputs, params = mutagenizer.mutagenize_multiple_motifs(inputs, params)
             results = self.evaluate(outputs)
-
-        for key in sorted(results.keys()):
-            print key, results[key].shape
-        print params
 
         # assert: mutations occurred in expected places
         example = self.one_hot_sequence[0]
@@ -266,10 +261,6 @@ class MutagenizerTests(tf.test.TestCase):
             # act: run preprocess fn and eval
             outputs, params = mutagenizer.mutagenize_multiple_motifs(inputs, params)
             results = self.evaluate(outputs)
-
-        for key in sorted(results.keys()):
-            print key, results[key].shape
-        print params
 
         # assert: mutations occurred in expected places
         example = self.one_hot_sequence[0]
