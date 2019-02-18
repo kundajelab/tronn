@@ -357,8 +357,9 @@ class DeltaMotifImportanceMapper(MotifScanner):
         # and sum across positions
         outputs[DataKeys.FEATURES] = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
         
-        # unpad inputs
+        # unpad inputs, making sure to save NO auxiliary
         params.update({"ignore_keys": [DataKeys.FEATURES]})
+        params.update({"save_aux": {}})
         outputs, _ = unpad_inputs(outputs, params)
 
         # save out to appropriate tensors

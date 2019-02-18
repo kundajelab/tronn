@@ -178,9 +178,13 @@ def unpad_inputs(inputs, params):
     
     # gather examples
     outputs = {}
+    seen_keys = []
     for key in sorted(inputs.keys()):
         if key in ignore_keys:
             outputs[key] = inputs[key]
+            continue
+
+        if key in seen_keys():
             continue
 
         # gather
