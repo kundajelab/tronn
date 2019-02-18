@@ -9,7 +9,7 @@ def main():
     """run synergy calculations <- separate bc need R and such
     """
     # params
-    INFER_DIR = sys.args[1]
+    INFER_DIR = sys.argv[1]
 
     # get synergy files
     synergy_files = glob.glob("{}/ggr.synergy.h5".format(synergy_files))
