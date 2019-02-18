@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-    name: dk.job.ggr.dmim.basset.late.traj-2
+    name: dk.job.ggr.dmim.basset.traj-2
 spec:
     template:
       spec:
