@@ -13,7 +13,7 @@ def main():
     INFER_DIR = sys.argv[1]
 
     # get synergy files
-    synergy_files = glob.glob("{}/ggr.synergy.h5".format(synergy_files))
+    synergy_files = glob.glob("{}/ggr.synergy.h5".format(INFER_DIR))
     
     for synergy_file in synergy_files:
 
