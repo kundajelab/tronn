@@ -6,7 +6,7 @@ def main():
     """run all dmim jobs 
     """
     # setup
-    START_JOBS = False
+    START_JOBS = True
     job_file = "job.dmim.ggr.yaml"    
     jobs = {
         "early": [0, 7, 8, 9, 10, 11],

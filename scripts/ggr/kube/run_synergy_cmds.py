@@ -13,8 +13,6 @@ def main():
     MODEL = sys.argv[2]
     INFER_DIR = sys.argv[3]
     OUT_DIR = sys.argv[4]
-
-    # TODO adjust work dir
     grammars_file = "{}/grammars.annotated/grammar_summary.filt.dedup.txt".format(INFER_DIR)
     
     # now read in table
@@ -57,7 +55,7 @@ def main():
             out_dir)
         print run_cmd
         os.system(run_cmd)
-    
+
     return
 
 main()
