@@ -312,7 +312,7 @@ def main():
     # and plot:
     # 1) comparison between the two FCs
     # 2) plot with distance and other things
-    plot_cmd = "Rscript plot-h5.synergy_results.2.R {} {} {} {} {} {}".format(
+    plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {}".format(
         args.synergy_file,
         DataKeys.SYNERGY_SCORES,
         DataKeys.SYNERGY_DIFF,
