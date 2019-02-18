@@ -184,7 +184,7 @@ def unpad_inputs(inputs, params):
             outputs[key] = inputs[key]
             continue
 
-        if key in seen_keys():
+        if key in seen_keys:
             continue
 
         # gather
