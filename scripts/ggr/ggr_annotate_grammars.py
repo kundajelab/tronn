@@ -343,9 +343,19 @@ def annotate_one_grammar(
     logging.info("proximal genes that are well correlated to ATAC signal: {}".format(
         nearby_dynamic_genes_atac_filt.shape[0]))
 
+    # if no target genes, clear out
+    if results["num_target_genes"] == 0:
+        results["region_to_RNA"] = 0.0
+        results["downstream_interesting"] = ""
+        results["MSE"] = 0.0
+        results["max_rna_vals"] = 0.0
+        results["GO_terms"] = 0
+        results["filename"] = "None"
+        return results
+        
     # get the region to rna ratio
     results["region_to_rna"] = results["region_num"] / float(results["num_target_genes"])
-
+        
     # check for relevant downstream genes
     interesting_downstream_genes = sorted(list(
         set(interesting_genes.keys()).intersection(
@@ -771,6 +781,11 @@ def annotate_grammars(args, merge_grammars=True):
                 args.out_dir,
                 max_dist=500000)
 
+            # do not save out if no results
+            if grammar_results["filename"] == "None":
+                logging.info("{} does not have proximal genes, not saving".format(grammar_file))
+                continue
+            
             # attach the results
             for key in grammar_results.keys():
                 results[key].append(grammar_results[key])
