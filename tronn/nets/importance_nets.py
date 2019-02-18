@@ -951,8 +951,6 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             outputs[DataKeys.DFIM_SCORES], perm=[0,2,1,3,4])
         outputs[DataKeys.MUT_MOTIF_LOGITS] = tf.transpose(
             outputs[DataKeys.MUT_MOTIF_LOGITS], perm=[0,2,1])
-        outputs[DataKeys.DFIM_SCORES_DX] = tf.transpose(
-            outputs[DataKeys.DFIM_SCORES_DX], perm=[0,2,1])
         
         return outputs, params
     
