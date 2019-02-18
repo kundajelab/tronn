@@ -188,7 +188,7 @@ def _run_gprofiler(foreground_genes, background_genes, out_dir):
     results_file = "{}/{}.rna.foreground.go_gprofiler.txt".format(
         out_dir, os.path.basename(foreground_genes).split(".rna.foreground")[0])
     if not os.path.isfile(results_file):
-        run_gprofiler = "/users/dskim89/git/ggr-project/R/bioinformatics.go.gProfileR.R {} {} {}".format(
+        run_gprofiler = "bioinformatics.go.gProfileR.R {} {} {}".format(
             foreground_genes,
             background_genes,
             out_dir)
