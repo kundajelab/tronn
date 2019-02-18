@@ -158,6 +158,52 @@ def pad_inputs(inputs, params):
     return outputs, params
 
 
+def unpad_inputs(inputs, params):
+    """when features are adjusted, adjust other tensors accordingly
+    """
+    assert params.get("num_aux_examples") is not None
+
+    # params
+    num_aux_examples = params["num_aux_examples"]
+    ignore_keys = params["ignore_keys"]
+    current_batch_size = params["batch_size_adj"]
+    final_batch_size = params["batch_size"]
+    save_aux = params.get("save_aux", {})
+    
+    # get indices
+    indices = range(current_batch_size)
+    main_indices = np.where(np.mod(indices, [num_aux_examples+1]) == 0)[0]
+    aux_indices = np.where(np.mod(indices, [num_aux_examples+1]) != 0)[0]
+    new_batch_size = len(main_indices)
+    
+    # gather examples
+    outputs = {}
+    for key in sorted(inputs.keys()):
+        if key in ignore_keys:
+            outputs[key] = inputs[key]
+            continue
+
+        # gather
+        outputs[key] = tf.gather(inputs[key], main_indices)
+
+        # gather auxiliary examples if desired
+        if key in save_aux.keys():
+            aux_batch = tf.gather(inputs[key], aux_indices)
+            aux_batch = tf.reshape(
+                aux_batch,
+                [new_batch_size, -1] + inputs[key].get_shape().as_list()[1:])
+            outputs[save_aux[key]] = aux_batch
+            seen_keys.append(save_aux[key])
+
+    # backcheck work
+    final_batch_size = inputs[params["ignore_keys"][0]].get_shape().as_list()[0]
+    for key in outputs.keys():
+        assert outputs[key].get_shape().as_list()[0] == final_batch_size, key
+
+    return outputs, params
+
+
+
 def detach_auxiliary_tensors(inputs, params):
     """remove auxiliary tensors from the main key
     this is useful for pulling out features like

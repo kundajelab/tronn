@@ -16,6 +16,7 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 from tronn.nets.util_nets import pad_inputs
+from tronn.nets.util_nets import unpad_inputs
 from tronn.nets.util_nets import rebatch
 
 from tronn.util.utils import DataKeys
@@ -322,8 +323,14 @@ class DeltaMotifImportanceMapper(MotifScanner):
         features_shape = features.get_shape().as_list()
         params["batch_size"] = features_shape[0]
         features = tf.reshape(features, [-1]+features_shape[2:]) # {N*mutM, task, pos, 4}
+        params["batch_size_adj"] = features.get_shape().as_list()[0]
         outputs[DataKeys.FEATURES] = features
 
+        # pad inputs
+        params.update({"num_aux_examples": features_shape[1]-1})
+        params.update({"ignore_keys": [DataKeys.FEATURES]})
+        outputs, _ = pad_inputs(outputs, params)
+        
         # preprocess
         outputs, params = super(DeltaMotifImportanceMapper, self).preprocess(
             outputs, params)
@@ -334,6 +341,8 @@ class DeltaMotifImportanceMapper(MotifScanner):
     def postprocess(self, inputs, params):
         """make sure you only keep the hits and reduce sum?
         """
+        outputs = dict(inputs)
+        
         # utilizing existing pwm hits, mask the scores
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
@@ -343,17 +352,21 @@ class DeltaMotifImportanceMapper(MotifScanner):
         original_batch_size = params["batch_size"]
         features_shape = features.get_shape().as_list()
         features = tf.reshape(
-            features, [original_batch_size, -1] + features_shape[1:])
+            features, [original_batch_size, -1] + features_shape[1:]) # {N, mutM, task, pos, M}
 
-        # sum across positions
-        features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
+        # and sum across positions
+        outputs[DataKeys.FEATURES] = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
+        
+        # unpad inputs
+        params.update({"ignore_keys": [DataKeys.FEATURES]})
+        outputs, _ = unpad_inputs(outputs, params)
 
         # save out to appropriate tensors
-        inputs[DataKeys.FEATURES] = features
-        inputs[DataKeys.DMIM_SCORES] = features
+        outputs[DataKeys.DMIM_SCORES] = tf.identity(outputs[DataKeys.FEATURES])
 
-        return inputs, params
+        return outputs, params
 
+    
     
 def get_pwm_scores(inputs, params):
     """scan raw and weighted sequence with shuffles, and threshold
