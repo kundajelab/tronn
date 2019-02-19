@@ -60,7 +60,7 @@ for (task_idx in 1:length(num_tasks)) {
     ggplot(task_data, aes(x=dists, y=diffs)) +
         geom_point(data=subset(task_data, diff_sig==2), colour="black") +
         geom_point(data=subset(task_data, diff_sig==1), colour="gray") +
-        geom_vline(x_intercept=max_dist) +
+        geom_vline(xintercept=max_dist) +
         labs(y="synergy", x="PWM distance (bp)") +
         theme_bw() +
         theme(

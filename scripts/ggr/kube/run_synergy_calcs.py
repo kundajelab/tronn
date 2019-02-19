@@ -34,7 +34,7 @@ def main():
             out_dir,
             prefix)
         print calc_synergy
-        #os.system(calc_synergy)
+        os.system(calc_synergy)
 
         # cp plots out to separate folder for easy download
         copy_plots = "cp {}/*pdf {}".format(out_dir, plots_dir)
