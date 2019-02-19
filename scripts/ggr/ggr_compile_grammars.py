@@ -182,6 +182,7 @@ def compile_grammars(args):
 
     for grammar_summary_idx in range(len(args.grammar_summaries)):
         grammar_summary = args.grammar_summaries[grammar_summary_idx]
+        grammar_summary_path = os.path.dirname(grammar_summary)
         print grammar_summary
 
         # read in
@@ -193,11 +194,12 @@ def compile_grammars(args):
         # copy relevant files to new folder
         for grammar_idx in range(grammar_summary.shape[0]):
             # need gprofiler and gml
-            grammar_file = grammar_summary.iloc[grammar_idx]["filename"]
+            grammar_file = "{}/{}".format(
+                grammar_summary_path,
+                os.path.basename(grammar_summary.iloc[grammar_idx]["filename"]))
             copy_file = "cp {} {}/".format(grammar_file, args.out_dir)
             print copy_file
             os.system(copy_file)
-            functional_file = grammar_summary.iloc[grammar_idx]["filename"]
             functional_file = re.sub(".annot-\d+.gml", "*gprofiler.txt", grammar_file)
             copy_file = "cp {} {}/".format(functional_file, args.out_dir)
             print copy_file
