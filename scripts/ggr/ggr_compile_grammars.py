@@ -186,7 +186,7 @@ def compile_grammars(args):
         print grammar_summary
 
         # read in
-        grammar_summary = pd.read_table(grammar_summary)
+        grammar_summary = pd.read_table(grammar_summary, index_col=0)
 
         # filter
         grammar_summary = grammar_summary[grammar_summary[args.filter] == 1]
@@ -206,7 +206,8 @@ def compile_grammars(args):
             os.system(copy_file)
 
             # and adjust file location
-            grammar_summary.iloc[grammar_idx]["filename"] = "{}/{}".format(
+            grammar_index = grammar_summary.index[grammar_idx]
+            grammar_summary.at[grammar_index, "filename"] = "{}/{}".format(
                 args.out_dir,
                 os.path.basename(grammar_file))
             
