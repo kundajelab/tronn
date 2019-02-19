@@ -50,6 +50,11 @@ def parse_args():
 def extract_sequences(args):
     """compile grammars
     """
+    diff_sample_num = 20
+    nondiff_proximal_sample_num = 10
+    nondiff_distal_sample_num = 10
+
+    
     grammar_summary = pd.read_table(arg.grammar_summary, index_col=0)
 
     for grammar_idx in range(len(grammar_summary.shape[0])):
@@ -66,15 +71,26 @@ def extract_sequences(args):
             sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
             distances = hf[DataKeys.SYNERGY_DIST][:] # {N}
             diffs_sig = hf[DataKeys.SYNERGY_DIFF_SIG][:] # {N, logit}
-
-            # get diff
+            max_dist = hf[DataKeys.SYNERGY_MAX_DIST][:]
             
+            # get diff
+            diffs_sig = np.greater_equal(np.sum(diffs_sig, axis=1), 2) # {N}
+            diff_indices = np.where(diffs_sig)[0]
+            diff_sequences = sequences[diff_indices]
+            sample_indices = np.random.randint(0, diff_sequences.shape[0], diff_sample_num)
+            print sample_indices
             
             # get nondiff, less than dist
-
+            nondiff = np.logical_not(diffs_sig) # {N}
+            nondiff_proximal_indices = np.where(np.logical_and(nondiff, distances < max_dist))[0]
+            nondiff_proximal_sequences = sequences[nondiff_proximal_indices]
 
             # get nondiff, greater than dist
+            nondiff_distal_indices = np.where(np.logical_and(nondiff, distances >= max_dist))[0]
+            nondiff_distal_sequences = sequences[nondiff_distal_indices]
             
+            # and then sample from each of these groups
+            quit()
             
 
     
