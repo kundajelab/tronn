@@ -50,7 +50,12 @@ def parse_args():
 def save_sequences(sequences, df):
     """save sequences to a df
     """
-    
+    # flatten {N, comb, 1} -> {N*comb}
+
+    # need to find some way to properly mark the combo
+    # look at combinations code
+
+    # convert to pandas df and conct
     
 
     return
@@ -73,20 +78,31 @@ def extract_sequences(args):
         print synergy_file
 
         # open synergy file to subsample sequences
-        with h5py.File(synergy_file, "r") as hf:
+        try:
+            with h5py.File(synergy_file, "r") as hf:
 
-            # extract
-            sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
-            distances = hf[DataKeys.SYNERGY_DIST][:] # {N}
-            diffs_sig = hf[DataKeys.SYNERGY_DIFF_SIG][:] # {N, logit}
-            max_dist = hf[DataKeys.SYNERGY_MAX_DIST][()]
+                # extract
+                sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
+                distances = hf[DataKeys.SYNERGY_DIST][:] # {N}
+                diffs_sig = hf[DataKeys.SYNERGY_DIFF_SIG][:] # {N, logit}
+                max_dist = hf[DataKeys.SYNERGY_MAX_DIST][()]
+        except IOError:
+            continue
             
         # get diff
-        diffs_sig = np.greater_equal(np.sum(diffs_sig, axis=1), 5) # {N}
-        #diffs_sig = np.all(diffs_sig != 0, axis=1)
-        diff_indices = np.where(diffs_sig)[0]
-        diff_sample_indices = diff_indices[
-            np.random.choice(diff_indices.shape[0], diff_sample_num, replace=False)]
+        min_diff = diffs_sig.shape[1]
+        num_tasks_diff = np.sum(diffs_sig, axis=1)
+        while True:
+            print min_diff
+            diffs_sig = np.greater_equal(num_tasks_diff, min_diff) # {N}
+            diff_indices = np.where(diffs_sig)[0]
+            try:
+                diff_sample_indices = diff_indices[
+                    np.random.choice(diff_indices.shape[0], diff_sample_num, replace=False)]
+                break
+            except ValueError:
+                min_diff -= 1
+                
         diff_bool = np.zeros(distances.shape)
         diff_bool[diff_sample_indices] = 1
         
@@ -145,9 +161,9 @@ def extract_sequences(args):
         print plot_cmd
         os.system(plot_cmd)
 
-        
-
-        quit()
+        # debug
+        if grammar_idx >= 3:
+            quit()
             
     return None
 
