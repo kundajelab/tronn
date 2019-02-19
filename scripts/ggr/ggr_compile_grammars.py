@@ -218,6 +218,7 @@ def compile_grammars(args):
             all_grammars = pd.concat([all_grammars,grammar_summary], axis=0)
 
     # save out to new dir
+    all_grammars = all_grammars.sort_values("filename")
     new_grammar_summary_file = "{}/grammars_summary.txt".format(args.out_dir)
     all_grammars.to_csv(new_grammar_summary_file, sep="\t")
     
