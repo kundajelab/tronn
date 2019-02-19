@@ -43,7 +43,7 @@ for (task_idx in 1:length(num_tasks)) {
     if (nchar(sample_key) > 0) {
         task_data$sample <- sample_bool
     }
-    
+
     # remove dists < 12 (overlap in pwms)
     task_data <- task_data[task_data$dists > 12,]
     
@@ -62,13 +62,13 @@ for (task_idx in 1:length(num_tasks)) {
             legend.text=element_text(size=12),
             legend.position="none")
     if (nchar(sample_key) > 0) {
-        p + geom_point(data=subset(task_data, sample==2), colour="red")
+        p + geom_point(data=subset(task_data, sample==1), colour="red")
     }
     ggsave(plot_file, height=7, width=7)
     
     # plot with distance
     plot_file <- paste(out_prefix, ".dist_x_diff.pdf", sep="")
-    p + ggplot(task_data, aes(x=dists, y=diffs)) +
+    p <- ggplot(task_data, aes(x=dists, y=diffs)) +
         geom_point(data=subset(task_data, diff_sig==2), colour="black") +
         geom_point(data=subset(task_data, diff_sig==1), colour="gray") +
         geom_vline(xintercept=max_dist, colour="gray", linetype="dashed") +
@@ -82,7 +82,7 @@ for (task_idx in 1:length(num_tasks)) {
             legend.text=element_text(size=12),
             legend.position="none")
     if (nchar(sample_key) > 0) {
-        p + geom_point(data=subset(task_data, sample==2), colour="red")
+        p + geom_point(data=subset(task_data, sample==1), colour="red")
     }
     ggsave(plot_file, height=7, width=7)
 
