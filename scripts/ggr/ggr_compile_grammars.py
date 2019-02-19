@@ -219,7 +219,8 @@ def compile_grammars(args):
 
     # save out to new dir
     all_grammars = all_grammars.sort_values("filename")
-    all_grammars.insert(0, "manual_filt", np.ones(all_grammars.shape[0]))
+    if "manual_filt" not in all_grammars.columns:
+        all_grammars.insert(0, "manual_filt", np.ones(all_grammars.shape[0]))
     new_grammar_summary_file = "{}/grammars_summary.txt".format(args.out_dir)
     all_grammars.to_csv(new_grammar_summary_file, sep="\t")
     
