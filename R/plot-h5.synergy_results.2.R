@@ -12,14 +12,16 @@ synergy_scores_key <- args[2] # {N, syn, task}
 diff_key <- args[3]
 diff_sig_key <- args[4]
 dists_key <- args[5] # {N}
-out_prefix <- args[6]
-aux_keys <- args[7:length(args)]
+max_dist_key <- args[6]
+out_prefix <- args[7]
+aux_keys <- args[8:length(args)]
 
 # read in data
 data <- h5read(h5_file, synergy_scores_key, read.attributes=TRUE)
 diffs <- h5read(h5_file, diff_key)
 diff_sig <- h5read(h5_file, diff_sig_key)
 dists <- h5read(h5_file, dists_key)
+max_dist <- as.numeric(h5read(h5_file, max_dist_key))
 labels <- attr(data, "labels")
 num_tasks <- dim(data)[1]
 
@@ -58,6 +60,7 @@ for (task_idx in 1:length(num_tasks)) {
     ggplot(task_data, aes(x=dists, y=diffs)) +
         geom_point(data=subset(task_data, diff_sig==2), colour="black") +
         geom_point(data=subset(task_data, diff_sig==1), colour="gray") +
+        geom_vline(x_intercept=max_dist) +
         labs(y="synergy", x="PWM distance (bp)") +
         theme_bw() +
         theme(
@@ -68,6 +71,5 @@ for (task_idx in 1:length(num_tasks)) {
             legend.text=element_text(size=12),
             legend.position="none")
     ggsave(plot_file, height=7, width=7)
-    quit()
 
 }

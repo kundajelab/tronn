@@ -284,6 +284,17 @@ def main():
                 del hf[DataKeys.SYNERGY_DIFF_SIG]
             hf.create_dataset(DataKeys.SYNERGY_DIFF_SIG, data=differential)
             hf[DataKeys.SYNERGY_DIFF_SIG].attrs[AttrKeys.PLOT_LABELS] = labels
+
+        # try analyzing the distance
+        diff_indices = np.greater_equal(np.sum(differential!=0, axis=1), 2)
+        diff_indices = np.where(diff_indices)[0]
+        diff_distances = distances[diff_indices] # {N}
+        max_dist = np.percentile(diff_distances, 90)
+        
+        with h5py.File(args.synergy_file, "a") as hf:
+            if hf.get(DataKeys.SYNERGY_MAX_DIST) is not None:
+                del hf[DataKeys.SYNERGY_MAX_DIST]
+            hf.create_dataset(DataKeys.SYNERGY_MAX_DIST, data=max_dist)
         
         # take these new regions and save out gml
         # get logits, atac signals, delta logits, etc
@@ -312,12 +323,13 @@ def main():
     # and plot:
     # 1) comparison between the two FCs
     # 2) plot with distance and other things
-    plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {}".format(
+    plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {}".format(
         args.synergy_file,
         DataKeys.SYNERGY_SCORES,
         DataKeys.SYNERGY_DIFF,
         DataKeys.SYNERGY_DIFF_SIG,
         DataKeys.SYNERGY_DIST,
+        DataKeys.SYNERGY_MAX_DIST,
         out_prefix)
     print plot_cmd
     os.system(plot_cmd)
