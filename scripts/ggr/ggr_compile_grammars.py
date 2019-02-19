@@ -204,7 +204,12 @@ def compile_grammars(args):
             copy_file = "cp {} {}/".format(functional_file, args.out_dir)
             print copy_file
             os.system(copy_file)
-        
+
+            # and adjust file location
+            grammar_summary.iloc[grammar_idx]["filename"] = "{}/{}".format(
+                args.out_dir,
+                os.path.basename(grammar_file))
+            
         # concat
         if grammar_summary_idx == 0:
             all_grammars = grammar_summary
