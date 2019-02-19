@@ -47,13 +47,21 @@ def parse_args():
     return args
 
 
+def save_sequences(sequences, df):
+    """save sequences to a df
+    """
+    
+    
+
+    return
+
+
 def extract_sequences(args):
-    """compile grammars
+    """sample sequences
     """
     diff_sample_num = 20
     nondiff_proximal_sample_num = 10
     nondiff_distal_sample_num = 10
-
     
     grammar_summary = pd.read_table(args.grammar_summary, index_col=0)
 
@@ -71,31 +79,47 @@ def extract_sequences(args):
             sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
             distances = hf[DataKeys.SYNERGY_DIST][:] # {N}
             diffs_sig = hf[DataKeys.SYNERGY_DIFF_SIG][:] # {N, logit}
-            max_dist = hf[DataKeys.SYNERGY_MAX_DIST]
+            max_dist = hf[DataKeys.SYNERGY_MAX_DIST][()]
             
-            # get diff
-            diffs_sig = np.greater_equal(np.sum(diffs_sig, axis=1), 2) # {N}
-            diff_indices = np.where(diffs_sig)[0]
-            diff_sample_indices = diff_indices[
-                np.random.randint(0, diff_indices.shape[0], diff_sample_num)]
-            print diff_sample_indices
-            
-            # get nondiff, less than dist
-            nondiff = np.logical_not(diffs_sig) # {N}
-            nondiff_proximal_indices = np.where(np.logical_and(nondiff, distances < max_dist))[0]
-            nondiff_proximal_sequences = sequences[nondiff_proximal_indices]
+        # get diff
+        diffs_sig = np.greater_equal(np.sum(diffs_sig, axis=1), 2) # {N}
+        diff_indices = np.where(diffs_sig)[0]
+        diff_sample_indices = diff_indices[
+            np.random.choice(diff_indices.shape[0], diff_sample_num, replace=False)]
 
-            # get nondiff, greater than dist
-            nondiff_distal_indices = np.where(np.logical_and(nondiff, distances >= max_dist))[0]
-            nondiff_distal_sequences = sequences[nondiff_distal_indices]
-            
-            # and mark out the ones chosen in the synergy file
-            
-            quit()
-            
+        # get nondiff, less than dist
+        nondiff = np.logical_not(diffs_sig) # {N}
+        nondiff_proximal_indices = np.where(np.logical_and(nondiff, distances < max_dist))[0]
+        nondiff_proximal_sample_indices = nondiff_proximal_indices[
+            np.random.choice(nondiff_proximal_indices.shape[0], nondiff_proximal_sample_num, replace=False)]
 
-    
-    return new_grammar_summary_file
+        # get nondiff, greater than dist
+        nondiff_distal_indices = np.where(np.logical_and(nondiff, distances >= max_dist))[0]
+        nondiff_distal_sample_indices = nondiff_distal_indices[
+            np.random.choice(nondiff_distal_indices.shape[0], nondiff_distal_sample_num, replace=False)]
+
+        # and mark out the ones chosen in the synergy file
+        all_sample_indices = np.concatenate(
+            [diff_sample_indices,
+             nondiff_proximal_sample_indices,
+             nondiff_distal_sample_indices], axis=0)
+        
+        # set up as sample
+        sample_bool = np.zeros(distances.shape)
+        sample_bool[all_sample_indices] = 1
+        
+        # open synergy file to subsample sequences
+        with h5py.File(synergy_file, "a") as hf:
+            if hf.get("mpra.sample") is not None:
+                del hf["mpra.sample"]
+            hf.create_dataset("mpra.sample", data=sample_bool)
+
+        # and can plot out here
+
+
+        quit()
+            
+    return None
 
 
 def main():
