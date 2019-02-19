@@ -682,6 +682,7 @@ def merge_duplicates(
 
     # finally save into new filt file
     summary_df = pd.DataFrame(results)
+    summary_df.insert(0, "manual_filt", np.ones(summary_df.shape[0]))
     new_filt_summary_file = "{}/grammar_summary.filt.dedup.txt".format(out_dir)
     summary_df.to_csv(new_filt_summary_file, sep="\t")
     
@@ -794,6 +795,7 @@ def annotate_grammars(args, merge_grammars=True):
         summary_file = "{}/grammar_summary.txt".format(args.out_dir)
         summary_df = pd.DataFrame(results)
         summary_df = summary_df.sort_values("downstream_interesting")
+        summary_df.insert(0, "manual_filt", np.ones(summary_df.shape[0]))
         summary_df.to_csv(summary_file, sep="\t")
         with pd.option_context('display.max_rows', None, 'display.max_columns', None):
             print summary_df
