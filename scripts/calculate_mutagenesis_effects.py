@@ -289,7 +289,7 @@ def main():
         diff_indices = np.greater_equal(np.sum(differential!=0, axis=1), 2)
         diff_indices = np.where(diff_indices)[0]
         diff_distances = distances[diff_indices] # {N}
-        max_dist = np.percentile(diff_distances, 90)
+        max_dist = np.percentile(diff_distances, 99)
         
         with h5py.File(args.synergy_file, "a") as hf:
             if hf.get(DataKeys.SYNERGY_MAX_DIST) is not None:
