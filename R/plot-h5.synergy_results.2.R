@@ -30,10 +30,10 @@ if (nchar(sample_key) > 0) {
 }
 
 # run for every tasks
-for (task_idx in 1:length(num_tasks)) {
+for (task_idx in 1:num_tasks) {
 
     # set up task data
-    task_prefix <- paste(out_prefix, ".taskidx-", task_idx, sep="")
+    task_prefix <- paste(out_prefix, ".taskidx-", task_idx-1, sep="")
     task_data <- data.frame(aperm(data)[,,task_idx]) # {N, syn}
     colnames(task_data) <- c("a", "b")
     task_data$diffs <- aperm(diffs)[,task_idx]
@@ -48,7 +48,7 @@ for (task_idx in 1:length(num_tasks)) {
     task_data <- task_data[task_data$dists > 12,]
     
     # plot comparison between fold changes
-    plot_file <- paste(out_prefix, ".fc_compare.pdf", sep="")
+    plot_file <- paste(task_prefix, ".fc_compare.pdf", sep="")
     p <- ggplot(task_data, aes(x=b, y=a)) +
         geom_point(data=subset(task_data, diff_sig==2), colour="black") +
         geom_point(data=subset(task_data, diff_sig==1), colour="gray") +
@@ -67,7 +67,7 @@ for (task_idx in 1:length(num_tasks)) {
     ggsave(plot_file, height=7, width=7)
     
     # plot with distance
-    plot_file <- paste(out_prefix, ".dist_x_diff.pdf", sep="")
+    plot_file <- paste(task_prefix, ".dist_x_diff.pdf", sep="")
     p <- ggplot(task_data, aes(x=dists, y=diffs)) +
         geom_point(data=subset(task_data, diff_sig==2), colour="black") +
         geom_point(data=subset(task_data, diff_sig==1), colour="gray") +

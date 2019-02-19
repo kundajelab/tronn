@@ -40,7 +40,7 @@ def parse_args():
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
         help="out directory")
-    
+
     # parse args
     args = parser.parse_args()
 
@@ -82,40 +82,70 @@ def extract_sequences(args):
             max_dist = hf[DataKeys.SYNERGY_MAX_DIST][()]
             
         # get diff
-        diffs_sig = np.greater_equal(np.sum(diffs_sig, axis=1), 2) # {N}
+        diffs_sig = np.greater_equal(np.sum(diffs_sig, axis=1), 5) # {N}
+        #diffs_sig = np.all(diffs_sig != 0, axis=1)
         diff_indices = np.where(diffs_sig)[0]
         diff_sample_indices = diff_indices[
             np.random.choice(diff_indices.shape[0], diff_sample_num, replace=False)]
-
+        diff_bool = np.zeros(distances.shape)
+        diff_bool[diff_sample_indices] = 1
+        
         # get nondiff, less than dist
         nondiff = np.logical_not(diffs_sig) # {N}
         nondiff_proximal_indices = np.where(np.logical_and(nondiff, distances < max_dist))[0]
         nondiff_proximal_sample_indices = nondiff_proximal_indices[
             np.random.choice(nondiff_proximal_indices.shape[0], nondiff_proximal_sample_num, replace=False)]
-
+        nondiff_proximal_bool = np.zeros(distances.shape)
+        nondiff_proximal_bool[nondiff_proximal_sample_indices] = 1
+        
         # get nondiff, greater than dist
         nondiff_distal_indices = np.where(np.logical_and(nondiff, distances >= max_dist))[0]
         nondiff_distal_sample_indices = nondiff_distal_indices[
             np.random.choice(nondiff_distal_indices.shape[0], nondiff_distal_sample_num, replace=False)]
+        nondiff_distal_bool = np.zeros(distances.shape)
+        nondiff_distal_bool[nondiff_distal_sample_indices] = 1
 
         # and mark out the ones chosen in the synergy file
         all_sample_indices = np.concatenate(
             [diff_sample_indices,
              nondiff_proximal_sample_indices,
              nondiff_distal_sample_indices], axis=0)
-        
-        # set up as sample
-        sample_bool = np.zeros(distances.shape)
-        sample_bool[all_sample_indices] = 1
+        all_bool = np.zeros(distances.shape)
+        all_bool[all_sample_indices] = 1
         
         # open synergy file to subsample sequences
         with h5py.File(synergy_file, "a") as hf:
-            if hf.get("mpra.sample") is not None:
-                del hf["mpra.sample"]
-            hf.create_dataset("mpra.sample", data=sample_bool)
-
+            if hf.get("mpra.sample.diff") is not None:
+                del hf["mpra.sample.diff"]
+            hf.create_dataset("mpra.sample.diff", data=diff_bool)
+            
+            if hf.get("mpra.sample.nondiff.proximal") is not None:
+                del hf["mpra.sample.nondiff.proximal"]
+            hf.create_dataset("mpra.sample.nondiff.proximal", data=diff_bool)
+            
+            if hf.get("mpra.sample.nondiff.distal") is not None:
+                del hf["mpra.sample.nondiff.distal"]
+            hf.create_dataset("mpra.sample.nondiff.distal", data=diff_bool)
+            
+            if hf.get("mpra.sample.all") is not None:
+                del hf["mpra.sample.all"]
+            hf.create_dataset("mpra.sample.all", data=all_bool)
+            
         # and can plot out here
+        out_prefix = "{}/{}".format(args.out_dir, synergy_dir)
+        plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {} {}".format(
+            synergy_file,
+            DataKeys.SYNERGY_SCORES,
+            DataKeys.SYNERGY_DIFF,
+            DataKeys.SYNERGY_DIFF_SIG,
+            DataKeys.SYNERGY_DIST,
+            DataKeys.SYNERGY_MAX_DIST,
+            out_prefix,
+            "mpra.sample.all")
+        print plot_cmd
+        os.system(plot_cmd)
 
+        
 
         quit()
             
