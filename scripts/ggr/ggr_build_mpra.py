@@ -17,7 +17,7 @@ import pandas as pd
 import networkx as nx
 
 from scipy.stats import zscore
-
+from tronn.interpretation.combinatorial import setup_combinations
 from tronn.util.scripts import setup_run_logs
 from tronn.util.utils import DataKeys
 
@@ -47,16 +47,52 @@ def parse_args():
     return args
 
 
-def save_sequences(sequences, df):
+def save_sequences(sequences, indices, df, left_clip=420, right_clip=580):
     """save sequences to a df
     """
-    # flatten {N, comb, 1} -> {N*comb}
-
-    # need to find some way to properly mark the combo
-    # look at combinations code
-
-    # convert to pandas df and conct
+    # make combinations into 1 col (won't use for downstream anyways)
+    # index positions of mutations, make into 1 col
+    # dists, make into 1 col
+    # region metadata
     
+    # TODO: also keep: index positions of mutations, dist between them? region metadata
+    # need to read out pwm score strength also?
+    # make a unique prefix
+    
+    
+    # get sequences
+    sequences = sequences[indices]
+    
+    # get combos
+    num_muts = int(np.sqrt(sequences.shape[1]))
+    combinations = setup_combinations(num_muts)
+    assert combinations.shape[1] == sequences.shape[1]
+    combinations = np.swapaxes(combinations, 0, 1)
+    combinations = np.stack([combinations]*sequences.shape[0], axis=0)
+
+    # set up indices
+    indices = np.stack([indices]*combinations.shape[1], axis=1)
+    
+    # flatten {N, comb, 1} -> {N*comb}
+    sequences_flattened = np.reshape(sequences, (-1, 1))
+    combinations_flattened = np.reshape(combinations, (-1, num_muts))
+    indices_flattened = np.reshape(indices, (-1, 1))
+    
+    # convert to pandas df and conct
+    sequences_df = pd.DataFrame(sequences_flattened, columns=["sequence_string"])
+    sequences_df["sequence_string_active"] = sequences_df["sequence_string"].str[left_clip:right_clip]
+    sequences_df["index"] = indices_flattened
+    for col_idx in range(combinations_flattened.shape[1]):
+        sequences_df["motif_{}".format(col_idx)] = combinations_flattened[:,col_idx].astype(int)
+
+    if df is None:
+        df = sequences_df
+    else:
+        # join?
+        pass
+        
+    import ipdb
+    ipdb.set_trace()
 
     return
 
@@ -75,12 +111,16 @@ def extract_sequences(args):
         synergy_dir = os.path.basename(grammar_file).split(".gml")[0]
         
         synergy_file = "{}/{}/ggr.synergy.h5".format(args.synergy_main_dir, synergy_dir)
+        synergy_pwm_names_file = "{}/{}/ggr.synergy.pwms.order.txt".format(
+            args.synergy_main_dir, synergy_dir)
         print synergy_file
 
         # open synergy file to subsample sequences
         try:
             with h5py.File(synergy_file, "r") as hf:
-
+                for key in sorted(hf.keys()): print key, hf[key].shape
+                quit()
+                
                 # extract
                 sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
                 distances = hf[DataKeys.SYNERGY_DIST][:] # {N}
@@ -105,6 +145,7 @@ def extract_sequences(args):
                 
         diff_bool = np.zeros(distances.shape)
         diff_bool[diff_sample_indices] = 1
+        save_sequences(sequences, diff_sample_indices, None)
         
         # get nondiff, less than dist
         nondiff = np.logical_not(diffs_sig) # {N}
@@ -113,6 +154,7 @@ def extract_sequences(args):
             np.random.choice(nondiff_proximal_indices.shape[0], nondiff_proximal_sample_num, replace=False)]
         nondiff_proximal_bool = np.zeros(distances.shape)
         nondiff_proximal_bool[nondiff_proximal_sample_indices] = 1
+        
         
         # get nondiff, greater than dist
         nondiff_distal_indices = np.where(np.logical_and(nondiff, distances >= max_dist))[0]
