@@ -171,7 +171,7 @@ def main():
     if args.targets is not None:
         inference_targets = parse_multi_target_selection_strings(args.targets)
     else:
-        inference_targets = [(target, {}) for target in args.inference["targets"]]
+        inference_targets = args.inference["targets"]
     selected_targets = []
     for targets, params in inference_targets:
         found_targets = load_selected_targets(
