@@ -47,54 +47,93 @@ def parse_args():
     return args
 
 
-def save_sequences(sequences, indices, df, left_clip=420, right_clip=580):
+def save_sequences(h5_file, indices, df, left_clip=420, right_clip=580, prefix="id"):
     """save sequences to a df
     """
-    # make combinations into 1 col (won't use for downstream anyways)
-    # index positions of mutations, make into 1 col
-    # dists, make into 1 col
-    # region metadata
+    keys = [
+        DataKeys.SYNERGY_DIFF_SIG,
+        DataKeys.SYNERGY_DIST,
+        DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT,
+        DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT,
+        DataKeys.MUT_MOTIF_LOGITS,
+        DataKeys.SEQ_METADATA,
+        "ATAC_SIGNALS.NORM",
+        "H3K27ac_SIGNALS.NORM",
+        DataKeys.LOGITS_NORM,
+        DataKeys.GC_CONTENT,
+        "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)]
+
+    # first get reshape params
+    num_sequences = indices.shape[0]
+    with h5py.File(h5_file, "r") as hf:
+        num_combos = hf[DataKeys.MUT_MOTIF_ORIG_SEQ].shape[1]
+        num_muts = int(np.sqrt(num_combos))
+
+    # go through keys and extract relevant results
+    with h5py.File(h5_file, "r") as hf:
+        for key_idx in range(len(keys)):
+            key = keys[key_idx]
+            key_results = hf[key][:][indices]
+
+            # check dims and flatten accordingly
+            if len(key_results.shape) <= 2:
+                end_dims = list(key_results.shape)[1:]
+                key_results = np.stack([key_results]*num_combos, axis=1)
+            elif len(key_results.shape) == 3:
+                end_dims = list(key_results.shape)[2:]
+            else:
+                raise ValueError, "key does not match shape, is {}".format(key_results.shape)
+            key_results = np.reshape(key_results, [-1]+end_dims)
+
+            # if bool convert to int
+            if key_results.dtype == np.bool:
+                key_results = key_results.astype(int)
+
+            # other adjustments
+            if key == DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT:
+                key_results = key_results.astype(int)
+            if key == DataKeys.SYNERGY_DIST:
+                key_results = key_results.astype(int)
+                
+            # create dataframe
+            key_df = pd.DataFrame(key_results)
+            if key_df.shape[1] > 1:
+                key_df = pd.DataFrame({key:key_df.astype(str).apply(",".join, axis=1)})
+            else:
+                key_df.columns = [key]
+                
+            # append
+            if key_idx == 0:
+                all_results = key_df
+            else:
+                all_results[key] = key_df[key]
+
+    # adjust sequence
+    all_results.insert(
+        0, "sequence.mpra",
+        all_results["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)].str[left_clip:right_clip])
+    all_results = all_results.drop(columns=["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)])
     
-    # TODO: also keep: index positions of mutations, dist between them? region metadata
-    # need to read out pwm score strength also?
-    # make a unique prefix
-    
-    
-    # get sequences
-    sequences = sequences[indices]
-    
-    # get combos
-    num_muts = int(np.sqrt(sequences.shape[1]))
+    # set up combos
     combinations = setup_combinations(num_muts)
-    assert combinations.shape[1] == sequences.shape[1]
     combinations = np.swapaxes(combinations, 0, 1)
-    combinations = np.stack([combinations]*sequences.shape[0], axis=0)
+    combinations = np.stack([combinations]*num_sequences, axis=0)
+    combinations = np.reshape(combinations, [-1, num_muts])
+    combo_df = pd.DataFrame(combinations).astype(int)
+    combo_df["combos"] = combo_df.astype(str).apply(",".join, axis=1)
+    all_results.insert(0, "combos", combo_df["combos"])
 
     # set up indices
-    indices = np.stack([indices]*combinations.shape[1], axis=1)
-    
-    # flatten {N, comb, 1} -> {N*comb}
-    sequences_flattened = np.reshape(sequences, (-1, 1))
-    combinations_flattened = np.reshape(combinations, (-1, num_muts))
-    indices_flattened = np.reshape(indices, (-1, 1))
-    
-    # convert to pandas df and conct
-    sequences_df = pd.DataFrame(sequences_flattened, columns=["sequence_string"])
-    sequences_df["sequence_string_active"] = sequences_df["sequence_string"].str[left_clip:right_clip]
-    sequences_df["index"] = indices_flattened
-    for col_idx in range(combinations_flattened.shape[1]):
-        sequences_df["motif_{}".format(col_idx)] = combinations_flattened[:,col_idx].astype(int)
+    rep_indices = np.stack([indices]*num_combos, axis=1)
+    rep_indices = np.reshape(rep_indices, [-1] )
+    all_results.insert(0, "example_fileidx", rep_indices)
 
-    if df is None:
-        df = sequences_df
-    else:
-        # join?
-        pass
-        
-    import ipdb
-    ipdb.set_trace()
+    # set up a unique id
+    all_results.insert(
+        0, "unique_id",
+        prefix + "." + all_results["example_fileidx"].astype(str) + "." + all_results["combos"].str.replace(",", ""))
 
-    return
+    return all_results
 
 
 def extract_sequences(args):
@@ -107,6 +146,8 @@ def extract_sequences(args):
     grammar_summary = pd.read_table(args.grammar_summary, index_col=0)
 
     for grammar_idx in range(grammar_summary.shape[0]):
+        # set seed each time you run a new grammar
+        np_seed = np.random.seed(1337)
         grammar_file = grammar_summary.iloc[grammar_idx]["filename"]
         synergy_dir = os.path.basename(grammar_file).split(".gml")[0]
         
@@ -118,9 +159,6 @@ def extract_sequences(args):
         # open synergy file to subsample sequences
         try:
             with h5py.File(synergy_file, "r") as hf:
-                for key in sorted(hf.keys()): print key, hf[key].shape
-                quit()
-                
                 # extract
                 sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
                 distances = hf[DataKeys.SYNERGY_DIST][:] # {N}
@@ -145,7 +183,7 @@ def extract_sequences(args):
                 
         diff_bool = np.zeros(distances.shape)
         diff_bool[diff_sample_indices] = 1
-        save_sequences(sequences, diff_sample_indices, None)
+        #diff_df = save_sequences(synergy_file, diff_sample_indices, args.out_dir, prefix=synergy_dir)
         
         # get nondiff, less than dist
         nondiff = np.logical_not(diffs_sig) # {N}
@@ -154,7 +192,7 @@ def extract_sequences(args):
             np.random.choice(nondiff_proximal_indices.shape[0], nondiff_proximal_sample_num, replace=False)]
         nondiff_proximal_bool = np.zeros(distances.shape)
         nondiff_proximal_bool[nondiff_proximal_sample_indices] = 1
-        
+        #nondiff_proximal_df = save_sequences(synergy_file, nondiff_proximal_sample_indices, args.out_dir, prefix=synergy_dir)
         
         # get nondiff, greater than dist
         nondiff_distal_indices = np.where(np.logical_and(nondiff, distances >= max_dist))[0]
@@ -162,6 +200,7 @@ def extract_sequences(args):
             np.random.choice(nondiff_distal_indices.shape[0], nondiff_distal_sample_num, replace=False)]
         nondiff_distal_bool = np.zeros(distances.shape)
         nondiff_distal_bool[nondiff_distal_sample_indices] = 1
+        #nondiff_distal_df = save_sequences(synergy_file, nondiff_distal_sample_indices, args.out_dir, prefix=synergy_dir)
 
         # and mark out the ones chosen in the synergy file
         all_sample_indices = np.concatenate(
@@ -170,6 +209,11 @@ def extract_sequences(args):
              nondiff_distal_sample_indices], axis=0)
         all_bool = np.zeros(distances.shape)
         all_bool[all_sample_indices] = 1
+        mpra_sample_df = save_sequences(synergy_file, all_sample_indices, args.out_dir, prefix=synergy_dir)
+        #mpra_sample_df = mpra_sample_df.sort_values(DataKeys.SYNERGY_DIFF_SIG)
+        mpra_sample_df.to_csv("{}/test.results.txt".format(args.out_dir), sep="\t")
+        quit()
+        
         
         # open synergy file to subsample sequences
         with h5py.File(synergy_file, "a") as hf:
@@ -220,7 +264,7 @@ def main():
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
 
     # make reproducible
-    np_seed = np.random.seed(1337)
+
     
     # read out sequences from synergy files
     # for each grammar file, go back to synergy file and read out sequences {N, mutM, 1} string
