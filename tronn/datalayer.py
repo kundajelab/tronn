@@ -461,29 +461,17 @@ class H5DataLoader(DataLoader):
           data_files: a list of h5 filenames
           fasta: fasta file for getting sequence from BED intervals on the fly
         """
-        # assertions
-        assert (len(data_files) == 0) or (len(dataset_json) == 0)
+        # save dir and files
+        self.data_dir = data_dir
+        self.h5_files = data_files
         
-        # set up
-        if len(dataset_json) != 0:
-            # use json and adjust data as needed
-            self.data_dir = dataset_json["data_dir"]
-            self.h5_files = dataset_json.get("data_files")
-            self.fasta = dataset_json["fasta"]
+        # resolve files and dir
+        self.h5_files = self._resolve_dir_and_files(
+            self.data_dir, data_files)
             
-            # override/update as needed
-            if data_dir is not None:
-                self.data_dir = data_dir
-            self.h5_files = self._resolve_dir_and_files(
-                self.data_dir, self.h5_files)
-            if fasta is not None:
-                self.fasta = fasta
-        else:
-            # set up de novo
-            self.data_dir = data_dir
-            self.h5_files = self._resolve_dir_and_files(
-                self.data_dir, data_files)
-            self.fasta = fasta
+        # set up fasta
+        self.fasta = fasta
+        assert self.fasta is not None
 
         # calculate basic stats
         self.num_examples = self.get_num_examples(self.h5_files)

@@ -242,6 +242,13 @@ def _setup_dataset_args(args):
     else:
         args.dataset_json = {}
 
+    # load data files from json if not given
+    if len(args.data_files) == 0:
+        args.data_files = args.dataset_json.get("data_files")
+        # load data dir from json if not given
+        if args.data_dir is None:
+            args.data_dir = args.dataset_json.get("data_dir")
+        
     # load targets from json if not given
     if len(args.targets) == 0:
         args.targets = args.dataset_json.get("targets", [])
