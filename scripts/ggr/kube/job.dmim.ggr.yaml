@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-    name: dk.job.ggr.dmim.basset.traj-2
+    name: dk.job.ggr.dmim.basset.traj-14
 spec:
     template:
       spec:
@@ -13,18 +13,18 @@ spec:
             value: "/datasets/models.2018-12-03"
           - name: INFER_DIR
             value: "/datasets/inference.2019-02-05"
-          - name: OUT_DIR
-            value: "/datasets/inference.2019-02-15"
+          - name: WORK_DIR
+            value: "/datasets/inference.2019-02-21"
           - name: MODEL
             value: "basset"
           - name: PATTERN
-            value: "late"
+            value: "mid"
           - name: FOREGROUND
-            value: "TRAJ_LABELS=2"
+            value: "TRAJ_LABELS=14"
           - name: FOREGROUND_NAME
-            value: "TRAJ_LABELS-2"
+            value: "TRAJ_LABELS-14"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/dmim.$FOREGROUND_NAME && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/dmim.ggr.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $FOREGROUND $OUT_DIR"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/dmim.shuffle/$FOREGROUND_NAME && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/dmim.ggr.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $FOREGROUND $OUT_DIR $WORK_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 6
