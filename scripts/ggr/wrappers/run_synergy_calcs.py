@@ -24,6 +24,9 @@ def main():
     # go through synergy files
     for synergy_file in synergy_files:
 
+        # check whether 2 or 3
+        
+        
         # set up dir/prefix
         out_dir = "{}/calc_synergy".format(os.path.dirname(synergy_file))
         prefix = os.path.dirname(synergy_file).split("/")[-1]
