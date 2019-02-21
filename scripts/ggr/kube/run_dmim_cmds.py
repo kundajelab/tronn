@@ -47,7 +47,6 @@ def main():
                 run_job = "kubectl apply -f {}".format(job_file)
                 print run_job
                 os.system(run_job)
-                quit()
                 
     else:
         # clean up (delete jobs)

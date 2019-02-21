@@ -15,6 +15,8 @@ spec:
             value: "/datasets/inference.2019-02-05"
           - name: WORK_DIR
             value: "/datasets/inference.2019-02-21"
+          - name: DMIM_DIR
+            value: "dmim.shuffle"
           - name: MODEL
             value: "basset"
           - name: PATTERN
@@ -24,7 +26,7 @@ spec:
           - name: FOREGROUND_NAME
             value: "TRAJ_LABELS-14"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/dmim.shuffle/$FOREGROUND_NAME && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/dmim.ggr.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $FOREGROUND $OUT_DIR $WORK_DIR"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/$DMIM_DIR/$FOREGROUND_NAME && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/dmim.ggr.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $FOREGROUND $OUT_DIR $WORK_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 6
