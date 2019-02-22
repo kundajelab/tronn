@@ -162,7 +162,10 @@ def main():
     os.system("mkdir -p {}".format(args.out_dir))
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
     out_prefix = "{}/{}".format(args.out_dir, args.prefix)
-    
+
+    min_pwm_dist = 12 # ignore PWMs that overlap (likely same importance scores contributing)
+    stdev_thresh = 2.0
+        
     # now set up the indices
     parse_calculation_strings(args)
 
@@ -224,48 +227,51 @@ def main():
             delta_results = results[:,i] - results[:,j]
             pvals = run_delta_permutation_test(delta_results)
             # TODO this is currently unused!
-    
+
+    # TO CONSIDER - should i save all with indices?
+            DataKeys.SYNERGY_DIFF_SIG,
+            DataKeys.SYNERGY_MAX_DIST,
+            
     # save out into h5 file
-    # TODO consider saving out under new keys each time
-    # here - use a tag? "{}.1".format(DataKeys.SYNERGY_SCORES)
-    # then plot for whichever one you're on
-    # don't write out if already done - ie compare label string
-    start_idx = 0
-    out_key = "{}.{}".format(DataKeys.SYNERGY_SCORES, start_idx)
+    run_idx = 0
+    score_key = "{}.{}".format(DataKeys.SYNERGY_SCORES, run_idx)
     while True:
+        print score_key
         with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(out_key) is not None:
+            if hf.get(score_key) is not None:
                 # check if matches, you can update that one
-                if hf[out_key].attrs[AttrKeys.PLOT_LABELS] == labels:
-                    hf[out_key] = results
-                start_idx += 1
-                out_key = "{}.{}".format(DataKeys.SYNERGY_SCORES, start_idx)
+                if list(hf[score_key].attrs[AttrKeys.PLOT_LABELS]) == labels:
+                    hf[score_key][:] = results
+                    break
+                run_idx += 1
+                score_key = "{}.{}".format(DataKeys.SYNERGY_SCORES, run_idx)
                 continue
             else:
-                hf.create_dataset(DataKeys.SYNERGY_SCORES, data=results)
-                hf[DataKeys.SYNERGY_SCORES].attrs[AttrKeys.PLOT_LABELS] = labels
-    
-    # refine:
-    if args.refine:
-        assert len(args.calculations) == 2
-        stdev_thresh = 2.0
+                hf.create_dataset(score_key, data=results)
+                hf[score_key].attrs[AttrKeys.PLOT_LABELS] = labels
+                break
         
-        # while here, calculate index diff (pwm position diff)
-        with h5py.File(args.synergy_file, "a") as hf:
-            indices = hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:]
-            distances = indices[:,3,0] - indices[:,3,1] # {N}
-            if hf.get(DataKeys.SYNERGY_DIST) is not None:
-                del hf[DataKeys.SYNERGY_DIST]
-            hf.create_dataset(DataKeys.SYNERGY_DIST, data=distances)
+    # calculate max index diff (pwm position diff) <- works for all numbers of motifs
+    dist_key = "{}.{}".format(DataKeys.SYNERGY_DIST, run_idx)
+    with h5py.File(args.synergy_file, "a") as hf:
+        indices = hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:]
+        distances = np.max(indices[:,-1], axis=-1) - np.min(indices[:,-1], axis=-1) # lose orientation but ok for now
+        if hf.get(dist_key) is not None:
+            del hf[dist_key]
+        hf.create_dataset(dist_key, data=distances)
 
-        # get diffs and save out
+    # other calcs which only work with 2 calculations:
+    if len(args.calculations) == 2:
+
+        # get diff betwen the two calcs
         synergy_diffs = results[:,0] - results[:,1] # {N, logit}
+        synergy_diffs_key = "{}.{}".format(DataKeys.SYNERGY_DIFF, run_idx)
         with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(DataKeys.SYNERGY_DIFF) is not None:
-                del hf[DataKeys.SYNERGY_DIFF]
-            hf.create_dataset(DataKeys.SYNERGY_DIFF, data=synergy_diffs)
-        
-        # remove outliers first to stabilize gaussian calc
+            if hf.get(synergy_diffs_key) is not None:
+                del hf[synergy_diffs_key]
+            hf.create_dataset(synergy_diffs_key, data=synergy_diffs)
+
+        # run a quick differential test (outlier stabilized gaussian)
         outlier_thresholds = np.percentile(
             np.abs(synergy_diffs), 75, axis=0, keepdims=True)
         synergy_diffs_filt = np.where(
@@ -274,33 +280,47 @@ def main():
         synergy_diffs_filt = np.where(
             np.isclose(synergy_diffs_filt, 0),
             np.nan, synergy_diffs_filt)
-
-        # get stds
         stdevs = np.nanstd(synergy_diffs_filt, axis=0, keepdims=True)
         means = np.nanmean(synergy_diffs_filt, axis=0, keepdims=True)
         
-        # differential
-        #differential = np.abs(synergy_diffs) > stdev_thresh * stdevs
+        # differential cutoff
         differential = synergy_diffs > stdev_thresh * stdevs
-        differential[np.abs(distances) < 12] = 0
+        differential[np.abs(distances) < min_pwm_dist] = 0
         
         # add in new dataset that marks differential
+        synergy_sig_key = "{}.{}".format(DataKeys.SYNERGY_DIFF_SIG, run_idx)
         with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(DataKeys.SYNERGY_DIFF_SIG) is not None:
-                del hf[DataKeys.SYNERGY_DIFF_SIG]
-            hf.create_dataset(DataKeys.SYNERGY_DIFF_SIG, data=differential)
-            hf[DataKeys.SYNERGY_DIFF_SIG].attrs[AttrKeys.PLOT_LABELS] = labels
+            if hf.get(synergy_sig_key) is not None:
+                del hf[synergy_sig_key]
+            hf.create_dataset(synergy_sig_key, data=differential)
+            hf[synergy_sig_key].attrs[AttrKeys.PLOT_LABELS] = labels
 
-        # try analyzing the distance
+        # analyze max distance of synergistic interaction
         diff_indices = np.greater_equal(np.sum(differential!=0, axis=1), 2)
         diff_indices = np.where(diff_indices)[0]
         diff_distances = distances[diff_indices] # {N}
         max_dist = np.percentile(diff_distances, 99)
-        
+        max_dist_key = "{}.{}".format(DataKeys.SYNERGY_MAX_DIST, run_idx)
         with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(DataKeys.SYNERGY_MAX_DIST) is not None:
-                del hf[DataKeys.SYNERGY_MAX_DIST]
-            hf.create_dataset(DataKeys.SYNERGY_MAX_DIST, data=max_dist)
+            if hf.get(max_dist_key) is not None:
+                del hf[max_dist_key]
+            hf.create_dataset(max_dist_key, data=max_dist)
+
+        # plot
+        plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {} \"\"".format(
+            args.synergy_file,
+            score_key,
+            synergy_diffs_key,
+            synergy_sig_key,
+            dist_key,
+            max_dist_key,
+            out_prefix)
+        print plot_cmd
+        os.system(plot_cmd)
+
+    # refine:
+    if args.refine:
+        assert len(args.calculations) == 2
         
         # take these new regions and save out gml
         # get logits, atac signals, delta logits, etc
@@ -314,30 +334,13 @@ def main():
         [graph] = attach_mut_logits([graph], args.synergy_file)
 
         # attach other keys
-        other_keys = [
-            "logits.norm",
-            "ATAC_SIGNALS.NORM"]
+        other_keys = ["logits.norm", "ATAC_SIGNALS.NORM"]
         for key in other_keys:
             [graph] = attach_data_summary([graph], args.synergy_file, key)
 
         # write out gml (to run downstream with annotate)
         gml_file = "{}.grammar.gml".format(out_prefix) # TODO have a better name!
         nx.write_gml(stringize_nx_graph(graph), gml_file)
-        
-    # and plot:
-    # 1) comparison between the two FCs
-    # 2) plot with distance and other things
-    plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {}".format(
-        args.synergy_file,
-        DataKeys.SYNERGY_SCORES,
-        DataKeys.SYNERGY_DIFF,
-        DataKeys.SYNERGY_DIFF_SIG,
-        DataKeys.SYNERGY_DIST,
-        DataKeys.SYNERGY_MAX_DIST,
-        out_prefix)
-    print plot_cmd
-    os.system(plot_cmd)
-    
     
     return None
 
