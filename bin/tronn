@@ -1105,11 +1105,6 @@ def main():
         _setup_preprocess(args)
         from tronn.preprocess_cmd import run
         run(args)
-    elif subcommand == "preprocess_variants":
-        _setup_annotations(args)
-        _setup_preprocess(args)
-        from tronn.preprocess_variants_cmd import run
-        run(args)
     elif subcommand == 'train':
         _setup_dataset_args(args)
         _setup_model_args(args)
