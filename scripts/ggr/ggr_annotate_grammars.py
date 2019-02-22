@@ -552,9 +552,9 @@ def merge_grammars_from_files(grammar_files, out_dir):
 
     # set up new name
     traj_prefix = "_x_".join(
-        sorted([val.split("/")[1].split(".")[1] for val in grammar_files]))
+        sorted([os.path.basename(val).split(".")[1] for val in grammar_files]))
     id_prefix = "_x_".join(
-        sorted([val.split("/")[1].split(".")[3].split("-")[1] for val in grammar_files]))
+        sorted([os.path.basename(val).split(".")[2].split("-")[1] for val in grammar_files]))
     prefix = "ggr.{}.{}".format(traj_prefix, id_prefix)
     new_grammar_file = "{}/{}.gml".format(out_dir, prefix)
     print new_grammar_file
@@ -876,8 +876,8 @@ def plot_results(filt_summary_file, out_dir):
     for line_idx in range(num_grammars):
         grammar = nx.read_gml(grammars_df["filename"].iloc[line_idx])
         grammar_traj = int(
-            grammars_df["filename"].iloc[line_idx].split(
-                "/")[1].split(".")[1].split("-")[1].split("_")[0])
+            os.path.basename(grammars_df["filename"].iloc[line_idx]).split(
+                ".")[1].replace("TRAJ_LABELS-", "").split("_")[0])
         
         # get motifs and merge into motif df
         motifs = grammars_df["nodes"].iloc[line_idx].split(",")
