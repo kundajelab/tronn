@@ -7,7 +7,7 @@ def main():
     Run from outside nautilus
     """
     # setup
-    START_JOBS = True
+    START_JOBS = False
     job_file = "job.dmim.ggr.yaml"
     jobs = {
         "early": [
@@ -54,7 +54,7 @@ def main():
             print job_set
             
             for idx in jobs[job_set]:
-                job_name = "dk.job.ggr.dmim.basset.traj-{}".format(idx)
+                job_name = "dk.job.ggr.dmim.basset.traj-{}".format(idx.replace(",", "-"))
                 remove_job = "kubectl delete job {}".format(job_name)
                 print remove_job
                 os.system(remove_job)
