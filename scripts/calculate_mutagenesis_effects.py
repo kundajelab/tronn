@@ -197,7 +197,6 @@ def main():
 
         # for logging
         foreground_strings = _setup_output_string(sig_pwms_names, foreground)
-        #print "foreground:", " ".join(foreground_strings)
             
         # extract background idx
         background = args.calculations[i][1]
@@ -206,7 +205,6 @@ def main():
 
         # for logging
         background_strings = _setup_output_string(sig_pwms_names, background)
-        #print "background:", " ".join(background_strings)
 
         # and adjust to conditional string
         conditional_string = _make_conditional_string(
@@ -215,12 +213,8 @@ def main():
         
         # log scale, so subtract
         results[:,i] = outputs[:,foreground_idx] - outputs[:,background_idx]
-        
-        # convert out of log?
-        #results[:,i] = np.power(2, outputs[:,foreground_idx] - outputs[:,background_idx])
 
-
-    # TODO calculate all sig levels?
+    # calculate sig for all pairs
     for i in xrange(results.shape[1]):
         for j in xrange(results.shape[1]):
             if i >= j:
@@ -229,15 +223,27 @@ def main():
             # calculate sig
             delta_results = results[:,i] - results[:,j]
             pvals = run_delta_permutation_test(delta_results)
+            # TODO this is currently unused!
     
     # save out into h5 file
     # TODO consider saving out under new keys each time
-    with h5py.File(args.synergy_file, "a") as hf:
-        if hf.get(DataKeys.SYNERGY_SCORES) is not None:
-            del hf[DataKeys.SYNERGY_SCORES]
-        hf.create_dataset(DataKeys.SYNERGY_SCORES, data=results)
-        hf[DataKeys.SYNERGY_SCORES].attrs[AttrKeys.PLOT_LABELS] = labels
-
+    # here - use a tag? "{}.1".format(DataKeys.SYNERGY_SCORES)
+    # then plot for whichever one you're on
+    # don't write out if already done - ie compare label string
+    start_idx = 0
+    out_key = "{}.{}".format(DataKeys.SYNERGY_SCORES, start_idx)
+    while True:
+        with h5py.File(args.synergy_file, "a") as hf:
+            if hf.get(out_key) is not None:
+                # check if matches, you can update that one
+                if hf[out_key].attrs[AttrKeys.PLOT_LABELS] == labels:
+                    hf[out_key] = results
+                start_idx += 1
+                out_key = "{}.{}".format(DataKeys.SYNERGY_SCORES, start_idx)
+                continue
+            else:
+                hf.create_dataset(DataKeys.SYNERGY_SCORES, data=results)
+                hf[DataKeys.SYNERGY_SCORES].attrs[AttrKeys.PLOT_LABELS] = labels
     
     # refine:
     if args.refine:
@@ -317,8 +323,6 @@ def main():
         # write out gml (to run downstream with annotate)
         gml_file = "{}.grammar.gml".format(out_prefix) # TODO have a better name!
         nx.write_gml(stringize_nx_graph(graph), gml_file)
-
-    # plot each task idx? 19 + 19 outputs
         
     # and plot:
     # 1) comparison between the two FCs
