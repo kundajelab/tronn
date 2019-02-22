@@ -6,6 +6,7 @@ def main():
     """run inside nautilus to build grammars
     """
     WORK_DIR = sys.argv[1]
+    MOTIF_DIR = sys.argv[2]
     
     indices = range(15)
     indices.remove(6)
@@ -18,7 +19,7 @@ def main():
         cmd = "tronn buildgrammars "
         cmd += "--scan_type dmim "
         cmd += "--scan_file {}/ggr.dmim.h5 ".format(dmim_dir)
-        cmd += "--sig_pwms_file {}/motifs.rna_filt.dmim/pvals.rna_filt.corr_filt.h5 ".format(WORK_DIR)
+        cmd += "--sig_pwms_file {}/motifs.rna_filt.dmim/pvals.rna_filt.corr_filt.h5 ".format(MOTIF_DIR)
         cmd += "--foreground_targets TRAJ_LABELS-{} ".format(index)
         cmd += "--aux_data_key ATAC_SIGNALS.NORM logits.norm "
         cmd += "-o {}/{} ".format(dmim_dir, out_dirname)

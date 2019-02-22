@@ -46,6 +46,10 @@ def main():
             os.path.basename(grammar_file).split(".gml")[0])
         os.system("mkdir -p {}".format(out_dir))
 
+        # if already exists don't rerun
+        if os.path.isfile("{}/ggr.synergy.h5".format(out_dir)):
+            continue
+        
         # adjust batch size in synergy run script based on num mut motifs
         mut_nodes = grammars_df["nodes"].iloc[grammar_idx].split(",")
         if len(mut_nodes) == 2:
