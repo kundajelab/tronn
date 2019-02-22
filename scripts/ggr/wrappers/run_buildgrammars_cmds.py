@@ -1,5 +1,6 @@
 
 import os
+import glob
 import sys
 
 def main():
@@ -7,20 +8,22 @@ def main():
     """
     WORK_DIR = sys.argv[1]
     MOTIF_DIR = sys.argv[2]
-    
-    indices = range(15)
-    indices.remove(6)
-    print indices
+
+    # set up
+    dmim_files = sorted(glob.glob("{}/*/ggr.dmim.h5".format(WORK_DIR)))
+    dmim_dirs = [os.path.dirname(dmim_file) for dmim_file in dmim_files]
     out_dirname = "grammars"
-    
-    for index in indices:
-        dmim_dir = "{}/dmim.TRAJ_LABELS-{}".format(WORK_DIR, index)
+
+    # for each folder, build grammars
+    for i in range(len(dmim_files)):
+        dmim_file = dmim_files[i]
+        dmim_dir = dmim_dirs[i]
         
         cmd = "tronn buildgrammars "
         cmd += "--scan_type dmim "
         cmd += "--scan_file {}/ggr.dmim.h5 ".format(dmim_dir)
-        cmd += "--sig_pwms_file {}/motifs.rna_filt.dmim/pvals.rna_filt.corr_filt.h5 ".format(MOTIF_DIR)
-        cmd += "--foreground_targets TRAJ_LABELS-{} ".format(index)
+        cmd += "--sig_pwms_file {}/motifs.adjust.diff.rna_filt.dmim/pvals.rna_filt.corr_filt.h5 ".format(MOTIF_DIR)
+        cmd += "--foreground_targets {} ".format(dmim_dir.split("/")[-1])
         cmd += "--aux_data_key ATAC_SIGNALS.NORM logits.norm "
         cmd += "-o {}/{} ".format(dmim_dir, out_dirname)
         cmd += "--prefix ggr "

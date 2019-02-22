@@ -7,7 +7,6 @@ def main():
     """annotate all grammars
     """
     WORK_DIR = sys.argv[1]
-    ANNOT_DIR = "/datasets/annotations.hg19"
     GGR_DIR = "/datasets/ggr/1.0.0d/annotations"
     
     # annotations
