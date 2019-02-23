@@ -439,9 +439,12 @@ def merge_graph_attrs(main_graph, merge_graph, key, merge_type="mean"):
     """merge graph attributes
     """
     if merge_type == "mean":
-        # main graph
-        main_graph_attr = np.array(
-            [float(val) for val in main_graph.graph[key].split(",")])
+        if not isinstance(main_graph.graph[key], np.ndarray):
+            # main graph
+            main_graph_attr = np.array(
+                [float(val) for val in main_graph.graph[key].split(",")])
+        else:
+            main_graph_attr = main_graph.graph[key]
         main_graph_examples = main_graph.graph["numexamples"]
         # merge graph
         merge_graph_attr = np.array(
@@ -476,9 +479,12 @@ def merge_node_attrs(main_graph, merge_graph, node, key, merge_type="mean"):
     """
     """
     if merge_type == "mean":
-        # main graph
-        main_graph_attr = np.array(
-            [float(val) for val in main_graph.node[node][key].split(",")])
+        if not isinstance(main_graph.node[node][key], np.ndarray):
+            # main graph
+            main_graph_attr = np.array(
+                [float(val) for val in main_graph.node[node][key].split(",")])
+        else:
+            main_graph_attr = main_graph.node[node][key]
         main_graph_examples = main_graph.node[node]["numexamples"]
         # merge graph
         merge_graph_attr = np.array(
@@ -519,9 +525,12 @@ def merge_edge_attrs(
     """
     """
     if merge_type == "mean":
-        # main graph
-        main_graph_attr = np.array(
-            [float(val) for val in main_graph.edges[main_edge][key].split(",")])
+        if not isinstance(main_graph.edges[main_edge][key], np.ndarray):
+            # main graph
+            main_graph_attr = np.array(
+                [float(val) for val in main_graph.edges[main_edge][key].split(",")])
+        else:
+            main_graph_attr = main_garph.edges[main_edge][key]
         main_graph_examples = main_graph.edges[main_edge]["numexamples"]
         # merge graph
         merge_graph_attr = np.array(
@@ -877,7 +886,7 @@ def plot_results(filt_summary_file, out_dir):
         grammar = nx.read_gml(grammars_df["filename"].iloc[line_idx])
         grammar_traj = int(
             os.path.basename(grammars_df["filename"].iloc[line_idx]).split(
-                ".")[1].replace("TRAJ_LABELS-", "").split("_")[0])
+                ".")[1].replace("TRAJ_LABELS-", "").split("_")[0].split("-")[0])
         
         # get motifs and merge into motif df
         motifs = grammars_df["nodes"].iloc[line_idx].split(",")
