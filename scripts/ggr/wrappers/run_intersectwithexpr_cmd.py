@@ -16,9 +16,9 @@ def main():
     pwm_metadata = "/datasets/ggr/1.0.0d/annotations/HOCOMOCOv11_core_annotation_HUMAN_mono.nonredundant.expressed.txt"
     min_cor = 0.75
     rna = "/datasets/ggr/1.0.0d/annotations/ggr.rna.counts.pc.expressed.timeseries_adj.pooled.rlog.mat.txt.gz"
-    #use_max_pwm_length = "--max_pwm_length 16 "
-    use_max_pwm_length = ""
-    out_dir = "motifs.adjust.diff.rna_filt.viz"
+    use_max_pwm_length = "--max_pwm_length 17 "
+    #use_max_pwm_length = ""
+    out_dir = "motifs.adjust.diff.rna_filt.dmim"
     
     cmd = "intersect_pwms_and_rna.py "
     cmd += "--dataset_files {} ".format(" ".join(foreground_files))
