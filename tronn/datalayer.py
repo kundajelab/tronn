@@ -471,7 +471,6 @@ class H5DataLoader(DataLoader):
             
         # set up fasta
         self.fasta = fasta
-        assert self.fasta is not None
 
         # calculate basic stats
         self.num_examples = self.get_num_examples(self.h5_files)
