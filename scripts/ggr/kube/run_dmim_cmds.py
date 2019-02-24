@@ -7,7 +7,7 @@ def main():
     Run from outside nautilus
     """
     # setup
-    START_JOBS = False
+    START_JOBS = True
     job_file = "job.dmim.ggr.yaml"
     jobs = {
         "early": [
