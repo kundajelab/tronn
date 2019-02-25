@@ -35,7 +35,7 @@ def main():
         if len(traj_labels) > 1:
             data_files = "\"--data_files"
             for traj_label in traj_labels:
-                data_files += " {}/dmim.{}/ggr.dmim.h5".format(INFER_DIR, traj_label)
+                data_files += " {}/{}/ggr.dmim.h5".format(INFER_DIR, traj_label)
             data_files +="\""
         else:
             data_files = "\"\""
@@ -67,7 +67,7 @@ def main():
             bash_script,
             MODEL_DIR,
             MODEL,
-            "{}/dmim.{}".format(INFER_DIR, traj_labels[0]),
+            "{}/{}".format(INFER_DIR, traj_labels[0]),
             data_files,
             grammar_file,
             out_dir)
