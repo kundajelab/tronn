@@ -53,7 +53,7 @@ class DirectedEdge(object):
 
     
 
-class MotifGraph(object):
+class MotifGraphOLD(object):
     """network class for managing a directed motif network"""
     
     def __init__(self, nodes=[], edges=[], name=None, propagated=False):
