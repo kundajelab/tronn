@@ -16,7 +16,7 @@ def main():
     pwms = "{}/HOCOMOCOv11_core_pwms_HUMAN_mono.renamed.nonredundant.txt".format(GGR_DIR)
     pwm_metadata = "{}/HOCOMOCOv11_core_annotation_HUMAN_mono.nonredundant.expressed.txt".format(GGR_DIR)
     
-    grammar_files = glob.glob("{}/dmim*/grammars.dmim/*gml".format(WORK_DIR))
+    grammar_files = glob.glob("{}/dmim*/grammars/*gml".format(WORK_DIR))
     print len(grammar_files)
 
     cmd = "ggr_annotate_grammars.py "
