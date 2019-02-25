@@ -7,7 +7,6 @@ tronn synergy \
       --prediction_sample $3/ggr.dmim.prediction_sample.h5 \
       --model ensemble quantile_norm models=${PREFIX}0${SUFFIX},${PREFIX}1${SUFFIX},${PREFIX}2${SUFFIX},${PREFIX}3${SUFFIX},${PREFIX}4${SUFFIX},${PREFIX}5${SUFFIX},${PREFIX}6${SUFFIX},${PREFIX}7${SUFFIX},${PREFIX}8${SUFFIX},${PREFIX}9${SUFFIX} \
       --infer_json $3/infer.dmim.json \
-      --mutate_type point \
       --grammar $5 \
       --num_gpus 6 \
       --prefix ggr \
@@ -15,3 +14,5 @@ tronn synergy \
       -o $6 \
       >> $6/job.out \
       2>> $6/job.err;
+
+#      --mutate_type point \

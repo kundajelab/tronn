@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-    name: dk.job.ggr.synergy.basset
+    name: dk.job.ggr.synergy.basset.shuffle
 spec:
     template:
       spec:
@@ -12,13 +12,13 @@ spec:
           - name: MODEL_DIR
             value: "/datasets/models.2018-12-03"
           - name: INFER_DIR
-            value: "/datasets/inference.2019-02-05"
+            value: "/datasets/inference.2019-02-21/dmim.shuffle"
           - name: OUT_DIR
-            value: "/datasets/inference.2019-02-05"
+            value: "/datasets/inference.2019-02-21/dmim.shuffle"
           - name: MODEL
             value: "basset"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/synergy.3 && mkdir -p $OUT_DIR && python /datasets/software/git/tronn/scripts/ggr/kube/run_synergy_cmds.py $MODEL_DIR $MODEL $INFER_DIR $OUT_DIR"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/synergy && mkdir -p $OUT_DIR && python /datasets/software/git/tronn/scripts/ggr/kube/run_synergy_cmds.py $MODEL_DIR $MODEL $INFER_DIR $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 6
