@@ -296,10 +296,10 @@ def main():
             hf[synergy_sig_key].attrs[AttrKeys.PLOT_LABELS] = labels
 
         # analyze max distance of synergistic interaction
-        diff_indices = np.greater_equal(np.sum(differential!=0, axis=1), 2)
+        diff_indices = np.greater_equal(np.sum(differential!=0, axis=1), 1)
         diff_indices = np.where(diff_indices)[0]
         diff_distances = distances[diff_indices] # {N}
-        max_dist = np.percentile(diff_distances, 99)
+        max_dist = np.percentile(diff_distances, 95)
         max_dist_key = "{}.{}".format(DataKeys.SYNERGY_MAX_DIST, run_idx)
         with h5py.File(args.synergy_file, "a") as hf:
             if hf.get(max_dist_key) is not None:
