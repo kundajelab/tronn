@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-    name: dk.job.ggr.synergy.basset.shuffle
+    name: dk.job.ggr.synergy.basset.point
 spec:
     template:
       spec:
@@ -12,9 +12,9 @@ spec:
           - name: MODEL_DIR
             value: "/datasets/models.2018-12-03"
           - name: INFER_DIR
-            value: "/datasets/inference.2019-02-21/dmim.shuffle"
+            value: "/datasets/inference.2019-02-21/dmim.point"
           - name: OUT_DIR
-            value: "/datasets/inference.2019-02-21/dmim.shuffle"
+            value: "/datasets/inference.2019-02-21/dmim.point"
           - name: MODEL
             value: "basset"
           command: ["bash", "-c"]
