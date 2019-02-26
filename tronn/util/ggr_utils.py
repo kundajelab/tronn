@@ -171,7 +171,7 @@ def get_functional_enrichment(foreground_genes, background_genes, out_dir, metho
     return results
 
 
-def _expand_pwms_by_rna(pwms_df, split_cols, split_char=";"):
+def expand_pwms_by_rna(pwms_df, split_cols, split_char=";"):
     """given column(s) with multiple values in a row, expand so that
     each row has a single value
 
@@ -556,6 +556,82 @@ def merge_grammars_from_files(grammar_files, out_dir):
     return new_grammar_file
         
 
+def merge_synergy_files(
+        synergy_dirs,
+        curr_grammars,
+        merged_grammar_file,
+        merged_synergy_dir):
+    """merge synergy files into a new dir
+    """
+    # make dir for merged data
+    new_dir = "{}/{}".format(
+        merged_synergy_dir,
+        os.path.basename(merged_grammar_file).split(".gml")[0])
+    os.system("mkdir -p {}".format(new_dir))
+
+    # confirm that all grammars are ordered the same way
+    for grammar_idx in range(len(curr_grammars)):
+        grammar = curr_grammars[grammar_idx]
+        grammar_prefix = os.path.basename(grammar).split(".gml")[0]
+        # get the pwms order file
+        pwm_file = glob.glob(" ".join(
+            "{}/{}/ggr.synergy.pwms.order.txt".format(synergy_dir, grammar_prefix)
+            for synergy_dir in synergy_dirs))
+        assert len(pwm_file) == 1
+        pwm_file = pwm_file[0]
+        pwms = pd.read_table(pwm_file).iloc[:,0].values.tolist()
+            
+        if grammar_idx == 0:
+            master_pwms = pwms
+        else:
+            assert master_pwms == pwms
+        
+    import ipdb
+    ipdb.set_trace()
+
+    # merge synergy files
+    new_synergy_file = "{}/ggr.synergy.h5".format(new_dir)
+    num_examples = 0
+    for grammar_idx in range(len(curr_grammars)):
+        # get the synergy file
+        synergy_file = glob.glob(" ".join(
+            "{}/{}/ggr.synergy.h5".format(synergy_dir, grammar_prefix)
+            for synergy_dir in synergy_dirs))
+        assert len(synergy_file) == 1
+        synergy_file = synergy_file[0]
+
+        if grammar_idx == 0:
+            # make new file
+            with h5py.File(new_synergy_file, "w") as out:
+                with h5py.File(synergy_file, "r") as hf:
+                    file_examples = hf[DataKeys.FEATURES].shape[0]
+                    num_examples += file_examples
+                    for key in sorted(hf.keys()):
+                        out.create_dataset(key, hf[key][:], maxshape=None)
+
+        else:
+            # concat into file
+            with h5py.File(new_synergy_file, "a") as out:
+                with h5py.File(synergy_file, "r") as hf:
+                    file_examples = hf[DataKeys.FEATURES].shape[0]
+                    for key in sorted(hf.keys()):
+                        out[key][num_examples:num_examples+file_examples] = hf[key][:]
+                    num_examples += file_examples
+    
+    # and then reduce file to corect size
+    with h5py.File(new_synergy_file, "a") as out:
+        for key in sorted(out.keys()):
+            dataset_final_shape = [num_examples] + list(out[key].shape[1:])
+            out[key].resize(dataset_final_shape)
+            
+    # copy over aux data
+    copy_aux = "cp {}/*txt {}/".format(synergy_dir, new_dir)
+    print copy_aux
+    os.system(copy_aux)
+    
+    return
+
+
 def merge_duplicates(
         filt_summary_file,
         pwm_to_rna_dict,
@@ -564,7 +640,9 @@ def merge_duplicates(
         interesting_genes,
         background_rna,
         out_dir,
-        max_dist=500000):
+        max_dist=500000,
+        synergy_dirs=[],
+        merged_synergy_dir=None):
     """for each line, check for duplicate lines and merge them all
     do not adjust df in place, make a new df
     """
@@ -627,6 +705,18 @@ def merge_duplicates(
                     background_rna,
                     out_dir,
                     max_dist=500000)
+
+                # merge synergy files into new dir
+                if len(synergy_dirs) > 0:
+                    print grammar_results
+                    merge_synergy_files(
+                        synergy_dirs,
+                        curr_grammars,
+                        merged_grammar_file,
+                        merged_synergy_dir)
+                    import ipdb
+                    ipdb.set_trace()
+                    
             else:
                 # just write out the same line again
                 grammar_results = dict(zip(
@@ -673,7 +763,7 @@ def annotate_grammars(args, merge_grammars=True):
         pwm_metadata["hclust_model_name"].values.tolist(),
         pwm_metadata["expressed_hgnc"].values.tolist()))
     split_cols = ["expressed", "expressed_hgnc"]
-    pwm_metadata = _expand_pwms_by_rna(pwm_metadata, split_cols)
+    pwm_metadata = expand_pwms_by_rna(pwm_metadata, split_cols)
     genes_w_pwms = dict(zip(
         pwm_metadata["expressed"].values.tolist(),
         pwm_metadata["expressed_hgnc"].values.tolist()))
@@ -919,3 +1009,54 @@ def plot_results(filt_summary_file, out_dir):
     
     return
 
+
+
+def compile_grammars(args):
+    """compile grammars
+    """
+
+    for grammar_summary_idx in range(len(args.grammar_summaries)):
+        grammar_summary = args.grammar_summaries[grammar_summary_idx]
+        grammar_summary_path = os.path.dirname(grammar_summary)
+        print grammar_summary
+
+        # read in
+        grammar_summary = pd.read_table(grammar_summary, index_col=0)
+
+        # filter
+        grammar_summary = grammar_summary[grammar_summary[args.filter] == 1]
+
+        # copy relevant files to new folder
+        for grammar_idx in range(grammar_summary.shape[0]):
+            # need gprofiler and gml
+            grammar_file = "{}/{}".format(
+                grammar_summary_path,
+                os.path.basename(grammar_summary.iloc[grammar_idx]["filename"]))
+            copy_file = "cp {} {}/".format(grammar_file, args.out_dir)
+            print copy_file
+            os.system(copy_file)
+            functional_file = re.sub(".annot-\d+.gml", "*gprofiler.txt", grammar_file)
+            copy_file = "cp {} {}/".format(functional_file, args.out_dir)
+            print copy_file
+            os.system(copy_file)
+
+            # and adjust file location
+            grammar_index = grammar_summary.index[grammar_idx]
+            grammar_summary.at[grammar_index, "filename"] = "{}/{}".format(
+                args.out_dir,
+                os.path.basename(grammar_file))
+            
+        # concat
+        if grammar_summary_idx == 0:
+            all_grammars = grammar_summary
+        else:
+            all_grammars = pd.concat([all_grammars,grammar_summary], axis=0)
+
+    # save out to new dir
+    all_grammars = all_grammars.sort_values("filename")
+    if "manual_filt" not in all_grammars.columns:
+        all_grammars.insert(0, "manual_filt", np.ones(all_grammars.shape[0]))
+    new_grammar_summary_file = "{}/grammars_summary.txt".format(args.out_dir)
+    all_grammars.to_csv(new_grammar_summary_file, sep="\t")
+    
+    return new_grammar_summary_file
