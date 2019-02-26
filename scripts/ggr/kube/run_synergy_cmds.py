@@ -61,15 +61,22 @@ def main():
         adjust_batch_size = "sed -i -e 's/batch_size [0-9]\+/batch_size {}/g' {}".format(batch_size, bash_script)
         print adjust_batch_size
         os.system(adjust_batch_size)
+
+        # adjust mutate type
+        if "point" in INFER_DIR:
+            mutate_type = "point"
+        else:
+            mutate_type = "shuffle"
         
         # go to synergy run script
-        run_cmd = "{} {} {} {} {} {} {}".format(
+        run_cmd = "{0} {1} {2} {3} {4} {5} {6} {7}".format(
             bash_script,
             MODEL_DIR,
             MODEL,
             "{}/{}".format(INFER_DIR, traj_labels[0]),
             data_files,
             grammar_file,
+            mutate_type,
             out_dir)
         print run_cmd
         os.system(run_cmd)
