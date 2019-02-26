@@ -15,7 +15,8 @@ dists_key <- args[5] # {N}
 max_dist_key <- args[6]
 out_prefix <- args[7]
 sample_key <- args[8]
-aux_keys <- args[9:length(args)]
+min_dist <- as.numeric(args[9])
+aux_keys <- args[10:length(args)]
 
 # read in data
 data <- h5read(h5_file, synergy_scores_key, read.attributes=TRUE)
@@ -44,8 +45,8 @@ for (task_idx in 1:num_tasks) {
         task_data$sample <- sample_bool
     }
 
-    # remove dists < 12 (overlap in pwms)
-    task_data <- task_data[task_data$dists > 12,]
+    # remove dists < min_dist (overlap in pwms)
+    task_data <- task_data[task_data$dists > min_dist,]
     
     # plot comparison between fold changes
     plot_file <- paste(task_prefix, ".fc_compare.pdf", sep="")
