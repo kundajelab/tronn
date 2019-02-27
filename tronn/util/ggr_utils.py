@@ -676,10 +676,14 @@ def merge_duplicates(
         "GO_terms": []}
     
     line_idx = 0
-    while line_idx < grammars_df.shape[0]-1:
-        # check next line
-        next_nodes = grammars_df["nodes"].iloc[line_idx+1]
-        next_grammar = grammars_df["filename"].iloc[line_idx+1]
+    while line_idx < grammars_df.shape[0]:
+        if line_idx+1 == grammars_df.shape[0]:
+            # done, do this to make sure last line gets read out
+            next_nodes = "DONE"
+        else:
+            # check next line
+            next_nodes = grammars_df["nodes"].iloc[line_idx+1]
+            next_grammar = grammars_df["filename"].iloc[line_idx+1]
 
         # TODO check that all nodes and edges are same
         
