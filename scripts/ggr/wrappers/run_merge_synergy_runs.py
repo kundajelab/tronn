@@ -28,7 +28,7 @@ def main():
     cmd += "--pwms {} ".format(pwms)
     cmd += "--pwm_metadata {} ".format(pwm_metadata)
     cmd += "--merged_synergy_dir {}/synergy.merged ".format(WORK_DIR)
-    cmd += "-o {}/grammars.synergy_compiled".format(WORK_DIR)
+    cmd += "-o {}/grammars.filt.merged".format(WORK_DIR)
     print cmd
     os.system(cmd)
 
