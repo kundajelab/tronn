@@ -17,6 +17,7 @@ import pandas as pd
 from tronn.util.ggr_utils import compile_grammars
 from tronn.util.ggr_utils import expand_pwms_by_rna
 from tronn.util.ggr_utils import merge_duplicates
+from tronn.util.ggr_utils import plot_results
 from tronn.util.scripts import setup_run_logs
 
 
