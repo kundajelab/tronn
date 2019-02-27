@@ -689,6 +689,7 @@ def merge_duplicates(
         else:
             # merge and save out to new df
             if len(curr_grammars) > 1:
+                curr_grammars = sorted(curr_grammars)
                 print [nx.read_gml(grammar).nodes for grammar in curr_grammars]
                 print [nx.read_gml(grammar).edges(data="edgetype") for grammar in curr_grammars]
                 
