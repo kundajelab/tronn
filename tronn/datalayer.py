@@ -689,7 +689,7 @@ class H5DataLoader(DataLoader):
             
         # if end is within the file, extract out slice. otherwise, pad and pass out full batch
         slices = {}
-        if end_idx < h5_handle[keys_to_load[0]].shape[0]:
+        if end_idx <= h5_handle[keys_to_load[0]].shape[0]:
             for key in keys_to_load:
                 if h5_handle[key][0].dtype.char == "S":
                     # reshape if len(dims) is 1
