@@ -5,6 +5,7 @@
 import os
 import re
 import sys
+import h5py
 import glob
 import logging
 import argparse
@@ -20,7 +21,7 @@ from tronn.interpretation.networks import get_bed_from_nx_graph
 from tronn.interpretation.networks import stringize_nx_graph
 from tronn.util.pwms import MotifSetManager
 from tronn.util.scripts import setup_run_logs
-
+from tronn.util.utils import DataKeys
 
 # manually curated pwms to blacklist
 MANUAL_BLACKLIST_PWMS = [
@@ -515,9 +516,9 @@ def merge_grammars_from_files(grammar_files, out_dir):
 
     # set up new name
     traj_prefix = "_x_".join(
-        sorted([os.path.basename(val).split(".")[1] for val in grammar_files]))
+        [os.path.basename(val).split(".")[1] for val in grammar_files])
     id_prefix = "_x_".join(
-        sorted([os.path.basename(val).split(".")[2].split("-")[1] for val in grammar_files]))
+        [os.path.basename(val).split(".")[2].split("-")[1] for val in grammar_files])
     prefix = "ggr.{}.{}".format(traj_prefix, id_prefix)
     new_grammar_file = "{}/{}.gml".format(out_dir, prefix)
     print new_grammar_file
@@ -570,8 +571,10 @@ def merge_synergy_files(
     os.system("mkdir -p {}".format(new_dir))
 
     # confirm that all grammars are ordered the same way
+    logging.info("confirming all synergy files are ordered the same way")
     for grammar_idx in range(len(curr_grammars)):
         grammar = curr_grammars[grammar_idx]
+        print grammar
         grammar_prefix = os.path.basename(grammar).split(".gml")[0]
         # get the pwms order file
         pwm_file = glob.glob(" ".join(
@@ -585,47 +588,49 @@ def merge_synergy_files(
             master_pwms = pwms
         else:
             assert master_pwms == pwms
-        
-    import ipdb
-    ipdb.set_trace()
 
     # merge synergy files
+    logging.info("merging synergy files")
     new_synergy_file = "{}/ggr.synergy.h5".format(new_dir)
     num_examples = 0
-    for grammar_idx in range(len(curr_grammars)):
-        # get the synergy file
-        synergy_file = glob.glob(" ".join(
-            "{}/{}/ggr.synergy.h5".format(synergy_dir, grammar_prefix)
-            for synergy_dir in synergy_dirs))
-        assert len(synergy_file) == 1
-        synergy_file = synergy_file[0]
+    with h5py.File(new_synergy_file, "w") as out:
+        
+        for grammar_idx in range(len(curr_grammars)):
+            grammar = curr_grammars[grammar_idx]
+            print grammar
+            grammar_prefix = os.path.basename(grammar).split(".gml")[0]
 
-        if grammar_idx == 0:
-            # make new file
-            with h5py.File(new_synergy_file, "w") as out:
-                with h5py.File(synergy_file, "r") as hf:
-                    file_examples = hf[DataKeys.FEATURES].shape[0]
-                    num_examples += file_examples
-                    for key in sorted(hf.keys()):
-                        out.create_dataset(key, hf[key][:], maxshape=None)
+            # get the synergy file
+            synergy_file = glob.glob(" ".join(
+                "{}/{}/ggr.synergy.h5".format(synergy_dir, grammar_prefix)
+                for synergy_dir in synergy_dirs))
+            assert len(synergy_file) == 1
+            synergy_file = synergy_file[0]
 
-        else:
-            # concat into file
-            with h5py.File(new_synergy_file, "a") as out:
-                with h5py.File(synergy_file, "r") as hf:
-                    file_examples = hf[DataKeys.FEATURES].shape[0]
-                    for key in sorted(hf.keys()):
+            # get num examples and keys
+            with h5py.File(synergy_file, "r") as hf:
+                file_examples = hf[DataKeys.FEATURES].shape[0]
+                keys = sorted(hf.keys())
+                
+                # make new file or concat into the file
+                if grammar_idx == 0:
+                    for key in keys:
+                        resizable_shape = [None] + list(hf[key].shape[1:])
+                        out.create_dataset(key, data=hf[key][:], maxshape=resizable_shape)
+                else:
+                    for key in keys:
                         out[key][num_examples:num_examples+file_examples] = hf[key][:]
-                    num_examples += file_examples
+
+            # mark new start
+            num_examples += file_examples
     
-    # and then reduce file to corect size
-    with h5py.File(new_synergy_file, "a") as out:
+        # and then reduce file to corect size
         for key in sorted(out.keys()):
             dataset_final_shape = [num_examples] + list(out[key].shape[1:])
             out[key].resize(dataset_final_shape)
             
     # copy over aux data
-    copy_aux = "cp {}/*txt {}/".format(synergy_dir, new_dir)
+    copy_aux = "cp {}/{}/*txt {}/".format(synergy_dirs[0], grammar_prefix, new_dir)
     print copy_aux
     os.system(copy_aux)
     
@@ -708,14 +713,11 @@ def merge_duplicates(
 
                 # merge synergy files into new dir
                 if len(synergy_dirs) > 0:
-                    print grammar_results
                     merge_synergy_files(
                         synergy_dirs,
                         curr_grammars,
                         merged_grammar_file,
                         merged_synergy_dir)
-                    import ipdb
-                    ipdb.set_trace()
                     
             else:
                 # just write out the same line again
