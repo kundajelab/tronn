@@ -19,6 +19,7 @@ from scipy.stats import zscore
 
 from tronn.interpretation.networks import get_bed_from_nx_graph
 from tronn.interpretation.networks import stringize_nx_graph
+from tronn.util.h5_utils import AttrKeys
 from tronn.util.pwms import MotifSetManager
 from tronn.util.scripts import setup_run_logs
 from tronn.util.utils import DataKeys
@@ -628,6 +629,14 @@ def merge_synergy_files(
         for key in sorted(out.keys()):
             dataset_final_shape = [num_examples] + list(out[key].shape[1:])
             out[key].resize(dataset_final_shape)
+
+        # and finally copy over pwm names
+        with h5py.File(synergy_file, "r") as hf:
+            out[DataKeys.FEATURES].attrs[AttrKeys.PWM_NAMES] = hf[
+                DataKeys.FEATURES].attrs[AttrKeys.PWM_NAMES]
+            out[DataKeys.MUT_MOTIF_LOGITS].attrs[AttrKeys.PWM_NAMES] = hf[
+                DataKeys.MUT_MOTIF_LOGITS].attrs[AttrKeys.PWM_NAMES]
+        
             
     # copy over aux data
     copy_aux = "cp {}/{}/*txt {}/".format(synergy_dirs[0], grammar_prefix, new_dir)
