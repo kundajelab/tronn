@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Pod
+metadata:
+    name: dk.dev
+spec:
+    containers:
+    - name: vol-container
+      image: dskim89/tronn
+      args: ["sleep", "infinity"]
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+      volumeMounts:
+      - mountPath: /datasets
+        name: datasets
+    restartPolicy: Never
+    volumes:
+    - name: datasets
+      flexVolume:
+        driver: ceph.rook.io/rook
+        fsType: ceph
+        options:
+          fsName: nautilusfs
+          clusterNamespace: rook
+          path: /kundajelab
+          mountUser: kundajelab
+          mountSecret: ceph-fs-secret
