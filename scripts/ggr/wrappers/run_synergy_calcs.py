@@ -11,20 +11,42 @@ import pandas as pd
 def main():
     """run synergy calculations <- separate bc need R and such
     """
-    # params
-    INFER_DIR = sys.argv[1]
-
+    # inputs
+    out_dir = sys.argv[1]
+    grammar_summary_file = sys.argv[2]
+    os.system("mkdir -p {}".format(out_dir))
+    
     # get synergy files
-    synergy_files = glob.glob("{}/*/ggr.synergy.h5".format(INFER_DIR))
+    grammars_df = pd.read_table(grammar_summary_file)
+    synergy_files = []
+    for grammar_idx in range(grammars_df.shape[0]):
+        grammar = grammars_df.iloc[grammar_idx]["filename"]
+        grammar_prefix = os.path.basename(grammar).split(".gml")[0]
+        
+        # get the synergy file
+        synergy_file = glob.glob("synergy*/{}/ggr.synergy.h5".format(grammar_prefix))
+        if len(synergy_file) != 1:
+            print grammar
+        else:
+            synergy_file = synergy_file[0]
+            synergy_files.append(synergy_file)
+
+        # check that it actually exists and is complete
+        try:
+            with h5py.File(synergy_file, "r") as hf:
+                pwm_names = hf["logits.motif_mut"].attrs["pwm_names"]
+        except:
+            print "synergy file not readable/does not exist!"
+                
+    print "total synergy files: {}".format(len(synergy_files))
 
     # other convenience set ups
-    plots_dir = "{}/plots".format(INFER_DIR)
+    plots_dir = "{}/plots".format(out_dir)
     os.system("mkdir -p {}".format(plots_dir))
-    grammars_dir = "{}/grammars.synergy_filt".format(INFER_DIR)
+    grammars_dir = "{}/grammars.synergy_only".format(out_dir)
     os.system("mkdir -p {}".format(grammars_dir))
 
     # go through synergy files
-    print len(synergy_files)
     total = 0
     for synergy_file in synergy_files:
 
@@ -68,7 +90,7 @@ def main():
                 "{}.calc-{}".format(prefix, calculation_idx))
             print calc_synergy
             os.system(calc_synergy)
-
+            
         # cp plots out to separate folder for easy download
         copy_plots = "cp {}/*pdf {}".format(out_dir, plots_dir)
         os.system(copy_plots)

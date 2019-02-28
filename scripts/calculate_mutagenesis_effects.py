@@ -304,8 +304,8 @@ def main():
         with h5py.File(args.synergy_file, "a") as hf:
             if hf.get(max_dist_key) is not None:
                 del hf[max_dist_key]
-            #hf.create_dataset(max_dist_key, data=max_dist)
-            hf.create_dataset(max_dist_key, data=0.)
+            hf.create_dataset(max_dist_key, data=max_dist)
+            #hf.create_dataset(max_dist_key, data=0.)
 
         # analyze pwm score strength
         pwm_strength_key = "pwms.strength.{}".format(run_idx)
@@ -313,12 +313,9 @@ def main():
             if hf.get(pwm_strength_key) is not None:
                 del hf[pwm_strength_key]
             pwm_scores = np.amin(hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT][:,-1], axis=1)
-            print pwm_scores
-            print pwm_scores.shape
             hf.create_dataset(
                 pwm_strength_key,
                 data=pwm_scores)
-        print differential.shape
             
         # plot
         min_dist = 12 # 12
@@ -327,8 +324,8 @@ def main():
             score_key,
             synergy_diffs_key,
             synergy_sig_key,
-            pwm_strength_key,
-            #dist_key,
+            #pwm_strength_key,
+            dist_key,
             max_dist_key,
             out_prefix,
             min_dist)
