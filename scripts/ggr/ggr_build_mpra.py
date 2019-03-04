@@ -16,10 +16,8 @@ import argparse
 
 import numpy as np
 import pandas as pd
-import networkx as nx
 
 from numpy.random import RandomState
-from scipy.stats import zscore
 from tronn.interpretation.combinatorial import setup_combinations
 from tronn.util.scripts import setup_run_logs
 from tronn.util.utils import DataKeys
@@ -46,7 +44,7 @@ class MPRA_PARAMS(object):
 
 
 GGR_LEFT_CLIP = 420
-    
+GGR_RIGHT_CLIP = 580    
 
 def parse_args():
     """parser
@@ -56,14 +54,17 @@ def parse_args():
 
     # required args
     parser.add_argument(
-        "--grammar_summary",
-        help="grammar summary file")
+        "--grammar_summaries", nargs="+",
+        help="grammar summary files (one per run), format as key=file")
     parser.add_argument(
         "--synergy_dirs", nargs="+",
         help="folders where synergy dirs reside")
     parser.add_argument(
         "--barcodes",
         help="file of barcode sequences")
+    parser.add_argument(
+        "--barcodes_per_sequence", default=10, type=int,
+        help="num barcodes to use for each sequence")
     
     # out
     parser.add_argument(
@@ -81,16 +82,12 @@ def is_rs_clean(sequence):
     """check for cut sites, should have NONE
     """
     # cut sites (insert to backbone) should NOT exist
-    if sequence.count(MPRA_PARAMS.RS_ECORI) != 0:
-        return False
-    if sequence.count(MPRA_PARAMS.RS_BAMHI) != 0:
-        return False
+    if sequence.count(MPRA_PARAMS.RS_ECORI) != 0: return False
+    if sequence.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
 
     # cut sites (insert promoter and luc) should NOT exist
-    if sequence.count(MPRA_PARAMS.RS_XHOI) != 0:
-        return False
-    if sequence.count(MPRA_PARAMS.RS_XBAI) != 0:
-        return False
+    if sequence.count(MPRA_PARAMS.RS_XHOI) != 0: return False
+    if sequence.count(MPRA_PARAMS.RS_XBAI) != 0: return False
     
     return True
 
@@ -99,26 +96,18 @@ def is_fragment_compatible(sequence):
     """check fragment for compatibility
     """
     # check for NO cut sites
-    if not is_rs_clean(sequence):
-        return False
+    if not is_rs_clean(sequence): return False
 
     # check again when attaching FWD primer
-    if not is_rs_clean(MPRA_PARAMS.FWD_PCR_PRIMER + sequence):
-        return False
+    if not is_rs_clean(MPRA_PARAMS.FWD_PCR_PRIMER + sequence): return False
 
     # check after attaching XHOI
     fragment_extended = sequence + MPRA_PARAMS.RS_XHOI
-    if fragment_extended.count(MPRA_PARAMS.RS_ECORI) != 0:
-        #logging.info("ecori")
-        return False
-    if fragment_extended.count(MPRA_PARAMS.RS_BAMHI) != 0:
-        #logging.info("bamhi")
-        return False
+    if fragment_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
+    if fragment_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
     
     # check for N
-    if sequence.count("N") != 0:
-        #logging.info("n")
-        return False
+    if sequence.count("N") != 0: return False
     
     return True
     
@@ -127,19 +116,15 @@ def is_barcode_compatible(barcode):
     """check barcode for compatibility
     """
     # check when attaching REV primer
-    if not is_rs_clean(barcode + MPRA_PARAMS.REV_PCR_PRIMER):
-        return False
+    if not is_rs_clean(barcode + MPRA_PARAMS.REV_PCR_PRIMER): return False
 
     # check when attaching XBAI site
     barcode_extended = MPRA_PARAMS.RS_XBAI + barcode
-    if barcode_extended.count(MPRA_PARAMS.RS_XBAI_dam2) != 0:
-        return False
+    if barcode_extended.count(MPRA_PARAMS.RS_XBAI_dam2) != 0: return False
     
     # check overlaps
-    if barcode_extended.count(MPRA_PARAMS.RS_ECORI) != 0:
-        return False
-    if barcode_extended.count(MPRA_PARAMS.RS_BAMHI) != 0:
-        return False
+    if barcode_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
+    if barcode_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
     
     return True
 
@@ -148,19 +133,15 @@ def is_filler_compatible(filler):
     """check if filler is compatible with library design
     """
     # first check cut sites
-    if not is_rs_clean(filler):
-        return False
+    if not is_rs_clean(filler): return False
     
     # check overlaps
     filler_extended = MPRA_PARAMS.RS_XHOI + filler + MPRA_PARAMS.RS_XBAI
-    if filler_extended.count(MPRA_PARAMS.RS_ECORI) != 0:
-        return False
-    if filler_extended.count(MPRA_PARAMS.RS_BAMHI) != 0:
-        return False
+    if filler_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
+    if filler_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
     
     # check methylation
-    if filler_extended.count(MPRA_PARAMS.RS_XBAI_dam1) != 0:
-        return False
+    if filler_extended.count(MPRA_PARAMS.RS_XBAI_dam1) != 0: return False
         
     return True
 
@@ -169,10 +150,11 @@ def generate_compatible_filler(rand_seed):
     """generate filler sequence and check methylation
     """
     while True:
-        rand_state = RandomState(rand_seed)
         # generate random sequence
+        rand_state = RandomState(rand_seed)
         random_seq = rand_state.choice(
-            MPRA_PARAMS.LETTERS, size=MPRA_PARAMS.LEN_FILLER)
+            MPRA_PARAMS.LETTERS,
+            size=MPRA_PARAMS.LEN_FILLER)
         random_seq = "".join(random_seq)
         
         # if passes checks then break
@@ -182,7 +164,7 @@ def generate_compatible_filler(rand_seed):
         # otherwise change the seed and keep going
         rand_seed += 1
 
-    # and move up one more
+    # and move up one more (for next filler)
     rand_seed += 1
         
     return random_seq, rand_seed
@@ -224,11 +206,16 @@ def is_sequence_mpra_ready(sequence):
 def trim_sequence_for_mpra(sequence, edge_indices):
     """trim sequence to fit in library
     """
+    # get min possible len that contains motifs and check less than max possible len
     motif_padding_len = 10
     frag_minimal_len = edge_indices[1] - edge_indices[0] + (motif_padding_len * 2)
+    assert frag_minimal_len < MPRA_PARAMS.MAX_FRAG_LEN
+
+    # add padding and adjust start/stop
     extra_padding = int((MPRA_PARAMS.MAX_FRAG_LEN - frag_minimal_len) / 2.)
     start_position = edge_indices[0] - motif_padding_len - extra_padding
     end_position = start_position + MPRA_PARAMS.MAX_FRAG_LEN
+    
     if start_position < 0:
         # if closer to start, trim off the back only
         sequence = sequence[:MPRA_PARAMS.MAX_FRAG_LEN]
@@ -239,7 +226,7 @@ def trim_sequence_for_mpra(sequence, edge_indices):
         # in the middle, trim equally
         sequence = sequence[start_position:]
         sequence = sequence[:MPRA_PARAMS.MAX_FRAG_LEN]
-
+        
     # check
     assert len(sequence) == MPRA_PARAMS.MAX_FRAG_LEN, edge_indices
         
@@ -249,10 +236,6 @@ def trim_sequence_for_mpra(sequence, edge_indices):
 def build_mpra_sequence(sequence, barcode, rand_seed, log):
     """attach on relevant sequence info
     """
-    if not is_fragment_compatible(sequence):
-        import ipdb
-        ipdb.set_trace()
-    
     assert is_fragment_compatible(sequence)
     assert is_barcode_compatible(barcode)
     
@@ -270,11 +253,6 @@ def build_mpra_sequence(sequence, barcode, rand_seed, log):
     # attach reverse primer
     sequence += MPRA_PARAMS.REV_PCR_PRIMER
 
-    #print rand_seed, barcode, filler
-    if not is_sequence_mpra_ready(sequence):
-        import ipdb
-        ipdb.set_trace()
-    
     # sanity check
     assert is_sequence_mpra_ready(sequence), log
     
@@ -287,13 +265,24 @@ def seq_list_compatible(seq_list, left_clip=420, right_clip=580):
     for seq in seq_list:
         if not is_fragment_compatible(seq[420:580]):
             return False
+        if len(seq[42:580]) == 0:
+            return False
         
     return True
 
 
-def save_sequences(h5_file, indices, left_clip=420, right_clip=580, prefix="id"):
+def extract_sequence_info(h5_file, examples, left_clip=420, right_clip=580, prefix="id"):
     """save sequences to a df
     """
+    if "ggr.TRAJ_LABELS-3-4.grammar-33.annot-336" in h5_file:
+        import ipdb
+        ipdb.set_trace()
+        
+    # adjust indices for specific file
+    with h5py.File(h5_file, "r") as hf:
+        indices = np.where(np.isin(hf[DataKeys.SEQ_METADATA][:,0], examples))[0]
+    assert indices.shape[0] == examples.shape[0]
+        
     keys = [
         "{}.0".format(DataKeys.SYNERGY_DIFF_SIG),
         "{}.0".format(DataKeys.SYNERGY_DIST),
@@ -307,6 +296,17 @@ def save_sequences(h5_file, indices, left_clip=420, right_clip=580, prefix="id")
         DataKeys.GC_CONTENT,
         "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)]
 
+    
+    if "ggr.TRAJ_LABELS-3-4.grammar-33.annot-336" in h5_file:
+        for key in keys:
+            with h5py.File(h5_file, "r") as hf:
+                print hf[key][:]
+        
+            import ipdb
+            ipdb.set_trace()
+        
+        
+    
     # first get reshape params
     num_sequences = indices.shape[0]
     with h5py.File(h5_file, "r") as hf:
@@ -342,7 +342,8 @@ def save_sequences(h5_file, indices, left_clip=420, right_clip=580, prefix="id")
             # create dataframe
             key_df = pd.DataFrame(key_results)
             if key_df.shape[1] > 1:
-                key_df = pd.DataFrame({key:key_df.astype(str).apply(",".join, axis=1)})
+                key_df = pd.DataFrame(
+                    {key:key_df.astype(str).apply(",".join, axis=1)})
             else:
                 key_df.columns = [key]
                 
@@ -362,6 +363,10 @@ def save_sequences(h5_file, indices, left_clip=420, right_clip=580, prefix="id")
         min_pos = np.reshape(min_pos, [-1])
         all_results["edge_indices"] = pd.DataFrame(
             np.stack([min_pos, max_pos], axis=1) - GGR_LEFT_CLIP).astype(str).apply(",".join, axis=1)
+        
+    if "ggr.TRAJ_LABELS-3-4.grammar-33.annot-336" in h5_file:
+        import ipdb
+        ipdb.set_trace()
                 
     # adjust sequence
     all_results.insert(
@@ -388,150 +393,306 @@ def save_sequences(h5_file, indices, left_clip=420, right_clip=580, prefix="id")
         0, "example_id",
         prefix + "." + all_results["example_fileidx"].astype(str))
     
-    # set up a unique id
+    # set up a combo id
     all_results.insert(
-        0, "unique_id",
-        prefix + "." + all_results["example_fileidx"].astype(str) + "." + all_results["combos"].str.replace(",", ""))
+        0, "example_combo_id",
+        prefix + "." + all_results["example_fileidx"].astype(str) + ".combo-" + all_results["combos"].str.replace(",", ""))
 
     return all_results
 
 
-def extract_sequences(args):
+def get_synergy_file(synergy_dirs, grammar_prefix):
+    """get synergy file
+    """
+    synergy_files = []
+    for synergy_dir in synergy_dirs:
+        synergy_file = "{}/{}/ggr.synergy.h5".format(synergy_dir, grammar_prefix)
+        if os.path.isfile(synergy_file):
+            synergy_files.append(synergy_file)
+    assert len(synergy_files) == 1
+    synergy_file = synergy_files[0]
+
+    return synergy_file
+
+
+def get_compatible_sequence_indices(sequences):
+    """get indices of MPRA compatible sequences
+    """
+    compatible = []
+    for seq_idx in range(sequences.shape[0]):
+        if seq_list_compatible(sequences[seq_idx].squeeze().tolist()):
+            compatible.append(seq_idx)
+
+    return compatible
+
+
+def get_consensus_sequences_across_runs(synergy_files):
+    """compare synergy files
+    """
+    for file_idx in range(len(synergy_files)):
+        with h5py.File(synergy_files[file_idx]) as hf:
+            sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
+            examples = hf[DataKeys.SEQ_METADATA][:,0]
+
+        # only keep compatible
+        compatible_indices = get_compatible_sequence_indices(sequences)
+        examples = set(examples[compatible_indices].tolist())
+        if file_idx == 0:
+            consensus = examples
+        else:
+            consensus = consensus.intersection(examples)
+
+    return sorted(list(consensus))
+
+
+def string_arrays_equal(a, b):
+    """not yet implemented in numpy??
+    """
+    for i in range(a.shape[0]):
+        if a[i] != b[i]:
+            return False
+
+    return True
+
+
+def get_sampling_info_across_runs(synergy_files, examples):
+    """collect information needed for guided sampling
+    """
+    for file_idx in range(len(synergy_files)):
+        synergy_file = synergy_files[file_idx]
+        with h5py.File(synergy_file, "r") as hf:
+            # set up indices
+            file_indices = np.where(np.isin(hf[DataKeys.SEQ_METADATA][:,0], examples))[0]
+            assert file_indices.shape[0] == len(examples), "{}, {}".format(file_indices.shape[0], len(examples))
+
+            # get examples
+            file_metadata = hf[DataKeys.SEQ_METADATA][:,0][file_indices]
+            sort_indices = np.argsort(file_metadata, axis=0)
+
+            # sort on examples
+            file_metadata = file_metadata[sort_indices]
+            file_distances = hf["{}.0".format(DataKeys.SYNERGY_DIST)][:][file_indices][sort_indices] # {N}
+            file_diffs_sig = hf["{}.0".format(DataKeys.SYNERGY_DIFF_SIG)][:][file_indices][sort_indices] # {N, logit}
+            file_max_dist = hf["{}.0".format(DataKeys.SYNERGY_MAX_DIST)][()]
+            file_motif_positions = hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:][file_indices][sort_indices][:,-1]
+            max_pos = np.amax(file_motif_positions, axis=1)
+            min_pos = np.amin(file_motif_positions, axis=1)
+            file_grammar_centers = min_pos + np.divide(np.subtract(max_pos, min_pos), 2.) - GGR_LEFT_CLIP
+            
+        # merge
+        if file_idx == 0:
+            sampling_info = {
+                "examples": file_metadata,
+                "distances": file_distances,
+                "centers": file_grammar_centers,
+                "diff_sig": [file_diffs_sig],
+                "max_dist": [file_max_dist]}
+        else:
+            assert string_arrays_equal(sampling_info["examples"], file_metadata)
+            sampling_info["diff_sig"].append(file_diffs_sig)
+            sampling_info["max_dist"].append(file_max_dist)
+
+    # finally calculate means
+    sampling_info["diff_sig"] = np.mean(sampling_info["diff_sig"], axis=0)
+    sampling_info["max_dist"] = np.mean(sampling_info["max_dist"], axis=0)
+    
+    return sampling_info
+
+
+def minimize_overlapping(sampling_info):
+    """reduce ones that come from same region
+    
+    TODO note that same region can contain the instance MORE THAN ONCE - fine tune this
+
+    """
+    # make a df to easily manipulate
+    reduce_df = pd.DataFrame(
+        {"examples": sampling_info["examples"]})
+    reduce_df = reduce_df["examples"].str.split(";", 3, expand=True)
+    reduce_df["centers"] = np.abs(
+        sampling_info["centers"] - ((GGR_RIGHT_CLIP - GGR_LEFT_CLIP) / 2))
+    reduce_df["orig_indices"] = list(reduce_df.index)
+    
+    # get common regions
+    regions = sorted(list(set(reduce_df.iloc[:,0].values.tolist())))
+
+    # for each region, choose most centered
+    best_indices = []
+    for region in regions:
+        region_set = reduce_df[reduce_df.iloc[:,0] == region]
+        if region_set.shape[0] > 1:
+            best_region_rowname = region_set["centers"].idxmin()
+            best_indices.append(region_set.loc[best_region_rowname, "orig_indices"])
+        else:
+            best_indices.append(region_set.iloc[0]["orig_indices"])
+
+    # and now reduce
+    for key in sampling_info:
+        if key == "max_dist":
+            continue
+        sampling_info[key] = sampling_info[key][best_indices]
+    
+    return sampling_info
+
+
+def get_diff_sample(sampling_info, sample_num):
+    """get differential group of regions
+    do this by starting with strictest threshold and gradually
+    loosening - this ensures you get a sample of diff seqs 
+    that are most diff. note that this is not effect size.
+    """
+    diffs_sig = sampling_info["diff_sig"] # {N, logit}
+    min_diff = diffs_sig.shape[1]
+    num_tasks_diff = np.sum(diffs_sig, axis=1)
+    while True:
+        diff_bool = np.greater_equal(num_tasks_diff, min_diff) # {N}
+        diff_indices = np.where(diff_bool)[0]
+        try:
+            diff_sample_indices = diff_indices[
+                np.random.choice(
+                    diff_indices.shape[0],
+                    sample_num,
+                    replace=False)]
+            break
+        except ValueError:
+            min_diff -= 1
+
+        if min_diff == 0:
+            diff_sample_indices = diff_indices
+            break
+
+    # convert from indices to example metadata
+    diff_sample = sampling_info["examples"][diff_sample_indices]
+    
+    return diff_sample, diff_bool
+
+
+def get_nondiff_proximal_sample(sampling_info, sample_num, diff_bool, min_dist=12):
+    """get nondiff proximal examples
+    """
+    # get nondiff proximal indices
+    distances = sampling_info["distances"]
+    nondiff = np.logical_not(diff_bool) # {N}
+    nondiff_bool = np.logical_and(nondiff, distances < sampling_info["max_dist"])
+    nondiff_bool = np.logical_and(nondiff_bool, distances > min_dist)
+    nondiff_indices = np.where(nondiff_bool)[0]
+
+    # sample
+    try:
+        nondiff_sample_indices = nondiff_indices[
+            np.random.choice(
+                nondiff_indices.shape[0],
+                sample_num,
+                replace=False)]
+    except ValueError:
+        nondiff_sample_indices = nondiff_indices
+
+    # convert from indices to example metadata
+    nondiff_sample = sampling_info["examples"][nondiff_sample_indices]
+        
+    return nondiff_sample
+
+
+def get_nondiff_distal_sample(sampling_info, sample_num, diff_bool):
+    """get nondiff proximal examples
+    """
+    # get nondiff distal indices
+    distances = sampling_info["distances"]
+    nondiff = np.logical_not(diff_bool) # {N}
+    nondiff_bool = np.logical_and(nondiff, distances > sampling_info["max_dist"])
+    nondiff_indices = np.where(nondiff_bool)[0]
+
+    # sample
+    try:
+        nondiff_sample_indices = nondiff_indices[
+            np.random.choice(
+                nondiff_indices.shape[0],
+                sample_num,
+                replace=False)]
+    except ValueError:
+        nondiff_sample_indices = nondiff_indices
+
+    # convert from indices to example metadata
+    nondiff_sample = sampling_info["examples"][nondiff_sample_indices]
+        
+    return nondiff_sample
+
+
+def sample_sequences(summary_df, num_runs):
     """sample sequences
     """
-    diff_sample_num = 8
-    nondiff_proximal_sample_num = 4
-    nondiff_distal_sample_num = 4
-    
-    grammar_summary = pd.read_table(args.grammar_summary, index_col=0)
+    diff_sample_num = 6
+    nondiff_proximal_sample_num = 3
+    nondiff_distal_sample_num = 3
+    total_sample_num = diff_sample_num + nondiff_proximal_sample_num + nondiff_distal_sample_num
+    min_dist = 12
 
-    for grammar_idx in range(grammar_summary.shape[0]):
+    mpra_runs = [None]*num_runs
+    for grammar_idx in range(summary_df.shape[0]):
+        print grammar_idx
         # set seed each time you run a new grammar
         np_seed = np.random.seed(1337)
-        grammar_file = grammar_summary.iloc[grammar_idx]["filename"]
         
-        # get synergy file
-        grammar_prefix = os.path.basename(grammar_file).split(".gml")[0]
-        synergy_files = []
-        for synergy_dir in args.synergy_dirs:
-            synergy_file = "{}/{}/ggr.synergy.h5".format(synergy_dir, grammar_prefix)
-            if os.path.isfile(synergy_file):
-                synergy_files.append(synergy_file)
-        assert len(synergy_files) == 1
-        synergy_file = synergy_files[0]
-        synergy_pwm_names_file = "{}/ggr.synergy.pwms.order.txt".format(
-            os.path.dirname(synergy_file))
-        assert os.path.isfile(synergy_pwm_names_file)
-        #print grammar_idx, synergy_file
+        # pull out list of synergy files
+        synergy_files = summary_df["combined"].iloc[grammar_idx]
+    
+        # get consensus examples across the files
+        seq_metadata = get_consensus_sequences_across_runs(synergy_files)
         
-        # open synergy file to subsample sequences
-        try:
-            with h5py.File(synergy_file, "r") as hf:
-                # extract
-                sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
-                distances = hf["{}.0".format(DataKeys.SYNERGY_DIST)][:] # {N}
-                diffs_sig = hf["{}.0".format(DataKeys.SYNERGY_DIFF_SIG)][:] # {N, logit}
-                max_dist = hf["{}.0".format(DataKeys.SYNERGY_MAX_DIST)][()]
-        except IOError:
+        # collect relevant info for guided sampling
+        sampling_info = get_sampling_info_across_runs(synergy_files, seq_metadata)
+        
+        # reduce out overlapping (NOTE: this may be over strict!)
+        sampling_info = minimize_overlapping(sampling_info)
+        
+        # get diff sample
+        diff_sample, diff_bool = get_diff_sample(sampling_info, diff_sample_num)
+        if diff_sample.shape[0] < (diff_sample_num / 2.):
+            logging.info("skipping because too few diff seqs: {}".format(diff_sample.shape[0]))
             continue
-            
-        # get diff
-        min_diff = diffs_sig.shape[1]
-        num_tasks_diff = np.sum(diffs_sig, axis=1)
-        while True:
-            diffs_sig = np.greater_equal(num_tasks_diff, min_diff) # {N}
-            diff_indices = np.where(diffs_sig)[0]
-            diff_indices = np.array([
-                idx for idx in diff_indices
-                if seq_list_compatible(sequences[idx].squeeze().tolist())])
-            try:
-                diff_sample_indices = diff_indices[
-                    np.random.choice(diff_indices.shape[0], diff_sample_num, replace=False)]
-                break
-            except ValueError:
-                min_diff -= 1
 
-            if min_diff == 0:
-                diff_sample_indices = diff_indices
+        # get nondiff proximal
+        nondiff_proximal_sample = get_nondiff_proximal_sample(
+            sampling_info, nondiff_proximal_sample_num, diff_bool)
+        if nondiff_proximal_sample.shape[0] < (nondiff_proximal_sample_num / 2.):
+            logging.info("skipping because too few nondiff proximal seqs: {}".format(nondiff_proximal_sample.shape[0]))
+            continue
 
-        if diff_sample_indices.shape[0] == 0:
-            # if no diff sequences, continue
-            logging.info("skipping because no differential seqs that are compatible")
+        # get nondiff distal
+        nondiff_distal_sample = get_nondiff_distal_sample(
+            sampling_info, nondiff_distal_sample_num, diff_bool)
+        if nondiff_distal_sample.shape[0] < (nondiff_distal_sample_num / 2.):
+            logging.info("skipping because too few nondiff distal seqs: {}".format(nondiff_distal_sample.shape[0]))
             continue
-        
-        diff_bool = np.zeros(distances.shape)
-        diff_bool[diff_sample_indices] = 1
-        
-        # get nondiff, less than dist
-        # TODO give a min dist (to prevent choosing ones that overlap)
-        nondiff = np.logical_not(diffs_sig) # {N}
-        nondiff_proximal_indices = np.where(np.logical_and(nondiff, distances < max_dist))[0]
-        nondiff_proximal_indices = np.array([
-            idx for idx in nondiff_proximal_indices
-            if seq_list_compatible(sequences[idx].squeeze().tolist())])
-        try:
-            nondiff_proximal_sample_indices = nondiff_proximal_indices[
-                np.random.choice(nondiff_proximal_indices.shape[0], nondiff_proximal_sample_num, replace=False)]
-        except ValueError:
-            nondiff_proximal_sample_indices = nondiff_proximal_indices
-        if nondiff_proximal_sample_indices.shape[0] == 0:
-            # no nondiff sequences
-            logging.info("skipping because no control seqs that are compatible")
-            continue
-        nondiff_proximal_bool = np.zeros(distances.shape)
-        nondiff_proximal_bool[nondiff_proximal_sample_indices] = 1
-        
-        # get nondiff, greater than dist
-        nondiff_distal_indices = np.where(np.logical_and(nondiff, distances >= max_dist))[0]
-        nondiff_distal_indices = np.array([
-            idx for idx in nondiff_distal_indices
-            if seq_list_compatible(sequences[idx].squeeze().tolist())])
-        try:
-            nondiff_distal_sample_indices = nondiff_distal_indices[
-                np.random.choice(nondiff_distal_indices.shape[0], nondiff_distal_sample_num, replace=False)]
-        except ValueError:
-            nondiff_distal_sample_indices = nondiff_distal_indices
-        if nondiff_distal_sample_indices.shape[0] == 0:
-            logging.info("skipping because no control seqs that are compatible")
-            # no nondiff sequences
-            continue
-        nondiff_distal_bool = np.zeros(distances.shape)
-        nondiff_distal_bool[nondiff_distal_sample_indices] = 1
 
-        # and mark out the ones chosen in the synergy file
-        all_sample_indices = np.concatenate(
-            [diff_sample_indices,
-             nondiff_proximal_sample_indices,
-             nondiff_distal_sample_indices], axis=0)
-        all_bool = np.zeros(distances.shape)
-        all_bool[all_sample_indices] = 1
-        if np.sum(all_bool) < 10:
-            logging.info("skipping because not enough sequences of interest")
+        # collect all
+        full_sample = np.concatenate(
+            [diff_sample,
+             nondiff_proximal_sample,
+             nondiff_distal_sample], axis=0)
+        if full_sample.shape[0] < (total_sample_num / 2.):
+            logging.info("skipping because not enough sequences of interest: {}".format(full_sample.shape[0]))
             continue
-        
-        mpra_sample_df = save_sequences(synergy_file, all_sample_indices, prefix=grammar_prefix)
-        
-        if False:
-            # and can plot out here
-            out_prefix = "{}/{}".format(args.out_dir, synergy_dir)
-            plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {} {}".format(
-                synergy_file,
-                DataKeys.SYNERGY_SCORES,
-                DataKeys.SYNERGY_DIFF,
-                DataKeys.SYNERGY_DIFF_SIG,
-                DataKeys.SYNERGY_DIST,
-                DataKeys.SYNERGY_MAX_DIST,
-                out_prefix,
-                "mpra.sample.all")
-            print plot_cmd
-            os.system(plot_cmd)
+
+        # and now extract
+        grammar_info_per_run = []
+        for synergy_file in synergy_files:
+            grammar_prefix = synergy_file.split("/")[-2]
+            mpra_sample_df = extract_sequence_info(
+                synergy_file, full_sample, prefix=grammar_prefix)
+            grammar_info_per_run.append(mpra_sample_df)
 
         # concatenate
-        if grammar_idx == 0:
-            mpra_all_df = mpra_sample_df
+        if mpra_runs[0] is None:
+            mpra_runs = grammar_info_per_run
         else:
-            mpra_all_df = pd.concat([mpra_all_df, mpra_sample_df])
+            for mpra_run_idx in range(len(mpra_runs)):
+                mpra_runs[mpra_run_idx] = pd.concat([mpra_runs[mpra_run_idx], grammar_info_per_run[mpra_run_idx]])
+
+    return mpra_runs
+
             
+def build_mpra(args, mpra_all_df, run_idx):
     # adjust for MPRA
     # get barcodes and shuffle
     rand_state = RandomState(42)
@@ -544,54 +705,112 @@ def extract_sequences(args):
     rand_seed = 0
     logging.info("adjusting {} sequences".format(mpra_all_df.shape[0]))
     incompatible = []
+    mpra_expanded_df = None
     for seq_idx in range(mpra_all_df.shape[0]):
-        example_id = mpra_all_df.iloc[seq_idx]["example_id"]
         if seq_idx % 1000 == 0:
             print seq_idx
-        sequence = mpra_all_df.iloc[seq_idx]["sequence.nn"]
+
+        # get the whole row out
+        seq_info = pd.DataFrame(mpra_all_df.iloc[seq_idx]).transpose()
+        example_id = seq_info.iloc[0]["example_id"]
+        sequence = seq_info.iloc[0]["sequence.nn"]
         edge_indices = [
-            int(float(val)) for val in mpra_all_df.iloc[seq_idx]["edge_indices"].split(",")]
-        while True:
-            barcode = barcodes[barcode_idx]
-            if is_barcode_compatible(barcode):
-                break
-            barcode_idx += 1
-        barcode_idx += 1
+            int(float(val)) for val in seq_info.iloc[0]["edge_indices"].split(",")]
+
+        # trim, if trimming doesn't work add to incompatible
         try:
             sequence = trim_sequence_for_mpra(sequence, edge_indices)
         except AssertionError:
             incompatible.append(example_id)
+            continue
             
         # after trimming, you reintroduce opportunities for the fragment to be wrong
         if not is_fragment_compatible(sequence):
             incompatible.append(example_id)
-            mpra_sequences.append("NNNNN")
             continue
         
-        mpra_sequence, rand_seed = build_mpra_sequence(sequence, barcode, rand_seed, seq_idx)
-        mpra_sequences.append(mpra_sequence)
+        # generate with barcodes
+        for barcode_idx in range(args.barcodes_per_sequence):
+            # set up copy
+            barcoded_info = seq_info.copy()
 
-    mpra_all_df.insert(
-        2, "sequence.mpra", mpra_sequences)
+            # adjust the unique id
+            barcoded_info.insert(0, "unique_id", "{}.barcode-{}".format(
+                barcoded_info.iloc[0]["example_combo_id"], barcode_idx))
+            
+            # get a barcode
+            while True:
+                barcode = barcodes[barcode_idx]
+                if is_barcode_compatible(barcode):
+                    break
+                barcode_idx += 1
+            barcode_idx += 1
+
+            # build sequence and add in
+            mpra_sequence, rand_seed = build_mpra_sequence(sequence, barcode, rand_seed, seq_idx)
+            barcoded_info.insert(1, "sequence.mpra", mpra_sequence)
+            
+            # add on to full set
+            if mpra_expanded_df is None:
+                mpra_expanded_df = barcoded_info
+            else:
+                mpra_expanded_df = pd.concat([mpra_expanded_df, barcoded_info])
+
     print len(incompatible)
 
     # drop incompatible
-    print mpra_all_df.shape
-    mpra_all_df = mpra_all_df[~mpra_all_df["example_id"].isin(incompatible)]
-    print mpra_all_df.shape
+    print mpra_expanded_df.shape
+    mpra_expanded_df = mpra_expanded_df[~mpra_expanded_df["example_id"].isin(incompatible)]
+    print mpra_expanded_df.shape
 
     if True:
         # look at duplicates
-        print len(set(mpra_all_df["example_id"].values.tolist()))
-        print len(mpra_all_df["example_metadata"].values.tolist())
-        print len(set(mpra_all_df["example_metadata"].values.tolist()))
-        print len(mpra_all_df["sequence.mpra"].values.tolist())
-        print len(set(mpra_all_df["sequence.mpra"].values.tolist()))
+        print len(set(mpra_expanded_df["example_id"].values.tolist()))
+        print len(mpra_expanded_df["example_metadata"].values.tolist())
+        print len(set(mpra_expanded_df["example_metadata"].values.tolist()))
+        print len(mpra_expanded_df["sequence.nn"].values.tolist())
+        print len(set(mpra_expanded_df["sequence.nn"].values.tolist()))
     
     # finally save out
-    mpra_all_df.to_csv("{}/mpra.seqs.txt".format(args.out_dir), sep="\t")
+    mpra_expanded_df.to_csv("{}/mpra.seqs.run-{}.txt".format(args.out_dir, run_idx), sep="\t")
     
     return None
+
+
+def build_consensus_file_sets(grammar_summaries, synergy_dirs):
+    """take the grammar sets and build consensus sets
+    """
+    # merge the summaries
+    for summary_idx in range(len(grammar_summaries)):
+        run, summary_file = grammar_summaries[summary_idx]
+        summary_df = pd.read_table(summary_file)
+        summary_df = summary_df[["nodes", "filename"]]
+        summary_df.columns = ["nodes", run]
+        summary_df = summary_df.set_index("nodes")
+        if summary_idx == 0:
+            all_summaries = summary_df
+            num_grammars = summary_df.shape[0]
+        else:
+            all_summaries = all_summaries.merge(summary_df, left_index=True, right_index=True)
+            assert num_grammars == summary_df.shape[0]
+            
+    # convert the grammar files to the synergy files
+    for run, _ in grammar_summaries:
+        for grammar_idx in range(all_summaries.shape[0]):
+            df_index = all_summaries.index[grammar_idx]
+            grammar_file = all_summaries.iloc[grammar_idx][run]
+            grammar_prefix = os.path.basename(grammar_file).split(".gml")[0]
+            run_dirs = [synergy_dir for synergy_dir in synergy_dirs
+                        if run in synergy_dir]
+            synergy_file = get_synergy_file(run_dirs, grammar_prefix)
+            all_summaries.loc[df_index,run] = synergy_file
+
+    # TODO check synergy files, make sure all are valid
+            
+    # make into list
+    all_summaries["combined"] = all_summaries.values.tolist()
+            
+    return all_summaries
 
 
 def main():
@@ -602,9 +821,20 @@ def main():
     # make sure out dir exists
     os.system("mkdir -p {}".format(args.out_dir))
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
+
+    # set up grammar summaries
+    args.grammar_summaries = [tuple(val.split("=")) for val in args.grammar_summaries]
+    summary_df = build_consensus_file_sets(args.grammar_summaries, args.synergy_dirs)
     
-    # make sure reproducible
-    extract_sequences(args)
+    # now sample using consensus
+    mpra_runs = sample_sequences(summary_df, len(args.grammar_summaries))
+
+    # for each run, build mpra
+    for mpra_run_idx in range(len(mpra_runs)):
+        build_mpra(args, mpra_runs[mpra_run_idx], mpra_run_idx)
+        quit()
+
+    # TODO adjust to drop hypotheses that are not well represented
     
     return None
 
