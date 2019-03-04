@@ -52,7 +52,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="annotate grammars with functions")
 
-    # required args
+    # inputs
     parser.add_argument(
         "--grammar_summaries", nargs="+",
         help="grammar summary files (one per run), format as key=file")
@@ -65,6 +65,9 @@ def parse_args():
     parser.add_argument(
         "--barcodes_per_sequence", default=10, type=int,
         help="num barcodes to use for each sequence")
+    parser.add_argument(
+        "--sample_regions",
+        help="BED file of regions from which to sample (constraint)")
     
     # out
     parser.add_argument(
@@ -265,7 +268,7 @@ def seq_list_compatible(seq_list, left_clip=420, right_clip=580):
     for seq in seq_list:
         if not is_fragment_compatible(seq[420:580]):
             return False
-        if len(seq[42:580]) == 0:
+        if len(seq[420:580]) == 0:
             return False
         
     return True
@@ -274,10 +277,6 @@ def seq_list_compatible(seq_list, left_clip=420, right_clip=580):
 def extract_sequence_info(h5_file, examples, left_clip=420, right_clip=580, prefix="id"):
     """save sequences to a df
     """
-    if "ggr.TRAJ_LABELS-3-4.grammar-33.annot-336" in h5_file:
-        import ipdb
-        ipdb.set_trace()
-        
     # adjust indices for specific file
     with h5py.File(h5_file, "r") as hf:
         indices = np.where(np.isin(hf[DataKeys.SEQ_METADATA][:,0], examples))[0]
@@ -295,17 +294,6 @@ def extract_sequence_info(h5_file, examples, left_clip=420, right_clip=580, pref
         DataKeys.LOGITS_NORM,
         DataKeys.GC_CONTENT,
         "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)]
-
-    
-    if "ggr.TRAJ_LABELS-3-4.grammar-33.annot-336" in h5_file:
-        for key in keys:
-            with h5py.File(h5_file, "r") as hf:
-                print hf[key][:]
-        
-            import ipdb
-            ipdb.set_trace()
-        
-        
     
     # first get reshape params
     num_sequences = indices.shape[0]
@@ -363,10 +351,6 @@ def extract_sequence_info(h5_file, examples, left_clip=420, right_clip=580, pref
         min_pos = np.reshape(min_pos, [-1])
         all_results["edge_indices"] = pd.DataFrame(
             np.stack([min_pos, max_pos], axis=1) - GGR_LEFT_CLIP).astype(str).apply(",".join, axis=1)
-        
-    if "ggr.TRAJ_LABELS-3-4.grammar-33.annot-336" in h5_file:
-        import ipdb
-        ipdb.set_trace()
                 
     # adjust sequence
     all_results.insert(
@@ -535,6 +519,45 @@ def minimize_overlapping(sampling_info):
     return sampling_info
 
 
+def filter_for_region_set(sampling_info, sample_regions_file):
+    """given a sample regions file, only keep regions that fall into those regions
+    """
+    # get regions and make a BED file. KEEP ORDER
+    filter_df = pd.DataFrame(
+        {"examples": sampling_info["examples"]})
+    filter_df = filter_df["examples"].str.split(";", 3, expand=True).iloc[:,1]
+    filter_df = filter_df.str.split("=", 2, expand=True).iloc[:,1]
+    filter_df = filter_df.str.split(":", 2, expand=True)
+    chrom = filter_df.iloc[:,0]
+    filter_df = filter_df.iloc[:,1].str.split("-", 2, expand=True)
+    filter_df.insert(0, "chrom", chrom)
+    
+    # make bed file, overlap, return dataframe of results
+    tmp_bed = "sampling.bed.gz"
+    filter_df.to_csv(tmp_bed, sep="\t", header=False, index=False, compression="gzip")
+
+    # overlap
+    tmp_overlap_bed = "sampling.overlap.bed.gz"
+    intersect = "bedtools intersect -c -a {} -b {} | gzip -c > {}".format(
+        tmp_bed, sample_regions_file, tmp_overlap_bed)
+    os.system(intersect)
+
+    # read back in
+    filter_df = pd.read_table(tmp_overlap_bed, header=None, index_col=False)
+
+    # and then filter on this
+    keep_indices = np.where(filter_df.iloc[:,3] == 1)[0]
+    for key in sampling_info:
+        if key == "max_dist":
+            continue
+        sampling_info[key] = sampling_info[key][keep_indices]
+
+    # and clean up tmp files
+    os.system("rm {} {}".format(tmp_bed, tmp_overlap_bed))
+    
+    return sampling_info
+
+
 def get_diff_sample(sampling_info, sample_num):
     """get differential group of regions
     do this by starting with strictest threshold and gradually
@@ -618,18 +641,17 @@ def get_nondiff_distal_sample(sampling_info, sample_num, diff_bool):
     return nondiff_sample
 
 
-def sample_sequences(summary_df, num_runs):
+def sample_sequences(summary_df, num_runs, sample_regions_file=None):
     """sample sequences
     """
-    diff_sample_num = 6
-    nondiff_proximal_sample_num = 3
-    nondiff_distal_sample_num = 3
+    diff_sample_num = 10
+    nondiff_proximal_sample_num = 5
+    nondiff_distal_sample_num = 5
     total_sample_num = diff_sample_num + nondiff_proximal_sample_num + nondiff_distal_sample_num
     min_dist = 12
 
     mpra_runs = [None]*num_runs
     for grammar_idx in range(summary_df.shape[0]):
-        print grammar_idx
         # set seed each time you run a new grammar
         np_seed = np.random.seed(1337)
         
@@ -644,25 +666,29 @@ def sample_sequences(summary_df, num_runs):
         
         # reduce out overlapping (NOTE: this may be over strict!)
         sampling_info = minimize_overlapping(sampling_info)
+
+        # TODO this is where you would reduce possible sequences for those that are in important regions
+        if sample_regions_file is not None:
+            sampling_info = filter_for_region_set(sampling_info, sample_regions_file)
         
         # get diff sample
         diff_sample, diff_bool = get_diff_sample(sampling_info, diff_sample_num)
         if diff_sample.shape[0] < (diff_sample_num / 2.):
-            logging.info("skipping because too few diff seqs: {}".format(diff_sample.shape[0]))
+            logging.info("{}: skipping because too few diff seqs: {}".format(grammar_idx, diff_sample.shape[0]))
             continue
 
         # get nondiff proximal
         nondiff_proximal_sample = get_nondiff_proximal_sample(
             sampling_info, nondiff_proximal_sample_num, diff_bool)
         if nondiff_proximal_sample.shape[0] < (nondiff_proximal_sample_num / 2.):
-            logging.info("skipping because too few nondiff proximal seqs: {}".format(nondiff_proximal_sample.shape[0]))
+            logging.info("{}: skipping because too few nondiff proximal seqs: {}".format(grammar_idx, nondiff_proximal_sample.shape[0]))
             continue
 
         # get nondiff distal
         nondiff_distal_sample = get_nondiff_distal_sample(
             sampling_info, nondiff_distal_sample_num, diff_bool)
         if nondiff_distal_sample.shape[0] < (nondiff_distal_sample_num / 2.):
-            logging.info("skipping because too few nondiff distal seqs: {}".format(nondiff_distal_sample.shape[0]))
+            logging.info("{}: skipping because too few nondiff distal seqs: {}".format(grammar_idx, nondiff_distal_sample.shape[0]))
             continue
 
         # collect all
@@ -671,9 +697,10 @@ def sample_sequences(summary_df, num_runs):
              nondiff_proximal_sample,
              nondiff_distal_sample], axis=0)
         if full_sample.shape[0] < (total_sample_num / 2.):
-            logging.info("skipping because not enough sequences of interest: {}".format(full_sample.shape[0]))
+            logging.info("{}: skipping because not enough sequences of interest: {}".format(grammar_idx, full_sample.shape[0]))
             continue
-
+        logging.info("{}: sampled {}".format(grammar_idx, full_sample.shape[0]))
+        
         # and now extract
         grammar_info_per_run = []
         for synergy_file in synergy_files:
@@ -693,6 +720,8 @@ def sample_sequences(summary_df, num_runs):
 
             
 def build_mpra(args, mpra_all_df, run_idx):
+    """build mpra
+    """
     # adjust for MPRA
     # get barcodes and shuffle
     rand_state = RandomState(42)
@@ -757,7 +786,7 @@ def build_mpra(args, mpra_all_df, run_idx):
                 mpra_expanded_df = pd.concat([mpra_expanded_df, barcoded_info])
 
     print len(incompatible)
-
+    
     # drop incompatible
     print mpra_expanded_df.shape
     mpra_expanded_df = mpra_expanded_df[~mpra_expanded_df["example_id"].isin(incompatible)]
@@ -827,14 +856,13 @@ def main():
     summary_df = build_consensus_file_sets(args.grammar_summaries, args.synergy_dirs)
     
     # now sample using consensus
-    mpra_runs = sample_sequences(summary_df, len(args.grammar_summaries))
+    mpra_runs = sample_sequences(summary_df, len(args.grammar_summaries), args.sample_regions)
 
     # for each run, build mpra
     for mpra_run_idx in range(len(mpra_runs)):
         build_mpra(args, mpra_runs[mpra_run_idx], mpra_run_idx)
-        quit()
 
-    # TODO adjust to drop hypotheses that are not well represented
+    # TODO adjust to drop hypotheses that are not well represented?
     
     return None
 
