@@ -68,6 +68,9 @@ def parse_args():
     parser.add_argument(
         "--sample_regions",
         help="BED file of regions from which to sample (constraint)")
+    parser.add_argument(
+        "--required_regions",
+        help="BED file of required regions (if present)")
     
     # out
     parser.add_argument(
@@ -519,7 +522,7 @@ def minimize_overlapping(sampling_info):
     return sampling_info
 
 
-def filter_for_region_set(sampling_info, sample_regions_file):
+def filter_for_region_set(sampling_info, sample_regions_file, filter_sampling_info=True):
     """given a sample regions file, only keep regions that fall into those regions
     """
     # get regions and make a BED file. KEEP ORDER
@@ -547,15 +550,16 @@ def filter_for_region_set(sampling_info, sample_regions_file):
 
     # and then filter on this
     keep_indices = np.where(filter_df.iloc[:,3] == 1)[0]
-    for key in sampling_info:
-        if key == "max_dist":
-            continue
-        sampling_info[key] = sampling_info[key][keep_indices]
+    if filter_sampling_info:
+        for key in sampling_info:
+            if key == "max_dist":
+                continue
+            sampling_info[key] = sampling_info[key][keep_indices]
 
     # and clean up tmp files
     os.system("rm {} {}".format(tmp_bed, tmp_overlap_bed))
     
-    return sampling_info
+    return sampling_info, keep_indices
 
 
 def get_diff_sample(sampling_info, sample_num):
@@ -641,7 +645,11 @@ def get_nondiff_distal_sample(sampling_info, sample_num, diff_bool):
     return nondiff_sample
 
 
-def sample_sequences(summary_df, num_runs, sample_regions_file=None):
+def sample_sequences(
+        summary_df,
+        num_runs,
+        sample_regions_file=None,
+        required_regions_file=None):
     """sample sequences
     """
     diff_sample_num = 10
@@ -667,9 +675,9 @@ def sample_sequences(summary_df, num_runs, sample_regions_file=None):
         # reduce out overlapping (NOTE: this may be over strict!)
         sampling_info = minimize_overlapping(sampling_info)
 
-        # TODO this is where you would reduce possible sequences for those that are in important regions
+        # only use sequences that are within desired regions
         if sample_regions_file is not None:
-            sampling_info = filter_for_region_set(sampling_info, sample_regions_file)
+            sampling_info, _ = filter_for_region_set(sampling_info, sample_regions_file)
         
         # get diff sample
         diff_sample, diff_bool = get_diff_sample(sampling_info, diff_sample_num)
@@ -691,15 +699,22 @@ def sample_sequences(summary_df, num_runs, sample_regions_file=None):
             logging.info("{}: skipping because too few nondiff distal seqs: {}".format(grammar_idx, nondiff_distal_sample.shape[0]))
             continue
 
+        # now get required regions and keep ALL
+        if required_regions_file is not None:
+            _, required_indices = filter_for_region_set(
+                sampling_info, required_regions_file, filter_sampling_info=False)
+            required_sample = sampling_info["examples"][required_indices]
+            diff_sample = np.concatenate([diff_sample, required_sample], axis=0)
+            
         # collect all
-        full_sample = np.concatenate(
+        full_sample = np.unique(np.concatenate(
             [diff_sample,
              nondiff_proximal_sample,
-             nondiff_distal_sample], axis=0)
+             nondiff_distal_sample], axis=0))
         if full_sample.shape[0] < (total_sample_num / 2.):
             logging.info("{}: skipping because not enough sequences of interest: {}".format(grammar_idx, full_sample.shape[0]))
             continue
-        logging.info("{}: sampled {}".format(grammar_idx, full_sample.shape[0]))
+        logging.info("{}: sampled {}, got {} required".format(grammar_idx, full_sample.shape[0], required_sample.shape[0]))
         
         # and now extract
         grammar_info_per_run = []
@@ -803,7 +818,7 @@ def build_mpra(args, mpra_all_df, run_idx):
     # finally save out
     mpra_expanded_df.to_csv("{}/mpra.seqs.run-{}.txt".format(args.out_dir, run_idx), sep="\t")
     
-    return None
+    return mpra_expanded_df
 
 
 def build_consensus_file_sets(grammar_summaries, synergy_dirs):
@@ -856,13 +871,15 @@ def main():
     summary_df = build_consensus_file_sets(args.grammar_summaries, args.synergy_dirs)
     
     # now sample using consensus
-    mpra_runs = sample_sequences(summary_df, len(args.grammar_summaries), args.sample_regions)
+    mpra_runs = sample_sequences(
+        summary_df,
+        len(args.grammar_summaries),
+        sample_regions_file=args.sample_regions,
+        required_regions_file=args.required_regions)
 
     # for each run, build mpra
     for mpra_run_idx in range(len(mpra_runs)):
         build_mpra(args, mpra_runs[mpra_run_idx], mpra_run_idx)
-
-    # TODO adjust to drop hypotheses that are not well represented?
     
     return None
 
