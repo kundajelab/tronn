@@ -75,6 +75,12 @@ def parse_args():
     parser.add_argument(
         "--required_regions",
         help="BED file of required regions (if present)")
+    parser.add_argument(
+        "--promoter_regions",
+        help="positive control set of promoter regions")
+    parser.add_argument(
+        "--fasta",
+        help="fasta file")
     
     # out
     parser.add_argument(
@@ -529,7 +535,11 @@ def minimize_overlapping(sampling_info):
     return sampling_info
 
 
-def filter_for_region_set(sampling_info, sample_regions_file, filter_sampling_info=True):
+def filter_for_region_set(
+        sampling_info,
+        sample_regions_file,
+        filter_sampling_info=True,
+        print_overlap=False):
     """given a sample regions file, only keep regions that fall into those regions
     """
     # get regions and make a BED file. KEEP ORDER
@@ -555,6 +565,11 @@ def filter_for_region_set(sampling_info, sample_regions_file, filter_sampling_in
     # read back in
     filter_df = pd.read_table(tmp_overlap_bed, header=None, index_col=False)
 
+    # just to see which required regions are coming back
+    if print_overlap:
+        reduced_df = filter_df[filter_df.iloc[:,3] == 1]
+        if reduced_df.shape[0] > 0: print reduced_df
+    
     # and then filter on this
     keep_indices = np.where(filter_df.iloc[:,3] == 1)[0]
     if filter_sampling_info:
@@ -689,27 +704,27 @@ def sample_sequences(
         # get diff sample
         diff_sample, diff_bool = get_diff_sample(sampling_info, diff_sample_num)
         if diff_sample.shape[0] < (diff_sample_num / 2.):
-            logging.info("{}: skipping because too few diff seqs: {}".format(grammar_idx, diff_sample.shape[0]))
-            continue
+            logging.info("{}: NOTE too few diff seqs: {}".format(grammar_idx, diff_sample.shape[0]))
+            #continue
 
         # get nondiff proximal
         nondiff_proximal_sample = get_nondiff_proximal_sample(
             sampling_info, nondiff_proximal_sample_num, diff_bool)
         if nondiff_proximal_sample.shape[0] < (nondiff_proximal_sample_num / 2.):
-            logging.info("{}: skipping because too few nondiff proximal seqs: {}".format(grammar_idx, nondiff_proximal_sample.shape[0]))
-            continue
+            logging.info("{}: NOTE too few nondiff proximal seqs: {}".format(grammar_idx, nondiff_proximal_sample.shape[0]))
+            #continue
 
         # get nondiff distal
         nondiff_distal_sample = get_nondiff_distal_sample(
             sampling_info, nondiff_distal_sample_num, diff_bool)
         if nondiff_distal_sample.shape[0] < (nondiff_distal_sample_num / 2.):
-            logging.info("{}: skipping because too few nondiff distal seqs: {}".format(grammar_idx, nondiff_distal_sample.shape[0]))
-            continue
+            logging.info("{}: NOTE too few nondiff distal seqs: {}".format(grammar_idx, nondiff_distal_sample.shape[0]))
+            #continue
 
         # now get required regions and keep ALL
         if required_regions_file is not None:
             _, required_indices = filter_for_region_set(
-                sampling_info, required_regions_file, filter_sampling_info=False)
+                sampling_info, required_regions_file, filter_sampling_info=False, print_overlap=False)
             required_sample = sampling_info["examples"][required_indices]
             diff_sample = np.concatenate([diff_sample, required_sample], axis=0)
             
@@ -870,6 +885,58 @@ def add_sampled_pwms(mpra_all_df, pwm_file):
     return mpra_all_df
 
 
+def add_promoter_regions(mpra_all_df, tss_file, fasta):
+    """add positive control set of regions
+    """
+    logging.info("adding promoter regions (positive control)")
+    # getfasta
+    tmp_fasta = "promoters.fasta"
+    getfasta = "bedtools getfasta -tab -fi {} -bed {} > {}".format(fasta, tss_file, tmp_fasta)
+    os.system(getfasta)
+    
+    # read in fasta file
+    sequences = pd.read_table(tmp_fasta, header=None)
+    
+    # for each sequence, get a sample position (just center it for now)
+    prom_total = 0
+    for prom_idx in range(sequences.shape[0]):
+        prom_sequence = sequences.iloc[prom_idx,1].upper()
+        start_idx = (len(prom_sequence) - MPRA_PARAMS.MAX_FRAG_LEN) / 2
+        prom_sequence = prom_sequence[start_idx:(start_idx+MPRA_PARAMS.MAX_FRAG_LEN)]
+        if not is_fragment_compatible(prom_sequence):
+            continue
+        
+        # add fake metadata
+        prom_seq = {
+            "{}.0".format(DataKeys.SYNERGY_DIFF_SIG): 0,
+            "{}.0".format(DataKeys.SYNERGY_DIST): 0,
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT: "0,0",
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT: "0,0",
+            DataKeys.MUT_MOTIF_LOGITS: "0",
+            DataKeys.SEQ_METADATA: "features={}".format(sequences.iloc[prom_idx,0]),
+            "ATAC_SIGNALS.NORM": 0,
+            "H3K27ac_SIGNALS.NORM": 0,
+            DataKeys.LOGITS_NORM: 0,
+            DataKeys.GC_CONTENT: float(prom_sequence.count("G") + prom_sequence.count("C")) / len(prom_sequence),
+            "sequence.nn".format(DataKeys.MUT_MOTIF_ORIG_SEQ): prom_sequence,
+            "example_fileidx": 0,
+            "example_id": "prom-{}".format(prom_idx),
+            "combos": "0,0",
+            "edge_indices": "60.,100.",
+            "example_combo_id": "prom-{}.combo-00".format(prom_idx),
+            "motifs": "promoter"}
+        prom_seq = pd.DataFrame(prom_seq, index=[0])
+
+        # attach
+        mpra_all_df = pd.concat([mpra_all_df, prom_seq], sort=True)
+        prom_total += 1
+        
+    logging.info("added {} promoters".format(prom_total))
+    
+    return mpra_all_df
+
+
+
 def build_mpra(args, mpra_all_df, run_idx, barcodes, barcode_idx=0):
     """build mpra
     """
@@ -878,7 +945,11 @@ def build_mpra(args, mpra_all_df, run_idx, barcodes, barcode_idx=0):
 
     # add in PWM seqs
     mpra_all_df = add_sampled_pwms(mpra_all_df, args.pwm_file)
-
+    
+    # add in positive control promoters
+    mpra_all_df = add_promoter_regions(
+        mpra_all_df, args.promoter_regions, args.fasta)
+    
     # set up index - use this to get consistent set
     mpra_all_df["consensus_idx"] = range(mpra_all_df.shape[0])
     
