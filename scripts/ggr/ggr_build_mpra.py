@@ -729,8 +729,9 @@ def sample_sequences(
             grammar_prefix = synergy_file.split("/")[-2]
             mpra_sample_df = extract_sequence_info(
                 synergy_file, full_sample, prefix=grammar_prefix)
+            mpra_sample_df["motifs"] = summary_df.index[grammar_idx]
             grammar_info_per_run.append(mpra_sample_df)
-
+            
         # concatenate
         if mpra_runs[0] is None:
             mpra_runs = grammar_info_per_run
@@ -768,7 +769,8 @@ def add_shuffles(mpra_all_df, num_shuffles=50):
             "example_id": "shuffle-{}".format(shuffle_idx),
             "combos": "0,0",
             "edge_indices": "60.,100.",
-            "example_combo_id": "shuffle-{}.combo-00".format(shuffle_idx)}
+            "example_combo_id": "shuffle-{}.combo-00".format(shuffle_idx),
+            "motifs": "shuffle"}
         shuffle_seq = pd.DataFrame(shuffle_seq, index=[0])
 
         # attach
@@ -858,7 +860,8 @@ def add_sampled_pwms(mpra_all_df, pwm_file):
             "example_id": "pwm-{}".format(pwm_idx),
             "combos": "0,0",
             "edge_indices": "60.,100.",
-            "example_combo_id": "pwm-{}.combo-00".format(pwm_idx)}
+            "example_combo_id": "pwm-{}.combo-00".format(pwm_idx),
+            "motifs": "HOCOMOCO"}
         pwm_seq = pd.DataFrame(pwm_seq, index=[0])
 
         # attach
@@ -867,27 +870,20 @@ def add_sampled_pwms(mpra_all_df, pwm_file):
     return mpra_all_df
 
 
-def build_mpra(args, mpra_all_df, run_idx):
+def build_mpra(args, mpra_all_df, run_idx, barcodes, barcode_idx=0):
     """build mpra
     """
-    # adjust for MPRA
-    # get barcodes and shuffle
-    rand_state = RandomState(42)
-    barcodes = pd.read_table(args.barcodes, header=None).iloc[:,0].values
-    rand_state.shuffle(barcodes)
-
     # add in shuffles
     mpra_all_df = add_shuffles(mpra_all_df, num_shuffles=50)
 
     # add in PWM seqs
     mpra_all_df = add_sampled_pwms(mpra_all_df, args.pwm_file)
 
-    # set up index
+    # set up index - use this to get consistent set
     mpra_all_df["consensus_idx"] = range(mpra_all_df.shape[0])
     
     # adjust sequences
     mpra_sequences = []
-    barcode_idx = 0
     rand_seed = 0
     logging.info("adjusting {} sequences".format(mpra_all_df.shape[0]))
     incompatible = []
@@ -941,20 +937,15 @@ def build_mpra(args, mpra_all_df, run_idx):
                 mpra_expanded_df = barcoded_info
             else:
                 mpra_expanded_df = pd.concat([mpra_expanded_df, barcoded_info])
-
-    print len(incompatible)
     
     # drop incompatible
-    print mpra_expanded_df.shape
+    logging.info("Removing {} incompatible sequences".format(len(incompatible)))
     mpra_expanded_df = mpra_expanded_df[~mpra_expanded_df["example_id"].isin(incompatible)]
-    print mpra_expanded_df.shape
 
-    if True:
+    if False:
         # look at duplicates
         print len(set(mpra_expanded_df["example_id"].values.tolist()))
-        print len(mpra_expanded_df["example_metadata"].values.tolist())
         print len(set(mpra_expanded_df["example_metadata"].values.tolist()))
-        print len(mpra_expanded_df["sequence.nn"].values.tolist())
         print len(set(mpra_expanded_df["sequence.nn"].values.tolist()))
     
     # finally save out
@@ -1041,10 +1032,20 @@ def main():
         sample_regions_file=args.sample_regions,
         required_regions_file=args.required_regions)
 
+    # set up barcodes
+    rand_state = RandomState(42)
+    barcodes = pd.read_table(args.barcodes, header=None).iloc[:,0].values
+    rand_state.shuffle(barcodes)
+    
     # for each run, build mpra
     mpras_expanded = []
     for mpra_run_idx in range(len(mpra_runs)):
-        mpra_df = build_mpra(args, mpra_runs[mpra_run_idx], mpra_run_idx)
+        mpra_df = build_mpra(
+            args,
+            mpra_runs[mpra_run_idx],
+            mpra_run_idx,
+            barcodes,
+            barcode_idx=mpra_run_idx*mpra_runs[mpra_run_idx].shape[0]*args.barcodes_per_sequence)
         mpras_expanded.append(mpra_df)
         
     # reconcile differences
