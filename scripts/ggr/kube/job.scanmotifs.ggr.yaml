@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.ggr.scanmotifs.basset.mid
+spec:
+    template:
+      spec:
+        containers:
+        - name: train-container
+          image: dskim89/tensorflow-genomics
+          env:
+          - name: MODEL_DIR
+            value: "/datasets/models.2018-12-03"
+          - name: MODEL
+            value: "basset"
+          - name: OUT_DIR
+            value: "/datasets/inference.2019-03-05/motifs.input_x_grad.mid"
+          - name: FILTER
+            value: "TRAJ_LABELS=12,13,14,1 H3K27ac_LABELS=1 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && /datasets/software/scanmotifs.ggr.bash $MODEL_DIR $MODEL $FILTER $OUT_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 6
+          #    cpu: 16
+              memory: 32Gi
+          #requests:
+          #    cpu: 8
+          #    memory: 8Gi
+          volumeMounts:
+          - mountPath: /datasets
+            name: datasets
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"
