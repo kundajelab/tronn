@@ -19,6 +19,7 @@ import pandas as pd
 
 from numpy.random import RandomState
 from tronn.interpretation.combinatorial import setup_combinations
+from tronn.util.pwms import MotifSetManager
 from tronn.util.scripts import setup_run_logs
 from tronn.util.utils import DataKeys
 
@@ -59,6 +60,9 @@ def parse_args():
     parser.add_argument(
         "--synergy_dirs", nargs="+",
         help="folders where synergy dirs reside")
+    parser.add_argument(
+        "--pwm_file",
+        help="pwm file")
     parser.add_argument(
         "--barcodes",
         help="file of barcode sequences")
@@ -152,7 +156,7 @@ def is_filler_compatible(filler):
     return True
 
 
-def generate_compatible_filler(rand_seed):
+def generate_compatible_filler(rand_seed, length):
     """generate filler sequence and check methylation
     """
     while True:
@@ -160,7 +164,7 @@ def generate_compatible_filler(rand_seed):
         rand_state = RandomState(rand_seed)
         random_seq = rand_state.choice(
             MPRA_PARAMS.LETTERS,
-            size=MPRA_PARAMS.LEN_FILLER)
+            size=length)
         random_seq = "".join(random_seq)
         
         # if passes checks then break
@@ -250,7 +254,7 @@ def build_mpra_sequence(sequence, barcode, rand_seed, log):
     # attach XHOI
     sequence += MPRA_PARAMS.RS_XHOI
     # attach filler (random 20)
-    filler, rand_seed = generate_compatible_filler(rand_seed)
+    filler, rand_seed = generate_compatible_filler(rand_seed, MPRA_PARAMS.LEN_FILLER)
     sequence += filler
     # attach XBAI
     sequence += MPRA_PARAMS.RS_XBAI
@@ -283,8 +287,11 @@ def extract_sequence_info(h5_file, examples, left_clip=420, right_clip=580, pref
     # adjust indices for specific file
     with h5py.File(h5_file, "r") as hf:
         indices = np.where(np.isin(hf[DataKeys.SEQ_METADATA][:,0], examples))[0]
+        # sort to make sure it comes out in same order
+        indices = indices[np.argsort(
+            hf[DataKeys.SEQ_METADATA][:,0][indices])]        
     assert indices.shape[0] == examples.shape[0]
-        
+    
     keys = [
         "{}.0".format(DataKeys.SYNERGY_DIFF_SIG),
         "{}.0".format(DataKeys.SYNERGY_DIST),
@@ -730,10 +737,136 @@ def sample_sequences(
         else:
             for mpra_run_idx in range(len(mpra_runs)):
                 mpra_runs[mpra_run_idx] = pd.concat([mpra_runs[mpra_run_idx], grammar_info_per_run[mpra_run_idx]])
-
+            
     return mpra_runs
 
-            
+
+def add_shuffles(mpra_all_df, num_shuffles=50):
+    """add in shuffles
+    """
+    logging.info("adding {} shuffles".format(num_shuffles))
+    np_seed = np.random.seed(1337)
+    for shuffle_idx in range(num_shuffles):
+        # make a shuffle sequence
+        shuffle_sequence, _ = generate_compatible_filler(
+            shuffle_idx, MPRA_PARAMS.MAX_FRAG_LEN)
+
+        # add fake metadata
+        shuffle_seq = {
+            "{}.0".format(DataKeys.SYNERGY_DIFF_SIG): 0,
+            "{}.0".format(DataKeys.SYNERGY_DIST): 0,
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT: "0,0",
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT: "0,0",
+            DataKeys.MUT_MOTIF_LOGITS: "0",
+            DataKeys.SEQ_METADATA: "features=shuffle",
+            "ATAC_SIGNALS.NORM": 0,
+            "H3K27ac_SIGNALS.NORM": 0,
+            DataKeys.LOGITS_NORM: 0,
+            DataKeys.GC_CONTENT: float(shuffle_sequence.count("G") + shuffle_sequence.count("C")) / len(shuffle_sequence),
+            "sequence.nn".format(DataKeys.MUT_MOTIF_ORIG_SEQ): shuffle_sequence,
+            "example_fileidx": 0,
+            "example_id": "shuffle-{}".format(shuffle_idx),
+            "combos": "0,0",
+            "edge_indices": "60.,100.",
+            "example_combo_id": "shuffle-{}.combo-00".format(shuffle_idx)}
+        shuffle_seq = pd.DataFrame(shuffle_seq, index=[0])
+
+        # attach
+        mpra_all_df = pd.concat([mpra_all_df, shuffle_seq], sort=True)
+        
+    return mpra_all_df
+
+
+def idx_to_string(val):
+    """Convert index to base pair
+    """
+    idx_to_string = {
+        0: "A",
+        1: "C",
+        2: "G",
+        3: "T"}
+    
+    return idx_to_string[val]
+
+
+def get_consensus_from_weights(pwm_weights, sample=True):
+    """Given PWM weights get back a consensus sequence
+    """
+    sequence = []
+    for idx in range(pwm_weights.shape[1]):
+        if sample:
+            sampled_idx = np.random.choice([0,1,2,3], p=pwm_weights[:,idx])
+        else:
+            sampled_idx = np.argmax(pwm_weights[:,idx])
+        sequence.append(idx_to_string(sampled_idx))
+        
+    return ''.join(sequence)
+
+
+def build_pwm_embedded_sequence(pwm, length, rand_seed, num_pwms=3):
+    """make random background, embed pwm into it
+    """
+    # generate random sequence
+    random_sequence, _ = generate_compatible_filler(
+        rand_seed, length)
+
+    # embed equally spaced
+    stride = length / (num_pwms + 1.)
+    indices = stride * np.arange(1,num_pwms+1)
+    for pos_idx in indices:
+        # insert sampled pwm
+        sampled_pwm = get_consensus_from_weights(pwm.get_probs(), sample=True)
+        len_pwm = len(sampled_pwm)
+        random_sequence = "".join([
+            random_sequence[:int(pos_idx)],
+            sampled_pwm,
+            random_sequence[int(pos_idx+len_pwm):]])
+        
+    return random_sequence
+
+
+def add_sampled_pwms(mpra_all_df, pwm_file):
+    """add sampled pwms
+    """
+    # read in pwm file
+    pwms = MotifSetManager.read_pwm_file(pwm_file)
+    np_seed = np.random.seed(1337)
+    
+    # for each pwm, generate consensus sequence
+    logging.info("adding {} pwm embedded sequences".format(len(pwms)))
+    for pwm_idx in range(len(pwms)):
+        pwm = pwms[pwm_idx]
+        
+        # generate a triplicate pattern
+        pwm_embedded_sequence = build_pwm_embedded_sequence(
+            pwm, MPRA_PARAMS.MAX_FRAG_LEN, pwm_idx)
+
+        # add fake metadata
+        pwm_seq = {
+            "{}.0".format(DataKeys.SYNERGY_DIFF_SIG): 0,
+            "{}.0".format(DataKeys.SYNERGY_DIST): 0,
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT: "0,0",
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT: "0,0",
+            DataKeys.MUT_MOTIF_LOGITS: "0",
+            DataKeys.SEQ_METADATA: "features={}".format(pwm.name),
+            "ATAC_SIGNALS.NORM": 0,
+            "H3K27ac_SIGNALS.NORM": 0,
+            DataKeys.LOGITS_NORM: 0,
+            DataKeys.GC_CONTENT: float(pwm_embedded_sequence.count("G") + pwm_embedded_sequence.count("C")) / len(pwm_embedded_sequence),
+            "sequence.nn".format(DataKeys.MUT_MOTIF_ORIG_SEQ): pwm_embedded_sequence,
+            "example_fileidx": 0,
+            "example_id": "pwm-{}".format(pwm_idx),
+            "combos": "0,0",
+            "edge_indices": "60.,100.",
+            "example_combo_id": "pwm-{}.combo-00".format(pwm_idx)}
+        pwm_seq = pd.DataFrame(pwm_seq, index=[0])
+
+        # attach
+        mpra_all_df = pd.concat([mpra_all_df, pwm_seq], sort=True)
+    
+    return mpra_all_df
+
+
 def build_mpra(args, mpra_all_df, run_idx):
     """build mpra
     """
@@ -743,6 +876,15 @@ def build_mpra(args, mpra_all_df, run_idx):
     barcodes = pd.read_table(args.barcodes, header=None).iloc[:,0].values
     rand_state.shuffle(barcodes)
 
+    # add in shuffles
+    mpra_all_df = add_shuffles(mpra_all_df, num_shuffles=50)
+
+    # add in PWM seqs
+    mpra_all_df = add_sampled_pwms(mpra_all_df, args.pwm_file)
+
+    # set up index
+    mpra_all_df["consensus_idx"] = range(mpra_all_df.shape[0])
+    
     # adjust sequences
     mpra_sequences = []
     barcode_idx = 0
@@ -821,6 +963,28 @@ def build_mpra(args, mpra_all_df, run_idx):
     return mpra_expanded_df
 
 
+def reconcile_mpra_differences(mpra_runs):
+    """after generating all sequences, make sure to reconcile losses from 
+    incompatible sequences
+    """
+    logging.info("reconciling differences")
+    # get consensus
+    for run_idx in range(len(mpra_runs)):
+        region_info = set(mpra_runs[run_idx]["consensus_idx"].values.tolist())
+
+        if run_idx == 0:
+            consensus_regions = region_info
+        else:
+            consensus_regions = consensus_regions.intersection(region_info)
+            
+    # and reduce
+    for run_idx in range(len(mpra_runs)):
+        mpra_runs[run_idx] = mpra_runs[run_idx][
+            mpra_runs[run_idx]["consensus_idx"].isin(consensus_regions)]
+    
+    return mpra_runs
+
+
 def build_consensus_file_sets(grammar_summaries, synergy_dirs):
     """take the grammar sets and build consensus sets
     """
@@ -878,9 +1042,20 @@ def main():
         required_regions_file=args.required_regions)
 
     # for each run, build mpra
+    mpras_expanded = []
     for mpra_run_idx in range(len(mpra_runs)):
-        build_mpra(args, mpra_runs[mpra_run_idx], mpra_run_idx)
-    
+        mpra_df = build_mpra(args, mpra_runs[mpra_run_idx], mpra_run_idx)
+        mpras_expanded.append(mpra_df)
+        
+    # reconcile differences
+    mpras_expanded = reconcile_mpra_differences(mpras_expanded)
+
+    # and save out
+    for run_idx in range(len(mpras_expanded)):
+        mpras_expanded[run_idx].to_csv(
+            "{}/mpra.seqs.final.run-{}.txt".format(args.out_dir, run_idx),
+            sep="\t")
+        
     return None
 
 
