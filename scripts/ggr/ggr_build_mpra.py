@@ -28,6 +28,7 @@ from tronn.util.mpra import is_fragment_compatible
 from tronn.util.mpra import is_barcode_compatible
 from tronn.util.mpra import generate_compatible_filler
 from tronn.util.mpra import trim_sequence_for_mpra
+from tronn.util.mpra import barcode_generator
 from tronn.util.mpra import build_mpra_sequence
 from tronn.util.mpra import trim_sequence_for_mpra
 from tronn.util.mpra import seq_list_compatible
@@ -93,6 +94,9 @@ def parse_args():
     parser.add_argument(
         "--promoter_regions",
         help="positive control set of promoter regions")
+    parser.add_argument(
+        "--negative_regions",
+        help="set of regions to draw other negatives from")
     parser.add_argument(
         "--fasta",
         help="fasta file")
@@ -612,22 +616,23 @@ def sample_sequences(
             mpra_runs = grammar_info_per_run
         else:
             for mpra_run_idx in range(len(mpra_runs)):
-                mpra_runs[mpra_run_idx] = pd.concat([mpra_runs[mpra_run_idx], grammar_info_per_run[mpra_run_idx]])
+                mpra_runs[mpra_run_idx] = pd.concat(
+                    [mpra_runs[mpra_run_idx], grammar_info_per_run[mpra_run_idx]])
             
     return mpra_runs
 
 
 def build_mpra_sequences_with_barcodes(
-        args, mpra_all_df, run_idx, barcodes, barcode_idx=0):
+        args, mpra_all_df, run_idx, barcodes):
     """build mpra
     """
+    logging.info("building {} total mpra sequences".format(mpra_all_df.shape[0]))
+    
     # set up index - use this to get consistent set
     mpra_all_df["consensus_idx"] = range(mpra_all_df.shape[0])
     
-    # adjust sequences
-    mpra_sequences = []
+    # build sequences (append necessary MPRA fragments)
     rand_seed = 0
-    logging.info("adjusting {} sequences".format(mpra_all_df.shape[0]))
     incompatible = []
     mpra_expanded_df = None
     for seq_idx in range(mpra_all_df.shape[0]):
@@ -636,7 +641,6 @@ def build_mpra_sequences_with_barcodes(
 
         # get the whole row out
         seq_info = pd.DataFrame(mpra_all_df.iloc[seq_idx]).transpose()
-        example_id = seq_info.iloc[0]["example_id"]
         sequence = seq_info.iloc[0]["sequence.nn"]
         edge_indices = [
             int(float(val)) for val in seq_info.iloc[0]["edge_indices"].split(",")]
@@ -645,15 +649,10 @@ def build_mpra_sequences_with_barcodes(
         try:
             sequence = trim_sequence_for_mpra(sequence, edge_indices)
         except AssertionError:
-            incompatible.append(example_id)
-            continue
-            
-        # after trimming, you reintroduce opportunities for the fragment to be wrong
-        if not is_fragment_compatible(sequence):
-            incompatible.append(example_id)
+            incompatible.append(seq_info.iloc[0]["example_id"])
             continue
         
-        # generate with barcodes
+        # add barcode, have multiple barcodes for each sequence
         for barcode_idx in range(args.barcodes_per_sequence):
             # set up barcode-specific data
             barcoded_info = seq_info.copy()
@@ -661,12 +660,7 @@ def build_mpra_sequences_with_barcodes(
                 barcoded_info.iloc[0]["example_combo_id"], barcode_idx))
             
             # get a barcode
-            while True:
-                barcode = barcodes[barcode_idx]
-                if is_barcode_compatible(barcode):
-                    break
-                barcode_idx += 1
-            barcode_idx += 1
+            barcode = next(barcodes)
 
             # build sequence and add in
             mpra_sequence, rand_seed = build_mpra_sequence(sequence, barcode, rand_seed, seq_idx)
@@ -681,15 +675,6 @@ def build_mpra_sequences_with_barcodes(
     # drop incompatible
     logging.info("Removing {} incompatible sequences".format(len(incompatible)))
     mpra_expanded_df = mpra_expanded_df[~mpra_expanded_df["example_id"].isin(incompatible)]
-
-    if False:
-        # look at duplicates
-        print len(set(mpra_expanded_df["example_id"].values.tolist()))
-        print len(set(mpra_expanded_df["example_metadata"].values.tolist()))
-        print len(set(mpra_expanded_df["sequence.nn"].values.tolist()))
-    
-    # finally save out
-    mpra_expanded_df.to_csv("{}/mpra.seqs.run-{}.txt".format(args.out_dir, run_idx), sep="\t")
     
     return mpra_expanded_df
 
@@ -702,7 +687,6 @@ def reconcile_mpra_differences(mpra_runs):
     # get consensus
     for run_idx in range(len(mpra_runs)):
         region_info = set(mpra_runs[run_idx]["consensus_idx"].values.tolist())
-
         if run_idx == 0:
             consensus_regions = region_info
         else:
@@ -712,7 +696,8 @@ def reconcile_mpra_differences(mpra_runs):
     for run_idx in range(len(mpra_runs)):
         mpra_runs[run_idx] = mpra_runs[run_idx][
             mpra_runs[run_idx]["consensus_idx"].isin(consensus_regions)]
-    
+        mpra_runs[run_idx].index = range(mpra_runs[run_idx].shape[0])
+        
     return mpra_runs
 
 
@@ -749,15 +734,12 @@ def main():
     rand_state = RandomState(42)
     barcodes = pd.read_table(args.barcodes, header=None).iloc[:,0].values
     rand_state.shuffle(barcodes)
+    barcodes = barcode_generator(barcodes)
     
-    # for each run, build mpra (rename: build_mpra_sequences_with_barcodes)
+    # for each run, build mpra sequences
     for run_idx in range(len(mpra_runs)):
-        mpra_df = build_mpra(
-            args,
-            mpra_runs[mpra_run_idx],
-            mpra_run_idx,
-            barcodes,
-            barcode_idx=mpra_run_idx*mpra_runs[mpra_run_idx].shape[0]*args.barcodes_per_sequence)
+        mpra_df = build_mpra_sequences_with_barcodes(
+            args, mpra_runs[run_idx], run_idx, barcodes)
         mpra_runs[run_idx] = mpra_df
         
     # reconcile differences
@@ -766,7 +748,7 @@ def main():
     # and save out
     for run_idx in range(len(mpra_runs)):
         mpras_expanded[run_idx].to_csv(
-            "{}/mpra.seqs.final.run-{}.txt".format(args.out_dir, run_idx),
+            "{}/mpra.seqs.run-{}.txt".format(args.out_dir, run_idx),
             sep="\t")
         
     return None
