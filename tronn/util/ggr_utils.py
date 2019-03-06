@@ -577,12 +577,15 @@ def merge_synergy_files(
         grammar = curr_grammars[grammar_idx]
         print grammar
         grammar_prefix = os.path.basename(grammar).split(".gml")[0]
+        
         # get the pwms order file
-        pwm_file = glob.glob(" ".join(
-            "{}/{}/ggr.synergy.pwms.order.txt".format(synergy_dir, grammar_prefix)
-            for synergy_dir in synergy_dirs))
-        assert len(pwm_file) == 1
-        pwm_file = pwm_file[0]
+        order_files = []
+        for synergy_dir in synergy_dirs:
+            order_file = "{}/{}/ggr.synergy.pwms.order.txt".format(synergy_dir, grammar_prefix)
+            if os.path.isfile(order_file):
+                order_files.append(order_file)
+        assert len(order_files) == 1
+        pwm_file = order_files[0]
         pwms = pd.read_table(pwm_file).iloc[:,0].values.tolist()
             
         if grammar_idx == 0:
@@ -602,11 +605,13 @@ def merge_synergy_files(
             grammar_prefix = os.path.basename(grammar).split(".gml")[0]
 
             # get the synergy file
-            synergy_file = glob.glob(" ".join(
-                "{}/{}/ggr.synergy.h5".format(synergy_dir, grammar_prefix)
-                for synergy_dir in synergy_dirs))
-            assert len(synergy_file) == 1
-            synergy_file = synergy_file[0]
+            synergy_files = []
+            for synergy_dir in synergy_dirs:
+                synergy_file = "{}/{}/ggr.synergy.h5".format(synergy_dir, grammar_prefix)
+                if os.path.isfile(synergy_file):
+                    synergy_files.append(synergy_file)
+            assert len(synergy_files) == 1
+            synergy_file = synergy_files[0]
 
             # get num examples and keys
             with h5py.File(synergy_file, "r") as hf:
