@@ -725,6 +725,7 @@ def main():
         GGR_PARAMS.SYNERGY_KEYS, "synergy",
         pwm_file=args.pwm_file,
         promoter_regions=args.promoter_regions,
+        negative_regions=args.negative_regions,
         fasta=args.fasta)
     for run_idx in range(len(mpra_runs)):
         mpra_runs[run_idx] = pd.concat(
@@ -747,7 +748,7 @@ def main():
 
     # and save out
     for run_idx in range(len(mpra_runs)):
-        mpras_expanded[run_idx].to_csv(
+        mpra_runs[run_idx].to_csv(
             "{}/mpra.seqs.run-{}.txt".format(args.out_dir, run_idx),
             sep="\t")
         

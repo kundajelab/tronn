@@ -187,7 +187,8 @@ def trim_sequence_for_mpra(sequence, edge_indices):
         
     # check
     assert len(sequence) == MPRA_PARAMS.MAX_FRAG_LEN, edge_indices
-        
+    assert is_fragment_compatible(sequence)
+    
     return sequence
 
 
@@ -228,6 +229,16 @@ def seq_list_compatible(seq_list, left_clip=420, right_clip=580):
         
     return True
 
+
+def barcode_generator(barcodes):
+    """generator to push out barcodes
+    """
+    barcode_idx = 0
+    while barcode_idx < len(barcodes):
+        barcode = barcodes[barcode_idx]
+        if is_barcode_compatible(barcode):
+            yield barcode
+        barcode_idx += 1
 
 # MPRA tools for controls
 
@@ -344,7 +355,13 @@ def build_pwm_controls(pwm_file, rand_seed=1, metadata_keys=[], metadata_type="s
     return all_pwm_controls
 
 
-def build_promoter_controls(tss_file, fasta, rand_seed=2, metadata_keys=[], metadata_type="synergy"):
+def build_promoter_controls(
+        tss_file,
+        fasta,
+        rand_seed=2,
+        metadata_keys=[],
+        metadata_type="synergy",
+        prefix="promoter"):
     """add positive control set of regions
     """
     logging.info("adding promoter regions (positive control)")
@@ -369,7 +386,7 @@ def build_promoter_controls(tss_file, fasta, rand_seed=2, metadata_keys=[], meta
         # add metadata
         prom_example = build_metadata(
             prom_sequence,
-            "promoter",
+            prefix,
             prom_idx,
             metadata_keys,
             metadata_type=metadata_type)
@@ -380,10 +397,43 @@ def build_promoter_controls(tss_file, fasta, rand_seed=2, metadata_keys=[], meta
         else:
             all_prom_controls = pd.concat([all_prom_controls, prom_example], sort=True)
         prom_total += 1
-        
+
+    os.system("rm promoters.fasta")
     logging.info("added {} promoters".format(prom_total))
     
     return all_prom_controls
+
+
+def build_negative_controls(
+        bed_file,
+        fasta,
+        num_negatives=50,
+        rand_seed=3,
+        metadata_keys=[],
+        metadata_type="synergy"):
+    """sample randomly from coordinates
+    """
+    logging.info("adding negative regions")
+
+    # randomly select subset of regions
+    tmp_bed_file = "negatives.subset.bed.gz"
+    subset = "zcat {} | shuf -n {} | gzip -c > {}".format(
+        bed_file, num_negatives, tmp_bed_file)
+    os.system(subset)
+    
+    # reuse promoter code
+    negative_genomic_controls = build_promoter_controls(
+        tmp_bed_file,
+        fasta,
+        rand_seed=rand_seed,
+        metadata_keys=metadata_keys,
+        metadata_type=metadata_type,
+        prefix="genomic_negative")
+
+    # cleanup
+    os.system("rm {}".format(tmp_bed_file))
+    
+    return negative_genomic_controls
 
 
 def build_controls(
@@ -391,6 +441,7 @@ def build_controls(
         metadata_type,
         pwm_file=None,
         promoter_regions=None,
+        negative_regions=None,
         fasta=None):
     """build all controls
     """
@@ -418,5 +469,16 @@ def build_controls(
             metadata_type=metadata_type)
         controls_df = pd.concat(
             [controls_df, promoter_controls_df], sort=True)
-
+        
+    # make negative controls
+    if negative_regions is not None:
+        genomic_negatives_df = build_negative_controls(
+            negative_regions,
+            fasta,
+            num_negatives=50,
+            metadata_keys=metadata_keys,
+            metadata_type=metadata_type)
+        controls_df = pd.concat(
+            [controls_df, genomic_negatives_df], sort=True)
+        
     return controls_df
