@@ -498,7 +498,6 @@ def extract_sequence_info(
     # mark the file and replot
     with h5py.File(h5_file, "a") as hf:
         sample_bool = np.isin(hf[DataKeys.SEQ_METADATA][:,0], examples)
-        print sample_bool.shape
         if hf.get(save_sample_key) is not None:
             del hf[save_sample_key]
         hf.create_dataset(save_sample_key, data=sample_bool)
@@ -514,7 +513,6 @@ def extract_sequence_info(
             out_prefix,
             save_sample_key,
             GGR_PARAMS.MIN_DIST)
-        print plot_cmd
         os.system(plot_cmd)
             
     # first get reshape params
