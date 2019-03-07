@@ -364,7 +364,7 @@ def build_promoter_controls(
         prefix="promoter"):
     """add positive control set of regions
     """
-    logging.info("adding promoter regions (positive control)")
+    logging.info("adding {} regions".format(prefix))
     
     # getfasta
     tmp_fasta = "promoters.fasta"
@@ -378,6 +378,7 @@ def build_promoter_controls(
     prom_total = 0
     for prom_idx in range(sequences.shape[0]):
         prom_sequence = sequences.iloc[prom_idx,1].upper()
+        prom_sequence = prom_sequence.replace("N", "A")
         start_idx = (len(prom_sequence) - MPRA_PARAMS.MAX_FRAG_LEN) / 2
         prom_sequence = prom_sequence[start_idx:(start_idx+MPRA_PARAMS.MAX_FRAG_LEN)]
         if not is_fragment_compatible(prom_sequence):

@@ -687,10 +687,12 @@ def reconcile_mpra_differences(mpra_runs):
     # get consensus
     for run_idx in range(len(mpra_runs)):
         region_info = set(mpra_runs[run_idx]["consensus_idx"].values.tolist())
+        logging.info("for run {}, found {} sequences".format(run_idx, len(region_info)))
         if run_idx == 0:
             consensus_regions = region_info
         else:
             consensus_regions = consensus_regions.intersection(region_info)
+    logging.info("reconciled to {} shared sequences".format(len(consensus_regions)))
             
     # and reduce
     for run_idx in range(len(mpra_runs)):
