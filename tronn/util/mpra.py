@@ -418,7 +418,7 @@ def build_negative_controls(
 
     # randomly select subset of regions
     tmp_bed_file = "negatives.subset.bed.gz"
-    subset = "zcat {} | shuf -n {} | gzip -c > {}".format(
+    subset = "zcat {0} | shuf --random-source {0} -n {1} | gzip -c > {2}".format(
         bed_file, num_negatives, tmp_bed_file)
     os.system(subset)
     
