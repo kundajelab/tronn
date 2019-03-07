@@ -227,10 +227,6 @@ def main():
             delta_results = results[:,i] - results[:,j]
             pvals = run_delta_permutation_test(delta_results)
             # TODO this is currently unused!
-
-    # TO CONSIDER - should i save all with indices?
-            DataKeys.SYNERGY_DIFF_SIG,
-            DataKeys.SYNERGY_MAX_DIST,
             
     # save out into h5 file
     run_idx = 0
@@ -324,7 +320,6 @@ def main():
             score_key,
             synergy_diffs_key,
             synergy_sig_key,
-            #pwm_strength_key,
             dist_key,
             max_dist_key,
             out_prefix,

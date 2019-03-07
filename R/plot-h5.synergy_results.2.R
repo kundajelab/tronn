@@ -63,7 +63,7 @@ for (task_idx in 1:num_tasks) {
             legend.text=element_text(size=12),
             legend.position="none")
     if (nchar(sample_key) > 0) {
-        p + geom_point(data=subset(task_data, sample==1), colour="red")
+        p + geom_point(data=subset(task_data, sample==TRUE), colour="red")
     }
     ggsave(plot_file, height=7, width=7)
     
@@ -83,7 +83,7 @@ for (task_idx in 1:num_tasks) {
             legend.text=element_text(size=12),
             legend.position="none")
     if (nchar(sample_key) > 0) {
-        p + geom_point(data=subset(task_data, sample==1), colour="red")
+        p + geom_point(data=subset(task_data, sample==TRUE), colour="red")
     }
     ggsave(plot_file, height=7, width=7)
 

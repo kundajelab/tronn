@@ -100,6 +100,9 @@ def parse_args():
     parser.add_argument(
         "--fasta",
         help="fasta file")
+    parser.add_argument(
+        "--plot", action="store_true",
+        help="make plots of samples")
     
     # out
     parser.add_argument(
@@ -447,7 +450,7 @@ def get_sample(sampling_info, grammar_idx=0, required_regions_file=None):
 
     # get nondiff proximal
     nondiff_proximal_sample = _get_nondiff_proximal_sample(
-        sampling_info, GGR_PARAMS.NONDIFF_PROXIMAL_SAMPLE_NUM, diff_bool)
+        sampling_info, GGR_PARAMS.NONDIFF_PROXIMAL_SAMPLE_NUM, diff_bool, min_dist=GGR_PARAMS.MIN_DIST)
     if nondiff_proximal_sample.shape[0] < (GGR_PARAMS.NONDIFF_PROXIMAL_SAMPLE_NUM / 2.):
         logging.info("{}: NOTE too few nondiff proximal seqs: {}".format(grammar_idx, nondiff_proximal_sample.shape[0]))
 
@@ -473,7 +476,15 @@ def get_sample(sampling_info, grammar_idx=0, required_regions_file=None):
     return full_sample
 
 
-def extract_sequence_info(h5_file, examples, keys, left_clip=420, right_clip=580, prefix="id"):
+def extract_sequence_info(
+        h5_file,
+        examples,
+        keys,
+        left_clip=420,
+        right_clip=580,
+        prefix="id",
+        plot_dir=None,
+        save_sample_key="mpra.sample"):
     """save sequences to a df
     """
     # adjust indices for specific file
@@ -481,9 +492,31 @@ def extract_sequence_info(h5_file, examples, keys, left_clip=420, right_clip=580
         indices = np.where(np.isin(hf[DataKeys.SEQ_METADATA][:,0], examples))[0]
         # sort to make sure it comes out in same order
         indices = indices[np.argsort(
-            hf[DataKeys.SEQ_METADATA][:,0][indices])]        
+            hf[DataKeys.SEQ_METADATA][:,0][indices])]
     assert indices.shape[0] == examples.shape[0]
 
+    # mark the file and replot
+    with h5py.File(h5_file, "a") as hf:
+        sample_bool = np.isin(hf[DataKeys.SEQ_METADATA][:,0], examples)
+        print sample_bool.shape
+        if hf.get(save_sample_key) is not None:
+            del hf[save_sample_key]
+        hf.create_dataset(save_sample_key, data=sample_bool)
+    if plot_dir is not None:
+        out_prefix = "{}/{}".format(plot_dir, prefix)
+        plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {} {} {}".format(
+            h5_file,
+            "{}.0".format(DataKeys.SYNERGY_SCORES),
+            "{}.0".format(DataKeys.SYNERGY_DIFF),
+            "{}.0".format(DataKeys.SYNERGY_DIFF_SIG),
+            "{}.0".format(DataKeys.SYNERGY_DIST),
+            "{}.0".format(DataKeys.SYNERGY_MAX_DIST),
+            out_prefix,
+            save_sample_key,
+            GGR_PARAMS.MIN_DIST)
+        print plot_cmd
+        os.system(plot_cmd)
+            
     # first get reshape params
     num_sequences = indices.shape[0]
     with h5py.File(h5_file, "r") as hf:
@@ -578,7 +611,8 @@ def sample_sequences(
         summary_df,
         num_runs,
         sample_regions_file=None,
-        required_regions_file=None):
+        required_regions_file=None,
+        plot_dir=None):
     """sample sequences
     """
     mpra_runs = [None]*num_runs
@@ -607,7 +641,11 @@ def sample_sequences(
         for synergy_file in synergy_files:
             grammar_prefix = synergy_file.split("/")[-2]
             mpra_sample_df = extract_sequence_info(
-                synergy_file, full_sample, GGR_PARAMS.SYNERGY_KEYS, prefix=grammar_prefix)
+                synergy_file,
+                full_sample,
+                GGR_PARAMS.SYNERGY_KEYS,
+                plot_dir=plot_dir,
+                prefix=grammar_prefix)
             mpra_sample_df["motifs"] = summary_df.index[grammar_idx]
             grammar_info_per_run.append(mpra_sample_df)
             
@@ -714,13 +752,21 @@ def main():
     # set up grammar summaries
     args.grammar_summaries = [tuple(val.split("=")) for val in args.grammar_summaries]
     summary_df = build_consensus_file_sets(args.grammar_summaries, args.synergy_dirs)
+
+    # set up plot dir if requested
+    if args.plot:
+        plot_dir = "{}/plots".format(args.out_dir)
+        os.system("mkdir -p {}".format(plot_dir))
+    else:
+        plot_dir = None
     
     # collect sequence samples with extra relevant information
     mpra_runs = sample_sequences(
         summary_df,
         len(args.grammar_summaries),
         sample_regions_file=args.sample_regions,
-        required_regions_file=args.required_regions)
+        required_regions_file=args.required_regions,
+        plot_dir=plot_dir)
 
     # add controls (SAME controls for each run)
     controls_df = build_controls(
