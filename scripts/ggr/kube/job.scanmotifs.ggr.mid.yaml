@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-    name: dk.job.ggr.scanmotifs.basset.mid
+    name: dk.job.ggr.scanmotifs.basset.dynamic.mid
 spec:
     template:
       spec:
@@ -11,12 +11,14 @@ spec:
           env:
           - name: MODEL_DIR
             value: "/datasets/models.2018-12-03"
-          - name: INFER_DIR
-            value: "/datasets/inference.2019-02-05"
           - name: MODEL
             value: "basset"
+          - name: OUT_DIR
+            value: "/datasets/inference.2019-03-05/motifs.input_x_grad.dynamic.mid"
+          - name: FILTER
+            value: "TRAJ_LABELS=12,13,14,1 H3K27ac_LABELS=1 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$INFER_DIR/motifs.input_x_grad.mid && mkdir -p $OUT_DIR && /datasets/software/scanmotifs.ggr.mid.bash $MODEL_DIR $MODEL $OUT_DIR"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/scanmotifs.ggr.bash $MODEL_DIR $MODEL \"$FILTER\" $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 6
