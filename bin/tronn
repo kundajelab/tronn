@@ -244,7 +244,7 @@ def _setup_dataset_args(args):
 
     # load data files from json if not given
     if len(args.data_files) == 0:
-        args.data_files = args.dataset_json.get("data_files")
+        args.data_files = args.dataset_json.get("data_files", [])
         # load data dir from json if not given
         if args.data_dir is None:
             args.data_dir = args.dataset_json.get("data_dir")
