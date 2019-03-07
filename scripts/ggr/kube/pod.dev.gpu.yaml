@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-    name: dk.dev
+    name: dk.dev.gpu
 spec:
     containers:
     - name: vol-container
