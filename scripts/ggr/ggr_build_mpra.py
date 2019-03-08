@@ -56,9 +56,9 @@ class GGR_PARAMS(object):
         DataKeys.LOGITS_NORM,
         DataKeys.GC_CONTENT,
         "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)]
-    DIFF_SAMPLE_NUM = 6
-    NONDIFF_PROXIMAL_SAMPLE_NUM = 3
-    NONDIFF_DISTAL_SAMPLE_NUM = 3
+    DIFF_SAMPLE_NUM = 10
+    NONDIFF_PROXIMAL_SAMPLE_NUM = 5
+    NONDIFF_DISTAL_SAMPLE_NUM = 5
     TOTAL_SAMPLE_NUM_PER_GRAMMAR = DIFF_SAMPLE_NUM + NONDIFF_PROXIMAL_SAMPLE_NUM + NONDIFF_DISTAL_SAMPLE_NUM
     MIN_DIST = 12
 
@@ -736,7 +736,12 @@ def build_mpra_sequences_with_barcodes(
             barcode = next(barcodes)
 
             # build sequence and add in
-            mpra_sequence, rand_seed = build_mpra_sequence(sequence, barcode, rand_seed, seq_idx)
+            try:
+                mpra_sequence, rand_seed = build_mpra_sequence(sequence, barcode, rand_seed, seq_idx)
+            except:
+                print seq_info["example_id"]
+                import ipdb
+                ipdb.set_trace()
             barcoded_info.insert(1, "sequence.mpra", mpra_sequence)
             
             # add on to full set

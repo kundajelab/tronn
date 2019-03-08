@@ -26,7 +26,8 @@ class MPRA_PARAMS(object):
     RS_BAMHI = 'GGATCC'
     RS_XHOI = 'CTCGAG'
     #RS_XBAI = 'TCTAGA'
-    RS_NHEI = "GCTAGC"
+    RS_NHEI = "GCTAGC" #ACTUAL
+    #RS_NHEI = "CCTGCAGG" #sbfi
     #RS_NCOI = 'CCATGG'
     #RS_XBAI_dam1 = 'GATCTAGA'
     #RS_XBAI_dam2 = 'TCTAGATC'
@@ -88,8 +89,8 @@ def is_barcode_compatible(barcode):
 def is_filler_compatible(filler):
     """check if filler is compatible with library design
     """
-    # first check cut sites
-    if not is_rs_clean(filler): return False
+    # stricter than need be but ok
+    if not is_fragment_compatible(filler): return False
     
     # check overlaps
     filler_extended = MPRA_PARAMS.RS_XHOI + filler + MPRA_PARAMS.RS_NHEI
@@ -399,15 +400,20 @@ def build_pwm_controls(pwm_file, rand_seed=1, metadata_keys=[], metadata_type="s
 
     # set up reproducible rand state
     rand_state = RandomState(rand_seed)
-    rand_seeds = rand_state.choice(1000000, size=len(pwms))
+    rand_seeds = rand_state.choice(1000000, size=1000000)
+    rand_seed_idx = 0
     
     for pwm_idx in range(len(pwms)):
         pwm = pwms[pwm_idx]
         
         # generate a triplicate pattern
-        pwm_embedded_sequence = _build_pwm_embedded_sequence(
-            pwm, MPRA_PARAMS.MAX_FRAG_LEN, rand_seeds[pwm_idx])
-
+        while True:
+            pwm_embedded_sequence = _build_pwm_embedded_sequence(
+                pwm, MPRA_PARAMS.MAX_FRAG_LEN, rand_seeds[rand_seed_idx])
+            rand_seed_idx += 1
+            if is_fragment_compatible(pwm_embedded_sequence):
+                break
+            
         pwm_example = build_metadata(
             pwm_embedded_sequence,
             "pwm",
