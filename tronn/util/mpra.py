@@ -16,19 +16,18 @@ from tronn.util.utils import DataKeys
 
 class MPRA_PARAMS(object):
     """all mpra design params (Khavari Lab)
+    all sequences are 5'-3'
     """
     LEN_FILLER = 0 # UPDATE
     LEN_BARCODE = 20
     MAX_OLIGO_LENGTH = 225
     FWD_PCR_PRIMER = 'ACTGGCCGCTTCACTG'
     REV_PCR_PRIMER = 'AGATCGGAAGAGCGTCG'
-    RS_ECORI = 'GAATTC' # 5'-3'
-    RS_BAMHI = 'GGATCC'
-    RS_XHOI = 'CTCGAG'
+    RS_ECORI = 'GAATTC' # fwd primer cut site
+    RS_BAMHI = 'GGATCC' # rev primer cut site
+    RS_XHOI = 'CTCGAG' # insert prom/luc start
+    RS_NHEI = "GCTAGC" # insert prom/luc end
     #RS_XBAI = 'TCTAGA'
-    RS_NHEI = "GCTAGC" #ACTUAL
-    #RS_NHEI = "CCTGCAGG" #sbfi
-    #RS_NCOI = 'CCATGG'
     #RS_XBAI_dam1 = 'GATCTAGA'
     #RS_XBAI_dam2 = 'TCTAGATC'
     LETTERS= ['A', 'C', 'G', 'T']
@@ -37,28 +36,11 @@ class MPRA_PARAMS(object):
     assert MAX_FRAG_LEN == 160
     
 
-def is_rs_clean(sequence):
-    """check for cut sites, should have NONE
-    """
-    if sequence.count(MPRA_PARAMS.RS_ECORI) != 0: return False
-    if sequence.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
-    if sequence.count(MPRA_PARAMS.RS_XHOI) != 0: return False
-    if sequence.count(MPRA_PARAMS.RS_NHEI) != 0: return False
-    
-    return True
-
-
 def is_fragment_compatible(sequence):
     """check fragment for compatibility
     """
-    # check for NO cut sites
-    if not is_rs_clean(sequence): return False
-
-    # check again when attaching FWD primer
-    if not is_rs_clean(MPRA_PARAMS.FWD_PCR_PRIMER + sequence): return False
-
-    # check after attaching XHOI
-    fragment_extended = sequence + MPRA_PARAMS.RS_XHOI
+    # attach fwd primer and cut site, and confirm cut sites
+    fragment_extended = MPRA_PARAMS.FWD_PCR_PRIMER + sequence + MPRA_PARAMS.RS_XHOI
     if fragment_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
     if fragment_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
     if fragment_extended.count(MPRA_PARAMS.RS_XHOI) != 1: return False
@@ -68,20 +50,34 @@ def is_fragment_compatible(sequence):
     if sequence.count("N") != 0: return False
     
     return True
+
+
+def _is_barcode_gc_compatible(barcode, min_gc=0.20, max_gc=0.80):
+    """check GC content
+    """
+    gc_count = barcode.count("G") + barcode.count("C")
+    gc_fract = gc_count / float(len(barcode))
+
+    if gc_fract < min_gc:
+        return False
+    if gc_fract > max_gc:
+        return False
     
+    return True
+
 
 def is_barcode_compatible(barcode):
     """check barcode for compatibility
     """
-    # check when attaching REV primer
-    if not is_rs_clean(barcode + MPRA_PARAMS.REV_PCR_PRIMER): return False
-
-    # check when attaching NHEI site
-    barcode_extended = MPRA_PARAMS.RS_NHEI + barcode
+    # attach cut site and rev primer, and confirm cut sites
+    barcode_extended = MPRA_PARAMS.RS_NHEI + barcode + MPRA_PARAMS.REV_PCR_PRIMER
     if barcode_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
     if barcode_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
     if barcode_extended.count(MPRA_PARAMS.RS_XHOI) != 0: return False
     if barcode_extended.count(MPRA_PARAMS.RS_NHEI) != 1: return False
+
+    # check GC
+    if not _is_barcode_gc_compatible(barcode): return False
     
     return True
 
@@ -89,16 +85,13 @@ def is_barcode_compatible(barcode):
 def is_filler_compatible(filler):
     """check if filler is compatible with library design
     """
-    # stricter than need be but ok
-    if not is_fragment_compatible(filler): return False
-    
-    # check overlaps
+    # attach cut sites and confirm
     filler_extended = MPRA_PARAMS.RS_XHOI + filler + MPRA_PARAMS.RS_NHEI
     if filler_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
     if filler_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
     if filler_extended.count(MPRA_PARAMS.RS_XHOI) != 1: return False
     if filler_extended.count(MPRA_PARAMS.RS_NHEI) != 1: return False
-        
+    
     return True
 
 
@@ -108,20 +101,14 @@ def generate_compatible_filler(rand_seed, length):
     while True:
         # generate random sequence
         rand_state = RandomState(rand_seed)
+        rand_seed += 1 # always increment
         random_seq = rand_state.choice(
-            MPRA_PARAMS.LETTERS,
-            size=length)
+            MPRA_PARAMS.LETTERS, size=length)
         random_seq = "".join(random_seq)
         
         # if passes checks then break
         if is_filler_compatible(random_seq):
             break
-
-        # otherwise change the seed and keep going
-        rand_seed += 1
-
-    # and move up one more (for next filler)
-    rand_seed += 1
         
     return random_seq, rand_seed
 
@@ -207,7 +194,8 @@ def build_mpra_sequence(sequence, barcode, rand_seed, log):
     # attach XHOI
     sequence += MPRA_PARAMS.RS_XHOI
     # attach filler (random 20)
-    filler, rand_seed = generate_compatible_filler(rand_seed, MPRA_PARAMS.LEN_FILLER)
+    filler, rand_seed = generate_compatible_filler(
+        rand_seed, MPRA_PARAMS.LEN_FILLER)
     sequence += filler
     # attach NHEI
     sequence += MPRA_PARAMS.RS_NHEI
@@ -219,7 +207,7 @@ def build_mpra_sequence(sequence, barcode, rand_seed, log):
     # sanity check
     assert is_sequence_mpra_ready(sequence), log
     
-    return sequence, rand_seed
+    return sequence
 
 
 def seq_list_compatible(seq_list, left_clip=420, right_clip=580):
@@ -238,76 +226,16 @@ def barcode_generator(barcodes):
     """generator to push out barcodes
     """
     barcode_idx = 0
+    used_barcodes = set()
     while barcode_idx < len(barcodes):
         barcode = barcodes[barcode_idx]
         if is_barcode_compatible(barcode):
+            # TODO check min diff?
+            
+            assert barcode not in used_barcodes
+            used_barcodes.add(barcode)
             yield barcode
         barcode_idx += 1
-
-
-def is_barcode_gc_compatible(barcode, min_gc=0.20, max_gc=0.80):
-    """check GC content
-    """
-    gc_count = barcode.count("G") + barcode.count("C")
-    gc_fract = gc_count / float(len(barcode))
-
-    if gc_fract < min_gc:
-        return False
-    if gc_fract > max_gc:
-        return False
-    
-    return True
-        
-        
-def _is_barcode_compatible(barcode, prev_barcodes, min_diff=3, min_gc=0.20, max_gc=0.80):
-    """check barcode 
-    """
-    # no restriction sites
-    if not is_barcode_compatible(barcode):
-        return False
-    
-    # GC content acceptable
-    if not is_barcode_gc_compatible(barcode, min_gc=min_gc, max_gc=max_gc):
-        return False
-    
-    # does not match previous barcodes
-    for prev_barcode in prev_barcodes:
-        if sum(bp1 != bp2 for bp1, bp2 in zip(barcode, prev_barcode)) < min_diff:
-            return False
-    
-    return True
-        
-
-def barcode_generator_v2(total_barcodes=400000, length=20, rand_seed=24):
-    """generate barcodes on the fly
-    """
-    # set up reproducible rand state
-    rand_state = RandomState(rand_seed)
-    rand_seeds = rand_state.choice(10000000, size=total_barcodes)
-    rand_seed_idx = 0
-
-    # make barcodes
-    barcode_idx = 0
-    prev_barcodes = []
-    while barcode_idx < total_barcodes:
-        # make reproducible random state
-        rand_state = RandomState(rand_seeds[rand_seed_idx])
-
-        # make barcode
-        barcode = rand_state.choice(
-            MPRA_PARAMS.LETTERS,
-            size=length)
-        barcode = "".join(barcode)
-        
-        # check
-        if _is_barcode_compatible(barcode, prev_barcodes):
-            prev_barcodes.append(barcode)
-            barcode_idx += 1
-            yield barcode 
-
-        # always increase rand seed
-        rand_seed_idx += 1
-
         
         
 # MPRA tools for controls
@@ -410,7 +338,7 @@ def build_pwm_controls(pwm_file, rand_seed=1, metadata_keys=[], metadata_type="s
         while True:
             pwm_embedded_sequence = _build_pwm_embedded_sequence(
                 pwm, MPRA_PARAMS.MAX_FRAG_LEN, rand_seeds[rand_seed_idx])
-            rand_seed_idx += 1
+            rand_seed_idx += 1 # always increment
             if is_fragment_compatible(pwm_embedded_sequence):
                 break
             
@@ -442,7 +370,7 @@ def build_promoter_controls(
     logging.info("adding {} regions".format(prefix))
     
     # getfasta
-    tmp_fasta = "promoters.fasta"
+    tmp_fasta = "controls.fasta"
     getfasta = "bedtools getfasta -tab -fi {} -bed {} > {}".format(fasta, tss_file, tmp_fasta)
     os.system(getfasta)
     
@@ -475,8 +403,8 @@ def build_promoter_controls(
             all_prom_controls = pd.concat([all_prom_controls, prom_example], sort=True)
         prom_total += 1
 
-    os.system("rm promoters.fasta")
-    logging.info("added {} promoters".format(prom_total))
+    os.system("rm controls.fasta")
+    logging.info("added {} sequences".format(prom_total))
     
     return all_prom_controls
 
@@ -490,8 +418,6 @@ def build_negative_controls(
         metadata_type="synergy"):
     """sample randomly from coordinates
     """
-    logging.info("adding negative regions")
-
     # randomly select subset of regions
     tmp_bed_file = "negatives.subset.bed.gz"
     subset = "zcat {0} | shuf --random-source {0} -n {1} | gzip -c > {2}".format(
