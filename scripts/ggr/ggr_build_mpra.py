@@ -24,14 +24,9 @@ from tronn.interpretation.combinatorial import setup_combinations
 from tronn.util.h5_utils import AttrKeys
 
 from tronn.util.mpra import MPRA_PARAMS
-#from tronn.util.mpra import is_sequence_mpra_ready
-#from tronn.util.mpra import is_fragment_compatible
-#from tronn.util.mpra import is_barcode_compatible
-#from tronn.util.mpra import generate_compatible_filler
 from tronn.util.mpra import trim_sequence_for_mpra
 from tronn.util.mpra import barcode_generator
 from tronn.util.mpra import build_mpra_sequence
-#from tronn.util.mpra import trim_sequence_for_mpra
 from tronn.util.mpra import seq_list_compatible
 from tronn.util.mpra import build_controls
 
