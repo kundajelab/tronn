@@ -24,14 +24,14 @@ from tronn.interpretation.combinatorial import setup_combinations
 from tronn.util.h5_utils import AttrKeys
 
 from tronn.util.mpra import MPRA_PARAMS
-from tronn.util.mpra import is_sequence_mpra_ready
-from tronn.util.mpra import is_fragment_compatible
-from tronn.util.mpra import is_barcode_compatible
-from tronn.util.mpra import generate_compatible_filler
+#from tronn.util.mpra import is_sequence_mpra_ready
+#from tronn.util.mpra import is_fragment_compatible
+#from tronn.util.mpra import is_barcode_compatible
+#from tronn.util.mpra import generate_compatible_filler
 from tronn.util.mpra import trim_sequence_for_mpra
 from tronn.util.mpra import barcode_generator
 from tronn.util.mpra import build_mpra_sequence
-from tronn.util.mpra import trim_sequence_for_mpra
+#from tronn.util.mpra import trim_sequence_for_mpra
 from tronn.util.mpra import seq_list_compatible
 from tronn.util.mpra import build_controls
 
@@ -702,9 +702,16 @@ def build_mpra_sequences_with_barcodes(
     
     # set up index - use this to get consistent set
     mpra_all_df["consensus_idx"] = range(mpra_all_df.shape[0])
+
+    # set up reproducible rand state
+    rand_state = RandomState(1337)
+    rand_seeds = rand_state.choice(
+        10000000,
+        size=args.barcodes_per_sequence*mpra_all_df.shape[0])
+    rand_seed_idx = 0
     
     # build sequences (append necessary MPRA fragments)
-    rand_seed = 0
+    #rand_seed = 0
     incompatible = []
     mpra_expanded_df = None
     for seq_idx in range(mpra_all_df.shape[0]):
@@ -736,12 +743,9 @@ def build_mpra_sequences_with_barcodes(
             barcode = next(barcodes)
 
             # build sequence and add in
-            try:
-                mpra_sequence, rand_seed = build_mpra_sequence(sequence, barcode, rand_seed, seq_idx)
-            except:
-                print seq_info["example_id"]
-                import ipdb
-                ipdb.set_trace()
+            mpra_sequence = build_mpra_sequence(
+                sequence, barcode, rand_seeds[rand_seed_idx], seq_idx)
+            rand_seed_idx += 1 # always increment
             barcoded_info.insert(1, "sequence.mpra", mpra_sequence)
             
             # add on to full set
