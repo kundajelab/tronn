@@ -11,6 +11,7 @@ import re
 import sys
 import glob
 import h5py
+import gzip
 import logging
 import argparse
 
@@ -55,9 +56,9 @@ class GGR_PARAMS(object):
         DataKeys.LOGITS_NORM,
         DataKeys.GC_CONTENT,
         "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)]
-    DIFF_SAMPLE_NUM = 10
-    NONDIFF_PROXIMAL_SAMPLE_NUM = 5
-    NONDIFF_DISTAL_SAMPLE_NUM = 5
+    DIFF_SAMPLE_NUM = 6
+    NONDIFF_PROXIMAL_SAMPLE_NUM = 3
+    NONDIFF_DISTAL_SAMPLE_NUM = 3
     TOTAL_SAMPLE_NUM_PER_GRAMMAR = DIFF_SAMPLE_NUM + NONDIFF_PROXIMAL_SAMPLE_NUM + NONDIFF_DISTAL_SAMPLE_NUM
     MIN_DIST = 12
 
@@ -100,6 +101,15 @@ def parse_args():
     parser.add_argument(
         "--fasta",
         help="fasta file")
+    parser.add_argument(
+        "--variant_regions",
+        help="variant containing regions")
+    parser.add_argument(
+        "--ref_fasta",
+        help="reference fasta (for variants)")
+    parser.add_argument(
+        "--alt_fasta",
+        help="alt fasta (for variants)")
     parser.add_argument(
         "--plot", action="store_true",
         help="make plots of samples")
@@ -304,6 +314,10 @@ def _filter_for_region_set(
     chrom = filter_df.iloc[:,0]
     filter_df = filter_df.iloc[:,1].str.split("-", 2, expand=True)
     filter_df.insert(0, "chrom", chrom)
+    colnames = filter_df.columns
+    # adjust for offsets (instead of 200 it's 160)
+    filter_df[colnames[1]] = filter_df[colnames[1]].astype(int) + 20
+    filter_df[colnames[2]] = filter_df[colnames[2]].astype(int) - 20
     
     # make bed file, overlap, return dataframe of results
     tmp_bed = "sampling.bed.gz"
@@ -352,7 +366,7 @@ def get_sampling_info(synergy_files, sample_regions_file=None):
     # only use sequences that are within desired regions
     if sample_regions_file is not None:
         sampling_info, _ = _filter_for_region_set(sampling_info, sample_regions_file)
-
+    
     return sampling_info
 
 
@@ -440,7 +454,12 @@ def _get_nondiff_distal_sample(sampling_info, sample_num, diff_bool):
     return nondiff_sample
 
 
-def get_sample(sampling_info, grammar_idx=0, required_regions_file=None):
+def get_sample(
+        sampling_info,
+        grammar_idx=0,
+        required_regions_file=None,
+        variant_regions_file=None,
+        variant_work_dir=None):
     """get all samples
     """
     # get diff sample
@@ -466,6 +485,19 @@ def get_sample(sampling_info, grammar_idx=0, required_regions_file=None):
             sampling_info, required_regions_file, filter_sampling_info=False, print_overlap=False)
         required_sample = sampling_info["examples"][required_indices]
         diff_sample = np.concatenate([diff_sample, required_sample], axis=0)
+
+    # now get variant regions
+    if variant_regions_file is not None:
+        _, variant_indices = _filter_for_region_set(
+            sampling_info, variant_regions_file, filter_sampling_info=False, print_overlap=False)
+        variant_sample = sampling_info["examples"][variant_indices]
+        # write out (to merge later)
+        out_bed = "{}/variants.grammar-{}.bed.gz".format(variant_work_dir, grammar_idx)
+        for example in variant_sample:
+            example = example.split(";")[1].split("=")[1]
+            example = example.replace(":", "\t").replace("-", "\t")
+            with gzip.open(out_bed, "a") as out:
+                out.write("{}\n".format(example))
 
     # collect all
     full_sample = np.unique(np.concatenate(
@@ -610,6 +642,8 @@ def sample_sequences(
         num_runs,
         sample_regions_file=None,
         required_regions_file=None,
+        variant_regions_file=None,
+        variant_work_dir=None,
         plot_dir=None):
     """sample sequences
     """
@@ -627,7 +661,9 @@ def sample_sequences(
         full_sample = get_sample(
             sampling_info,
             grammar_idx=grammar_idx,
-            required_regions_file=required_regions_file)
+            required_regions_file=required_regions_file,
+            variant_regions_file=variant_regions_file,
+            variant_work_dir=variant_work_dir)
         if full_sample.shape[0] < (GGR_PARAMS.TOTAL_SAMPLE_NUM_PER_GRAMMAR / 2.):
             logging.info("{}: skipping because not enough sequences of interest: {}".format(
                 grammar_idx, full_sample.shape[0]))
@@ -681,12 +717,13 @@ def build_mpra_sequences_with_barcodes(
         edge_indices = [
             int(float(val)) for val in seq_info.iloc[0]["edge_indices"].split(",")]
 
-        # trim, if trimming doesn't work add to incompatible
-        try:
-            sequence = trim_sequence_for_mpra(sequence, edge_indices)
-        except AssertionError:
-            incompatible.append(seq_info.iloc[0]["example_id"])
-            continue
+        if False:
+            # trim, if trimming doesn't work add to incompatible
+            try:
+                sequence = trim_sequence_for_mpra(sequence, edge_indices)
+            except AssertionError:
+                incompatible.append(seq_info.iloc[0]["example_id"])
+                continue
         
         # add barcode, have multiple barcodes for each sequence
         for barcode_idx in range(args.barcodes_per_sequence):
@@ -757,13 +794,22 @@ def main():
         os.system("mkdir -p {}".format(plot_dir))
     else:
         plot_dir = None
-    
+
+    # set up variant work dir as needed
+    if args.variant_regions is not None:
+        variant_work_dir = "{}/variants".format(args.out_dir)
+        os.system("mkdir -p {}".format(variant_work_dir))
+    else:
+        variant_work_dir = None
+        
     # collect sequence samples with extra relevant information
     mpra_runs = sample_sequences(
         summary_df,
         len(args.grammar_summaries),
         sample_regions_file=args.sample_regions,
         required_regions_file=args.required_regions,
+        variant_regions_file=args.variant_regions,
+        variant_work_dir=variant_work_dir,
         plot_dir=plot_dir)
 
     # add controls (SAME controls for each run)
@@ -772,6 +818,9 @@ def main():
         pwm_file=args.pwm_file,
         promoter_regions=args.promoter_regions,
         negative_regions=args.negative_regions,
+        variant_work_dir=variant_work_dir,
+        ref_fasta=args.ref_fasta,
+        alt_fasta=args.alt_fasta,
         fasta=args.fasta)
     for run_idx in range(len(mpra_runs)):
         mpra_runs[run_idx] = pd.concat(
@@ -782,6 +831,7 @@ def main():
     barcodes = pd.read_table(args.barcodes, header=None).iloc[:,0].values
     rand_state.shuffle(barcodes)
     barcodes = barcode_generator(barcodes)
+    #barcodes = barcode_generator()
     
     # for each run, build mpra sequences
     for run_idx in range(len(mpra_runs)):

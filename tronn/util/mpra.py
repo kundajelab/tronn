@@ -14,38 +14,35 @@ from tronn.util.pwms import MotifSetManager
 from tronn.util.utils import DataKeys
 
 
-
 class MPRA_PARAMS(object):
     """all mpra design params (Khavari Lab)
     """
-    LEN_FILLER = 20
+    LEN_FILLER = 0 # UPDATE
     LEN_BARCODE = 20
-    MAX_OLIGO_LENGTH = 230
+    MAX_OLIGO_LENGTH = 225
     FWD_PCR_PRIMER = 'ACTGGCCGCTTCACTG'
     REV_PCR_PRIMER = 'AGATCGGAAGAGCGTCG'
     RS_ECORI = 'GAATTC' # 5'-3'
     RS_BAMHI = 'GGATCC'
     RS_XHOI = 'CTCGAG'
-    RS_XBAI = 'TCTAGA'
-    RS_NCOI = 'CCATGG'
-    RS_XBAI_dam1 = 'GATCTAGA'
-    RS_XBAI_dam2 = 'TCTAGATC'
+    #RS_XBAI = 'TCTAGA'
+    RS_NHEI = "GCTAGC"
+    #RS_NCOI = 'CCATGG'
+    #RS_XBAI_dam1 = 'GATCTAGA'
+    #RS_XBAI_dam2 = 'TCTAGATC'
     LETTERS= ['A', 'C', 'G', 'T']
     MAX_FRAG_LEN = MAX_OLIGO_LENGTH - (
-        len(FWD_PCR_PRIMER) + len(RS_XHOI) + LEN_FILLER + len(RS_XBAI) + LEN_BARCODE + len(REV_PCR_PRIMER))
-
+        len(FWD_PCR_PRIMER) + len(RS_XHOI) + LEN_FILLER + len(RS_NHEI) + LEN_BARCODE + len(REV_PCR_PRIMER))
+    assert MAX_FRAG_LEN == 160
     
 
 def is_rs_clean(sequence):
     """check for cut sites, should have NONE
     """
-    # cut sites (insert to backbone) should NOT exist
     if sequence.count(MPRA_PARAMS.RS_ECORI) != 0: return False
     if sequence.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
-
-    # cut sites (insert promoter and luc) should NOT exist
     if sequence.count(MPRA_PARAMS.RS_XHOI) != 0: return False
-    if sequence.count(MPRA_PARAMS.RS_XBAI) != 0: return False
+    if sequence.count(MPRA_PARAMS.RS_NHEI) != 0: return False
     
     return True
 
@@ -63,6 +60,8 @@ def is_fragment_compatible(sequence):
     fragment_extended = sequence + MPRA_PARAMS.RS_XHOI
     if fragment_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
     if fragment_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
+    if fragment_extended.count(MPRA_PARAMS.RS_XHOI) != 1: return False
+    if fragment_extended.count(MPRA_PARAMS.RS_NHEI) != 0: return False
     
     # check for N
     if sequence.count("N") != 0: return False
@@ -76,13 +75,12 @@ def is_barcode_compatible(barcode):
     # check when attaching REV primer
     if not is_rs_clean(barcode + MPRA_PARAMS.REV_PCR_PRIMER): return False
 
-    # check when attaching XBAI site
-    barcode_extended = MPRA_PARAMS.RS_XBAI + barcode
-    if barcode_extended.count(MPRA_PARAMS.RS_XBAI_dam2) != 0: return False
-    
-    # check overlaps
+    # check when attaching NHEI site
+    barcode_extended = MPRA_PARAMS.RS_NHEI + barcode
     if barcode_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
     if barcode_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
+    if barcode_extended.count(MPRA_PARAMS.RS_XHOI) != 0: return False
+    if barcode_extended.count(MPRA_PARAMS.RS_NHEI) != 1: return False
     
     return True
 
@@ -94,12 +92,11 @@ def is_filler_compatible(filler):
     if not is_rs_clean(filler): return False
     
     # check overlaps
-    filler_extended = MPRA_PARAMS.RS_XHOI + filler + MPRA_PARAMS.RS_XBAI
+    filler_extended = MPRA_PARAMS.RS_XHOI + filler + MPRA_PARAMS.RS_NHEI
     if filler_extended.count(MPRA_PARAMS.RS_ECORI) != 0: return False
     if filler_extended.count(MPRA_PARAMS.RS_BAMHI) != 0: return False
-    
-    # check methylation
-    if filler_extended.count(MPRA_PARAMS.RS_XBAI_dam1) != 0: return False
+    if filler_extended.count(MPRA_PARAMS.RS_XHOI) != 1: return False
+    if filler_extended.count(MPRA_PARAMS.RS_NHEI) != 1: return False
         
     return True
 
@@ -135,27 +132,33 @@ def is_sequence_mpra_ready(sequence):
     # cut sites (insert to backbone) should NOT exist
     if sequence.count(MPRA_PARAMS.RS_ECORI) != 0:
         logging.info("ecori")
+        logging.info(sequence)
         return False
     if sequence.count(MPRA_PARAMS.RS_BAMHI) != 0:
         logging.info("bamhi")
+        logging.info(sequence)
         return False
 
     # cut sites (insert promoter and luc) SHOULD exist ONCE
     if sequence.count(MPRA_PARAMS.RS_XHOI) != 1:
         logging.info("xhoi")
+        logging.info(sequence)
         return False
-    if sequence.count(MPRA_PARAMS.RS_XBAI) != 1:
-        logging.info("xbai")
+    if sequence.count(MPRA_PARAMS.RS_NHEI) != 1:
+        logging.info("nhei")
+        logging.info(sequence)
         return False
 
     # check length
     if len(sequence) > MPRA_PARAMS.MAX_OLIGO_LENGTH:
         logging.info("length")
+        logging.info(sequence)
         return False
 
     # check for N
     if sequence.count("N") != 0:
         logging.info("found N")
+        logging.info(sequence)
         return False
 
     return True
@@ -205,8 +208,8 @@ def build_mpra_sequence(sequence, barcode, rand_seed, log):
     # attach filler (random 20)
     filler, rand_seed = generate_compatible_filler(rand_seed, MPRA_PARAMS.LEN_FILLER)
     sequence += filler
-    # attach XBAI
-    sequence += MPRA_PARAMS.RS_XBAI
+    # attach NHEI
+    sequence += MPRA_PARAMS.RS_NHEI
     # attach barcode
     sequence += barcode
     # attach reverse primer
@@ -240,6 +243,72 @@ def barcode_generator(barcodes):
             yield barcode
         barcode_idx += 1
 
+
+def is_barcode_gc_compatible(barcode, min_gc=0.20, max_gc=0.80):
+    """check GC content
+    """
+    gc_count = barcode.count("G") + barcode.count("C")
+    gc_fract = gc_count / float(len(barcode))
+
+    if gc_fract < min_gc:
+        return False
+    if gc_fract > max_gc:
+        return False
+    
+    return True
+        
+        
+def _is_barcode_compatible(barcode, prev_barcodes, min_diff=3, min_gc=0.20, max_gc=0.80):
+    """check barcode 
+    """
+    # no restriction sites
+    if not is_barcode_compatible(barcode):
+        return False
+    
+    # GC content acceptable
+    if not is_barcode_gc_compatible(barcode, min_gc=min_gc, max_gc=max_gc):
+        return False
+    
+    # does not match previous barcodes
+    for prev_barcode in prev_barcodes:
+        if sum(bp1 != bp2 for bp1, bp2 in zip(barcode, prev_barcode)) < min_diff:
+            return False
+    
+    return True
+        
+
+def barcode_generator_v2(total_barcodes=400000, length=20, rand_seed=24):
+    """generate barcodes on the fly
+    """
+    # set up reproducible rand state
+    rand_state = RandomState(rand_seed)
+    rand_seeds = rand_state.choice(10000000, size=total_barcodes)
+    rand_seed_idx = 0
+
+    # make barcodes
+    barcode_idx = 0
+    prev_barcodes = []
+    while barcode_idx < total_barcodes:
+        # make reproducible random state
+        rand_state = RandomState(rand_seeds[rand_seed_idx])
+
+        # make barcode
+        barcode = rand_state.choice(
+            MPRA_PARAMS.LETTERS,
+            size=length)
+        barcode = "".join(barcode)
+        
+        # check
+        if _is_barcode_compatible(barcode, prev_barcodes):
+            prev_barcodes.append(barcode)
+            barcode_idx += 1
+            yield barcode 
+
+        # always increase rand seed
+        rand_seed_idx += 1
+
+        
+        
 # MPRA tools for controls
 
 def build_metadata(sequence, prefix, idx, keys, metadata_type="synergy"):
@@ -391,6 +460,7 @@ def build_promoter_controls(
             prom_idx,
             metadata_keys,
             metadata_type=metadata_type)
+        prom_example["example_metadata"] = "features={}".format(sequences.iloc[prom_idx,0])
         
         # attach
         if prom_idx == 0:
@@ -437,12 +507,56 @@ def build_negative_controls(
     return negative_genomic_controls
 
 
+def build_variants(
+        variants_work_dir,
+        ref_fasta,
+        alt_fasta,
+        metadata_keys=[],
+        metadata_type="synergy"):
+    """given a bed file of variants and ref/alt fasta files,
+    get variant sequences
+    """
+    # make a master variants file
+    master_variants_bed_file = "{}/variants.master.bed.gz".format(variants_work_dir)
+    os.system((
+        "zcat {}/variants.grammar*.bed.gz | "
+        "sort -k1,1 -k2,2n | "
+        "bedtools merge -i stdin | "
+        "gzip -c > {}").format(
+            variants_work_dir,
+            master_variants_bed_file))
+    
+    # reuse promoter code
+    snp_ref = build_promoter_controls(
+        master_variants_bed_file,
+        ref_fasta,
+        rand_seed=4,
+        metadata_keys=metadata_keys,
+        metadata_type=metadata_type,
+        prefix="ref_snp")
+    snp_alt = build_promoter_controls(
+        master_variants_bed_file,
+        alt_fasta,
+        rand_seed=5,
+        metadata_keys=metadata_keys,
+        metadata_type=metadata_type,
+        prefix="alt_snp")
+    
+    # interleave
+    variants = pd.concat([snp_ref, snp_alt]).sort_values("example_metadata")
+    
+    return variants
+
+
 def build_controls(
         metadata_keys,
         metadata_type,
         pwm_file=None,
         promoter_regions=None,
         negative_regions=None,
+        variant_work_dir=None,
+        ref_fasta=None,
+        alt_fasta=None,
         fasta=None):
     """build all controls
     """
@@ -481,5 +595,17 @@ def build_controls(
             metadata_type=metadata_type)
         controls_df = pd.concat(
             [controls_df, genomic_negatives_df], sort=True)
+
+    # add variants
+    if variant_work_dir is not None:
+        variants_df = build_variants(
+            variant_work_dir,
+            ref_fasta,
+            alt_fasta,
+            metadata_keys=metadata_keys,
+            metadata_type=metadata_type)
+        controls_df = pd.concat(
+            [controls_df, variants_df], sort=True)
+        
         
     return controls_df
