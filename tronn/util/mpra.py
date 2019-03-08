@@ -222,6 +222,16 @@ def seq_list_compatible(seq_list, left_clip=420, right_clip=580):
     return True
 
 
+def _check_min_diff(barcode, other_barcodes, min_diff=3):
+    """check min diff
+    """
+    for other_barcode in other_barcodes:
+        if sum(bp_a != bp_b for bp_a, bp_b in zip(barcode, other_barcode)) < min_diff:
+            return False
+    
+    return True
+
+
 def barcode_generator(barcodes):
     """generator to push out barcodes
     """
@@ -230,8 +240,7 @@ def barcode_generator(barcodes):
     while barcode_idx < len(barcodes):
         barcode = barcodes[barcode_idx]
         if is_barcode_compatible(barcode):
-            # TODO check min diff?
-            
+            #assert _check_min_diff(barcode, used_barcodes)
             assert barcode not in used_barcodes
             used_barcodes.add(barcode)
             yield barcode
