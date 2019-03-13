@@ -24,13 +24,14 @@ def main():
         cmd += "--scan_file {}/ggr.dmim.h5 ".format(dmim_dir)
         cmd += "--sig_pwms_file {}/motifs.adjust.diff.rna_filt.dmim/pvals.rna_filt.corr_filt.h5 ".format(MOTIF_DIR)
         cmd += "--foreground_targets {} ".format(dmim_dir.split("/")[-1])
+        cmd += "--keep_grammars HCLUST-169_TFAP2A.UNK.0.A,HCLUST-184_KLF12.UNK.0.A "
         cmd += "--aux_data_key ATAC_SIGNALS.NORM logits.norm "
         cmd += "-o {}/{} ".format(dmim_dir, out_dirname)
         cmd += "--prefix ggr "
 
         print cmd
         os.system(cmd)
-
+        
     return
 
 

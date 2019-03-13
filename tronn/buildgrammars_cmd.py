@@ -7,13 +7,7 @@ import numpy as np
 import networkx as nx
 import seaborn as sns
 
-#from tronn.interpretation.networks import build_co_occurrence_graph
-#from tronn.interpretation.networks import build_dmim_graph
-#from tronn.interpretation.networks import get_subgraphs_and_filter
-#from tronn.interpretation.networks import sort_subgraphs_by_output_strength
-#from tronn.interpretation.networks import build_subgraph_per_example_array
 from tronn.interpretation.networks import add_graphics_theme_to_nx_graph
-#from tronn.interpretation.networks import annotate_subgraphs_with_pwm_scores
 from tronn.interpretation.networks import build_full_graph
 from tronn.interpretation.networks import get_maxsize_k_subgraphs
 from tronn.interpretation.networks import attach_mut_logits
@@ -40,16 +34,20 @@ def run(args):
     with h5py.File(args.scan_file, "r") as hf:
         total_examples = hf[DataKeys.FEATURES].shape[0]
     min_support = max(total_examples * args.min_support_fract, args.min_support)
+
+    # adjust the pwms by presence arg
+    args.keep_grammars = [pwms.split(",") for pwms in args.keep_grammars]
     
     # make graph
     graph = build_full_graph(
         args.scan_file,
         sig_pwms_indices,
         min_positive_tasks=args.min_positive_tasks,
-        min_region_num=min_support)
+        min_region_num=min_support,
+        keep_grammars=args.keep_grammars)
 
     # get subgraphs
-    subgraphs = get_maxsize_k_subgraphs(graph, min_support)
+    subgraphs = get_maxsize_k_subgraphs(graph, min_support, keep_grammars=args.keep_grammars)
 
     # attach delta logits to nodes
     subgraphs = attach_mut_logits(subgraphs, args.scan_file)

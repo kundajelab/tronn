@@ -734,13 +734,6 @@ def add_buildgrammars_parser(subparsers):
     group_analysis.add_argument(
         "--min_support", default=200, type=int,
         help="min number of examples needed to support a grammar")
-    #group_analysis.add_argument(
-    #    "--max_overlap_fraction", default=0.3, type=float,
-    #    help="max fraction of regions that can overlap between two subgraphs")
-    #group_analysis.add_argument(
-    #    "--return_top_k", type=int,
-    #    help="if requested return just the top k subgraphs, ranked by output strength")
-
     
     # group for dataset
     group_dataset = cmd_argparser.add_argument_group(
@@ -752,11 +745,11 @@ def add_buildgrammars_parser(subparsers):
         "--foreground_targets", required=True,
         help="key to pvals")
     group_dataset.add_argument(
+        "--keep_grammars", nargs="+", default=[],
+        help="grammars to keep IF they exist. use pwm names separated by commas")
+    group_dataset.add_argument(
         "--aux_data_keys", nargs="+", default=[],
         help="extra dataset summaries to add")
-    #group_dataset.add_argument(
-    #    "--scan_key",
-    #    help="dataset key with scores") # either motifs {N, task, M} or dmim {N, mutM, task, M}, with dmim need to consider outputs logits {N, mutM, logits}
     _add_sig_pwms_args(group_dataset)
     
     # group for output files
