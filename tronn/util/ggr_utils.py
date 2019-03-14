@@ -55,6 +55,9 @@ GOOD_GO_TERMS = [
     "sphingolipid",
     "glycerolipid"]
 
+KEEP_GRAMMARS = [
+    ["TFAP2A", "KLF12"]
+]
 
 def get_max_delta_logit(gml_file):
     max_val = 0
@@ -261,8 +264,8 @@ def annotate_one_grammar(
         interesting_genes,
         background_rna,
         out_dir,
-        k_closest=3,
-        max_dist=500000): # TODO adjust here
+        k_closest=2,
+        max_dist=250000): # TODO adjust here - Nat gen GTEX paper, use 250kbp?
     """return a dict of results
     """
     results = {}
@@ -400,6 +403,11 @@ def annotate_one_grammar(
     else:
         results["GO_terms"] = 0
         results["GO_descriptions"] = "NA"
+
+    # check keep grammars
+    for keep_grammar in KEEP_GRAMMARS:
+        if len(set(clean_node_names.split(",")).difference(set(keep_grammar))) == 0:
+            results["GO_terms"] = 1
         
     # and save out updated gml file
     nx.write_gml(stringize_nx_graph(grammar), new_grammar_file)
