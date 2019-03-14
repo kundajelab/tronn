@@ -202,7 +202,7 @@ def get_nearby_genes(
         bed_file,
         tss_file,
         k=2,
-        max_dist=500000, # TODO adjust this
+        max_dist=150000, # TODO adjust this 500000
         tmp_file="tss_overlap.tmp.txt"):
     """get proximal genes
     """
@@ -230,6 +230,16 @@ def check_substrings(desired_substrings, main_strings):
             if substring in main_string:
                 return True
     return False
+
+
+def get_substring_matches(desired_substrings, main_strings):
+    matches = []
+    for main_string in main_strings:
+        for substring in desired_substrings:
+            if substring in main_string:
+                matches.append(main_string)
+
+    return matches
 
 
 def get_num_lines(file_name):
@@ -385,9 +395,12 @@ def annotate_one_grammar(
     if check_substrings(GOOD_GO_TERMS, functional_terms):
         logging.info("was functionally enriched: {}".format(",".join(functional_terms)))
         results["GO_terms"] = 1
+        results["GO_descriptions"] = ",".join(
+            get_substring_matches(GOOD_GO_TERMS, functional_terms)).replace(" ", "_")
     else:
         results["GO_terms"] = 0
-
+        results["GO_descriptions"] = "NA"
+        
     # and save out updated gml file
     nx.write_gml(stringize_nx_graph(grammar), new_grammar_file)
     results["filename"] = new_grammar_file
@@ -690,7 +703,8 @@ def merge_duplicates(
         "MSE": [],
         "downstream_interesting": [],
         "edge_type": [],
-        "GO_terms": []}
+        "GO_terms": [],
+        "GO_descriptions": []}
     
     line_idx = 0
     while line_idx < grammars_df.shape[0]:
@@ -818,7 +832,8 @@ def annotate_grammars(args, merge_grammars=True):
         "MSE": [],
         "downstream_interesting": [],
         "edge_type": [],
-        "GO_terms": []}
+        "GO_terms": [],
+        "GO_descriptions": []}
 
     if True:
         # for each grammar, run analyses:
