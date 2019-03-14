@@ -261,8 +261,8 @@ def annotate_one_grammar(
         interesting_genes,
         background_rna,
         out_dir,
-        k_closest=2,
-        max_dist=150000): # TODO adjust here
+        k_closest=3,
+        max_dist=500000): # TODO adjust here
     """return a dict of results
     """
     results = {}
@@ -886,9 +886,16 @@ def annotate_grammars(args, merge_grammars=True):
         summary_df = pd.DataFrame(results)
         summary_df = summary_df.sort_values("downstream_interesting")
         summary_df.insert(0, "manual_filt", np.ones(summary_df.shape[0]))
+        
+        # rearrange
+        cols = list(summary_df.columns.values)
+        cols.pop(cols.index("GO_descriptions"))
+        summary_df = summary_df[cols+["GO_descriptions"]]
+
+        # save out
         summary_df.to_csv(summary_file, sep="\t")
-        with pd.option_context('display.max_rows', None, 'display.max_columns', None):
-            print summary_df
+        #with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+        #    print summary_df
 
         logging.info("Filtered grammar total: {}".format(summary_df.shape[0]))
 
