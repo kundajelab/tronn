@@ -202,7 +202,7 @@ def get_nearby_genes(
         bed_file,
         tss_file,
         k=2,
-        max_dist=500000,
+        max_dist=500000, # TODO adjust this
         tmp_file="tss_overlap.tmp.txt"):
     """get proximal genes
     """
@@ -217,6 +217,9 @@ def get_nearby_genes(
     data = data[[6,9]]
     data.columns = ["gene_id", "distance"]
     data = data.set_index("gene_id")
+
+    # cleanup
+    os.system("rm {}".format(tmp_file))
     
     return data
 
@@ -248,7 +251,8 @@ def annotate_one_grammar(
         interesting_genes,
         background_rna,
         out_dir,
-        max_dist=500000):
+        k_closest=2,
+        max_dist=500000): # TODO adjust this?
     """return a dict of results
     """
     results = {}
@@ -276,7 +280,7 @@ def annotate_one_grammar(
 
     # run proximal RNA based analyses
     # get nearby genes
-    nearby_genes = get_nearby_genes(grammar_bed, tss, k=2, max_dist=max_dist)
+    nearby_genes = get_nearby_genes(grammar_bed, tss, k=k_closest, max_dist=max_dist)
     logging.info("proximal genes within {} bp: {}".format(max_dist, nearby_genes.shape[0]))
 
     # intersect with foreground set (in our case, dynamic genes only)
@@ -659,7 +663,6 @@ def merge_duplicates(
         interesting_genes,
         background_rna,
         out_dir,
-        max_dist=500000,
         synergy_dirs=[],
         merged_synergy_dir=None):
     """for each line, check for duplicate lines and merge them all
@@ -727,8 +730,7 @@ def merge_duplicates(
                     dynamic_genes,
                     interesting_genes,
                     background_rna,
-                    out_dir,
-                    max_dist=500000)
+                    out_dir)
 
                 # merge synergy files into new dir
                 if len(synergy_dirs) > 0:
@@ -853,8 +855,7 @@ def annotate_grammars(args, merge_grammars=True):
                 dynamic_genes,
                 interesting_genes,
                 args.background_rna,
-                args.out_dir,
-                max_dist=500000)
+                args.out_dir)
 
             # do not save out if no results
             if grammar_results["filename"] == "None":
@@ -890,8 +891,7 @@ def annotate_grammars(args, merge_grammars=True):
             dynamic_genes,
             interesting_genes,
             args.background_rna,
-            args.out_dir,
-            max_dist=500000)
+            args.out_dir)
         
     # TODO make a function to adjust grammar colors?
     # color by function (not by ordering across time)?
