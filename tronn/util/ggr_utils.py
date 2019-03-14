@@ -201,8 +201,8 @@ def expand_pwms_by_rna(pwms_df, split_cols, split_char=";"):
 def get_nearby_genes(
         bed_file,
         tss_file,
-        k=2,
-        max_dist=150000, # TODO adjust this 500000
+        k,
+        max_dist,
         tmp_file="tss_overlap.tmp.txt"):
     """get proximal genes
     """
@@ -262,7 +262,7 @@ def annotate_one_grammar(
         background_rna,
         out_dir,
         k_closest=2,
-        max_dist=500000): # TODO adjust this?
+        max_dist=150000): # TODO adjust here
     """return a dict of results
     """
     results = {}
@@ -290,7 +290,7 @@ def annotate_one_grammar(
 
     # run proximal RNA based analyses
     # get nearby genes
-    nearby_genes = get_nearby_genes(grammar_bed, tss, k=k_closest, max_dist=max_dist)
+    nearby_genes = get_nearby_genes(grammar_bed, tss, k_closest, max_dist)
     logging.info("proximal genes within {} bp: {}".format(max_dist, nearby_genes.shape[0]))
 
     # intersect with foreground set (in our case, dynamic genes only)
