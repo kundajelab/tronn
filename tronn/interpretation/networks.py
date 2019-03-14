@@ -76,7 +76,7 @@ def _build_nodes(
             "mutidx": pwm_i,
             "pwmidx": pwm_global_idx}
         nodes.append((pwm_name, node_attrs))
-        logging.info("{} has {} sig mutant examples".format(pwm_name, len(node_examples)))
+        logging.debug("{} has {} sig mutant examples".format(pwm_name, len(node_examples)))
     logging.info("created {} nodes".format(len(nodes)))
         
     return nodes
@@ -170,8 +170,6 @@ def _build_synergy_edges(
                 edges.append(edge)
 
     logging.info("created {} synergy edges".format(len(edges)))
-    for edge in edges:
-        print edge[0], edge[1]
         
     return edges
 
@@ -182,7 +180,6 @@ def build_full_graph(
         sig_mut_logits_key=DataKeys.MUT_MOTIF_LOGITS_SIG,
         dmim_scores_key=DataKeys.DMIM_SCORES_SIG,
         sig_responses=DataKeys.FEATURES,
-        #pwm_scores_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
         min_positive_tasks=2,
         min_region_num=1000,
         keep_grammars=[]):
@@ -196,7 +193,6 @@ def build_full_graph(
     with h5py.File(dmim_h5_file, "r") as hf:
         example_metadata = hf[DataKeys.SEQ_METADATA][:,0]
         sig_mut_outputs = hf[sig_mut_logits_key][:]
-        #pwm_scores = hf[pwm_scores_key][:]
         pwm_names = hf[DataKeys.FEATURES].attrs[AttrKeys.PWM_NAMES]
     assert sig_mut_outputs.shape[1] == len(sig_pwms_indices)
     
@@ -210,8 +206,6 @@ def build_full_graph(
     graph.add_nodes_from(nodes)
     
     # 2) build co-occurrence edges
-    #if exception_min_region_num is None:
-    #    exception_min_region_num = min_region_num / 2.
     co_occurrence_edges = _build_co_occurrence_edges(
         graph, min_region_num, sig_reduce_type="any",
         keep_grammars=keep_grammars)
@@ -221,8 +215,6 @@ def build_full_graph(
     # TODO somewhere before this do a signifiance test
     with h5py.File(dmim_h5_file, "r") as hf:
         dmim_scores = hf[dmim_scores_key][:]
-    #assert sig_mut_outputs.shape[1] == len(sig_pwms_indices)
-    #print dmim_scores.shape
     synergy_edges = _build_synergy_edges(
         graph,
         dmim_scores,
@@ -308,7 +300,7 @@ def get_size_k_subgraphs(graph, min_region_count, k=1, keep_grammars=[]):
                     if len(set(subgraph.nodes).difference(set(keep_grammar))) == 0:
                         keep_subgraph = True
                 if keep_subgraph:
-                    logging.info("keep subgraph {}".format(subgraph.nodes))
+                    logging.info("from keep grammars, keeping subgraph {}".format(subgraph.nodes))
                     subgraphs.append(subgraph)
                 
             # now recursively remove edges and check subgraphs for any new ones
