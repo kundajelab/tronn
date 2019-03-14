@@ -91,6 +91,9 @@ def parse_args():
         "--promoter_regions",
         help="positive control set of promoter regions")
     parser.add_argument(
+        "--stable_regions",
+        help="negative control set of stable ATAC regions")
+    parser.add_argument(
         "--negative_regions",
         help="set of regions to draw other negatives from")
     parser.add_argument(
@@ -821,6 +824,7 @@ def main():
         GGR_PARAMS.SYNERGY_KEYS, "synergy",
         pwm_file=args.pwm_file,
         promoter_regions=args.promoter_regions,
+        stable_regions=args.stable_regions,
         negative_regions=args.negative_regions,
         variant_work_dir=variant_work_dir,
         ref_fasta=args.ref_fasta,

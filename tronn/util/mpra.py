@@ -494,6 +494,7 @@ def build_controls(
         metadata_type,
         pwm_file=None,
         promoter_regions=None,
+        stable_regions=None,
         negative_regions=None,
         variant_work_dir=None,
         ref_fasta=None,
@@ -525,6 +526,17 @@ def build_controls(
             metadata_type=metadata_type)
         controls_df = pd.concat(
             [controls_df, promoter_controls_df], sort=True)
+        
+    # make stable regions
+    if stable_regions is not None:
+        stable_controls_df = build_negative_controls(
+            stable_regions,
+            fasta,
+            num_negatives=50,
+            metadata_keys=metadata_keys,
+            metadata_type=metadata_type)
+        controls_df = pd.concat(
+            [controls_df, stable_controls_df], sort=True)
         
     # make negative controls
     if negative_regions is not None:
