@@ -10,7 +10,7 @@ def main():
     GGR_DIR = "/datasets/ggr/1.0.0d/annotations"
     
     # annotations
-    tss = "{}/hg19.tss.gencode19.bed.gz".format(GGR_DIR)
+    tss = "{}/ggr.rna.tss.expressed.bed.gz".format(GGR_DIR)
     foreground_rna = "{}/ggr.rna.counts.pc.expressed.timeseries_adj.pooled.rlog.dynamic.mat.txt.gz".format(GGR_DIR)
     background_rna = "{}/ggr.rna.counts.pc.rlog.expressed.txt.gz".format(GGR_DIR)
     pwms = "{}/HOCOMOCOv11_core_pwms_HUMAN_mono.renamed.nonredundant.txt".format(GGR_DIR)
