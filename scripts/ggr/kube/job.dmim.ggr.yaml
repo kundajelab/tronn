@@ -14,9 +14,9 @@ spec:
           - name: INFER_DIR
             value: "/datasets/inference.2019-02-05"
           - name: WORK_DIR
-            value: "/datasets/inference.2019-02-21"
+            value: "/datasets/inference.2019-03-12"
           - name: DMIM_DIR
-            value: "dmim.shuffle"
+            value: "dmim.point"
           - name: MODEL
             value: "basset"
           - name: PATTERN
