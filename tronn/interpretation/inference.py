@@ -46,6 +46,11 @@ def _setup_input_skip_keys(args):
             DataKeys.DMIM_SCORES_SIG,
             DataKeys.FEATURES]
         for key in skip_keys:
+            prevent_null_skip = [
+                "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ),
+                DataKeys.MUT_MOTIF_POS]
+            if key in prevent_null_skip:
+                continue
             if "motif_mut" in key:
                 skip_keys.append(key.replace("motif_mut", "null_mut"))
     elif (args.subcommand_name == "scanmotifs"):

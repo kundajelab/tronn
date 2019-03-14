@@ -323,10 +323,6 @@ class SynergyMutagenizer(Mutagenizer):
         indices = tf.gather(indices, sig_pwms_indices, axis=1) # {N, mutM, 1}
         vals = tf.gather(vals, sig_pwms_indices, axis=1) # {N, mutM, 1}
         assert indices.get_shape().as_list()[2] == 1
-
-        # TODO remove this!
-        #logging.info("WARNING TEMPORARY FIX IN SYNERGY - MANUAL ADD VALID PADDING TO INDICES")
-        #indices = tf.add(indices, 12)
         
         # and adjust for combinations
         mut_combinations = params["combinations"]
