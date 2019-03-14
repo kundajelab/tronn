@@ -53,9 +53,9 @@ def main():
         # adjust batch size in synergy run script based on num mut motifs
         mut_nodes = grammars_df["nodes"].iloc[grammar_idx].split(",")
         if len(mut_nodes) == 2:
-            batch_size = 20
+            batch_size = 12
         elif len(mut_nodes) == 3:
-            batch_size = 10
+            batch_size = 6
         else:
             print "mistake!"
         adjust_batch_size = "sed -i -e 's/batch_size [0-9]\+/batch_size {}/g' {}".format(batch_size, bash_script)

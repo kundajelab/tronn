@@ -11,7 +11,7 @@ tronn synergy \
       --grammar $5 \
       --num_gpus 6 \
       --prefix ggr \
-      --batch_size 20 \
+      --batch_size 12 \
       -o $7 \
       >> $7/job.out \
       2>> $7/job.err;
