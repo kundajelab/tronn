@@ -646,16 +646,23 @@ def _adjust_null_sequence_metadata(null_mut_sequence, line_copy):
     return line_copy
 
 
-def extract_null_mutants(mpra_sample_df, synergy_file, sig_pwm_indices):
+def extract_null_mutants(mpra_sample_df, synergy_file, sig_pwm_indices=None):
     """go through and attach one relevant null mutant
     """
     # get null results from synergy file
     with h5py.File(synergy_file):
-        null_positions = np.squeeze(hf[DataKeys.MUT_MOTIF_POS.replace("motif_mut", "null_mut")][:], axis=2) # {N, null, seqlen}
-        pwm_hits = np.any(hf[DataKeys.ORIG_SEQ_PWM_HITS][:][:,:,:,sig_pwm_indices] != 0, axis=-1) # {N, 1, 136}
+        null_positions = np.squeeze(
+            hf[DataKeys.MUT_MOTIF_POS.replace("motif_mut", "null_mut")][:], axis=2) # {N, null, seqlen}
+        pwm_hits = hf[DataKeys.ORIG_SEQ_PWM_HITS][:] # {N, 1, 136, M}
         null_strings = np.squeeze(
-            hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ).replace("motif_mut", "null_mut")][:], axis=-1) # {N, string, 1}
+            hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ).replace("motif_mut", "null_mut")][:],
+            axis=-1) # {N, string, 1}
 
+    # adjust if sig_pwm_indices
+    if sig_pwm_indices is not None:
+        pwm_hits = pwm_hits[:,:,:,sig_pwm_indices]
+    pwm_hits = np.any(pwm_hits != 0, axis=-1) # {N, 1, 136}
+    
     # clip null position mask and remove axis
     pwm_scan_length = pwm_hits.shape[2] # GGR - 136
     clip_start = (null_positions.shape[3] - pwm_scan_length) / 2 # 12
@@ -725,6 +732,7 @@ def sample_sequences(
         sample_regions_file=None,
         required_regions_file=None,
         variant_sets={},
+        sig_pwm_indices=None,
         plot_dir=None):
     """sample sequences
     """
@@ -764,6 +772,7 @@ def sample_sequences(
             grammar_info_per_run.append(mpra_sample_df)
 
             # TODO extract null mutants
+            #extract_null_mutants(mpra_sample_df, synergy_file, sig_pwm_indices=sig_pwm_indices)
             
         # concatenate
         if mpra_runs[0] is None:
@@ -887,17 +896,29 @@ def main():
         plot_dir = None
 
     # extract sig pwms
-    
-    
+    sig_pwm_indices = None
+    if args.pvals_file is not None:
+        with h5py.File(args.pvals_file, "r") as hf:
+            keys = sorted(hf["pvals"].keys())
+            for key_idx in range(len(keys)):
+                key = keys[key_idx]
+                group_sig = hf["pvals"][key]["sig"][:] != 0
+
+                if key_idx == 0:
+                    all_sig = group_sig
+                else:
+                    all_sig = np.any([all_sig, group_sig], axis=0)
+        sig_pwm_indices = np.where(all_sig)[0]
+        
     # set up variants as needed
+    variant_sets = {}
     if len(args.variants) != 0:
-        variant_sets = {}
         for variant_set in args.variants:
-            info = dict([val.split("=") for val in variant_set.split(";")])
+            info = dict([val.split("=") for val in variant_set.split(",")])
             info["dir"] = "{}/variants.{}".format(args.out_dir, info["key"])
             os.system("mkdir -p {}".format(info["dir"]))
             variant_sets[info["key"]] = info
-        
+            
     # collect sequence samples with extra relevant information
     mpra_runs = sample_sequences(
         summary_df,
@@ -905,7 +926,8 @@ def main():
         sample_regions_file=args.sample_regions,
         required_regions_file=args.required_regions,
         variant_sets=variant_sets,
-        plot_dir=plot_dir) # here throw in sig pwm indices
+        sig_pwm_indices=sig_pwm_indices,
+        plot_dir=plot_dir)
 
     # add controls (SAME controls for each run)
     controls_df = build_controls(
