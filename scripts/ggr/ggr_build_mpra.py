@@ -100,14 +100,8 @@ def parse_args():
         "--fasta",
         help="fasta file")
     parser.add_argument(
-        "--variant_regions",
-        help="variant containing regions")
-    parser.add_argument(
-        "--ref_fasta",
-        help="reference fasta (for variants)")
-    parser.add_argument(
-        "--alt_fasta",
-        help="alt fasta (for variants)")
+        "--variants", nargs="+", default=[],
+        help="variants to consider. input as 'key=KEY;bed=BEDFILE;ref=FASTA;alt=FASTA'")
     parser.add_argument(
         "--plot", action="store_true",
         help="make plots of samples")
@@ -456,8 +450,7 @@ def get_sample(
         sampling_info,
         grammar_idx=0,
         required_regions_file=None,
-        variant_regions_file=None,
-        variant_work_dir=None):
+        variant_sets={}):
     """get all samples
     """
     # get diff sample
@@ -485,17 +478,22 @@ def get_sample(
         diff_sample = np.concatenate([diff_sample, required_sample], axis=0)
 
     # now get variant regions
-    if variant_regions_file is not None:
-        _, variant_indices = _filter_for_region_set(
-            sampling_info, variant_regions_file, filter_sampling_info=False, print_overlap=False)
-        variant_sample = sampling_info["examples"][variant_indices]
-        # write out (to merge later)
-        out_bed = "{}/variants.grammar-{}.bed.gz".format(variant_work_dir, grammar_idx)
-        for example in variant_sample:
-            example = example.split(";")[1].split("=")[1]
-            example = example.replace(":", "\t").replace("-", "\t")
-            with gzip.open(out_bed, "a") as out:
-                out.write("{}\n".format(example))
+    if len(variant_sets.keys()) != 0:
+        for key in sorted(variant_sets.keys()):
+            # filter
+            _, variant_indices = _filter_for_region_set(
+                sampling_info,
+                variant_sets[key]["bed"],
+                filter_sampling_info=False,
+                print_overlap=False)
+            variant_sample = sampling_info["examples"][variant_indices]
+            # write out (to merge later)
+            out_bed = "{}/variants.grammar-{}.bed.gz".format(variant_sets[key]["dir"], grammar_idx)
+            for example in variant_sample:
+                example = example.split(";")[1].split("=")[1]
+                example = example.replace(":", "\t").replace("-", "\t")
+                with gzip.open(out_bed, "a") as out:
+                    out.write("{}\n".format(example))
 
     # collect all
     full_sample = np.unique(np.concatenate(
@@ -640,8 +638,7 @@ def sample_sequences(
         num_runs,
         sample_regions_file=None,
         required_regions_file=None,
-        variant_regions_file=None,
-        variant_work_dir=None,
+        variant_sets={},
         plot_dir=None):
     """sample sequences
     """
@@ -660,8 +657,7 @@ def sample_sequences(
             sampling_info,
             grammar_idx=grammar_idx,
             required_regions_file=required_regions_file,
-            variant_regions_file=variant_regions_file,
-            variant_work_dir=variant_work_dir)
+            variant_sets=variant_sets)
         if full_sample.shape[0] < (GGR_PARAMS.TOTAL_SAMPLE_NUM_PER_GRAMMAR / 2.):
             logging.info("{}: skipping because not enough sequences of interest: {}".format(
                 grammar_idx, full_sample.shape[0]))
@@ -802,12 +798,14 @@ def main():
     else:
         plot_dir = None
 
-    # set up variant work dir as needed
-    if args.variant_regions is not None:
-        variant_work_dir = "{}/variants".format(args.out_dir)
-        os.system("mkdir -p {}".format(variant_work_dir))
-    else:
-        variant_work_dir = None
+    # set up variants as needed
+    if len(args.variants) != 0:
+        variant_sets = {}
+        for variant_set in args.variants:
+            info = dict([val.split("=") for val in variant_set.split(";")])
+            info["dir"] = "{}/variants.{}".format(args.out_dir, info["key"])
+            os.system("mkdir -p {}".format(info["dir"]))
+            variant_sets[info["key"]] = info
         
     # collect sequence samples with extra relevant information
     mpra_runs = sample_sequences(
@@ -815,8 +813,7 @@ def main():
         len(args.grammar_summaries),
         sample_regions_file=args.sample_regions,
         required_regions_file=args.required_regions,
-        variant_regions_file=args.variant_regions,
-        variant_work_dir=variant_work_dir,
+        variant_sets=variant_sets,
         plot_dir=plot_dir)
 
     # add controls (SAME controls for each run)
@@ -826,9 +823,7 @@ def main():
         promoter_regions=args.promoter_regions,
         stable_regions=args.stable_regions,
         negative_regions=args.negative_regions,
-        variant_work_dir=variant_work_dir,
-        ref_fasta=args.ref_fasta,
-        alt_fasta=args.alt_fasta,
+        variant_sets=variant_sets,
         fasta=args.fasta)
     for run_idx in range(len(mpra_runs)):
         mpra_runs[run_idx] = pd.concat(

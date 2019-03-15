@@ -452,6 +452,7 @@ def build_variants(
         variants_work_dir,
         ref_fasta,
         alt_fasta,
+        prefix="variant",
         metadata_keys=[],
         metadata_type="synergy"):
     """given a bed file of variants and ref/alt fasta files,
@@ -474,14 +475,14 @@ def build_variants(
         rand_seed=4,
         metadata_keys=metadata_keys,
         metadata_type=metadata_type,
-        prefix="ref_snp")
+        prefix="{}.ref_snp".format(prefix))
     snp_alt = build_promoter_controls(
         master_variants_bed_file,
         alt_fasta,
         rand_seed=5,
         metadata_keys=metadata_keys,
         metadata_type=metadata_type,
-        prefix="alt_snp")
+        prefix="{}.alt_snp".format(prefix))
     
     # interleave
     variants = pd.concat([snp_ref, snp_alt]).sort_values("example_metadata")
@@ -496,9 +497,7 @@ def build_controls(
         promoter_regions=None,
         stable_regions=None,
         negative_regions=None,
-        variant_work_dir=None,
-        ref_fasta=None,
-        alt_fasta=None,
+        variant_sets={},
         fasta=None):
     """build all controls
     """
@@ -550,15 +549,16 @@ def build_controls(
             [controls_df, genomic_negatives_df], sort=True)
 
     # add variants
-    if variant_work_dir is not None:
-        variants_df = build_variants(
-            variant_work_dir,
-            ref_fasta,
-            alt_fasta,
-            metadata_keys=metadata_keys,
-            metadata_type=metadata_type)
-        controls_df = pd.concat(
-            [controls_df, variants_df], sort=True)
-        
+    if len(variant_sets.keys()) != 0:
+        for key in sorted(variant_sets.keys()):
+            variants_df = build_variants(
+                variant_sets[key]["dir"],
+                variant_sets[key]["ref"],
+                variant_sets[key]["alt"],
+                prefix=key,
+                metadata_keys=metadata_keys,
+                metadata_type=metadata_type)
+            controls_df = pd.concat(
+                [controls_df, variants_df], sort=True)
         
     return controls_df
