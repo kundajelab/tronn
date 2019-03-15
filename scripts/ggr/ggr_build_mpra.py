@@ -50,7 +50,7 @@ class GGR_PARAMS(object):
         "H3K27ac_SIGNALS.NORM",
         DataKeys.LOGITS_NORM,
         DataKeys.GC_CONTENT,
-        "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)]
+        "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)] # TODO get null mut keys?
     DIFF_SAMPLE_NUM = 10
     NONDIFF_PROXIMAL_SAMPLE_NUM = 5
     NONDIFF_DISTAL_SAMPLE_NUM = 5
@@ -72,6 +72,9 @@ def parse_args():
     parser.add_argument(
         "--synergy_dirs", nargs="+",
         help="folders where synergy dirs reside")
+    parser.add_argument(
+        "--pvals_file",
+        help="sig pwms (to smartly choose null motifs to test)")
     parser.add_argument(
         "--pwm_file",
         help="pwm file")
@@ -633,6 +636,89 @@ def extract_sequence_info(
     return all_results
 
 
+def _adjust_null_sequence_metadata(null_mut_sequence, line_copy):
+    """adjustments for null mutation
+    """
+    line_copy["sequence.nn"] = null_mut_sequence
+    line_copy["example_combo_id"] = "{}-{}.combo-NULL".format(prev_example_id, prev_example_fileidx)
+    line_copy["combos"] = 0
+    
+    return line_copy
+
+
+def extract_null_mutants(mpra_sample_df, synergy_file, sig_pwm_indices):
+    """go through and attach one relevant null mutant
+    """
+    # get null results from synergy file
+    with h5py.File(synergy_file):
+        null_positions = np.squeeze(hf[DataKeys.MUT_MOTIF_POS.replace("motif_mut", "null_mut")][:], axis=2) # {N, null, seqlen}
+        pwm_hits = np.any(hf[DataKeys.ORIG_SEQ_PWM_HITS][:][:,:,:,sig_pwm_indices] != 0, axis=-1) # {N, 1, 136}
+        null_strings = np.squeeze(
+            hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ).replace("motif_mut", "null_mut")][:], axis=-1) # {N, string, 1}
+
+    # clip null position mask and remove axis
+    pwm_scan_length = pwm_hits.shape[2] # GGR - 136
+    clip_start = (null_positions.shape[3] - pwm_scan_length) / 2 # 12
+    clip_stop = clip_start + pwm_scan_length
+    null_positions_clipped = null_positions[:,:,clip_start:clip_stop]
+    
+    # multiply and reduce
+    null_positions_w_motif = np.any(
+        np.multiply(null_positions_clipped, pwm_hits) != 0,
+        axis=-1) # {N, null} bool
+    
+    # iterate through df, when example_id changes collect data then attach a null mutant of interest
+    prev_example_id = ""
+    prev_example_fileidx = 0
+    mpra_sample_plus_nulls_df = None
+    total_nulls = 0
+    for seq_idx in range(mpra_sample_df.shape[0]):
+
+        # get row
+        seq_info = mpra_sample_df.iloc[seq_idx,:].copy()
+        
+        # always copy over the row
+        if mpra_sample_plus_nulls_df is None:
+            mpra_sample_plus_nulls_df = seq_info
+        else:
+            mpra_sample_plus_nulls_df = pd.concat([mpra_sample_plus_nulls_df, seq_info])
+    
+        # pull data to check if end of example set
+        example_id = mpra_sample_df["example_id"].iloc[seq_idx]
+        example_fileidx = mpra_sample_df["example_fileidx"].iloc[seq_idx]
+        if (example_id != prev_example_id) and (prev_example_id != ""):
+            
+            # extract null sequence and build metadata
+            example_null_indices = np.where(null_positions_w_motif[prev_example_fileidx])[0] # sig indices
+            if example_null_indices.shape[0] > 0:
+                RandState(42).shuffle(example_null_indices)
+                null_mut_sequence = null_strings[prev_example_file_idx, example_null_indices[0]]
+                line_copy = mpra_sample_df.iloc[seq_idx-1,:].copy()            
+                null_info = _adjust_null_sequence_metadata(null_mut_sequence, line_copy)
+
+                # attach to new file  
+                mpra_sample_plus_nulls_df = pd.concat([mpra_sample_plus_nulls_df, null_info])
+                total_nulls += 1
+                
+            # and then update
+            prev_example_id = example_id
+            prev_example_fileidx = example_fileidx
+    
+    # finally write out the last null mut
+    example_null_indices = np.where(null_positions_w_motif[prev_example_fileidx])[0] # sig indices
+    if example_null_indices.shape[0] > 0:
+        RandState(42).shuffle(example_null_indices)
+        null_mut_sequence = null_strings[prev_example_file_idx, example_null_indices[0]]
+        line_copy = mpra_sample_df.iloc[seq_idx-1,:].copy()            
+        null_metadata = _adjust_null_sequence_metadata(null_mut_sequence, line_copy)
+
+        # attach to new file  
+        mpra_sample_plus_nulls_df = pd.concat([mpra_sample_plus_nulls_df, null_info])
+        total_nulls += 1
+        
+    return mpra_sample_plus_nulls_df
+
+
 def sample_sequences(
         summary_df,
         num_runs,
@@ -676,6 +762,8 @@ def sample_sequences(
                 prefix=grammar_prefix)
             mpra_sample_df["motifs"] = summary_df.index[grammar_idx]
             grammar_info_per_run.append(mpra_sample_df)
+
+            # TODO extract null mutants
             
         # concatenate
         if mpra_runs[0] is None:
@@ -798,6 +886,9 @@ def main():
     else:
         plot_dir = None
 
+    # extract sig pwms
+    
+    
     # set up variants as needed
     if len(args.variants) != 0:
         variant_sets = {}
@@ -814,7 +905,7 @@ def main():
         sample_regions_file=args.sample_regions,
         required_regions_file=args.required_regions,
         variant_sets=variant_sets,
-        plot_dir=plot_dir)
+        plot_dir=plot_dir) # here throw in sig pwm indices
 
     # add controls (SAME controls for each run)
     controls_df = build_controls(
