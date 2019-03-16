@@ -109,7 +109,6 @@ def main():
         interesting_genes,
         args.background_rna,
         args.out_dir,
-        max_dist=500000,
         synergy_dirs=args.synergy_dirs,
         merged_synergy_dir=args.merged_synergy_dir)
     
