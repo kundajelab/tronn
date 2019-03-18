@@ -266,7 +266,8 @@ def build_metadata(sequence, prefix, idx, keys, metadata_type="synergy"):
 
     # adjust for specific library types
     if metadata_type == "synergy":
-        metadata["example_combo_id"] = "{}-{}.combo-0".format(prefix, idx)
+        metadata["example_combo_id"] = "{}-{}.combo-NULL".format(prefix, idx)
+        metadata["combos"] = -1
         metadata["motifs"] = prefix
 
     # make into df
