@@ -463,7 +463,7 @@ def build_variants(
     os.system((
         "zcat {}/variants.grammar*.bed.gz | "
         "sort -k1,1 -k2,2n | "
-        "bedtools merge -i stdin | "
+        "bedtools merge -i stdin | " # TODO is merging a good idea??
         "gzip -c > {}").format(
             variants_work_dir,
             master_variants_bed_file))
@@ -483,6 +483,14 @@ def build_variants(
         metadata_keys=metadata_keys,
         metadata_type=metadata_type,
         prefix="{}.alt_snp".format(prefix))
+
+    # make sure you only keep intersection (in case any removed)
+    shared_examples = set(snp_ref["example_metadata"].values.tolist()).intersection(
+        set(snp_alt["example_metadata"].values.tolist()))
+    snp_ref = snp_ref[snp_ref["example_metadata"].isin(shared_examples)]
+    snp_alt = snp_alt[snp_alt["example_metadata"].isin(shared_examples)]
+    logging.info("variant consensus leaves {} total".format(snp_ref.shape[0]))
+    assert snp_ref.shape[0] == snp_alt.shape[0]
     
     # interleave
     variants = pd.concat([snp_ref, snp_alt]).sort_values("example_metadata")
