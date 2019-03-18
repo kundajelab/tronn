@@ -18,7 +18,7 @@ class MPRA_PARAMS(object):
     """all mpra design params (Khavari Lab)
     all sequences are 5'-3'
     """
-    LEN_FILLER = 0 # UPDATE
+    LEN_FILLER = 0
     LEN_BARCODE = 20
     MAX_OLIGO_LENGTH = 225
     FWD_PCR_PRIMER = 'ACTGGCCGCTTCACTG'
@@ -27,9 +27,6 @@ class MPRA_PARAMS(object):
     RS_BAMHI = 'GGATCC' # rev primer cut site
     RS_XHOI = 'CTCGAG' # insert prom/luc start
     RS_NHEI = "GCTAGC" # insert prom/luc end
-    #RS_XBAI = 'TCTAGA'
-    #RS_XBAI_dam1 = 'GATCTAGA'
-    #RS_XBAI_dam2 = 'TCTAGATC'
     LETTERS= ['A', 'C', 'G', 'T']
     MAX_FRAG_LEN = MAX_OLIGO_LENGTH - (
         len(FWD_PCR_PRIMER) + len(RS_XHOI) + LEN_FILLER + len(RS_NHEI) + LEN_BARCODE + len(REV_PCR_PRIMER))

@@ -51,8 +51,8 @@ class GGR_PARAMS(object):
         "H3K27ac_SIGNALS.NORM",
         DataKeys.LOGITS_NORM,
         DataKeys.GC_CONTENT,
-        "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)] # TODO get null mut keys?
-    DIFF_SAMPLE_NUM = 10
+        "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)]
+    DIFF_SAMPLE_NUM = 9
     NONDIFF_PROXIMAL_SAMPLE_NUM = 5
     NONDIFF_DISTAL_SAMPLE_NUM = 5
     TOTAL_SAMPLE_NUM_PER_GRAMMAR = DIFF_SAMPLE_NUM + NONDIFF_PROXIMAL_SAMPLE_NUM + NONDIFF_DISTAL_SAMPLE_NUM
@@ -340,7 +340,7 @@ def _filter_for_region_set(
             if key == "max_dist":
                 continue
             sampling_info[key] = sampling_info[key][keep_indices]
-
+            
     # and clean up tmp files
     os.system("rm {} {}".format(tmp_bed, tmp_overlap_bed))
     
