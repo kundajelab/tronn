@@ -330,17 +330,17 @@ def _filter_for_region_set(
 
     # just to see which required regions are coming back
     if print_overlap:
-        reduced_df = filter_df[filter_df.iloc[:,3] == 1]
+        reduced_df = filter_df[filter_df.iloc[:,3] > 0]
         if reduced_df.shape[0] > 0: print reduced_df
     
     # and then filter on this
-    keep_indices = np.where(filter_df.iloc[:,3] == 1)[0]
+    keep_indices = np.where(filter_df.iloc[:,3] > 0)[0]
     if filter_sampling_info:
         for key in sampling_info:
             if key == "max_dist":
                 continue
             sampling_info[key] = sampling_info[key][keep_indices]
-            
+    
     # and clean up tmp files
     os.system("rm {} {}".format(tmp_bed, tmp_overlap_bed))
     
