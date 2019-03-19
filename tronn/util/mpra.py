@@ -446,6 +446,55 @@ def build_negative_controls(
     return negative_genomic_controls
 
 
+def _clean_variants(variants_df):
+    """make sure one bp change only between ref/alt
+    """
+    variants_clean_df = None
+    for variant_idx in range(0, variants_df.shape[0], 2):
+        # get info
+        ref_sequence_info = pd.DataFrame(variants_df.iloc[variant_idx].copy()).transpose()
+        alt_sequence_info = pd.DataFrame(variants_df.iloc[variant_idx+1].copy()).transpose()
+        ref_sequence = ref_sequence_info["sequence.nn"][0]
+        alt_sequence = alt_sequence_info["sequence.nn"][0]
+        
+        # expand as needed
+        alt_sequences = None
+        new_alt_total = 0
+        for bp_idx in range(len(ref_sequence)):
+            if ref_sequence[bp_idx] != alt_sequence[bp_idx]:
+                # make new alt sequence
+                alt_sequence_info = ref_sequence_info.copy()
+                new_alt_sequence = list(ref_sequence)
+                new_alt_sequence[bp_idx] = alt_sequence[bp_idx]
+                new_alt_sequence = "".join(new_alt_sequence)
+                alt_sequence_info["sequence.nn"] = new_alt_sequence
+                alt_sequence_info["example_id"] = alt_sequence_info["example_id"][0].replace(
+                    "ref_snp_0", "alt_snp_{}".format(new_alt_total))
+                alt_sequence_info["example_combo_id"] = alt_sequence_info["example_combo_id"][0].replace(
+                    "ref_snp_0", "alt_snp_{}".format(new_alt_total))
+
+                # attach
+                if alt_sequences is None:
+                    alt_sequences = alt_sequence_info
+                else:
+                    alt_sequences = pd.concat([alt_sequences, alt_sequence_info])
+                new_alt_total += 1
+                
+        # attach ref before alt
+        if alt_sequences is None:
+            variant_sequences = ref_sequence_info
+        else:
+            variant_sequences = pd.concat([ref_sequence_info, alt_sequences])
+
+        # save out
+        if variants_clean_df is None:
+            variants_clean_df = variant_sequences
+        else:
+            variants_clean_df = pd.concat([variants_clean_df, variant_sequences])
+                
+    return variants_clean_df
+
+
 def build_variants(
         variants_work_dir,
         ref_fasta,
@@ -473,14 +522,14 @@ def build_variants(
         rand_seed=4,
         metadata_keys=metadata_keys,
         metadata_type=metadata_type,
-        prefix="{}.ref_snp".format(prefix))
+        prefix="{}.ref_snp_0".format(prefix))
     snp_alt = build_promoter_controls(
         master_variants_bed_file,
         alt_fasta,
         rand_seed=5,
         metadata_keys=metadata_keys,
         metadata_type=metadata_type,
-        prefix="{}.alt_snp".format(prefix))
+        prefix="{}.alt_snp_0".format(prefix))
 
     # make sure you only keep intersection (in case any removed)
     shared_examples = set(snp_ref["example_metadata"].values.tolist()).intersection(
@@ -490,8 +539,14 @@ def build_variants(
     logging.info("variant consensus leaves {} total".format(snp_ref.shape[0]))
     assert snp_ref.shape[0] == snp_alt.shape[0]
     
-    # interleave
-    variants = pd.concat([snp_ref, snp_alt]).sort_values("example_metadata")
+    # interleave, ref followed by alt
+    variants = pd.concat([snp_ref, snp_alt]).sort_values(
+        ["example_metadata", "example_id"],
+        ascending=[True, False])
+
+    # separate alts if multiple near each other
+    variants = _clean_variants(variants)
+    logging.info("expanding the alt variants gives {}".format(variants.shape[0]))
     
     return variants
 
