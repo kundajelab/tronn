@@ -203,6 +203,7 @@ class MotifScannerWithThresholds(MotifScanner):
             out_scores_key=DataKeys.ORIG_SEQ_PWM_SCORES,
             out_hits_key=DataKeys.ORIG_SEQ_PWM_HITS,
             out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+            out_thresholds_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESHOLDS,
             pval=0.05,
             two_sided_thresh=False,
             **kwargs):
@@ -214,6 +215,7 @@ class MotifScannerWithThresholds(MotifScanner):
         self.out_scores_key = out_scores_key
         self.out_hits_key = out_hits_key
         self.out_scores_thresh_key = out_scores_thresh_key
+        self.out_thresholds_key = out_thresholds_key
         self.pval = pval
         self.two_sided_thresh = two_sided_thresh
 
@@ -239,7 +241,7 @@ class MotifScannerWithThresholds(MotifScanner):
         # adjust features
         features = tf.transpose(features, perm=[0,3,1,2]) # {N, M, task, pos}
         features_shape = features.get_shape().as_list()
-        
+
         # adjust shuffles and features for thresholding
         perm = [0,4,1,2,3]
         shuffles = tf.transpose(shuffles, perm=perm) # becomes {N, M, task, shuf, pos}
@@ -286,7 +288,9 @@ class MotifScannerWithThresholds(MotifScanner):
               outputs[DataKeys.ACTIVE_SHUFFLES] = shuffle_results[DataKeys.FEATURES]
               
         # get thresholds
-        params.update({"pval": self.pval})
+        params.update({
+            "pval": self.pval,
+            "thresholds_key": self.out_thresholds_key})
         outputs[self.out_hits_key] = MotifScannerWithThresholds.threshold(
             outputs, params)[0][DataKeys.FEATURES]
         outputs[self.out_scores_thresh_key] = tf.multiply(
@@ -381,7 +385,8 @@ def get_pwm_scores(inputs, params):
         shuffles_key=DataKeys.ORIG_SEQ_ACTIVE_SHUF,
         out_scores_key=DataKeys.ORIG_SEQ_PWM_SCORES,
         out_hits_key=DataKeys.ORIG_SEQ_PWM_HITS,
-        out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH)
+        out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+        out_thresholds_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESHOLDS)
     outputs, params = scanner.scan(inputs, params)
     
     # run weighted sequence
@@ -391,7 +396,8 @@ def get_pwm_scores(inputs, params):
         shuffles_key=DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
         out_scores_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES,
         out_hits_key=DataKeys.WEIGHTED_SEQ_PWM_HITS,
-        out_scores_thresh_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH)
+        out_scores_thresh_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+        out_thresholds_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESHOLDS)
     outputs.update(scanner.scan(inputs, params)[0]) 
     
     debug = False

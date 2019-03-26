@@ -41,6 +41,27 @@ def sequence_to_pwm_scores(inputs, params):
     return outputs, params
 
 
+def importance_scores_to_pwm_scores(inputs, params):
+    """given external importance scores, get motif hits
+    """
+    inputs[DataKeys.ORIG_SEQ_ACTIVE] = inputs[DataKeys.ORIG_SEQ]
+    inputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = inputs[DataKeys.ORIG_SEQ_SHUF]
+    inputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = inputs[DataKeys.WEIGHTED_SEQ]
+    inputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = inputs[DataKeys.WEIGHTED_SEQ_SHUF]
+
+    # for Mahfuza
+    inputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF] = tf.expand_dims(
+        inputs[DataKeys.ORIG_SEQ_ACTIVE_SHUF], axis=1)
+    inputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = tf.expand_dims(
+        inputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF], axis=1)
+    inputs[DataKeys.LOGITS_SHUF] = tf.expand_dims(inputs[DataKeys.LOGITS_SHUF], axis=-1)
+    
+    with tf.device("/cpu:0"):
+        outputs, params = get_pwm_scores(inputs, params)
+    
+    return outputs, params
+
+
 def pwm_scores_to_dmim(inputs, params):
     """For a grammar, get back the delta deeplift results on motifs, another way
     to extract dependencies at the motif level
