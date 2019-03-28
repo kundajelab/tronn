@@ -452,7 +452,6 @@ class H5DataLoader(DataLoader):
             data_dir=None,
             data_files=[],
             fasta=None,
-            dataset_json={},
             **kwargs):
         """initialize with data files
         
@@ -1480,11 +1479,13 @@ class VariantDataLoader(DataLoader):
 class BedDataLoader(DataLoader):
     """build a dataloader starting from a bed file"""
 
-    def __init__(self, bed_file, fasta_file):
-        self.bed_file = bed_file
-        self.fasta_file = fasta_file
-        # TODO set up option to bin or not?
-        assert self.bed_file.endswith(".gz")
+    def __init__(self, data_files, fasta):
+        self.data_files = data_files
+        self.fasta = fasta
+
+        # check
+        for data_file in self.data_files:
+            assert data_file.endswith(".bed.gz")
         self.num_regions = self.get_num_regions()
 
         
@@ -1492,11 +1493,25 @@ class BedDataLoader(DataLoader):
         """count up how many regions there are
         """
         num_regions = 0
-        with gzip.open(bed_file, "r") as fp:
-            for line in fp:
-                num_regions += 1
+        for data_file in self.data_files:
+            with gzip.open(data_file, "r") as fp:
+                for line in fp:
+                    num_regions += 1
         
         return num_regions
+
+    
+    def get_chromosomes(self):
+        """placeholder
+        """
+        return ""
+
+    
+    def setup_positives_only_dataloader(self):
+        """placeholder
+        """
+        logging.info("NOTE: for bed dataloader, no positives filtering")
+        return self
         
         
     def build_generator(
@@ -1513,69 +1528,44 @@ class BedDataLoader(DataLoader):
             shuffle=True):
         """build generator function
         """
-        
+        # tensors: example_metadata, features
+        dtypes_dict = {
+            DataKeys.SEQ_METADATA: tf.string,
+            DataKeys.FEATURES: tf.uint8}
+        shapes_dict = {
+            DataKeys.SEQ_METADATA: [1],
+            DataKeys.FEATURES: [seq_len]}
+
         class Generator(object):
 
             def __init__(self, fasta, batch_size):
                 self.fasta = fasta
                 self.batch_size = batch_size
-
                 
             def __call__(self, bed_file, yield_single_examples=True):
                 """run the generator"""
-
                 batch_size = self.batch_size
                 fasta = self.fasta
-                
-                if len(examples_subset) != 0:
-                    batch_size = 1
 
                 # set up interval to sequence converter
                 converter = GenomicIntervalConverter(lock, fasta, batch_size)
                 
                 # open bed file
                 with gzip.open(bed_file, "r") as fp:
-                    
-                    # set up batch id total and get batches
-                    max_batches = int(math.ceil(h5_handle[test_key].shape[0]/float(batch_size)))
-                    batch_ids = list(range(max_batches))
 
-                    # shuffle batches as needed
-                    if shuffle:
-                        random.Random(42).shuffle(batch_ids)
-                            
-                    # logging
-                    logging.debug("loading {0} with batch size {1} to get batches {2}".format(
-                        os.path.basename(h5_file), batch_size, max_batches))
-                    
-                    # and go through batches
                     try:
-                        assert len(clean_keys_to_load) != 0
-                        
-                        for batch_id in batch_ids:
-                            batch_start = batch_id*batch_size
-                            slice_array = H5DataLoader.h5_to_slices(
-                                h5_handle,
-                                batch_start,
-                                batch_size,
-                                keys_to_load=clean_keys_to_load,
-                                targets=targets,
-                                target_indices=target_indices)
+                        for line in fp:
+                            print line
+                            fields = line.strip().split("\t")
+                            metadata = np.array(
+                                ["features={}:{}-{}".format(fields[0], fields[1], fields[2])])
+                            metadata = np.expand_dims(metadata, axis=-1)
+                            features = converter.convert(metadata)
+                            slice_array = {
+                                DataKeys.SEQ_METADATA: metadata,
+                                DataKeys.FEATURES: features}
 
-                            # onehot encode on the fly
-                            # TODO keep the string sequence
-                            slice_array[DataKeys.FEATURES] = converter.convert(
-                                slice_array["example_metadata"])
-                            
-                            # yield
-                            if yield_single_examples: # NOTE: this is the most limiting step
-                                for i in range(batch_size):
-                                    yield ({
-                                        key: value[i]
-                                        for key, value in six.iteritems(slice_array)
-                                    }, 1.)
-                            else:
-                                yield (slice_array, 1.)
+                            yield (slice_array, 1.)
                             
                     except ValueError as value_error:
                         logging.debug(value_error)
@@ -1584,79 +1574,13 @@ class BedDataLoader(DataLoader):
 
                     finally:
                         converter.close()
-                        print("finished {}".format(h5_file))
+                        print("finished {}".format(bed_file))
                             
         # instantiate
         generator = Generator(self.fasta, batch_size)
         
         return generator, dtypes_dict, shapes_dict
     
-
-    def build_raw_dataflow(
-            self,
-            batch_size,
-            task_indices=[],
-            features_key="features",
-            label_keys=["labels"],
-            metadata_key="example_metadata",
-            shuffle=True,
-            shuffle_seed=1337,
-            num_epochs=1):
-        """
-        """
-        # set up batch id producer (the value itself is unused - drives queue)
-        num_regions = 0
-        with gzip.open(self.bed_file, "r") as fp:
-            for line in fp:
-                num_regions += 1
-        batch_id_queue = tf.train.range_input_producer(
-            num_regions, shuffle=False, seed=0, num_epochs=num_epochs)
-        batch_id = batch_id_queue.dequeue()
-        logging.info("num_regions: {}".format(num_regions))
-
-        # iterator: produces sequence and example metadata
-        iterator = bed_to_sequence_iterator(
-            self.bed_file,
-            self.fasta_file,
-            batch_size=batch_size)
-        def example_generator(batch_id):
-            return next(iterator)
-        tensor_dtypes = [tf.string, tf.uint8]
-        keys = ["example_metadata", "features"]
-        
-        # py_func
-        inputs = tf.py_func(
-            func=example_generator,
-            inp=[batch_id],
-            Tout=tensor_dtypes,
-            stateful=False, name='py_func_batch_id_to_examples')
-
-        # set shapes
-        for i in range(len(inputs)):
-            if "metadata" in keys[i]:
-                inputs[i].set_shape([1, 1])
-            else:
-                inputs[i].set_shape([1, 1000])
-
-        # set as dict
-        inputs = dict(list(zip(keys, inputs)))
-        
-        # batch
-        inputs = tf.train.batch(
-            inputs,
-            batch_size,
-            capacity=1000,
-            enqueue_many=True,
-            name='batcher')
-
-        # convert to onehot
-        inputs["features"] = tf.map_fn(
-            DataLoader.encode_onehot_sequence,
-            inputs["features"],
-            dtype=tf.float32)
-        print(inputs["features"])
-        
-        return inputs
 
     
 def setup_data_loader(args):
@@ -1667,13 +1591,11 @@ def setup_data_loader(args):
     data must come in through either:
       args.data_dir
       args.data_files
-      args.dataset_json
     """
     if args.data_format == "hdf5":
         data_loader = H5DataLoader(
             data_dir=args.data_dir,
             data_files=args.data_files,
-            dataset_json=args.dataset_json,
             fasta=args.fasta)
     elif args.data_format == "vcf":
         data_loader = VariantDataLoader(
@@ -1681,7 +1603,9 @@ def setup_data_loader(args):
             ref_fasta=args.ref_fasta,
             alt_fasta=args.alt_fasta)
     elif args.data_format == "bed":
-        raise ValueError("implement!")
+        data_loader = BedDataLoader(
+            data_files=args.data_files,
+            fasta=args.fasta)
     else:
         raise ValueError("unrecognized data format!")
 
