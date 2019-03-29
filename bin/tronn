@@ -564,6 +564,9 @@ def _add_interpretation_args(parser, inference_fn="sequence_to_motif_scores"):
         "--prediction_sample", default=None,
         help="file of predictions for quantile norm")
     parser.add_argument(
+        "--use_filtering", action="store_true",
+        help="filter out examples with no importance scores and/or no motif hits")
+    parser.add_argument(
         "--debug", action="store_true",
         help="visualize outputs to help debug. NOTE: use small sample size!")
     
@@ -604,9 +607,10 @@ def _setup_interpretation_args(args):
         "backprop": args.backprop,
         "left_clip": args.left_clip,
         "right_clip": args.right_clip,
+        "use_filtering": args.use_filtering,
         "prediction_sample": args.prediction_sample,
         "pwms": args.pwm_list}
-    
+
     return
 
 
