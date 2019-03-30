@@ -17,9 +17,15 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+from itertools import permutations
+from itertools import combinations
+
+from numpy.random import RandomState
+
 from tronn.learn.cross_validation import setup_train_valid_test
 from tronn.preprocess.fasta import GenomicIntervalConverter
 from tronn.nets.util_nets import rebatch
+from tronn.util.mpra import is_fragment_compatible
 from tronn.util.utils import DataKeys
 
 
@@ -34,6 +40,18 @@ class DataLoader(object):
         and body of this function collects the files.
         """
         raise NotImplementedError("required method, implement in child class!")
+
+                                  
+    def setup_positives_only_dataloader(self):
+        """placeholder, adjust in child class as needed
+        """
+        return self
+
+                                  
+    def get_chromosomes(self):
+        """placeholder, adjust in child class as needed
+        """
+        return ["NA"]
 
     
     @abc.abstractmethod
@@ -1292,16 +1310,7 @@ class VariantDataLoader(DataLoader):
         self.ref_fasta = ref_fasta
         self.alt_fasta = alt_fasta
 
-    def setup_positives_only_dataloader(self):
-        """don't adjust positives
-        """
-        return self
-
-    def get_chromosomes(self):
-        """get chroms
-        """
-        return ["NA"]
-    
+        
     @staticmethod
     def setup_strided_positions(
             chrom,
@@ -1499,20 +1508,7 @@ class BedDataLoader(DataLoader):
                     num_regions += 1
         
         return num_regions
-
     
-    def get_chromosomes(self):
-        """placeholder
-        """
-        return ""
-
-    
-    def setup_positives_only_dataloader(self):
-        """placeholder
-        """
-        logging.info("NOTE: for bed dataloader, no positives filtering")
-        return self
-        
         
     def build_generator(
             self,
@@ -1580,7 +1576,241 @@ class BedDataLoader(DataLoader):
         generator = Generator(self.fasta, batch_size)
         
         return generator, dtypes_dict, shapes_dict
+
     
+class PWMSimsDataLoader(DataLoader):
+    """build a dataloader that generates synthetic sequences with desired params"""
+
+    def __init__(
+            self,
+            grammar_file,
+            pwms,
+            positions,
+            gc_range,
+            num_samples=10,
+            min_spacing=12):
+        self.data_files = [grammar_file] # placeholder
+        self.pwms = pwms
+        self.positions = positions
+        self.gc_range = gc_range
+        self.num_samples = num_samples
+        self.min_spacing = min_spacing
+        self.num_regions = self.get_num_regions()
+        
+        
+    def get_num_regions(self):
+        """count up how many sims will be done
+        """
+        num_orientations = 2**len(self.pwms)
+        num_orders = math.factorial(len(self.pwms))
+        num_positions = len(self.get_clean_position_combinations())
+        num_regions = num_positions * num_orientations * num_orders
+        
+        return num_regions
+
+    
+    def spacing_is_valid(self, positions):
+        """assumes ORDERED
+        """
+        for i in range(len(positions)-1):
+            assert positions[i] < positions[i+1]
+            if positions[i+1] - positions[i] < self.min_spacing:
+                return False
+            
+        return True
+
+    
+    def get_clean_position_combinations(self):
+        """helper generator function that checks for min spacing 
+        before outputting combination
+        """
+        combos = []
+        for pos_set in combinations(self.positions, len(self.pwms)):
+            # check min spacing
+            if self.spacing_is_valid(pos_set):
+                combos.append(pos_set)
+                
+        return combos
+
+    
+    @staticmethod
+    def is_gc_compatible(sequence, min_gc=0.20, max_gc=0.80):
+        """check GC fraction
+        """
+        gc_count = sequence.count("G") + sequence.count("C")
+        gc_fract = gc_count / float(len(sequence))
+        if gc_fract < min_gc:
+            return False
+        if gc_fract > max_gc:
+            return False
+    
+        return True
+
+    
+    def build_generator(
+            self,
+            batch_size=256,
+            task_indices=[],
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            lock=threading.Lock(),
+            shuffle=True):
+        """generate all possibilities of grammars
+        """
+        # tensors: example_metadata, features
+        dtypes_dict = {
+            DataKeys.SEQ_METADATA: tf.string,
+            "simul.pwm.indices": tf.int64, # {N, M} - the order, links back to pwm file
+            "simul.pwm.pos": tf.int64, # {N, M} - the positions
+            "simul.pwm.orientation": tf.int64, # {N, M} - the orientations
+            "simul.pwm.sample_idx": tf.int64, # {N}
+            "grammar.string": tf.string, # {N} - labels for plotting
+            "simul.pwm.dist": tf.int64, # {N} - the max spanning dist
+            DataKeys.FEATURES: tf.uint8}
+        shapes_dict = {
+            DataKeys.SEQ_METADATA: [1],
+            "simul.pwm.indices": [len(self.pwms)],
+            "simul.pwm.pos": [len(self.pwms)],
+            "simul.pwm.orientation": [len(self.pwms)],
+            "simul.pwm.sample_idx": [],
+            "grammar.string": [1],
+            "simul.pwm.dist": [],
+            DataKeys.FEATURES: [seq_len]}
+
+        class Generator(object):
+
+            def __init__(
+                    self,
+                    pwms,
+                    combinations,
+                    num_samples,
+                    seq_len=1000,
+                    min_gc=0.20,
+                    max_gc=0.80,
+                    check_reporter_compatibility=True):
+                self.pwms = pwms
+                self.combinations = combinations
+                self.seq_len = seq_len
+                self.check_reporter_compatibility = check_reporter_compatibility
+                self.num_samples = num_samples
+                self.min_gc = min_gc
+                self.max_gc = max_gc
+
+                
+            def __call__(self, grammar_file, yield_single_examples=True):
+
+                # letters
+                BASES = ["A", "C", "G", "T"]
+                
+                # for every ordering:
+                order_idx = 0
+                for permuted_pwm_indices in permutations(range(len(self.pwms))):
+                    ordered_pwms = [self.pwms[i] for i in permuted_pwm_indices]
+                    print ordered_pwms
+                    
+                    # generate all possible orientation sets
+                    ordered_oriented_pwms = [[]]
+                    orientations = [[]]
+                    for pwm_idx in range(len(ordered_pwms)):
+                        pwm = ordered_pwms[pwm_idx]
+                        
+                        new_ordered_pwms = []
+                        for pwm_list in ordered_oriented_pwms:
+                            pwm_list = [
+                                list(pwm_list) + [pwm],
+                                list(pwm_list) + [pwm.reverse_complement()]]
+                            new_ordered_pwms += pwm_list
+                        ordered_oriented_pwms = new_ordered_pwms
+                        
+                        new_orientations = []
+                        for orientation_list in orientations:
+                            orientation_list = [
+                                list(orientation_list) + [1],
+                                list(orientation_list) + [-1]]
+                            new_orientations += orientation_list
+                        orientations = new_orientations
+                
+                    # for each of these sets, go through positions
+                    for oo_idx in range(len(ordered_oriented_pwms)):
+                        orientation = orientations[oo_idx]
+                        print orientation
+                        
+                        # for every position set:
+                        pos_idx = 0
+                        for positions in self.combinations:
+
+                            # generate n samples
+                            for sample_idx in range(self.num_samples):
+                                metadata = "features=SYNTHETIC"
+                                rand_seed = (order_idx+1)*(oo_idx+1)*(pos_idx+1)*(sample_idx+1)
+
+                                while True:
+                                    # generate random sequence reproducibly
+                                    rand_state = RandomState(rand_seed)
+                                    rand_seed += 1 # always increment
+                                    sequence = rand_state.choice(BASES, size=self.seq_len)
+                                    sequence = "".join(sequence)
+                                    
+                                    # check GC
+                                    if not PWMSimsDataLoader.is_gc_compatible(
+                                            sequence, self.min_gc, self.max_gc):
+                                        continue
+
+                                    # embed pwms
+                                    for pos_i in positions:
+                                        sampled_pwm = pwm.get_sampled_string(rand_seed)
+                                        len_pwm = len(sampled_pwm)
+                                        sequence = "".join([
+                                            sequence[:int(pos_i)],
+                                            sampled_pwm,
+                                            sequence[int(pos_i+len_pwm):]])
+                                    
+                                    # check compatibility
+                                    if self.check_reporter_compatibility:
+                                        if is_fragment_compatible(sequence):
+                                            break
+                                    else:
+                                        break    
+
+                                # convert to nums (for onehot conversion later)
+                                sequence = [str(BASES.index(bp)) for bp in sequence]
+                                sequence = ",".join(sequence)
+                                sequence = np.fromstring(sequence, dtype=np.uint8, sep=",")
+
+                                dist = max(positions) - min(positions)
+                                
+                                # return sequence with metadata
+                                slice_array = {
+                                    DataKeys.SEQ_METADATA: np.array([metadata]),
+                                    "simul.pwm.indices": np.array(list(permuted_pwm_indices)),
+                                    "simul.pwm.pos": np.array(list(positions)),
+                                    "simul.pwm.orientation": np.array(orientation),
+                                    "simul.pwm.sample_idx": np.array(sample_idx),
+                                    "grammar.string": np.array([""]),
+                                    "simul.pwm.dist": np.array(dist),
+                                    DataKeys.FEATURES: sequence}
+                                
+                                for key in sorted(slice_array.keys()):
+                                    slice_array[key] = np.expand_dims(
+                                        slice_array[key], axis=0)
+
+                                yield (slice_array, 1.)
+
+                        pos_idx += 1
+                    order_idx += 1
+                logging.info("finished {}".format(grammar_file))
+
+        # instantiate
+        generator = Generator(
+            self.pwms,
+            self.get_clean_position_combinations(),
+            self.num_samples)
+                            
+        return generator, dtypes_dict, shapes_dict
 
     
 def setup_data_loader(args):
@@ -1606,6 +1836,14 @@ def setup_data_loader(args):
         data_loader = BedDataLoader(
             data_files=args.data_files,
             fasta=args.fasta)
+    elif args.data_format == "pwm_sims":
+        data_loader = PWMSimsDataLoader(
+            args.grammar,
+            args.grammar_pwms,
+            args.positions,
+            args.gc_range,
+            num_samples=args.num_samples,
+            min_spacing=args.min_spacing)
     else:
         raise ValueError("unrecognized data format!")
 
