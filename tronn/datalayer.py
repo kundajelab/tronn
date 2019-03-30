@@ -1771,13 +1771,15 @@ class PWMSimsDataLoader(DataLoader):
                                         continue
 
                                     # embed pwms
-                                    for pos_i in positions:
+                                    for pos_idx in range(len(positions)):
+                                        pwm = ordered_oriented_pwms[oo_idx][pos_idx]
+                                        position = positions[pos_idx]
                                         sampled_pwm = pwm.get_sampled_string(rand_seed)
                                         len_pwm = len(sampled_pwm)
                                         sequence = "".join([
-                                            sequence[:int(pos_i)],
+                                            sequence[:int(position)],
                                             sampled_pwm,
-                                            sequence[int(pos_i+len_pwm):]])
+                                            sequence[int(position+len_pwm):]])
                                     
                                     # check compatibility
                                     if self.check_reporter_compatibility:
