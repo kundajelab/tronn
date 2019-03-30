@@ -1738,6 +1738,16 @@ class PWMSimsDataLoader(DataLoader):
                     for oo_idx in range(len(ordered_oriented_pwms)):
                         orientation = orientations[oo_idx]
                         print orientation
+
+                        # set up grammar string
+                        grammar_string = []
+                        for i in range(len(ordered_pwms)):
+                            grammar_string += [
+                                "{}{}".format(
+                                    ordered_pwms[i].name,
+                                    "+" if orientation[i] > 0 else "-")]
+                        grammar_string = ";".join(grammar_string)
+                        print grammar_string
                         
                         # for every position set:
                         pos_idx = 0
@@ -1790,7 +1800,7 @@ class PWMSimsDataLoader(DataLoader):
                                     "simul.pwm.pos": np.array(list(positions)),
                                     "simul.pwm.orientation": np.array(orientation),
                                     "simul.pwm.sample_idx": np.array(sample_idx),
-                                    "grammar.string": np.array([""]),
+                                    "grammar.string": np.array([grammar_string]),
                                     "simul.pwm.dist": np.array(dist),
                                     DataKeys.FEATURES: sequence}
                                 

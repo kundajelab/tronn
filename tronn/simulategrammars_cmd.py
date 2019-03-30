@@ -64,5 +64,8 @@ def run(args):
         "pwm_file": args.pwm_file}
     write_to_json(infer_vals, infer_log)
 
+    # and now plot out the results
+    
+    
     return None
 
