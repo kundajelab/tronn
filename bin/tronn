@@ -45,6 +45,9 @@ def parse_args():
 
     # command for synergy scan
     add_synergy_parser(subparsers)
+
+    # command for grammar characterization
+    add_simulategrammar_parser(subparsers)
     
     # command for activation maximization
     add_dream_parser(subparsers)
@@ -868,6 +871,72 @@ def add_synergy_parser(subparsers):
     return
 
 
+def add_simulategrammar_parser(subparsers):
+    """build synthetic sequences to simulate grammar
+    """
+    cmd_argparser = subparsers.add_parser(
+        "simulategrammar",
+        help="Build synthetic sequences with grammar embedded")
+
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    group_dataset.add_argument(
+        "--processed_inputs", action="store_true",
+        help="inputs are already preprocessed through some inference stack")
+    group_dataset.add_argument(
+        "--grammar",
+        help="gml file with grammar")
+
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
+    
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    group_interpret.add_argument(
+        "--pos_start", default=420, type=int,
+        help="start position for grammar in sequence") # TODO _setup_simulategrammar_args()?
+    group_interpret.add_argument(
+        "--pos_end", default=440, type=int,
+        help="end position for grammar in sequence")
+    group_interpret.add_argument(
+        "--stride", default=1, type=int,
+        help="bp resolution of tests")
+    group_interpret.add_argument(
+        "--num_samples", default=10, type=int,
+        help="number of samples for each grammar setup")
+    group_interpret.add_argument(
+        "--min_spacing", default=12, type=int,
+        help="number of samples for each grammar setup")
+    group_interpret.add_argument(
+        "--gc_range", default=[0.20, 0.80], nargs="+",
+        help="GC range for random background sequence")
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="sequence_to_motif_scores")
+        
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    _add_output_args(group_output, out_dir="simulategrammar")
+    
+    return
+
+
+def _setup_simulategrammar_args(args):
+    """set up simulate grammar args
+    """
+    args.data_format = "pwm_sims"
+    args.positions = range(args.pos_start, args.pos_end, args.stride)
+    args.batch_size = 1
+    
+    return
+        
+
 def add_dream_parser(subparsers):
     """activation maximization
     """
@@ -1144,6 +1213,12 @@ def main():
         _setup_visualization_args(args)
         from tronn.synergy_cmd import run
         run(args)
+    elif subcommand == "simulategrammar":
+        _setup_interpretation_args(args)
+        _setup_model_args(args)
+        _setup_simulategrammar_args(args)
+        from tronn.simulategrammars_cmd import run
+        run(args)
     elif subcommand == "dream":
         _setup_dataset_args(args)
         _setup_model_args(args)
@@ -1168,7 +1243,8 @@ def main():
         _setup_model_args(args)
         from tronn.export_cmd import run
         run(args)
-    # add new commands here
+    else:
+        raise ValueError, "command not implemented!"
         
     return None
 
