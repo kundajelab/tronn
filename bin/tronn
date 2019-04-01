@@ -888,6 +888,9 @@ def add_simulategrammar_parser(subparsers):
     group_dataset.add_argument(
         "--grammar",
         help="gml file with grammar")
+    group_dataset.add_argument(
+        "--background_regions",
+        help="bed file from which to select background sequence content")
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -898,19 +901,22 @@ def add_simulategrammar_parser(subparsers):
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
     group_interpret.add_argument(
-        "--pos_start", default=420, type=int,
-        help="start position for grammar in sequence") # TODO _setup_simulategrammar_args()?
+        "--batch_size", default=16, type=int,
+        help="internal batch size")
     group_interpret.add_argument(
-        "--pos_end", default=440, type=int,
-        help="end position for grammar in sequence")
+        "--sample_range", default=[420, 580], nargs="+",
+        help="range for embedding in sequence")
+    group_interpret.add_argument(
+        "--grammar_range", default=[0, 120], nargs="+",
+        help="range of distances to consider")
     group_interpret.add_argument(
         "--stride", default=1, type=int,
         help="bp resolution of tests")
     group_interpret.add_argument(
-        "--num_samples", default=10, type=int,
-        help="number of samples for each grammar setup")
-    group_interpret.add_argument(
         "--min_spacing", default=12, type=int,
+        help="bp resolution of tests")
+    group_interpret.add_argument(
+        "--num_samples", default=10, type=int,
         help="number of samples for each grammar setup")
     group_interpret.add_argument(
         "--gc_range", default=[0.20, 0.80], nargs="+",
@@ -930,9 +936,13 @@ def add_simulategrammar_parser(subparsers):
 def _setup_simulategrammar_args(args):
     """set up simulate grammar args
     """
+    # dataset args
     args.data_format = "pwm_sims"
-    args.positions = range(args.pos_start, args.pos_end, args.stride)
-    args.batch_size = 1
+
+    # make sure dtypes are right
+    args.sample_range = [int(val) for val in args.sample_range]
+    args.grammar_range = [int(val) for val in args.grammar_range]
+    args.gc_range = [float(val) for val in args.gc_range]
     
     return
         

@@ -66,7 +66,7 @@ def _setup_output_skip_keys(args):
     """
     if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy"):
         skip_keys = []
-    elif (args.subcommand_name == "scanmotifs"):
+    elif (args.subcommand_name == "scanmotifs") or (args.subcommand_name == "simulategrammar"):
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,
             DataKeys.ORIG_SEQ_ACTIVE_SHUF,
