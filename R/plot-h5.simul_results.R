@@ -26,18 +26,37 @@ for (task_idx in 1:num_tasks) {
 
     # set up task data
     task_prefix <- paste(out_prefix, ".taskidx-", task_idx-1, sep="")
+    print(task_prefix)
     task_data <- data.frame(
         dists=distances,
         logits=aperm(logits)[,task_idx],
         groups=aperm(groups)[,1])
 
-    print(task_data[1:20,])
+    #print(dim(task_data))
+    
+    # seprate odds (embedded) from evens (non-embedded) and subtract
+    task_data_embed <- task_data[seq(1,nrow(task_data)-1,2),]
+    task_data_orig <- task_data[seq(2,nrow(task_data),2),]
+    task_data_embed$diff <- task_data_embed$logits - task_data_orig$logits
+    task_data <- task_data_embed
+    #task_data <- task_data_orig
+
+    #print(task_data_embed[1:10,])
+    #print(task_data_orig[1:100,])
+    
+    #print(task_data[1:100,])
+    #quit()
+    #print(dim(task_data_embed))
+    #print(head(task_data_embed))
+    #task_data <- task_data[task_data$groups == "HCLUST-110_GRHL2.UNK.0.A+;HCLUST-105_ATF4.UNK.0.A+",]
     
     # plot with distance
     plot_file <- paste(task_prefix, ".dist_x_diff.pdf", sep="")
-    p <- ggplot(task_data, aes(x=dists, y=logits)) +
-        geom_point(position="jitter", aes(colour=factor(groups))) +
-        stat_summary(aes(y=logits, group=factor(groups), colour=factor(groups)), fun.y=mean, geom="line") + 
+    p <- ggplot(task_data, aes(x=dists, y=diff)) +
+        geom_point(aes(colour=factor(groups)), alpha=0.5) +
+        #geom_point(position="jitter", aes(colour=factor(groups)), alpha=0.5) +
+        geom_smooth(se=FALSE, aes(group=factor(groups), colour=factor(groups))) +
+        #stat_summary(aes(y=logits, group=factor(groups), colour=factor(groups)), fun.y=mean, geom="line") + 
         labs(y="logit", x="PWM distance (bp)") +
         theme_bw() +
         theme(

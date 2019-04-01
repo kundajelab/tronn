@@ -1844,7 +1844,8 @@ class PWMSimsDataLoader(DataLoader):
                                     for pos_idx in range(len(offset_positions)):
                                         pwm = ordered_oriented_pwms[oo_idx][pos_idx]
                                         position = offset_positions[pos_idx]
-                                        sampled_pwm = pwm.get_sampled_string(rand_seed)
+                                        #sampled_pwm = pwm.get_sampled_string(rand_seed)
+                                        sampled_pwm = pwm.get_consensus_string()
                                         len_pwm = len(sampled_pwm)
                                         sequence = "".join([
                                             sequence[:int(position)],
