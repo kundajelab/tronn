@@ -65,7 +65,14 @@ def run(args):
     write_to_json(infer_vals, infer_log)
 
     # and now plot out the results
-    
+    plot_cmd = "plot-h5.simul_results.R {} {} {} {} {}".format(
+        "{}/{}.{}.h5".format(args.out_dir, args.prefix, args.subcommand_name),
+        "simul.pwm.dist",
+        DataKeys.LOGITS,
+        "grammar.string",
+        "{}/{}.{}".format(args.out_dir, args.prefix, args.subcommand_name))
+    print plot_cmd
+    os.system(plot_cmd)
     
     return None
 
