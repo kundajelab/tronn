@@ -72,7 +72,7 @@ def run(args):
         "simul.pwm.dist",
         DataKeys.LOGITS,
         "grammar.string",
-        "{}/{}.{}".format(args.out_dir, args.prefix, args.subcommand_name))
+        "{}/{}".format(args.out_dir, os.path.basename(args.grammar).split(".gml")[0]))
     print plot_cmd
     os.system(plot_cmd)
     

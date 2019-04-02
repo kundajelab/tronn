@@ -51,7 +51,7 @@ for (task_idx in 1:num_tasks) {
     #task_data <- task_data[task_data$groups == "HCLUST-110_GRHL2.UNK.0.A+;HCLUST-105_ATF4.UNK.0.A+",]
     
     # plot with distance
-    plot_file <- paste(task_prefix, ".dist_x_diff.pdf", sep="")
+    plot_file <- paste(task_prefix, ".dist_x_logFC.pdf", sep="")
     p <- ggplot(task_data, aes(x=dists, y=diff)) +
         geom_point(aes(colour=factor(groups)), alpha=0.5) +
         #geom_point(position="jitter", aes(colour=factor(groups)), alpha=0.5) +
