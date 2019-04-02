@@ -66,7 +66,7 @@ def _setup_output_skip_keys(args):
     """
     if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy"):
         skip_keys = []
-    elif (args.subcommand_name == "scanmotifs") or (args.subcommand_name == "simulategrammar"):
+    elif args.subcommand_name == "scanmotifs":
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,
             DataKeys.ORIG_SEQ_ACTIVE_SHUF,
@@ -77,6 +77,19 @@ def _setup_output_skip_keys(args):
             DataKeys.WEIGHTED_SEQ_PWM_HITS,
             DataKeys.FEATURES,
             DataKeys.LOGITS_SHUF]
+    elif args.subcommand_name == "simulategrammar":
+        skip_keys = [
+            DataKeys.ORIG_SEQ_SHUF,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            DataKeys.ORIG_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_PWM_HITS,
+            DataKeys.FEATURES,
+            DataKeys.LOGITS_SHUF,
+            DataKeys.ORIG_SEQ_PWM_DENSITIES,
+            DataKeys.ORIG_SEQ_PWM_MAX_DENSITIES]
     else:
         skip_keys = []
         
