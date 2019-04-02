@@ -31,8 +31,10 @@ def run(args):
     args.grammar_pwms = [args.pwm_list[i] for i in pwm_indices]
     
     # if ensemble, require a prediction sample
-    
-    
+    if args.model["name"] == "ensemble":
+        args.model["params"]["prediction_sample"] = args.prediction_sample
+        args.inference_params["prediction_sample"] = args.prediction_sample
+        
     # run inference
     inference_files = run_inference(args)
 

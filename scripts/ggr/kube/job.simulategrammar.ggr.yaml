@@ -24,9 +24,9 @@ spec:
               nvidia.com/gpu: 4
           #    cpu: 16
               memory: 128Gi
-          #requests:
+            requests:
           #    cpu: 8
-          #    memory: 8Gi
+              memory: 8Gi
           volumeMounts:
           - mountPath: /datasets
             name: datasets
