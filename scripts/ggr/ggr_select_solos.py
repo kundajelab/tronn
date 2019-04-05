@@ -28,6 +28,9 @@ def parse_args():
         "--synergy_dirs", nargs="+",
         help="folders where synergy dirs reside")
     parser.add_argument(
+        "--sim_dir",
+        help="folder where simulations reside")
+    parser.add_argument(
         "--mpra",
         help="mpra file of selected sequences")
     parser.add_argument(
@@ -257,6 +260,20 @@ def attach_data(
     return examples_df
 
 
+def _get_sim_results(h5_file, results_key="simul.calcs/simul.scores.smooth.high"):
+    """get simulation result to add in
+    """
+    try:
+        with h5py.File(h5_file, "r") as hf:
+            data = hf[results_key][:]
+            best_logFC = np.max(data)
+    except:
+        best_logFC = 0.0
+    
+    return best_logFC
+
+
+
 def main():
     """get an ordered list of most interesting sequences
     """
@@ -268,14 +285,15 @@ def main():
     # set up grammar summaries -> get synergy files
     args.grammar_summaries = [tuple(val.split("=")) for val in args.grammar_summaries]
     summary_df = build_consensus_file_sets(args.grammar_summaries, args.synergy_dirs)
-
+    
     # load mpra summary
     mpra_df = pd.read_table(args.mpra, index_col=0)
     mpra_regions = set(mpra_df["example_metadata"].values)
     
     # go through grammars
     for grammar_idx in range(summary_df.shape[0]):
-        print summary_df.index[grammar_idx]
+        nodes = summary_df.index[grammar_idx]
+        print nodes
         
         # get synergy files and pull consensus examples
         synergy_files = summary_df["combined"].iloc[grammar_idx]
@@ -306,13 +324,26 @@ def main():
         
         # take top 3
         examples = examples.iloc[0:3]
-        examples.to_csv("testing.txt", sep="\t")
+        #examples.to_csv("testing.txt", sep="\t")
 
+        # attach simulation result - max logFC (across all tasks)
+        grammar_prefix = synergy_files[0].split("/")[-2]
+        sim_h5_file = "{}/{}/ggr.simulategrammar.h5".format(args.sim_dir, grammar_prefix)
+        best_sim_logFC = _get_sim_results(sim_h5_file)
+        examples["simulated_logFC_max"] = best_sim_logFC
+        examples["nodes"] = nodes
+        
         # merge in
+        if grammar_idx == 0:
+            all_solos = examples.copy()
+        else:
+            all_solos = pd.concat([all_solos, examples], axis=0)
+
+        print all_solos.shape
         
-        quit()
-        
-    # sort on variant, then library, then H3K27ac, then ATAC
+    # sort on sim logFC
+    all_solos = all_solos.sort_values("simulated_logFC_max", ascending=False)
+    all_solos.to_csv("{}/sorted_results.txt".format(args.out_dir), sep="\t")
     
     return
 
