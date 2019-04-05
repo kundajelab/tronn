@@ -938,7 +938,8 @@ def _setup_simulategrammar_args(args):
     """
     # dataset args
     args.data_format = "pwm_sims"
-
+    args.fifo = True
+    
     # make sure dtypes are right
     args.sample_range = [int(val) for val in args.sample_range]
     args.grammar_range = [int(val) for val in args.grammar_range]

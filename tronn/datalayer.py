@@ -1890,7 +1890,7 @@ class PWMSimsDataLoader(DataLoader):
                                         [sample_idx, sample_idx]),
                                     "grammar.string": np.expand_dims(np.array(
                                         [grammar_string, grammar_string]), axis=-1),
-                                        "simul.pwm.dist": np.array([dist, dist]),
+                                    "simul.pwm.dist": np.array([dist, dist]),
                                     DataKeys.FEATURES: np.stack(
                                         [sequence, background_sequence], axis=0)}
                                 
