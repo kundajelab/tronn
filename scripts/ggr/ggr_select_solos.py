@@ -165,7 +165,7 @@ def get_consensus_trimmed_bed(examples_df, synergy_files, out_bed_file):
             else:
                 start_positions = np.maximum(start_positions, tmp_start_positions).astype(int)
                 end_positions = np.minimum(end_positions, tmp_end_positions).astype(int)
-
+                
     # and use these to set up a BED file
     examples_df_copy = examples_df.copy().sort_values("example_metadata")
     metadata = examples_df_copy["example_metadata"].str.split(";", n=3, expand=True)
@@ -175,10 +175,10 @@ def get_consensus_trimmed_bed(examples_df, synergy_files, out_bed_file):
     metadata[1] = coords[0].astype(int)
     
     # and adjust with coords
-    metadata[1] = metadata[1] + start_positions
     metadata[2] = metadata[1] + end_positions
+    metadata[1] = metadata[1] + start_positions
     metadata.index = examples_df_copy["example_metadata"]
-
+    
     # check consistency
     metadata["diff"] = metadata[2] - metadata[1]
     metadata = metadata[metadata["diff"] > 0]
@@ -317,13 +317,16 @@ def main():
         examples = attach_data(examples, synergy_files[0], attach_keys)
         
         # sort by: variant, library, H3K27ac
-        sort_order = ["has_variant", "in_mpra", "ATAC_SIGNALS.NORM"]
+        sort_order = ["has_variant", "in_mpra", "max.ATAC_SIGNALS.NORM"]
+        sort_order = ["has_variant", "in_mpra", "max.H3K27ac_SIGNALS.NORM"]
+        #sort_order = ["in_mpra", "max.H3K27ac_SIGNALS.NORM"]
         examples = examples.sort_values(sort_order, ascending=False)
 
         # maybe some form of looser thresholding is better?
         
-        # take top 3
-        examples = examples.iloc[0:3]
+        # take top k
+        sample_num = 10
+        examples = examples.iloc[0:sample_num]
         #examples.to_csv("testing.txt", sep="\t")
 
         # attach simulation result - max logFC (across all tasks)
@@ -342,7 +345,8 @@ def main():
         print all_solos.shape
         
     # sort on sim logFC
-    all_solos = all_solos.sort_values("simulated_logFC_max", ascending=False)
+    sort_order = ["simulated_logFC_max", "max.H3K27ac_SIGNALS.NORM"]
+    all_solos = all_solos.sort_values(sort_order, ascending=False)
     all_solos.to_csv("{}/sorted_results.txt".format(args.out_dir), sep="\t")
     
     return
