@@ -44,6 +44,12 @@ def parse_args():
         "--compare_bigwigs", nargs="+",
         help="other bigwigs for extracting signals for comparison")
     parser.add_argument(
+        "--eqtl_bed_file",
+        help="eqtl BED file to see if any eQTLs in grammar/null regions (rsid must be in name col)")
+    parser.add_argument(
+        "--eqtl_effects_file",
+        help="table with effect sizes")
+    parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
         help="out directory")
@@ -55,6 +61,68 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
+
+def get_bed_from_metadata_list(examples, bed_file, interval_key="active", merge=True):
+    """make a bed file from list of metadata info
+    """
+    with open(bed_file, "w") as fp:
+        for region_metadata in examples:
+            interval_types = region_metadata.split(";")
+            interval_types = dict([
+                interval_type.split("=")[0:2]
+                for interval_type in interval_types])
+            interval_string = interval_types[interval_key]
+
+            chrom = interval_string.split(":")[0]
+            start = interval_string.split(":")[1].split("-")[0]
+            stop = interval_string.split("-")[1]
+            fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
+
+    if merge:
+        tmp_bed_file = "{}.tmp.bed".format(bed_file.split(".bed")[0])
+        os.system("mv {} {}".format(bed_file, tmp_bed_file))
+        os.system((
+            "cat {} | "
+            "sort -k1,1 -k2,2n | "
+            "bedtools merge -i stdin | "
+            "gzip -c > {}").format(
+                tmp_bed_file, bed_file))
+        os.system("rm {}".format(tmp_bed_file))
+
+    return
+
+
+def get_overlapping_variants(bed_file, variant_bed_file, lookup_table):
+    """get variants that are in BED regions as well as effect sizes
+    """
+    tmp_overlap_file = "overlap.tmp.txt.gz"
+    overlap_cmd = (
+        "bedtools intersect -wa -a {} -b {} | "
+        "awk -F '\t' '{{ print $4 }}' | "
+        "gzip -c > {}").format(
+            variant_bed_file, bed_file, tmp_overlap_file)
+    print overlap_cmd
+    os.system(overlap_cmd)
+
+    # read in file
+    variant_ids = pd.read_csv(tmp_overlap_file, header=None).values[:,0]
+
+    # get filtered set from lookup
+    if False:
+        variant_results = lookup_table[lookup_table["variant_id"].isin(variant_ids)]
+    else:
+        variant_results = lookup_table[lookup_table["CausalSNP"].isin(variant_ids)]
+
+    if False:
+        col_key = "slope"
+    else:
+        col_key = "P VALUE"
+    #print lookup_table.columns
+    #print list(variant_results["slope"].values)
+    print variant_results.shape, np.median(np.absolute(variant_results[col_key].values))
+    
+    return None
 
 
 def build_score_matched_bins(target_scores, full_scores, num_increments=21):
@@ -207,13 +275,14 @@ def main():
     grammar_instances = grammar.graph["examples"].split(",")
 
     # to consider, subset those that are diff?
-    with h5py.File(args.synergy_file, "r") as hf:
-        synergy_diff = hf["{}.0".format(DataKeys.SYNERGY_DIFF_SIG)][:]
-        diff_indices = np.where(
-            np.any(synergy_diff!=0, axis=1))[0]
-        synergy_metadata = hf[DataKeys.SEQ_METADATA][:,0][diff_indices]
-    synergy_metadata = synergy_metadata[np.isin(synergy_metadata, grammar_instances)]
-    grammar_instances = synergy_metadata
+    if True:
+        with h5py.File(args.synergy_file, "r") as hf:
+            synergy_diff = hf["{}.0".format(DataKeys.SYNERGY_DIFF_SIG)][:]
+            diff_indices = np.where(
+                np.any(synergy_diff!=0, axis=1))[0]
+            synergy_metadata = hf[DataKeys.SEQ_METADATA][:,0][diff_indices]
+        synergy_metadata = synergy_metadata[np.isin(synergy_metadata, grammar_instances)]
+        grammar_instances = synergy_metadata
     
     # get metadata and get grammar indices
     metadata = _get_data_from_h5_files(
@@ -230,7 +299,19 @@ def main():
         args.score_files,
         DataKeys.GC_CONTENT)
 
+    # load eqtl table
+    eqtl_lookup = pd.read_csv(args.eqtl_effects_file, sep="\t")
+    
     # TODO generate grammar BED file
+    # TODO note right now considering all regions
+    grammar_tmp_bed = "grammar.instances.bed.gz"
+    get_bed_from_metadata_list(
+        metadata[grammar_indices],
+        grammar_tmp_bed,
+        interval_key="active",
+        merge=True)
+    get_overlapping_variants(
+        grammar_tmp_bed, args.eqtl_bed_file, eqtl_lookup)
     
     # for each pwm in grammar:
     pwms = grammar.nodes
@@ -249,14 +330,14 @@ def main():
             background_pwm_scores,
             target_gc_scores,
             gc_scores,
-            rand_seed=5)
+            rand_seed=1)
         
         # TODO generate matched null BED file(s)?
         # TODO should i consider bootstrapped null
         
         # look at relevant keys
         key = "ATAC_SIGNALS.NORM"
-        key = "H3K27ac_SIGNALS.NORM"
+        #key = "H3K27ac_SIGNALS.NORM"
         #key = "H3K4me1_SIGNALS.NORM"
         #key = "ZNF750_LABELS"
         signal = _get_data_from_h5_files(
@@ -265,7 +346,7 @@ def main():
         background_signal = signal[matched_background_indices]
 
         # quick test save for plot
-        test_idx = 2 # 10
+        test_idx = 10 # 10
         plot_background = background_signal[:,test_idx]
         plot_background_data = pd.DataFrame(data=plot_background, columns=["signal"])
         plot_background_data["variable"] = pwm
@@ -279,6 +360,16 @@ def main():
         print np.mean(background_signal, axis=0)
         
         print ""
+
+        # test variants
+        null_tmp_bed = "grammar.non_instances.bed.gz"
+        get_bed_from_metadata_list(
+            metadata[matched_background_indices],
+            null_tmp_bed,
+            interval_key="active",
+            merge=True)
+        get_overlapping_variants(
+            null_tmp_bed, args.eqtl_bed_file, eqtl_lookup)
 
         
     plot_target = target_signal[:,test_idx]
