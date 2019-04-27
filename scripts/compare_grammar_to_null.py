@@ -35,6 +35,9 @@ def parse_args():
         "--score_files", nargs="+",
         help="h5 file with pwm scores (raw sequence)")
     parser.add_argument(
+        "--synergy_file",
+        help="h5 file with synergy scores")
+    parser.add_argument(
         "--compare_keys", nargs="+", default=["ATAC_SIGNALS.NORM"],
         help="which score keys to compare")
     parser.add_argument(
@@ -91,7 +94,7 @@ def build_matched_null_set(
         target_gc_scores,
         background_gc_scores,
         num_increments=11,
-        rand_seed=15):
+        rand_seed=1):
     """given a set of target scores and all scores, give back a matched
     set
     """
@@ -149,11 +152,14 @@ def build_matched_null_set(
             target_indices_in_bin = set(target_score_range_indices).intersection(
                 set(target_gc_range_indices))
             target_counts_per_bin.append(len(target_indices_in_bin))
-
+            #print len(target_indices_in_bin)
+            
             background_indices_in_bin = set(score_range_indices).intersection(
                 set(gc_range_indices))
-            background_indices_in_bin = background_indices_in_bin.difference(
-                target_indices_in_bin)
+            #print len(background_indices_in_bin)
+            #background_indices_in_bin = background_indices_in_bin.difference(
+            #    target_indices_in_bin)
+            #print len(background_indices_in_bin)
             indices_per_bin.append(list(background_indices_in_bin))
             
     # for each bin, get scores from all scores
@@ -161,6 +167,8 @@ def build_matched_null_set(
     keep_indices = []
     for bin_idx in range(len(target_counts_per_bin)):
         target_count = target_counts_per_bin[bin_idx]
+        if target_count == 0:
+            continue
         indices = indices_per_bin[bin_idx]
         selected = rand_state.choice(indices, size=target_count, replace=False)
         keep_indices.append(selected)
@@ -198,6 +206,15 @@ def main():
     # get grammar regions
     grammar_instances = grammar.graph["examples"].split(",")
 
+    # to consider, subset those that are diff?
+    with h5py.File(args.synergy_file, "r") as hf:
+        synergy_diff = hf["{}.0".format(DataKeys.SYNERGY_DIFF_SIG)][:]
+        diff_indices = np.where(
+            np.any(synergy_diff!=0, axis=1))[0]
+        synergy_metadata = hf[DataKeys.SEQ_METADATA][:,0][diff_indices]
+    synergy_metadata = synergy_metadata[np.isin(synergy_metadata, grammar_instances)]
+    grammar_instances = synergy_metadata
+    
     # get metadata and get grammar indices
     metadata = _get_data_from_h5_files(
         args.score_files,
@@ -232,21 +249,23 @@ def main():
             background_pwm_scores,
             target_gc_scores,
             gc_scores,
-            rand_seed=1)
+            rand_seed=5)
         
         # TODO generate matched null BED file(s)?
         # TODO should i consider bootstrapped null
         
         # look at relevant keys
         key = "ATAC_SIGNALS.NORM"
+        key = "H3K27ac_SIGNALS.NORM"
         #key = "H3K4me1_SIGNALS.NORM"
+        #key = "ZNF750_LABELS"
         signal = _get_data_from_h5_files(
             args.score_files, key)
         target_signal = signal[grammar_indices]
         background_signal = signal[matched_background_indices]
 
         # quick test save for plot
-        test_idx = 9 # 10
+        test_idx = 2 # 10
         plot_background = background_signal[:,test_idx]
         plot_background_data = pd.DataFrame(data=plot_background, columns=["signal"])
         plot_background_data["variable"] = pwm
@@ -268,6 +287,11 @@ def main():
     plot_data = pd.concat([plot_data, plot_target], axis=0)
 
     plot_data.to_csv("test_atac.txt", index=False, sep="\t")
+
+    #with h5py.File(args.score_files[0], "r") as hf:a
+    #    for key in sorted(hf.keys()): print key, hf[key].shape
+    
+    
     
     return None
 
