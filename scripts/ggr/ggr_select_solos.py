@@ -28,6 +28,9 @@ def parse_args():
         "--synergy_dirs", nargs="+",
         help="folders where synergy dirs reside")
     parser.add_argument(
+        "--sim_dir",
+        help="folder where simulations reside")
+    parser.add_argument(
         "--mpra",
         help="mpra file of selected sequences")
     parser.add_argument(
@@ -121,6 +124,15 @@ def get_consensus_sequences_across_runs(synergy_files):
             sequences = hf["{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ)][:] # {N, combos, 1}
             examples = hf[DataKeys.SEQ_METADATA][:,0]
 
+            # TODO only keep those that are sig synergy
+            #print examples.shape
+            synergy_sig = np.any(
+                hf["{}.0".format(DataKeys.SYNERGY_DIFF_SIG)][:] != 0,
+                axis=1)
+            examples = examples[synergy_sig]
+            sequences = sequences[synergy_sig]
+            #print examples.shape
+            
         # only keep compatible
         compatible_indices = _get_compatible_sequence_indices(sequences)
         examples = set(examples[compatible_indices].tolist())
@@ -162,7 +174,7 @@ def get_consensus_trimmed_bed(examples_df, synergy_files, out_bed_file):
             else:
                 start_positions = np.maximum(start_positions, tmp_start_positions).astype(int)
                 end_positions = np.minimum(end_positions, tmp_end_positions).astype(int)
-
+                
     # and use these to set up a BED file
     examples_df_copy = examples_df.copy().sort_values("example_metadata")
     metadata = examples_df_copy["example_metadata"].str.split(";", n=3, expand=True)
@@ -172,10 +184,10 @@ def get_consensus_trimmed_bed(examples_df, synergy_files, out_bed_file):
     metadata[1] = coords[0].astype(int)
     
     # and adjust with coords
-    metadata[1] = metadata[1] + start_positions
     metadata[2] = metadata[1] + end_positions
+    metadata[1] = metadata[1] + start_positions
     metadata.index = examples_df_copy["example_metadata"]
-
+    
     # check consistency
     metadata["diff"] = metadata[2] - metadata[1]
     metadata = metadata[metadata["diff"] > 0]
@@ -257,6 +269,20 @@ def attach_data(
     return examples_df
 
 
+def _get_sim_results(h5_file, results_key="simul.calcs/simul.scores.smooth.high"):
+    """get simulation result to add in
+    """
+    try:
+        with h5py.File(h5_file, "r") as hf:
+            data = hf[results_key][:]
+            best_logFC = np.max(data)
+    except:
+        best_logFC = 0.0
+    
+    return best_logFC
+
+
+
 def main():
     """get an ordered list of most interesting sequences
     """
@@ -268,20 +294,33 @@ def main():
     # set up grammar summaries -> get synergy files
     args.grammar_summaries = [tuple(val.split("=")) for val in args.grammar_summaries]
     summary_df = build_consensus_file_sets(args.grammar_summaries, args.synergy_dirs)
-
+    
     # load mpra summary
     mpra_df = pd.read_table(args.mpra, index_col=0)
     mpra_regions = set(mpra_df["example_metadata"].values)
     
     # go through grammars
+    all_solos = None
     for grammar_idx in range(summary_df.shape[0]):
-        print summary_df.index[grammar_idx]
+        nodes = summary_df.index[grammar_idx]
+        print nodes
         
         # get synergy files and pull consensus examples
         synergy_files = summary_df["combined"].iloc[grammar_idx]
         examples = get_consensus_sequences_across_runs(synergy_files)
         examples = pd.DataFrame({"example_metadata": examples})
 
+        # attach simulation result - max logFC (across all tasks)
+        grammar_prefix = synergy_files[0].split("/")[-2]
+        sim_h5_file = "{}/{}/ggr.simulategrammar.h5".format(args.sim_dir, grammar_prefix)
+        best_sim_logFC = _get_sim_results(sim_h5_file)
+        examples["simulated_logFC_max"] = best_sim_logFC
+        examples["nodes"] = nodes
+        examples["synergy_file"] = synergy_files[0]
+
+        if best_sim_logFC < 0.8:
+            continue
+        
         # attach whether in MPRA
         examples["in_mpra"] = examples["example_metadata"].isin(mpra_regions).astype(int)
 
@@ -299,20 +338,55 @@ def main():
         examples = attach_data(examples, synergy_files[0], attach_keys)
         
         # sort by: variant, library, H3K27ac
-        sort_order = ["has_variant", "in_mpra", "ATAC_SIGNALS.NORM"]
+        #sort_order = ["has_variant", "in_mpra", "max.ATAC_SIGNALS.NORM"]
+        #sort_order = ["has_variant", "in_mpra", "max.H3K27ac_SIGNALS.NORM"]
+        sort_order = ["in_mpra", "max.H3K27ac_SIGNALS.NORM"]
         examples = examples.sort_values(sort_order, ascending=False)
 
         # maybe some form of looser thresholding is better?
         
-        # take top 3
-        examples = examples.iloc[0:3]
-        examples.to_csv("testing.txt", sep="\t")
+        # take top k
+        sample_num = 10
+        examples = examples.iloc[0:sample_num]
+        #examples.to_csv("testing.txt", sep="\t")
 
+        
         # merge in
+        if all_solos is None:
+            all_solos = examples.copy()
+        else:
+            all_solos = pd.concat([all_solos, examples], axis=0)
+
+        #print all_solos.shape
         
-        quit()
-        
-    # sort on variant, then library, then H3K27ac, then ATAC
+    # sort on sim logFC
+    sort_order = ["simulated_logFC_max", "max.H3K27ac_SIGNALS.NORM"]
+    all_solos = all_solos.sort_values(sort_order, ascending=False)
+
+    # and for each of these, plot importance scores
+    file_indices = []
+    for example_idx in range(all_solos.shape[0]):
+        synergy_file = all_solos["synergy_file"].iloc[example_idx]
+        example_metadata = all_solos["example_metadata"].iloc[example_idx]
+        with h5py.File(synergy_file, "r") as hf:
+            index = np.where(np.isin(
+                hf["example_metadata"][:,0],
+                [example_metadata]))[0][0]
+        file_indices.append(index)
+        plot_dir = "{}/viz/{}.idx-{}".format(
+            args.out_dir,
+            synergy_file.split("/")[-2],
+            index)
+        plot_cmd = "plot_importance_scores.py --data_file {} --indices {} -o {} --prefix ggr".format(
+            synergy_file,
+            index,
+            plot_dir)
+        print plot_cmd
+        #os.system(plot_cmd)
+
+    # write out
+    all_solos["file_idx"] = file_indices
+    all_solos.to_csv("{}/sorted_results.txt".format(args.out_dir), sep="\t")
     
     return
 
