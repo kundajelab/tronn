@@ -44,6 +44,9 @@ def parse_args():
         "--compare_bigwigs", nargs="+",
         help="other bigwigs for extracting signals for comparison")
     parser.add_argument(
+        "--map_chain_file",
+        help="liftover file")
+    parser.add_argument(
         "--eqtl_bed_file",
         help="eqtl BED file to see if any eQTLs in grammar/null regions (rsid must be in name col)")
     parser.add_argument(
@@ -93,6 +96,42 @@ def get_bed_from_metadata_list(examples, bed_file, interval_key="active", merge=
     return
 
 
+def get_signal_from_bigwig(bed_file, bigwig_file, map_chain_file=None, liftover=True):
+    """
+    """
+    tmp_bed = "liftover.tmp.bed"
+    # if liftover, first convert the bed file to correct coords
+    if liftover:
+        liftover = "liftOver {} {} {} unmapped.txt".format(
+            bed_file, map_chain_file, tmp_bed)
+        os.system(liftover)
+    else:
+        tmp_bed = bed_file
+
+    # give each region a name
+    new_bed = "signal.bed"
+    name_regions = (
+        "cat {} | "
+        "awk -F '\t' '{{ print $0\"\tregion\"NR }}' "
+        "> {}").format(tmp_bed, new_bed)
+    #print name_regions
+    os.system(name_regions)
+    
+    # then bigWigAverageOverBed
+    avg_signal_file = "signal.avg.tmp.txt"
+    get_signal = "bigWigAverageOverBed {} {} {}".format(
+        bigwig_file, new_bed, avg_signal_file)
+    #print get_signal
+    os.system(get_signal)
+
+    # then read in data
+    avg_signal = pd.read_csv(avg_signal_file, sep="\t", header=None)
+    #print bigwig_file, np.median(avg_signal.iloc[:,5].values)
+    print bigwig_file, np.median(avg_signal.iloc[:,4].values)
+    
+    return
+
+
 def get_overlapping_variants(bed_file, variant_bed_file, lookup_table):
     """get variants that are in BED regions as well as effect sizes
     """
@@ -109,12 +148,12 @@ def get_overlapping_variants(bed_file, variant_bed_file, lookup_table):
     variant_ids = pd.read_csv(tmp_overlap_file, header=None).values[:,0]
 
     # get filtered set from lookup
-    if False:
+    if True:
         variant_results = lookup_table[lookup_table["variant_id"].isin(variant_ids)]
     else:
         variant_results = lookup_table[lookup_table["CausalSNP"].isin(variant_ids)]
 
-    if False:
+    if True:
         col_key = "slope"
     else:
         col_key = "P VALUE"
@@ -313,10 +352,19 @@ def main():
     get_overlapping_variants(
         grammar_tmp_bed, args.eqtl_bed_file, eqtl_lookup)
     
+    # for each bigwig?
+    for bigwig_file in args.compare_bigwigs:
+        get_signal_from_bigwig(
+            grammar_tmp_bed,
+            bigwig_file,
+            map_chain_file=args.map_chain_file,
+            liftover=True)
+    
     # for each pwm in grammar:
     pwms = grammar.nodes
     plot_data = None
     for pwm in pwms:
+        print pwm
         pwm_idx = int(grammar.nodes[pwm]["pwmidx"])
 
         # get target scores (GC and pwms)
@@ -332,7 +380,6 @@ def main():
             gc_scores,
             rand_seed=1)
         
-        # TODO generate matched null BED file(s)?
         # TODO should i consider bootstrapped null
         
         # look at relevant keys
@@ -370,7 +417,13 @@ def main():
             merge=True)
         get_overlapping_variants(
             null_tmp_bed, args.eqtl_bed_file, eqtl_lookup)
-
+        for bigwig_file in args.compare_bigwigs:
+            get_signal_from_bigwig(
+                null_tmp_bed,
+                bigwig_file,
+                map_chain_file=args.map_chain_file,
+                liftover=True)
+            
         
     plot_target = target_signal[:,test_idx]
     plot_target = pd.DataFrame(data=plot_target, columns=["signal"])
@@ -379,6 +432,18 @@ def main():
 
     plot_data.to_csv("test_atac.txt", index=False, sep="\t")
 
+
+    # figure out all the things to save out:
+
+    # ATAC
+    # H3K27ac
+    # GTEx eQTL
+    # ChIP-seq
+
+    
+
+
+    
     #with h5py.File(args.score_files[0], "r") as hf:a
     #    for key in sorted(hf.keys()): print key, hf[key].shape
     
