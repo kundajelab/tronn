@@ -44,7 +44,7 @@ def parse_args():
         "--compare_keys", nargs="+", default=["ATAC_SIGNALS.NORM", "H3K27ac_SIGNALS.NORM"],
         help="which score keys to compare")
     parser.add_argument(
-        "--compare_bigwigs", nargs="+",
+        "--compare_bigwigs", nargs="+", default=[],
         help="other bigwigs for extracting signals for comparison")
     parser.add_argument(
         "--map_chain_file",
@@ -56,7 +56,7 @@ def parse_args():
         "--eqtl_effects_file",
         help="table with effect sizes")
     parser.add_argument(
-        "--n_null", type=int, default=5,
+        "--n_null", type=int, default=100,
         help="number of null distributions to try")
     parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
@@ -117,7 +117,7 @@ def get_signal_from_bigwig(bed_file, bigwig_file, map_chain_file=None, liftover=
         tmp_bed = bed_file
 
     # give each region a name
-    new_bed = "signal.bed"
+    new_bed = "{}/signal.bed".format(out_dir)
     name_regions = (
         "cat {} | "
         "awk -F '\t' '{{ print $0\"\tregion\"NR }}' "
@@ -125,7 +125,7 @@ def get_signal_from_bigwig(bed_file, bigwig_file, map_chain_file=None, liftover=
     os.system(name_regions)
     
     # then bigWigAverageOverBed
-    avg_signal_file = "signal.avg.tmp.txt"
+    avg_signal_file = "{}/signal.avg.tmp.txt".format(out_dir)
     get_signal = "bigWigAverageOverBed {} {} {}".format(
         bigwig_file, new_bed, avg_signal_file)
     os.system(get_signal)
@@ -145,8 +145,9 @@ def get_overlapping_variants(
         variant_type="GTEx"):
     """get variants that are in BED regions as well as effect sizes
     """
+    tmp_dir = os.path.dirname(bed_file)
     # get overlapping variants
-    tmp_overlap_file = "overlap.tmp.txt.gz"
+    tmp_overlap_file = "{}/overlap.tmp.txt.gz".format(tmp_dir)
     overlap_cmd = (
         "bedtools intersect -wa -a {} -b {} | "
         "awk -F '\t' '{{ print $4 }}' | "
@@ -338,7 +339,7 @@ def get_results(data_indices, metadata, args, prefix="grammar.instances"):
             bigwig_file,
             map_chain_file=args.map_chain_file,
             liftover=True)
-        results[bigwig_file] = bigwig_signal
+        results[os.path.basename(bigwig_file)] = bigwig_signal
 
     return results
 
@@ -376,7 +377,11 @@ def save_results(
         data.to_csv(fp, index=False, sep="\t")
 
     # just make the plot each time?
-        
+    plot_file = "{}.pdf".format(filename.split(".txt")[0])
+    plot_cmd = "Rscript /datasets/inference.2019-03-12/dmim.shuffle/quick_plot.R {} {}".format(
+        filename, plot_file)
+    os.system(plot_cmd)
+    
     return
 
 
@@ -525,6 +530,8 @@ def main():
                     pval = get_sig(split_grammar_median, split_null_medians)
                     null_sigs.append(pval)
                     # get the median null dist
+                    if len(split_null_medians) % 2 == 0:
+                        split_null_medians = split_null_medians[1:]
                     null_median_median = np.median(split_null_medians)
                     null_median_medians.append(null_median_median)
                     save_idx = split_null_medians.index(null_median_median)
@@ -558,6 +565,8 @@ def main():
                 pval = get_sig(grammar_median, null_medians)
                 null_sigs.append(pval)
                 # get the median null dist
+                if len(null_medians) % 2 == 0:
+                    null_medians = null_medians[1:]
                 null_median_median = np.median(null_medians)
                 null_median_medians.append(null_median_median)
                 save_idx = null_medians.index(null_median_median)
