@@ -574,7 +574,7 @@ def main():
 
             #print grammar_median, null_median_medians, null_sigs
             filename = "{}.txt".format(file_prefix)
-            save_str = "filename={};pwms={};grammar_avg={};null_avgs={},null_sigs={}".format(
+            save_str = "filename={};pwms={};grammar_avg={};null_avgs={};null_sigs={}".format(
                 filename,
                 grammar.nodes,
                 grammar_median,
