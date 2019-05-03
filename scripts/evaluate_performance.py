@@ -203,19 +203,35 @@ def main():
     scores_df.to_csv(results_file, sep="\t", compression="gzip")
     
     # look at stats
+    pr_results_files = []
     for key in args.features:
         print key
         scores = scores_df[key].values
         labels = scores_df["labels"].values
 
-        #print np.sum(labels) / float(labels.shape[0])
-        
+        # save out precision recall curves
+        key_prefix = key.replace("=", "_").replace(",", "-")
+        pr_results_file = "{}/{}.pr.txt.gz".format(args.out_dir, key_prefix)
+        pr_curve = precision_recall_curve(labels, scores)
+        precision, recall = pr_curve[:2]
+        pr_df = pd.DataFrame(
+            data={"precision": precision, "recall": recall})
+        pr_df.to_csv(pr_results_file, sep="\t", compression="gzip", index=False)
+        pr_results_files.append(pr_results_file)
+
+        # log
         print "AUPRC", auprc(labels, scores)
         print "AUROC", roc_auc_score(labels, scores)
-        #recall_at_fdr_fn = make_recall_at_fdr(0.50)
-        #print "recall at fdr", recall_at_fdr_fn(labels, scores)
         
-        
+    # and plot
+    plot_file = "{}/auprc.positives-{}.pdf".format(
+        args.out_dir,
+        os.path.basename(args.positives).split(".bed")[0])
+    plot_cmd = "Rscript /datasets/inference.2019-03-12/plot.auprc.R {} {}".format(
+        plot_file,
+        " ".join(pr_results_files))
+    os.system(plot_cmd)
+    
     return None
 
 
