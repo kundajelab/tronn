@@ -35,20 +35,29 @@ def parse_args():
         "--score_files", nargs="+",
         help="h5 file with pwm scores (raw sequence)")
     parser.add_argument(
+        "--synergy_only", action="store_true",
+        help="filter for synergy only")
+    parser.add_argument(
         "--synergy_file",
         help="h5 file with synergy scores")
     parser.add_argument(
-        "--compare_keys", nargs="+", default=["ATAC_SIGNALS.NORM"],
+        "--compare_keys", nargs="+", default=["ATAC_SIGNALS.NORM", "H3K27ac_SIGNALS.NORM"],
         help="which score keys to compare")
     parser.add_argument(
-        "--compare_bigwigs", nargs="+",
+        "--compare_bigwigs", nargs="+", default=[],
         help="other bigwigs for extracting signals for comparison")
+    parser.add_argument(
+        "--map_chain_file",
+        help="liftover file")
     parser.add_argument(
         "--eqtl_bed_file",
         help="eqtl BED file to see if any eQTLs in grammar/null regions (rsid must be in name col)")
     parser.add_argument(
         "--eqtl_effects_file",
         help="table with effect sizes")
+    parser.add_argument(
+        "--n_null", type=int, default=100,
+        help="number of null distributions to try")
     parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
@@ -93,36 +102,76 @@ def get_bed_from_metadata_list(examples, bed_file, interval_key="active", merge=
     return
 
 
-def get_overlapping_variants(bed_file, variant_bed_file, lookup_table):
+def get_signal_from_bigwig(bed_file, bigwig_file, map_chain_file=None, liftover=True):
+    """
+    """
+    # if liftover, first convert the bed file to correct coords
+    out_dir = os.path.dirname(bed_file)
+    tmp_bed = "{}/liftover.tmp.bed".format(out_dir)
+    unmapped_file = "{}/unmapped.txt".format(out_dir)
+    if liftover:
+        liftover = "liftOver {} {} {} {}".format(
+            bed_file, map_chain_file, tmp_bed, unmapped_file)
+        os.system(liftover)
+    else:
+        tmp_bed = bed_file
+
+    # give each region a name
+    new_bed = "{}/signal.bed".format(out_dir)
+    name_regions = (
+        "cat {} | "
+        "awk -F '\t' '{{ print $0\"\tregion\"NR }}' "
+        "> {}").format(tmp_bed, new_bed)
+    os.system(name_regions)
+    
+    # then bigWigAverageOverBed
+    avg_signal_file = "{}/signal.avg.tmp.txt".format(out_dir)
+    get_signal = "bigWigAverageOverBed {} {} {}".format(
+        bigwig_file, new_bed, avg_signal_file)
+    os.system(get_signal)
+
+    # then read in data
+    avg_signal = pd.read_csv(avg_signal_file, sep="\t", header=None)
+    avg_signal = avg_signal.iloc[:,4].values
+    #print "{}: median signal {}".format(bigwig_file, np.median(avg_signal))
+    
+    return avg_signal
+
+
+def get_overlapping_variants(
+        bed_file,
+        variant_bed_file,
+        lookup_table,
+        variant_type="GTEx"):
     """get variants that are in BED regions as well as effect sizes
     """
-    tmp_overlap_file = "overlap.tmp.txt.gz"
+    tmp_dir = os.path.dirname(bed_file)
+    # get overlapping variants
+    tmp_overlap_file = "{}/overlap.tmp.txt.gz".format(tmp_dir)
     overlap_cmd = (
         "bedtools intersect -wa -a {} -b {} | "
         "awk -F '\t' '{{ print $4 }}' | "
         "gzip -c > {}").format(
             variant_bed_file, bed_file, tmp_overlap_file)
-    print overlap_cmd
     os.system(overlap_cmd)
-
-    # read in file
     variant_ids = pd.read_csv(tmp_overlap_file, header=None).values[:,0]
 
     # get filtered set from lookup
-    if False:
+    if variant_type == "GTEx":
         variant_results = lookup_table[lookup_table["variant_id"].isin(variant_ids)]
     else:
         variant_results = lookup_table[lookup_table["CausalSNP"].isin(variant_ids)]
 
-    if False:
+    # get effect sizes
+    if variant_type == "GTEx":
         col_key = "slope"
     else:
         col_key = "P VALUE"
-    #print lookup_table.columns
-    #print list(variant_results["slope"].values)
-    print variant_results.shape, np.median(np.absolute(variant_results[col_key].values))
+    variant_effects = np.absolute(variant_results[col_key].values)
+    #print "{}: {} variants, median effect {}".format(
+    #    bed_file, variant_results.shape[0], np.median(variant_effects))
     
-    return None
+    return variant_effects
 
 
 def build_score_matched_bins(target_scores, full_scores, num_increments=21):
@@ -258,6 +307,84 @@ def _get_data_from_h5_files(h5_files, key):
     return data
 
 
+def get_results(data_indices, metadata, args, prefix="grammar.instances"):
+    """collect all results that cover this bed file
+    """
+    # make bed file
+    bed_file = "{}/{}.bed.gz".format(args.out_dir, prefix)
+    get_bed_from_metadata_list(
+        metadata[data_indices],
+        bed_file,
+        interval_key="active",
+        merge=True)
+
+    # save results to dict
+    results = {}
+    
+    # get results for compare keys (ATAC, H3K27ac)
+    for key in args.compare_keys:
+        signal = _get_data_from_h5_files(
+            args.score_files, key)
+        results[key] = signal[data_indices]
+        
+    # get grammar variants
+    variants = get_overlapping_variants(
+        bed_file, args.eqtl_bed_file, args.eqtl_lookup)
+    results["variants"] = variants
+    
+    # for each bigwig, get signal
+    for bigwig_file in args.compare_bigwigs:
+        bigwig_signal = get_signal_from_bigwig(
+            bed_file,
+            bigwig_file,
+            map_chain_file=args.map_chain_file,
+            liftover=True)
+        results[os.path.basename(bigwig_file)] = bigwig_signal
+
+    return results
+
+
+def get_sig(results, null_results):
+    """sort nulls, figure out where results fit in
+    """
+    null_results_sorted = np.sort(null_results)
+
+    idx = np.searchsorted(null_results, results)
+
+    pval = 1 - float(idx) / len(null_results)
+    
+    return pval
+
+
+def save_results(
+        filename,
+        results,
+        null_results,
+        pwm_names,
+        save_str):
+    """save out to file with a comment line at front
+    """
+    data = pd.DataFrame(data=results, columns=["signal"])
+    data["variable"] = "target"
+
+    for i in range(len(null_results)):
+        null_data = pd.DataFrame(data=null_results[i], columns=["signal"])
+        null_data["variable"] = pwm_names[i]
+        data = pd.concat([data, null_data], axis=0)
+        
+    with open(filename, "w") as fp:
+        fp.write("#{}\n".format(save_str))
+        data.to_csv(fp, index=False, sep="\t")
+
+    # just make the plot each time?
+    plot_file = "{}.pdf".format(filename.split(".txt")[0])
+    plot_cmd = "Rscript /datasets/inference.2019-03-12/dmim.shuffle/quick_plot.R {} {}".format(
+        filename, plot_file)
+    os.system(plot_cmd)
+    
+    return
+
+
 def main():
     """run annotation
     """
@@ -270,12 +397,10 @@ def main():
 
     # read in grammar
     grammar = nx.read_gml(args.grammar)
-
-    # get grammar regions
     grammar_instances = grammar.graph["examples"].split(",")
 
     # to consider, subset those that are diff?
-    if True:
+    if args.synergy_only:
         with h5py.File(args.synergy_file, "r") as hf:
             synergy_diff = hf["{}.0".format(DataKeys.SYNERGY_DIFF_SIG)][:]
             diff_indices = np.where(
@@ -300,89 +425,168 @@ def main():
         DataKeys.GC_CONTENT)
 
     # load eqtl table
-    eqtl_lookup = pd.read_csv(args.eqtl_effects_file, sep="\t")
+    args.eqtl_lookup = pd.read_csv(args.eqtl_effects_file, sep="\t")
     
-    # TODO generate grammar BED file
-    # TODO note right now considering all regions
-    grammar_tmp_bed = "grammar.instances.bed.gz"
-    get_bed_from_metadata_list(
-        metadata[grammar_indices],
-        grammar_tmp_bed,
-        interval_key="active",
-        merge=True)
-    get_overlapping_variants(
-        grammar_tmp_bed, args.eqtl_bed_file, eqtl_lookup)
-    
-    # for each pwm in grammar:
-    pwms = grammar.nodes
+    # get grammar results
+    results = get_results(
+        grammar_indices, metadata, args, prefix="grammar.instances")
+    #for key in sorted(results.keys()):
+    #    print key, results[key].shape, np.median(results[key])
+        
+    # for each pwm in grammar, get null distributions and run tests
+    null_results_all = []
     plot_data = None
-    for pwm in pwms:
+    for pwm in grammar.nodes:
+        print "\nRunning {}\n".format(pwm)
         pwm_idx = int(grammar.nodes[pwm]["pwmidx"])
 
         # get target scores (GC and pwms)
         target_gc_scores = gc_scores[grammar_indices]
         target_pwm_scores = pwm_raw_scores[grammar_indices,0,pwm_idx]
         background_pwm_scores = pwm_raw_scores[:,0,pwm_idx]
-        
-        # get matched null set
-        matched_background_indices = build_matched_null_set(
-            target_pwm_scores,
-            background_pwm_scores,
-            target_gc_scores,
-            gc_scores,
-            rand_seed=1)
-        
-        # TODO generate matched null BED file(s)?
-        # TODO should i consider bootstrapped null
-        
-        # look at relevant keys
-        key = "ATAC_SIGNALS.NORM"
-        #key = "H3K27ac_SIGNALS.NORM"
-        #key = "H3K4me1_SIGNALS.NORM"
-        #key = "ZNF750_LABELS"
-        signal = _get_data_from_h5_files(
-            args.score_files, key)
-        target_signal = signal[grammar_indices]
-        background_signal = signal[matched_background_indices]
 
-        # quick test save for plot
-        test_idx = 10 # 10
-        plot_background = background_signal[:,test_idx]
-        plot_background_data = pd.DataFrame(data=plot_background, columns=["signal"])
-        plot_background_data["variable"] = pwm
+        # set up null store
+        nulls = {}
+        for key in results.keys():
+            nulls[key] = []
+            
+        # build n null sets        
+        for null_idx in range(args.n_null):
 
-        if plot_data is None:
-            plot_data = plot_background_data.copy()
+            # logging
+            if null_idx % 10 == 0:
+                print null_idx
+            
+            # get null set
+            matched_background_indices = build_matched_null_set(
+                target_pwm_scores,
+                background_pwm_scores,
+                target_gc_scores,
+                gc_scores,
+                rand_seed=null_idx)
+            
+            # get null results
+            null_results = get_results(
+                matched_background_indices,
+                metadata,
+                args,
+                prefix="grammar.non_instances")
+            #for key in sorted(null_results.keys()):
+            #    print key, null_results[key].shape, np.median(null_results[key])
+            #print ""
+                
+            # save out null results
+            for key in sorted(null_results.keys()):
+                nulls[key].append(null_results[key])
+
+        # finally save out to overall list
+        null_results_all.append(nulls)
+                
+        if False:
+            # quick test save for plot
+            test_idx = 10 # 10
+            plot_background = background_signal[:,test_idx]
+            plot_background_data = pd.DataFrame(data=plot_background, columns=["signal"])
+            plot_background_data["variable"] = pwm
+
+            if plot_data is None:
+                plot_data = plot_background_data.copy()
+            else:
+                plot_data = pd.concat([plot_data, plot_background_data], axis=0)
+
+            print np.mean(target_signal, axis=0)
+            print np.mean(background_signal, axis=0)
+
+            print ""
+
+    # get medians, calc significance
+    for key in sorted(results.keys()):
+
+        file_prefix = "{}/results.{}".format(args.out_dir, key.replace(".", "_"))
+        
+        pval_thresh = 0.05
+        print key
+
+        grammar_results = results[key]
+        grammar_median = np.median(grammar_results, axis=0)
+
+        if len(grammar_median.shape) > 0:
+            # split out
+            for i in range(grammar_median.shape[0]):
+                split_file_prefix = "{}.idx-{}".format(file_prefix, i)
+                null_sigs = []
+                null_median_medians = []
+                save_nulls = []
+                split_grammar_results = grammar_results[:,i]
+                split_grammar_median = grammar_median[i]
+                for null_idx in range(len(null_results_all)):
+                    null_results = null_results_all[null_idx][key]
+                    split_null_results = [
+                        vals[:,i]
+                        for vals in null_results]
+                    split_null_medians = [
+                        np.median(val, axis=0)
+                        for val in split_null_results]
+                    pval = get_sig(split_grammar_median, split_null_medians)
+                    null_sigs.append(pval)
+                    # get the median null dist
+                    if len(split_null_medians) % 2 == 0:
+                        split_null_medians = split_null_medians[1:]
+                    null_median_median = np.median(split_null_medians)
+                    null_median_medians.append(null_median_median)
+                    save_idx = split_null_medians.index(null_median_median)
+                    save_nulls.append(split_null_results[save_idx])
+
+                #print split_grammar_median, null_median_medians, null_sigs
+                filename = "{}.txt".format(split_file_prefix)
+                save_str = "filename={};pwms={};grammar_avg={};null_avgs={},null_sigs={}".format(
+                    filename,
+                    grammar.nodes,
+                    split_grammar_median,
+                    null_median_medians,
+                    null_sigs)
+                print save_str
+                save_results(
+                    filename,
+                    split_grammar_results,
+                    save_nulls,
+                    list(grammar.nodes),
+                    save_str)
+                
         else:
-            plot_data = pd.concat([plot_data, plot_background_data], axis=0)
-        
-        print np.mean(target_signal, axis=0)
-        print np.mean(background_signal, axis=0)
-        
-        print ""
+            null_sigs = []
+            null_median_medians = []
+            save_nulls = []
+            for null_idx in range(len(null_results_all)):
+                null_results = null_results_all[null_idx][key]
+                null_medians = [
+                    np.median(vals)
+                    for vals in null_results]
+                pval = get_sig(grammar_median, null_medians)
+                null_sigs.append(pval)
+                # get the median null dist
+                if len(null_medians) % 2 == 0:
+                    null_medians = null_medians[1:]
+                null_median_median = np.median(null_medians)
+                null_median_medians.append(null_median_median)
+                save_idx = null_medians.index(null_median_median)
+                save_nulls.append(null_results[save_idx])
 
-        # test variants
-        null_tmp_bed = "grammar.non_instances.bed.gz"
-        get_bed_from_metadata_list(
-            metadata[matched_background_indices],
-            null_tmp_bed,
-            interval_key="active",
-            merge=True)
-        get_overlapping_variants(
-            null_tmp_bed, args.eqtl_bed_file, eqtl_lookup)
-
-        
-    plot_target = target_signal[:,test_idx]
-    plot_target = pd.DataFrame(data=plot_target, columns=["signal"])
-    plot_target["variable"] = "target"
-    plot_data = pd.concat([plot_data, plot_target], axis=0)
-
-    plot_data.to_csv("test_atac.txt", index=False, sep="\t")
-
-    #with h5py.File(args.score_files[0], "r") as hf:a
-    #    for key in sorted(hf.keys()): print key, hf[key].shape
-    
-    
+            #print grammar_median, null_median_medians, null_sigs
+            filename = "{}.txt".format(file_prefix)
+            save_str = "filename={};pwms={};grammar_avg={};null_avgs={};null_sigs={}".format(
+                filename,
+                grammar.nodes,
+                grammar_median,
+                null_median_medians,
+                null_sigs)
+            print save_str
+            save_results(
+                filename,
+                grammar_results,
+                save_nulls,
+                list(grammar.nodes),
+                save_str)
     
     return None
 
