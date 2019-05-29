@@ -69,15 +69,17 @@ def setup_ldsc_annotations(bed_file, bim_prefix, hapmap_prefix, out_dir):
     return
 
 
-def setup_sumstats_file(sumstats_file, out_file, other_params=""):
+def setup_sumstats_file(sumstats_file, merge_alleles_file, out_file, other_params=""):
     """setup summary states file
     """
     munge_cmd = (
         "python ~/git/ldsc/munge_sumstats.py "
-        "--sumstats {} "        
+        "--sumstats {} "
+        "--merge-alleles {} "
         "--out {} "
         "{} ").format(
             sumstats_file,
+            merge_alleles_file,
             out_file.split(".sumstats")[0],
             other_params)
     print munge_cmd
@@ -120,37 +122,57 @@ def main():
         os.system(get_hapmap)
         os.system(setup_hapmap)
     hapmap_prefix = "hapmap3_snps/hm"
+
+    # get snp list
+    hapmap_snps_file = "w_hm3.snplist"
+    if not os.path.isfile(hapmap_snps_file):
+        get_snps = "wget https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2"
+        setup_snps = "bunzip2 w_hm3.snplist.bz2"
+        os.system(get_snps)
+        os.system(setup_snps)
     
     # ldsc annot dir
     ldsc_annot_dir = "./ldsc.annot"
     os.system("mkdir -p {}".format(ldsc_annot_dir))
 
     # ldsc file table
-    ldsc_table_file = "./annot.table.2.ldsc"
-        
+    ldsc_table_file = "./annot.table.v2.ldsc"
+
+    # get an unrelated cell type - Liver
+    HEPG2_DIR = "/mnt/data/integrative/dnase/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq/out_50m/peak/idr/pseudo_reps/rep1"
+    hepg2_bed_file = "{}/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq_rep1-pr.IDR0.1.filt.narrowPeak.gz".format(
+        HEPG2_DIR)
+    prefix = "HepG2"
+    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+        ldsc_annot_dir, prefix)
+    if not os.path.isfile(ldscore_file):
+        setup_ldsc_annotations(
+            hepg2_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
+    with open(ldsc_table_file, "w") as fp:
+        fp.write("HepG2\t{}/{}.\n".format(
+            ldsc_annot_dir, prefix))
+    
     # get ATAC all
     GGR_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/integrative/v1.0.0a"
     ggr_master_bed_file = "{}/data/ggr.atac.idr.master.bed.gz".format(GGR_DIR)
     prefix = os.path.basename(ggr_master_bed_file).split(".bed")[0]
-    ldscore_file = "{}/{}.1.l2.ldscore.gz".format(
+    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
         ldsc_annot_dir, prefix)
-    #if not os.path.isfile(ldscore_file):
-    if False:
+    if not os.path.isfile(ldscore_file):
         setup_ldsc_annotations(
             ggr_master_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
     with open(ldsc_table_file, "w") as fp:
         fp.write("GGR_ALL\t{}/{}.\n".format(
             ldsc_annot_dir, prefix))
-
+        
     # get ATAC timepoints
     timepoint_dir = "{}/results/atac/peaks.timepoints".format(GGR_DIR)
     timepoint_bed_files = sorted(glob.glob("{}/*narrowPeak.gz".format(timepoint_dir)))
     for timepoint_bed_file in timepoint_bed_files:
         prefix = os.path.basename(timepoint_bed_file).split(".bed")[0]
-        ldscore_file = "{}/{}.1.l2.ldscore.gz".format(
+        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
             ldsc_annot_dir, prefix)
-        #if not os.path.isfile(ldscore_file):
-        if False:
+        if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
                 timepoint_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
         with open(ldsc_table_file, "a") as fp:
@@ -162,17 +184,16 @@ def main():
     traj_bed_files = sorted(glob.glob("{}/*bed.gz".format(traj_dir)))
     for traj_bed_file in traj_bed_files:
         prefix = os.path.basename(traj_bed_file).split(".bed")[0]
-        ldscore_file = "{}/{}.1.l2.ldscore.gz".format(
+        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
             ldsc_annot_dir, prefix)
-        #if not os.path.isfile(ldscore_file):
-        if False:
+        if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
                 traj_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
         with open(ldsc_table_file, "a") as fp:
             fp.write("{1}\t{0}/{1}.\n".format(
                 ldsc_annot_dir, prefix))
-                     
-    # links
+
+    # grammar dir
     grammar_dir = "./grammars"
     
     # download
@@ -199,15 +220,14 @@ def main():
 
         # make bed file
         bed_file = "{}.bed.gz".format(grammar_file.split(".gml")[0])
-        if False:
+        if not os.path.isfile(bed_file):
             get_bed_from_nx_graph(grammar, bed_file)
 
         # then make annotations
         prefix = os.path.basename(bed_file).split(".bed")[0]
-        ldscore_file = "{}/{}.1.l2.ldscore.gz".format(
+        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
             ldsc_annot_dir, prefix)
-        #if not os.path.isfile(ldscore_file):
-        if False:
+        if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
                 bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
         with open(ldsc_table_file, "a") as fp:
@@ -219,8 +239,12 @@ def main():
     os.system("mkdir -p {}".format(sumstats_dir))
     sumstats_orig_dir = "{}/orig".format(sumstats_dir)
     os.system("mkdir -p {}".format(sumstats_orig_dir))
+
+    # also set up results dir
+    results_dir = "./results.v2"
+    os.system("mkdir -p {}".format(results_dir))
     
-    # get UKBB derm stats
+    # get UKBB derm stats (from LDSC repo)
     ukbb_derm_sumstats = "{}/ukbb.none.derm.ldsc.sumstats.gz".format(sumstats_dir)
     if not os.path.isfile(ukbb_derm_sumstats):
         file_url = "https://data.broadinstitute.org/alkesgroup/UKBB/disease_DERMATOLOGY.sumstats.gz"
@@ -229,8 +253,8 @@ def main():
             file_url,
             save_file)
         os.system(get_ukbb)
-        setup_sumstats_file(save_file, ukbb_derm_sumstats)
-
+        setup_sumstats_file(save_file, hapmap_snps_file, ukbb_derm_sumstats)
+        
     # ukbb standardized, can do all in one go
     ukbb_manifest_file = "./ukbb/ukbb.gwas_imputed_3.release_20180731.tsv"
     ukbb_manifest = pd.read_csv(ukbb_manifest_file, sep="\t")
@@ -241,7 +265,8 @@ def main():
         ukbb_annot_file)
     if not os.path.isfile(ukbb_annot_file):
         os.system(get_variant_annotation_file)
-    
+
+    # GGR relevant codes
     ukbb_codes = [
         "20001_1003", # skin cancer
         "20001_1060", # skin cancer
@@ -340,17 +365,29 @@ def main():
         if not os.path.isfile(final_sumstats_file):
             setup_sumstats_file(
                 w_annot_file,
+                hapmap_snps_file,
                 final_sumstats_file,
                 other_params="--N-col n_complete_samples --a1 ref --a2 alt --frq AF")
 
+        # run tests
+        out_prefix = "{}/{}".format(results_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
+        run_ldsc = (
+            "python ~/git/ldsc/ldsc.py "
+            "--h2-cts {} "
+            "--ref-ld-chr {} "
+            "--out {} "
+            "--ref-ld-chr-cts {} "
+            "--w-ld-chr {}").format(
+                final_sumstats_file,
+                baseline_model_prefix,
+                out_prefix,
+                ldsc_table_file,
+                weights_prefix)
+        print run_ldsc
+        os.system(run_ldsc)
+            
     quit()
-        
-        
-    print ukbb_manifest
-    print len(ukbb_codes)
-    
-    quit()
-        
+            
     # acne - confirmed genome-wide genotyping array, Affy
     gwas_acne_sumstats = "{}/gwas.GCST006640.acne.ldsc.sumstats.gz".format(sumstats_dir)
     if not os.path.isfile(gwas_acne_sumstats):
@@ -358,7 +395,11 @@ def main():
         save_file = "{}/gwas.GCST006640.acne.sumstats.gz".format(sumstats_orig_dir)
         get_file = "wget -O - {} | gzip -c > {}".format(file_url, save_file)
         os.system(get_file)
-        setup_sumstats_file(save_file, gwas_acne_sumstats, n_cases=1115, n_controls=4619, other_params="--ignore regional.analysis")
+        setup_sumstats_file(
+            save_file,
+            hapmap_snps_file,
+            gwas_acne_sumstats,
+            other_params="--N-cas 1115 --N-con 4619 --ignore regional.analysis")
         
     # alopecia - genome-wide genotyping array
     gwas_alopecia_sumstats = "{}/gwas.GCST006661.alopecia.ldsc.sumstats.gz".format(sumstats_dir)
@@ -369,7 +410,11 @@ def main():
         os.system("mkdir -p {}".format(unzip_dir))
         get_file = "wget {} -O {}".format(file_url, save_file)
         os.system("unzip {} -d {}".format(save_file, unzip_dir))
-        setup_sumstats_file("", gwas_alopecia_sumstats, n_sample=52874, other_params="--snp Markername")
+        setup_sumstats_file(
+            "",
+            hapmap_snps_file,
+            gwas_alopecia_sumstats,
+            other_params="--N 52874 --snp Markername")
         
     # dermatitis - genome-wide genotyping array, illumina
     gwas_dermatitis_sumstats = "{}/gwas.GCST003184.dermatitis.ldsc.sumstats.gz".format(sumstats_dir)
@@ -378,7 +423,11 @@ def main():
         save_file = "{}/gwas.GCST003184.dermatitis.sumstats.gz".format(sumstats_orig_dir)
         get_file = "wget -O - {} | gzip -c > {}".format(file_url, save_file)
         os.system(get_file)
-        setup_sumstats_file(save_file, gwas_dermatitis_sumstats, other_params="--N-col AllEthnicities_N")
+        setup_sumstats_file(
+            save_file,
+            hapmap_snps_file,
+            gwas_dermatitis_sumstats,
+            other_params="--N-col AllEthnicities_N")
         
     # lupus - genome-wide genotyping array, illumina
     gwas_lupus_sumstats = "{}/gwas.GCST005831.lupus.ldsc.sumstats.gz".format(sumstats_dir)
@@ -386,7 +435,11 @@ def main():
         file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/JuliaA_29848360_GCST005831/GWAS_SLE_summaryStats/Meta_results.txt"
         save_file = "{}/gwas.GCST005831.lupus.sumstats.gz".format(sumstats_orig_dir)
         get_file = "wget -O - {} | gzip -c > {}".format(file_url, save_file)
-        setup_sumstats(save_file, gwas_lupus_sumstats, other_params="--N-cas 4943 --N-con 8483 --a1 A1lele1 --a2 Allele2")
+        setup_sumstats(
+            save_file,
+            hapmap_snps_file,
+            gwas_lupus_sumstats,
+            other_params="--N-cas 4943 --N-con 8483 --a1 A1lele1 --a2 Allele2")
 
     # lupus - targeted array, ignore
     gwas_lupus_sumstats = "{}.gwas.GCST007400.lupus.ldsc.sumstats.gz"
@@ -397,7 +450,11 @@ def main():
         file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/BenthamJ_26502338_GCST003156/bentham_2015_26502338_sle_efo0002690_1_gwas.sumstats.tsv.gz"
         save_file = "{}/gwas.GCST003156.lupus.sumstats.gz".format(sumstats_orig_dir)
         get_file = "wget {} -O {}".format(file_url, save_file)
-        setup_sumstats(save_file, gwas_lupus_sumstats, other_params="--N 14267 --N-cas 5201 --N-con 9066 --ignore OR,OR_lower,OR_upper")
+        setup_sumstats(
+            save_file,
+            hapmap_snps_file,
+            gwas_lupus_sumstats,
+            other_params="--N 14267 --N-cas 5201 --N-con 9066 --ignore OR,OR_lower,OR_upper")
         
     # psoriasis - targeted array, ignore
     gwas_psoriasis_sumstats = "{}/gwas.GCST005527.psoriasis.ldsc.sumstats.gz".format(sumstats_dir)
@@ -422,7 +479,11 @@ def main():
         save_file = "{}/gwas.GCST006096.lentigines.sumstats.gz".format(sumstats_orig_dir)
         get_file = "wget {} -O - | gzip -c > {}".format(file_url, save_file)
         os.system(get_file)
-        setup_sumstats(save_file, gwas_lentigines_sumstats, other_params="--N 11253 --N-cas 3815 --N-con 7438")
+        setup_sumstats(
+            save_file,
+            hapmap_snps_file,
+            gwas_lentigines_sumstats,
+            other_params="--N 11253 --N-cas 3815 --N-con 7438")
     
     # hyperhidrosis - genome-wide genotyping array, Affy
     gwas_hyperhidrosis_sumstats = "{}/gwas.GCST006090.hyperhidrosis.ldsc.sumstats.gz".format(sumstats_dir)
@@ -430,7 +491,11 @@ def main():
         file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/EndoC_29895819_GCST006090/DatasetS7.txt"
         save_file = "{}/gwas.GCST006090.hyperhidrosis.sumstats.gz".format(sumstats_orig_dir)
         get_file = "wget {} -O - | gzip -c > {}".format(sumstats_orig_dir)
-        setup_sumstats(save_file, gwas_hyperhidrosis_sumstats, other_params="--N 4538 --N-cas 1245 --N-con 3293")
+        setup_sumstats(
+            save_file,
+            hapmap_snps_file,
+            gwas_hyperhidrosis_sumstats,
+            other_params="--N 4538 --N-cas 1245 --N-con 3293")
         
     # hirsutism (1) GCST006095
     gwas_hirsutism_sumstats = "{}/gwas.GCST006095.hirsutism.ldsc.sumstats.gz".format(sumstats_dir)
@@ -438,7 +503,11 @@ def main():
         file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/EndoC_29895819_GCST006095/DatasetS6.txt"
         save_file = "{}/gwas.GCST006095.hirsutism.sumstats.gz".format(sumstats_orig_dir)
         get_file = "wget {} -O - | gzip -c > {}".format(sumstats_orig_dir)
-        setup_sumstats(save_file, gwas_hyperhidrosis_sumstats, other_params="--N 11244 --N-cas 3830 --N-con 7414")
+        setup_sumstats(
+            save_file,
+            hapmap_snps_file,
+            gwas_hyperhidrosis_sumstats,
+            other_params="--N 11244 --N-cas 3830 --N-con 7414")
 
     if False:
         # sarcoidosis (1) GCST005540

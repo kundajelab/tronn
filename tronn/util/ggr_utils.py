@@ -16,6 +16,7 @@ import networkx as nx
 
 from scipy.stats import pearsonr
 from scipy.stats import zscore
+from scipy.cluster.hierarchy import linkage, leaves_list
 
 from tronn.interpretation.networks import get_bed_from_nx_graph
 from tronn.interpretation.networks import stringize_nx_graph
@@ -54,6 +55,31 @@ GOOD_GO_TERMS = [
     "fatty acid",
     "sphingolipid",
     "glycerolipid"]
+
+REMOVE_GO_TERMS = [
+    "ameboidal",
+    "calcium-independent cell-cell adhesion via plasma membrane cell-adhesion molecules",
+    "spindle",
+    "via plasma membrane",
+    "adhesion molecules",
+    "cell spreading",
+    "endothelial",
+    "muscle"]
+
+REMOVE_EXACT_TERMS = [
+    "biological adhesion",
+    "positive regulation of cell migration",
+    "positive regulation of cell junction assembly",
+    "positive regulation of epithelial cell proliferation",
+    "regulation of epithelial cell proliferation",
+    "calcium-independent cell-matrix adhesion",
+    "positive regulation of cell proliferation",
+    "regulation of cell proliferation",
+    "positive regulation of cell adhesion",
+    "regulation of cell adhesion",
+    "regulation of cell migration",
+    "regulatino of cell substrate adhesion"
+]
 
 KEEP_GRAMMARS = [
     ["TFAP2A", "KLF12"]
@@ -998,6 +1024,22 @@ def plot_results(filt_summary_file, out_dir):
                 right_index=True,
                 how="outer")
             motifs_all = motifs_all.fillna(0)
+
+        # also keep track of num regions per grammar (for adjacency matrix)
+        num_examples = len(grammar.graph["examples"].split(","))
+        motif_counts = pd.DataFrame(
+            num_examples*np.ones(len(motifs)),
+            index=motifs,
+            columns=[grammars_df["nodes_rna"].iloc[line_idx]])
+        if line_idx == 0:
+            motifs_counts_all = motif_counts
+        else:
+            motifs_counts_all = motifs_counts_all.merge(
+                motif_counts,
+                left_index=True,
+                right_index=True,
+                how="outer")
+            motifs_counts_all = motifs_counts_all.fillna(0)
             
         # extract RNA vector and append
         rna = [float(val) for val in grammar.graph["RNASIGNALS"].split(",")]
@@ -1016,13 +1058,112 @@ def plot_results(filt_summary_file, out_dir):
         else:
             atac_all[line_idx] = atac
 
+        # TODO extract GO terms and plot
+        gprofiler_results_file = "{}.rna.foreground.go_gprofiler.txt".format(
+            grammars_df["filename"].iloc[line_idx].split(".annot-")[0].split(".gml")[0])
+        gprofiler_results = pd.read_table(gprofiler_results_file, sep="\t")
+        gprofiler_results = gprofiler_results[gprofiler_results["domain"] == "BP"]
+        gprofiler_results = gprofiler_results[["p.value", "term.id", "term.name"]]
+        keep_indices = []
+        for i in range(gprofiler_results.shape[0]):
+            for go_term_str in GOOD_GO_TERMS:
+                if go_term_str in gprofiler_results["term.name"].iloc[i]:
+                    keep_indices.append(i)
+        gprofiler_results = gprofiler_results.iloc[keep_indices]
+        gprofiler_results = gprofiler_results.set_index("term.name")
+        gprofiler_results[line_idx] = gprofiler_results["p.value"]
+        gprofiler_results = gprofiler_results[[line_idx]]
+        
+        if line_idx == 0:
+            go_all = gprofiler_results.copy()
+        else:
+            go_all = go_all.merge(
+                gprofiler_results, how="outer", left_index=True, right_index=True)
+
+    # clean up GO terms
+    keep_indices = []
+    for i in range(go_all.shape[0]):
+        keep = True
+        for bad_term_str in REMOVE_GO_TERMS:
+            if bad_term_str in go_all.index[i]:
+                print go_all.index[i]
+                keep = False
+        if keep:
+            keep_indices.append(i)
+    go_all = go_all.iloc[keep_indices]
+    go_all = go_all.drop_duplicates()
+
+    
+    go_all = go_all[~go_all.index.isin(REMOVE_EXACT_TERMS)]
+    
+    # clean up and order
+    go_all = -np.log10(go_all)
+    go_all = go_all.fillna(0)
+    go_clust = linkage(go_all.values, method="ward")
+    reorder_indices = leaves_list(go_clust)
+    go_all = go_all.iloc[reorder_indices,:]
+
+    # transpose
+    go_all = go_all.transpose()
+
+    # tODO set up adjacency matrix
+    motifs_counts_all = motifs_counts_all.transpose()
+    num_motifs = motifs_counts_all.shape[1]
+    motif_names = motifs_counts_all.columns
+    adjacency_mat = np.zeros((num_motifs, num_motifs))
+    for grammar_idx in range(motifs_counts_all.shape[0]):
+        #print motif_counts_all.index[grammar_idx]
+        indices = np.where(motifs_counts_all.iloc[grammar_idx,:].values != 0)[0]
+        grammar_count = motifs_counts_all.iloc[grammar_idx,indices[0]]
+        #print indices
+        for idx in range(len(indices)-1):
+            #print indices[idx], indices[idx+1]
+            adjacency_mat[indices[idx], indices[idx+1]] += grammar_count
+            adjacency_mat[indices[idx+1], indices[idx]] += grammar_count
+    adj_df = pd.DataFrame(data=adjacency_mat, columns=motif_names, index=motif_names)
+
+    # make a gml file
+    graph = nx.from_pandas_adjacency(adj_df)
+    nx.write_gml(graph, "test.gml")
+
+    
+    
     # transpose motifs matrix
     motifs_all["rank"] = np.sum(motifs_all.values, axis=1) / np.sum(motifs_all.values != 0, axis=1)
     motifs_all = motifs_all.sort_values("rank")
     del motifs_all["rank"]
     motifs_all = (motifs_all > 0).astype(int)
     motifs_all = motifs_all.transpose()
-    
+
+    # TODO clean up rownames for motif matrix
+    tfs = motifs_all.index.values
+    tfs_clean = []
+    for tf_set in tfs:
+        tf_set_clean = tf_set.replace("POU2F1;", "")
+        tf_set_clean = tf_set_clean.replace("FOXA2;FOXO3;FOXP2;FOXC1;FOXM1;FOXK1;FOXO1;FOXP1", "FOXO1")
+        tf_set_clean = tf_set_clean.replace(";SALL4", "")
+        tf_set_clean = tf_set_clean.replace("ETV4;ETV5;ETS1;ETS2", "ETV5")
+        tf_set_clean = tf_set_clean.replace("KLF12;SP1;SP3;SP2;SP4;KLF4;KLF5;KLF3;KLF6;KLF9", "KLF4")
+        tf_set_clean = tf_set_clean.replace(";MAF", "")
+        tf_set_clean = tf_set_clean.replace(";CEBPB;DBP;HLF", "")
+        tf_set_clean = tf_set_clean.replace("TFAP2A;TFAP2C;", "")
+        tf_set_clean = tf_set_clean.replace("TAF1;", "")
+        tf_set_clean = tf_set_clean.replace(";CEBPG", "")
+        tf_set_clean = tf_set_clean.replace("TCF12;TCF3;TFAP4;TCF4", "TCF3")
+        tf_set_clean = tf_set_clean.replace("ATF1;CREB1;ATF2;CREM", "CREB1")
+        tf_set_clean = tf_set_clean.replace("CBFB;RUNX1;RUNX2", "RUNX1")
+        tf_set_clean = tf_set_clean.replace("RELA;", "")
+        tf_set_clean = tf_set_clean.replace(";NFKB2;REL", "")
+        tf_set_clean = tf_set_clean.replace("TP53;TP63;TP73", "TP63")
+        tf_set_clean = tf_set_clean.replace("NR2C1;RXRB;THRB;THRA", "NR2C1")
+        tf_set_clean = tf_set_clean.replace("RORA;NR2F2;RARG;RXRA;RARA", "RORA")
+        tf_set_clean = tf_set_clean.replace(";HSF2", "")
+        tf_set_clean = tf_set_clean.replace(";SOX4", "")
+        tf_set_clean = tf_set_clean.replace(";ISL1", "")
+        tf_set_clean = tf_set_clean.replace(";TCF7L1;TCF7L2", "")
+        tfs_clean.append(tf_set_clean)
+    motifs_all.index = tfs_clean
+        
     # zscore the ATAC data
     atac_all = zscore(atac_all, axis=1)
 
@@ -1043,6 +1184,9 @@ def plot_results(filt_summary_file, out_dir):
     print atac_df.shape
     print rna_df.shape
 
+    adj_file = "{}/grammars.filt.motif_adjacency.mat.txt".format(out_dir)
+    adj_df.to_csv(adj_file, sep="\t")
+    
     motifs_file = "{}/grammars.filt.motif_presence.mat.txt".format(out_dir)
     motifs_all.to_csv(motifs_file, sep="\t")
 
@@ -1051,11 +1195,14 @@ def plot_results(filt_summary_file, out_dir):
 
     rna_file = "{}/grammars.filt.rna.mat.txt".format(out_dir)
     rna_df.to_csv(rna_file, sep="\t")
+
+    go_file = "{}/grammars.filt.go_terms.mat.txt".format(out_dir)
+    go_all.to_csv(go_file, sep="\t")
     
     # run R script
     plot_file = "{}/grammars.filt.summary.pdf".format(out_dir)
-    plot_summary = "ggr_plot_grammar_summary.R {} {} {} {}".format(
-        motifs_file, atac_file, rna_file, plot_file)
+    plot_summary = "ggr_plot_grammar_summary.R {} {} {} {} {}".format(
+        motifs_file, atac_file, rna_file, go_file, plot_file)
     os.system(plot_summary)
     
     return
