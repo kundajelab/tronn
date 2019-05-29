@@ -7,7 +7,7 @@ spec:
       spec:
         containers:
         - name: train-container
-          image: dskim89/tronn
+          image: dskim89/tronn:latest
           env:
           - name: MODEL_DIR
             value: "/datasets/models.2018-12-03"

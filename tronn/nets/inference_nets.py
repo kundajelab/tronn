@@ -139,14 +139,14 @@ def variants_to_scores(inputs, params):
 
     # set up variant mask
     seq_len = outputs[DataKeys.ORIG_SEQ].get_shape().as_list()[3]
-    variant_mask = tf.one_hot(
+    variant_pos = tf.one_hot(
         outputs[DataKeys.VARIANT_IDX][:,0],
         seq_len) # {N, 1000}
-    variant_mask = tf.reshape(
-        variant_mask,
+    variant_pos = tf.reshape(
+        variant_pos,
         [-1, 1, seq_len, 1])
     variant_mask = tf.nn.max_pool(
-        variant_mask, [1,1,10,1], [1,1,1,1], padding="SAME")
+        variant_pos, [1,1,10,1], [1,1,1,1], padding="SAME")
     left_clip = params["left_clip"]
     right_clip = params["right_clip"]
     variant_mask = variant_mask[:,:,left_clip:right_clip]
@@ -154,13 +154,17 @@ def variants_to_scores(inputs, params):
     
     # first dmim for the non variant sites
     outputs[DataKeys.FEATURES] = dfim_scores
-    outputs[DataKeys.MUT_MOTIF_POS] = variant_mask
+    outputs[DataKeys.MUT_MOTIF_POS] = variant_pos
+    outputs[DataKeys.MUT_MOTIF_MASK] = variant_mask
     final_outputs, _ = run_dmim(outputs, params)
     
     # and then for the variant site itself
     outputs[DataKeys.MUT_MOTIF_POS] = tf.cast(
+        tf.equal(variant_pos, 0),
+        tf.float32) # flip
+    outputs[DataKeys.MUT_MOTIF_MASK] = tf.cast(
         tf.equal(variant_mask, 0),
-        tf.float32) # flip mask
+        tf.float32) # flip 
     final_outputs[DataKeys.VARIANT_DMIM] = run_dmim(
         outputs, params)[0][DataKeys.DMIM_SCORES]
     
