@@ -7,8 +7,6 @@ import logging
 import numpy as np
 import pandas as pd
 
-from tronn.interpretation.clustering import get_clusters_from_h5
-
 from tronn.stats.nonparametric import run_delta_permutation_test
 from tronn.stats.nonparametric import threshold_by_qvalues
 
