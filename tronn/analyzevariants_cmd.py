@@ -46,11 +46,13 @@ def run(args):
     if not os.path.isfile(args.alt_fasta):
         generate_new_fasta(args.vcf_file, args.fasta, args.alt_fasta, ref=False)
 
-    # prefer to have a prediction sample!
     # collect a prediction sample if ensemble (for cross model quantile norm)
     # always need to do this if you're repeating backprop
     if args.model["name"] == "ensemble":
-        assert args.prediction_sample is not None
+        true_sample_size = args.sample_size
+        args.sample_size = 1000
+        run_inference(args, warm_start=True)
+        args.sample_size = true_sample_size
     
     # run inference
     inference_files = run_inference(args)
