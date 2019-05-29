@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.ggr.analyzevariants.basset
+spec:
+    template:
+      spec:
+        containers:
+        - name: train-container
+          image: dskim89/tronn
+          env:
+          - name: MODEL_DIR
+            value: "/datasets/models.2018-12-03"
+          - name: INFER_DIR
+            value: "/datasets/inference.2019-02-05/motifs.input_x_grad.background"
+          - name: VCF_FILE
+            value: "/datasets/ggr/1.0.0d/annotations/variants.validation/gtex.skin.atac_filt.vcf"
+          - name: OUT_DIR
+            value: "/datasets/inference.2019-05-29"
+          - name: MODEL
+            value: "basset"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/validation.impt_scores && mkdir -p $OUT_DIR && pip install networkx && python /datasets/software/git/tronn/scripts/ggr/kube/analyzevariants.ggr.bash $MODEL_DIR $MODEL $VCF_FILE $INFER_DIR $OUT_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 4
+          #    cpu: 16
+              memory: 128Gi
+            requests:
+          #    cpu: 8
+              memory: 8Gi
+          volumeMounts:
+          - mountPath: /datasets
+            name: datasets
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"
