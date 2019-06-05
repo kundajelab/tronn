@@ -14,7 +14,7 @@ spec:
           - name: INFER_DIR
             value: "/datasets/inference.2019-02-05/motifs.input_x_grad.background"
           - name: VCF_FILE
-            value: "/datasets/ggr/1.0.0d/annotations/variants.validation/gtex.skin.atac_filt.vcf"
+            value: "/datasets/ggr/1.0.0d/annotations/variants.validation/gtex.ALL.atac_filt.vcf"
           - name: OUT_DIR
             value: "/datasets/inference.2019-05-29"
           - name: MODEL
