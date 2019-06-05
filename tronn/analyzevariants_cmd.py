@@ -74,7 +74,7 @@ def run(args):
     #os.system(plot_cmd)
 
     # and annotate the differential
-    annotate_variants(inference_files[0], args.pwm_list)
+    #annotate_variants(inference_files[0], args.pwm_list)
     
     return None
 
