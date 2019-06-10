@@ -710,6 +710,9 @@ def add_scanmotifs_parser(subparsers):
         "Output files and folders")
     _add_output_args(group_output, out_dir="motifs")
     group_output.add_argument(
+        "--lite", action="store_true",
+        help="store only most essential tensors (lite output)")
+    group_output.add_argument(
         '--tmp_dir',
         help='temporary scratch directory as needed')
 

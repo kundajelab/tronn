@@ -77,6 +77,18 @@ def _setup_output_skip_keys(args):
             DataKeys.WEIGHTED_SEQ_PWM_HITS,
             DataKeys.FEATURES,
             DataKeys.LOGITS_SHUF]
+        if args.lite:
+            # add other tensors to skip
+            lite_keys = [
+                DataKeys.IMPORTANCE_GRADIENTS,
+                DataKeys.WEIGHTED_SEQ,
+                DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+                DataKeys.ORIG_SEQ_PWM_HITS,
+                DataKeys.ORIG_SEQ_PWM_DENSITIES,
+                DataKeys.ORIG_SEQ_PWM_MAX_DENSITIES,
+                DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+                DataKeys.WEIGHTED_SEQ_PWM_HITS]
+            skip_keys += lite_keys
     elif args.subcommand_name == "simulategrammar":
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,

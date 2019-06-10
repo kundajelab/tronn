@@ -448,6 +448,7 @@ def get_pwm_scores(inputs, params):
 
     # get max positions and values (for downstream analyses), also null positions
     outputs, _ = get_pwm_max_vals_and_positions(outputs, params)
+    outputs, _ = get_raw_pwm_max_vals_and_positions(outputs, params)
     outputs, _ = get_pwm_null_positions(outputs, params)
     
     # filter for just those with a motif present
@@ -482,6 +483,35 @@ def get_pwm_max_vals_and_positions(inputs, params):
     
     outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, M, 1}
     outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, M, 1}
+
+    return outputs, params
+
+
+def get_raw_pwm_max_vals_and_positions(inputs, params):
+    """read off the max positions (and vals, comes for free)
+    for downstream analyses
+    """
+    assert inputs.get(DataKeys.ORIG_SEQ_PWM_SCORES_THRESH) is not None
+    
+    # get features
+    features = inputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH] # {N, 1, pos, M}    
+    outputs = dict(inputs)
+
+    # reduce and transpose so position is last
+    features = tf.reduce_max(features, axis=1) # {N, pos, M}
+    features = tf.transpose(features, perm=[0,2,1]) # {N, M, pos}
+    
+    # get the max positions ON THE ACTIVE REGION
+    # NOTE that these are indices for the short region!!
+    vals, indices = tf.nn.top_k(features, k=1, sorted=True)
+    indices = tf.add(indices, int(params["filter_width"] / 2.))
+    
+    # adjust for clipping
+    if params.get("left_clip") is not None:
+        indices = tf.add(indices, params["left_clip"])
+    
+    outputs[DataKeys.ORIG_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, M, 1}
+    outputs[DataKeys.ORIG_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, M, 1}
 
     return outputs, params
 
