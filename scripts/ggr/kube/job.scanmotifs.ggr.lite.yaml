@@ -22,11 +22,11 @@ spec:
           resources:
             limits:
               nvidia.com/gpu: 6
-          #    cpu: 16
-              memory: 32Gi
-          #requests:
-          #    cpu: 8
-          #    memory: 8Gi
+              cpu: 16
+              memory: 128Gi
+            requests:
+              cpu: 1
+              memory: 4Gi
           volumeMounts:
           - mountPath: /datasets
             name: datasets
