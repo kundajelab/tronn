@@ -1,4 +1,5 @@
 cd /datasets/software/git/tronn;
+pip install networkx==2.2;
 python setup.py develop;
 PREFIX="${1}/ggr.${2}.regr.pretrained.folds.testfold-"
 SUFFIX="/model.json"
