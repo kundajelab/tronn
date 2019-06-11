@@ -94,11 +94,11 @@ class H5Handler(object):
         """Store an example into the tmp numpy arrays, push batch out if done with batch
         """
         for key in self.example_keys:
-            try:
-                self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
-            except:
-                import ipdb
-                ipdb.set_trace()
+            #try:
+            self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
+            #except:
+            #    import ipdb
+            #    ipdb.set_trace()
         self.tmp_arrays_idx += 1
         
         # now if at end of batch, push out and reset tmp
@@ -122,11 +122,11 @@ class H5Handler(object):
         """
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
-            try:
-                self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
-            except:
-                import ipdb
-                ipdb.set_trace()
+            #try:
+            self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
+            #except:
+            #    import ipdb
+            #    ipdb.set_trace()
             
         # set new point in batch
         self.batch_start = self.batch_end
@@ -157,11 +157,11 @@ class H5Handler(object):
         # save out
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
-            try:
-                self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
-            except:
-                import ipdb
-                ipdb.set_trace()
+            #try:
+            self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
+            #except:
+            #    import ipdb
+            #    ipdb.set_trace()
 
         return
 
