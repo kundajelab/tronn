@@ -249,7 +249,8 @@ def main():
     # get labels
     labels = _get_data_from_h5_files(
         args.data_files, args.labels_key)
-    if True:
+    labels = np.any(labels!=0, axis=1).astype(int)
+    if False:
         labels = labels[:,0]
     
     # confirm correct pwm
@@ -268,7 +269,10 @@ def main():
     # get PWM weighted scores and index positions
     weighted_scores = _get_data_from_h5_files(
         args.data_files, args.weighted_pwm_key)[:,:,args.pwm_idx]
-    if True:
+    # TODO fix this, max position?
+    weighted_scores = np.max(weighted_scores, axis=1)
+    
+    if False:
         weighted_scores = weighted_scores[:,0] # just day 0 for now
     weighted_max_positions = _get_data_from_h5_files(
         args.data_files, args.weighted_pwm_pos_key)[:,args.pwm_idx,0].astype(int)
@@ -316,7 +320,7 @@ def main():
         "cat {} | "
         "sort -k1,1 -k2,2n | "
         "uniq | "
-        "awk -F '\t' '{{ print $0\"\tCTCF\t10\t+\"}}' > "
+        "awk -F '\t' '{{ print $0\"\tpos\t10\t+\"}}' > "
         "{}").format(positives_bed_file, positives_match_file)
     os.system(make_match_file)
 
@@ -334,7 +338,7 @@ def main():
         "cat {} | "
         "sort -k1,1 -k2,2n | "
         "uniq | "
-        "awk -F '\t' '{{ print $0\"\tCTCF\t10\t+\"}}' > "
+        "awk -F '\t' '{{ print $0\"\tneg\t10\t+\"}}' > "
         "{}").format(negatives_bed_file, negatives_match_file)
     os.system(make_match_file)
 
