@@ -294,6 +294,9 @@ def _add_dataset_pwmsims_args(parser):
     parser.add_argument(
         "--gc_range", default=[0.20, 0.80], nargs="+",
         help="GC range for random background sequence")
+    parser.add_argument(
+        "--background_regions",
+        help="bed file from which to select background sequence content")
     
     return None
 
@@ -929,9 +932,6 @@ def add_simulategrammar_parser(subparsers):
     group_dataset.add_argument(
         "--grammar_file",
         help="gml file with grammar")
-    group_dataset.add_argument(
-        "--background_regions",
-        help="bed file from which to select background sequence content")
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
