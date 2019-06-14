@@ -1942,7 +1942,7 @@ def setup_data_loader(args):
             fasta=args.fasta)
     elif args.data_format == "pwm_sims":
         data_loader = PWMSimsDataLoader(
-            args.grammar,
+            args.grammar_file,
             args.grammar_pwms,
             args.sample_range,
             args.grammar_range,
