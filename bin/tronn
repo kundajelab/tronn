@@ -62,7 +62,7 @@ def parse_args():
     add_baseline_parser(subparsers)
 
     # visualize importance scores parser
-    add_plotregions_parser(subparsers)
+    add_buildtracks_parser(subparsers)
     
     # command for extracting model variables
     add_export_model_parser(subparsers)
@@ -269,6 +269,46 @@ def _setup_dataset_args(args):
     # if fasta is not given, check dataset json
     if args.fasta is None:
         args.fasta = args.dataset_json.get("fasta")
+    
+    return None
+
+
+def _add_dataset_pwmsims_args(parser):
+    """dataset args specifically for simulations with PWMs
+    """
+    parser.add_argument(
+        "--sample_range", default=[420, 580], nargs="+",
+        help="range for embedding in sequence")
+    parser.add_argument(
+        "--grammar_range", default=[0, 120], nargs="+",
+        help="range of distances to consider")
+    parser.add_argument(
+        "--stride", default=1, type=int,
+        help="bp resolution of tests")
+    parser.add_argument(
+        "--min_spacing", default=12, type=int,
+        help="bp resolution of tests")
+    parser.add_argument(
+        "--num_samples", default=10, type=int,
+        help="number of samples for each grammar setup")
+    parser.add_argument(
+        "--gc_range", default=[0.20, 0.80], nargs="+",
+        help="GC range for random background sequence")
+    
+    return None
+
+
+def _setup_dataset_pwmsims_args(args):
+    """set up simulate grammar args
+    """
+    # dataset args
+    args.data_format = "pwm_sims"
+    args.fifo = True
+    
+    # make sure dtypes are right
+    args.sample_range = [int(val) for val in args.sample_range]
+    args.grammar_range = [int(val) for val in args.grammar_range]
+    args.gc_range = [float(val) for val in args.gc_range]
     
     return None
 
@@ -835,6 +875,7 @@ def add_synergy_parser(subparsers):
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
     _add_dataset_args(group_dataset)
+    _add_dataset_pwmsims_args(group_dataset)
     group_dataset.add_argument(
         "--processed_inputs", action="store_true",
         help="inputs are already preprocessed through some inference stack")
@@ -885,6 +926,7 @@ def add_simulategrammar_parser(subparsers):
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
     _add_dataset_args(group_dataset)
+    _add_dataset_pwmsims_args(group_dataset)
     group_dataset.add_argument(
         "--processed_inputs", action="store_true",
         help="inputs are already preprocessed through some inference stack")
@@ -906,24 +948,6 @@ def add_simulategrammar_parser(subparsers):
     group_interpret.add_argument(
         "--batch_size", default=8, type=int,
         help="internal batch size")
-    group_interpret.add_argument(
-        "--sample_range", default=[420, 580], nargs="+",
-        help="range for embedding in sequence")
-    group_interpret.add_argument(
-        "--grammar_range", default=[0, 120], nargs="+",
-        help="range of distances to consider")
-    group_interpret.add_argument(
-        "--stride", default=1, type=int,
-        help="bp resolution of tests")
-    group_interpret.add_argument(
-        "--min_spacing", default=12, type=int,
-        help="bp resolution of tests")
-    group_interpret.add_argument(
-        "--num_samples", default=10, type=int,
-        help="number of samples for each grammar setup")
-    group_interpret.add_argument(
-        "--gc_range", default=[0.20, 0.80], nargs="+",
-        help="GC range for random background sequence")
     _add_interpretation_args(
         group_interpret,
         inference_fn="sequence_to_motif_scores")
@@ -932,21 +956,6 @@ def add_simulategrammar_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="simulategrammar")
-    
-    return
-
-
-def _setup_simulategrammar_args(args):
-    """set up simulate grammar args
-    """
-    # dataset args
-    args.data_format = "pwm_sims"
-    args.fifo = True
-    
-    # make sure dtypes are right
-    args.sample_range = [int(val) for val in args.sample_range]
-    args.grammar_range = [int(val) for val in args.grammar_range]
-    args.gc_range = [float(val) for val in args.gc_range]
     
     return
         
@@ -1081,37 +1090,43 @@ def add_baseline_parser(subparsers):
     return
 
 
-def add_plotregions_parser(subparsers):
+def add_buildtracks_parser(subparsers):
     """plot a region, either command line region ID or BED file of regions
     """
     cmd_argparser = subparsers.add_parser(
-        "plotregions",
+        "buildtracks",
         help="plot importance scores for a region")
-
-    # inputs
+    
+    # group for dataset
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
+    group_dataset.add_argument(
+        "--data_format", default="bed",
+        help="format for dataloader")
+    group_dataset.add_argument(
+        "--bed_file",
+        help="BED formatted input file of regions")
     group_dataset.add_argument(
         "--fasta",
         help="fasta file")
     group_dataset.add_argument(
-        "--region_id",
-        help="single region to plot, in the form chrom:start-stop (ex chr1:100-200)")
-    group_dataset.add_argument(
-        "--bed_input",
-        help="bed file of regions to plot")
-
-    # params
-    group_params = cmd_argparser.add_argument_group(
-        "Param arguments")
-    group_params.add_argument(
-        "--stride", default=1, type=int,
-        help="stride to get importance scores")
+        "--stride", default=50, type=int,
+        help="stride across regions")
     
     # group for model
     group_model = cmd_argparser.add_argument_group(
         "Model arguments")
     _add_model_args(group_model)
+
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    group_interpret.add_argument(
+        "--batch_size", default=32, type=int,
+        help="batch size")
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="sequence_to_importances")
     
     # group for output files
     group_output = cmd_argparser.add_argument_group(
@@ -1223,14 +1238,15 @@ def main():
         _setup_interpretation_args(args)
         _setup_mutate_args(args)
         _setup_dataset_args(args)
+        _setup_dataset_pwmsims_args(args)
         _setup_model_args(args)
         _setup_visualization_args(args)
         from tronn.synergy_cmd import run
         run(args)
     elif subcommand == "simulategrammar":
         _setup_interpretation_args(args)
+        _setup_dataset_pwmsims_args(args)
         _setup_model_args(args)
-        _setup_simulategrammar_args(args)
         from tronn.simulategrammars_cmd import run
         run(args)
     elif subcommand == "dream":
@@ -1248,7 +1264,7 @@ def main():
         _setup_dataset_args(args)
         from tronn.run_tensorforest import run
         run(args)
-    elif subcommand == "plotregions":
+    elif subcommand == "buildtracks":
         _setup_model_args(args)
         from tronn.plotregions_cmd import run
         run(args)
