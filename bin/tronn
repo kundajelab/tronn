@@ -301,10 +301,6 @@ def _add_dataset_pwmsims_args(parser):
 def _setup_dataset_pwmsims_args(args):
     """set up simulate grammar args
     """
-    # dataset args
-    args.data_format = "pwm_sims"
-    args.fifo = True
-    
     # make sure dtypes are right
     args.sample_range = [int(val) for val in args.sample_range]
     args.grammar_range = [int(val) for val in args.grammar_range]
@@ -1247,6 +1243,9 @@ def main():
         _setup_interpretation_args(args)
         _setup_dataset_pwmsims_args(args)
         _setup_model_args(args)
+        # force dataset args (do this in cmd??)
+        args.data_format = "pwm_sims"
+        args.fifo = True
         from tronn.simulategrammars_cmd import run
         run(args)
     elif subcommand == "dream":
