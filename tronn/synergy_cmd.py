@@ -47,12 +47,16 @@ def run(args):
     args.inference_params.update({"sig_pwms": sig_pwms})
     logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
 
-    # set up sigm pwm names
+    # set up sig pwm names
     sig_indices = np.where(sig_pwms != 0)[0].tolist()
     sig_pwms_names = []
     for sig_index in sig_indices:
         sig_pwms_names.append(args.pwm_names[sig_index])
-        
+
+    # save out grammar pwms
+    if args.data_format == "pwm_sims":
+        args.grammar_pwms = [args.pwm_list[i] for i in sig_indices]
+    
     # save out names
     sig_pwms_ordered_file = "{}/{}.synergy.pwms.order.txt".format(
         args.out_dir, args.prefix)
