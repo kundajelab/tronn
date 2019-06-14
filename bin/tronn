@@ -927,7 +927,7 @@ def add_simulategrammar_parser(subparsers):
         "--processed_inputs", action="store_true",
         help="inputs are already preprocessed through some inference stack")
     group_dataset.add_argument(
-        "--grammar",
+        "--grammar_file",
         help="gml file with grammar")
     group_dataset.add_argument(
         "--background_regions",
