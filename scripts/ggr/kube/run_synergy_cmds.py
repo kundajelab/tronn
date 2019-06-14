@@ -15,8 +15,10 @@ def main():
     OUT_DIR = sys.argv[4]
     # WARNING: remember for synergy with real inputs you need to do BEFORE MERGE (not true for sims)
     #grammars_file = "{}/grammars.annotated.manual_filt/grammars_summary.txt".format(INFER_DIR)
+    #bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/synergy.ggr.bash"
     grammars_file = "{}/grammars.annotated.manual_filt.merged.final/grammars_summary.txt".format(INFER_DIR)
-    bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/synergy.ggr.bash"
+    bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/sims.synergy.ggr.bash"
+    
     
     # now read in table
     grammars_df = pd.read_table(grammars_file)
