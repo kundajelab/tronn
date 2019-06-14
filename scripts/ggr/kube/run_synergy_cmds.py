@@ -13,7 +13,9 @@ def main():
     MODEL = sys.argv[2]
     INFER_DIR = sys.argv[3]
     OUT_DIR = sys.argv[4]
-    grammars_file = "{}/grammars.annotated.manual_filt.merge.final/grammars_summary.txt".format(INFER_DIR)
+    # WARNING: remember for synergy with real inputs you need to do BEFORE MERGE (not true for sims)
+    #grammars_file = "{}/grammars.annotated.manual_filt/grammars_summary.txt".format(INFER_DIR)
+    grammars_file = "{}/grammars.annotated.manual_filt.merged.final/grammars_summary.txt".format(INFER_DIR)
     bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/synergy.ggr.bash"
     
     # now read in table
