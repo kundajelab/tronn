@@ -1935,19 +1935,43 @@ class PWMSimsDataLoader(DataLoader):
                             
         return generator, dtypes_dict, shapes_dict
 
-
-    def build_queue_dataflow(batch_size, **kwargs):
-        """inherit from base and include one hot encode
+    
+    def build_queue_dataflow(
+            self,
+            batch_size,
+            shuffle=True,
+            filter_targets=[],
+            singleton_filter_targets=[],
+            target_indices=[],
+            encode_onehot_features=True,
+            num_threads=16,
+            num_to_prefetch=5,
+            deterministic=False,
+            shuffle_min=10000,
+            lock=threading.Lock(),
+            **kwargs):
+        """inherit from base and include one hot encode to orig seq key
         """
         inputs, _ = super(PWMSimsDataLoader, self).build_queue_dataflow(
-            batch_size, **kwargs)
+            batch_size,
+            shuffle=shuffle,
+            filter_targets=filter_targets,
+            singleton_filter_targets=singleton_filter_targets,
+            target_indices=target_indices,
+            encode_onehot_features=encode_onehot_features,
+            num_threads=num_threads,
+            num_to_prefetch=num_to_prefetch,
+            deterministic=deterministic,
+            shuffle_min=shuffle_min,
+            lock=lock,
+            **kwargs)
         inputs[DataKeys.ORIG_SEQ] = tf.map_fn(
             DataLoader.encode_onehot_sequence,
             inputs[DataKeys.FEATURES],
             dtype=tf.float32)
-        
+
         return inputs, None
-    
+
     
 def setup_data_loader(args):
     """wrapper function to deal with dataloading 
