@@ -1965,10 +1965,7 @@ class PWMSimsDataLoader(DataLoader):
             shuffle_min=shuffle_min,
             lock=lock,
             **kwargs)
-        inputs[DataKeys.ORIG_SEQ] = tf.map_fn(
-            DataLoader.encode_onehot_sequence,
-            inputs[DataKeys.FEATURES],
-            dtype=tf.float32)
+        inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
 
         return inputs, None
 
