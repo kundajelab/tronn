@@ -53,11 +53,11 @@ def run(args):
     for sig_index in sig_indices:
         sig_pwms_names.append(args.pwm_names[sig_index])
 
-    # save out grammar pwms
+    # adjustments if dataloader is simulated data
     if args.data_format == "pwm_sims":
         args.grammar_pwms = [args.pwm_list[i] for i in sig_indices]
         args.embedded_only = True
-    
+        
     # save out names
     sig_pwms_ordered_file = "{}/{}.synergy.pwms.order.txt".format(
         args.out_dir, args.prefix)

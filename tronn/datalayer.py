@@ -1966,6 +1966,8 @@ class PWMSimsDataLoader(DataLoader):
             lock=lock,
             **kwargs)
         inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
+        inputs[DataKeys.WEIGHTED_SEQ_SHUF] = tf.zeros_like(
+            inputs[DataKeys.FEATURES])
 
         return inputs, None
 
