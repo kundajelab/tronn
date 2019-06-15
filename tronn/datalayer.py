@@ -1936,6 +1936,21 @@ class PWMSimsDataLoader(DataLoader):
         return generator, dtypes_dict, shapes_dict
 
     
+    def build_input_fn(self, batch_size, use_queues=True, **kwargs):
+        """inherit from base, also one hot encode orig seq
+        """
+        inputs, _ = super(PWMSimsDataLoader, self).build_input_fn(
+            batch_size, use_queues=use_queues, **kwargs)
+
+        # one hot encode
+        inputs[DataKeys.ORIG_SEQ] = tf.map_fn(
+            DataLoader.encode_onehot_sequence,
+            inputs[DataKeys.FEATURES],
+            dtype=tf.float32)
+
+        return inputs, None
+    
+    
 def setup_data_loader(args):
     """wrapper function to deal with dataloading 
     from different formats
