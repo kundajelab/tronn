@@ -297,6 +297,9 @@ def _add_dataset_pwmsims_args(parser):
     parser.add_argument(
         "--background_regions",
         help="bed file from which to select background sequence content")
+    parser.add_argument(
+        "--embedded_only", action="store_true",
+        help="don't output the original background sequence")
     
     return None
 

@@ -1592,6 +1592,7 @@ class PWMSimsDataLoader(DataLoader):
             num_samples=10,
             min_spacing=12,
             background_regions=None,
+            output_original_background=True,
             fasta=None):
         self.data_files = [grammar_file] # placeholder
         self.pwms = pwms
@@ -1603,6 +1604,7 @@ class PWMSimsDataLoader(DataLoader):
         self.num_samples = num_samples
         self.min_spacing = min_spacing
         self.background_regions = background_regions # pull in as pandas df?
+        self.output_original_background = output_original_background
         self.fasta = fasta
         self.num_regions = self.get_num_regions()
         
@@ -1703,6 +1705,8 @@ class PWMSimsDataLoader(DataLoader):
             "simul.pwm.sample_idx": tf.int64, # {N}
             "grammar.string": tf.string, # {N} - labels for plotting
             "simul.pwm.dist": tf.int64, # {N} - the max spanning dist
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: tf.int64,
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: tf.float32,
             DataKeys.FEATURES: tf.uint8}
         shapes_dict = {
             DataKeys.SEQ_METADATA: [1],
@@ -1712,6 +1716,8 @@ class PWMSimsDataLoader(DataLoader):
             "simul.pwm.sample_idx": [],
             "grammar.string": [1],
             "simul.pwm.dist": [],
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: [len(self.pwms), 1],
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: [len(self.pwms), 1],
             DataKeys.FEATURES: [seq_len]}
 
         class Generator(object):
@@ -1727,6 +1733,7 @@ class PWMSimsDataLoader(DataLoader):
                     max_gc=0.80,
                     fasta=None,
                     background_regions=None,
+                    output_original_background=True,
                     check_reporter_compatibility=True):
                 self.pwms = pwms
                 self.combinations = combinations
@@ -1737,6 +1744,7 @@ class PWMSimsDataLoader(DataLoader):
                 self.max_gc = max_gc
                 self.fasta = fasta
                 self.background_regions = background_regions
+                self.output_original_background = output_original_background
                 self.check_reporter_compatibility = check_reporter_compatibility
 
                 
@@ -1757,6 +1765,7 @@ class PWMSimsDataLoader(DataLoader):
                 rand_seed = 0
                 order_idx = 0
                 for permuted_pwm_indices in permutations(range(len(self.pwms))):
+                    permuted_pwm_indices = list(permuted_pwm_indices)
                     ordered_pwms = [self.pwms[i] for i in permuted_pwm_indices]
                     print ordered_pwms
                     
@@ -1800,7 +1809,17 @@ class PWMSimsDataLoader(DataLoader):
                         # for every position set:
                         pos_idx = 0
                         for positions in self.combinations:
-
+                            positions = list(positions)
+                            
+                            # for this positions, make a fake idx tensor {pwm_idx, 1}
+                            position_max_idx = np.zeros((len(self.pwms)))
+                            position_max_val = np.zeros((len(self.pwms)))
+                            for i in range(len(permuted_pwm_indices)):
+                                position_max_idx[permuted_pwm_indices[i]] = positions[i]
+                                position_max_val[permuted_pwm_indices[i]] = 1
+                            position_max_idx = np.expand_dims(position_max_idx, axis=-1)
+                            position_max_val = np.expand_dims(position_max_val, axis=-1)
+                                
                             # generate n samples
                             for sample_idx in range(self.num_samples):
                                 #rand_seed = (order_idx+1)*(oo_idx+1)*(pos_idx+1)*(sample_idx+1)
@@ -1873,32 +1892,31 @@ class PWMSimsDataLoader(DataLoader):
 
                                 # calculate dist
                                 dist = max(positions) - min(positions)
-                                
-                                # return sequence with metadata
+
+                                # build slice array
                                 slice_array = {
-                                    DataKeys.SEQ_METADATA: np.stack(
-                                        [metadata, metadata], axis=0),
-                                    "simul.pwm.indices": np.array(
-                                        [list(permuted_pwm_indices),
-                                         list(permuted_pwm_indices)]),
-                                    "simul.pwm.pos": np.array(
-                                        [list(positions),
-                                         list(positions)]),
-                                    "simul.pwm.orientation": np.array(
-                                        [orientation, orientation]),
-                                    "simul.pwm.sample_idx": np.array(
-                                        [sample_idx, sample_idx]),
-                                    "grammar.string": np.expand_dims(np.array(
-                                        [grammar_string, grammar_string]), axis=-1),
-                                    "simul.pwm.dist": np.array([dist, dist]),
-                                    DataKeys.FEATURES: np.stack(
-                                        [sequence, background_sequence], axis=0)}
-                                
-                                #for key in sorted(slice_array.keys()):
-                                    #slice_array[key] = np.expand_dims(
-                                    #    slice_array[key], axis=0)
-                                    #print key, slice_array[key].shape
-                                    
+                                    DataKeys.SEQ_METADATA: np.array([metadata]),
+                                    "simul.pwm.indices": np.array([permuted_pwm_indices]),
+                                    "simul.pwm.pos": np.array([positions]),
+                                    "simul.pwm.orientation": np.array([orientation]),
+                                    "simul.pwm.sample_idx": np.array([sample_idx]),
+                                    "grammar.string": np.expand_dims(np.array([grammar_string]), axis=-1),
+                                    "simul.pwm.dist": np.array([dist]),
+                                    DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: np.array(
+                                        [position_max_idx]),
+                                    DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: np.array(
+                                        [position_max_val]),
+                                    DataKeys.FEATURES: np.array([sequence])}
+
+                                # add background if needed
+                                if self.output_original_background:
+                                    # attach same for most things
+                                    for key in slice_array.keys():
+                                        slice_array[key] = np.concatenate(
+                                            [slice_array[key], slice_array[key]], axis=0)
+                                    # only change is features
+                                    slice_array[DataKeys.FEATURES][1] = background_sequence
+
                                 yield (slice_array, 1.)
 
                         pos_idx += 1
@@ -1912,6 +1930,7 @@ class PWMSimsDataLoader(DataLoader):
             self.offset_range,
             self.num_samples,
             background_regions=self.background_regions,
+            output_original_background=self.output_original_background,
             fasta=self.fasta)
                             
         return generator, dtypes_dict, shapes_dict
@@ -1951,6 +1970,7 @@ def setup_data_loader(args):
             num_samples=args.num_samples,
             min_spacing=args.min_spacing,
             background_regions=args.background_regions,
+            output_original_background=not args.embedded_only,
             fasta=args.fasta)
     else:
         raise ValueError("unrecognized data format!")
