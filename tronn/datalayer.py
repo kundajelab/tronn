@@ -1593,6 +1593,7 @@ class PWMSimsDataLoader(DataLoader):
             min_spacing=12,
             background_regions=None,
             output_original_background=True,
+            all_pwms=None,
             fasta=None):
         self.data_files = [grammar_file] # placeholder
         self.pwms = pwms
@@ -1607,6 +1608,7 @@ class PWMSimsDataLoader(DataLoader):
         self.output_original_background = output_original_background
         self.fasta = fasta
         self.num_regions = self.get_num_regions()
+        self.all_pwms = all_pwms
         
         
     def get_num_regions(self):
@@ -1705,8 +1707,6 @@ class PWMSimsDataLoader(DataLoader):
             "simul.pwm.sample_idx": tf.int64, # {N}
             "grammar.string": tf.string, # {N} - labels for plotting
             "simul.pwm.dist": tf.int64, # {N} - the max spanning dist
-            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: tf.int64,
-            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: tf.float32,
             DataKeys.FEATURES: tf.uint8}
         shapes_dict = {
             DataKeys.SEQ_METADATA: [1],
@@ -1716,10 +1716,17 @@ class PWMSimsDataLoader(DataLoader):
             "simul.pwm.sample_idx": [],
             "grammar.string": [1],
             "simul.pwm.dist": [],
-            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: [len(self.pwms), 1],
-            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: [len(self.pwms), 1],
             DataKeys.FEATURES: [seq_len]}
 
+        # add in other tensors (mostly used for synergy)
+        if self.all_pwms is not None:
+            dtypes_dict.update({
+                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: tf.int64,
+                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: tf.float32})
+            shapes_dict.update({
+                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: [len(self.all_pwms), 1],
+                DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: [len(self.all_pwms), 1]})
+        
         class Generator(object):
 
             def __init__(
@@ -1734,6 +1741,7 @@ class PWMSimsDataLoader(DataLoader):
                     fasta=None,
                     background_regions=None,
                     output_original_background=True,
+                    all_pwms=None
                     check_reporter_compatibility=True):
                 self.pwms = pwms
                 self.combinations = combinations
@@ -1745,6 +1753,7 @@ class PWMSimsDataLoader(DataLoader):
                 self.fasta = fasta
                 self.background_regions = background_regions
                 self.output_original_background = output_original_background
+                self.all_pwms = all_pwms
                 self.check_reporter_compatibility = check_reporter_compatibility
 
                 
@@ -1760,7 +1769,12 @@ class PWMSimsDataLoader(DataLoader):
                     background_regions = pd.read_table(
                         self.background_regions, header=None)
                     background_regions.columns = ["chrom", "start", "stop"]
-                    
+
+                # get global pwm indices, as needed
+                pwm_names = [pwm.name for pwm in self.pwms]
+                pwm_mask = [1 if pwm.name in pwm_names else 0 for pwm in self.all_pwms]
+                global_pwm_indices = np.where(pwm_mask!=0)[0]
+                
                 # for every ordering:
                 rand_seed = 0
                 order_idx = 0
@@ -1812,13 +1826,14 @@ class PWMSimsDataLoader(DataLoader):
                             positions = list(positions)
                             
                             # for this positions, make a fake idx tensor {pwm_idx, 1}
-                            position_max_idx = np.zeros((len(self.pwms)))
-                            position_max_val = np.zeros((len(self.pwms)))
-                            for i in range(len(permuted_pwm_indices)):
-                                position_max_idx[permuted_pwm_indices[i]] = positions[i]
-                                position_max_val[permuted_pwm_indices[i]] = 1
-                            position_max_idx = np.expand_dims(position_max_idx, axis=-1)
-                            position_max_val = np.expand_dims(position_max_val, axis=-1)
+                            if self.all_pwms is not None:
+                                position_max_idx = np.zeros((len(self.all_pwms)))
+                                position_max_val = np.zeros((len(self.all_pwms)))
+                                for i in range(len(global_pwm_indices)):
+                                    position_max_idx[global_pwm_indices[i]] = positions[i]
+                                    position_max_val[global_pwm_indices[i]] = 1
+                                position_max_idx = np.expand_dims(position_max_idx, axis=-1)
+                                position_max_val = np.expand_dims(position_max_val, axis=-1)
                                 
                             # generate n samples
                             for sample_idx in range(self.num_samples):
@@ -1902,12 +1917,16 @@ class PWMSimsDataLoader(DataLoader):
                                     "simul.pwm.sample_idx": np.array([sample_idx]),
                                     "grammar.string": np.expand_dims(np.array([grammar_string]), axis=-1),
                                     "simul.pwm.dist": np.array([dist]),
+                                    DataKeys.FEATURES: np.array([sequence])}
+
+                                # add in position info as needed
+                                if self.all_pwms is not None:
+                                    slice_array.update({
                                     DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: np.array(
                                         [position_max_idx]).astype(np.int64),
                                     DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: np.array(
-                                        [position_max_val]).astype(np.float32),
-                                    DataKeys.FEATURES: np.array([sequence])}
-
+                                        [position_max_val]).astype(np.float32)})
+                                
                                 # add background if needed
                                 if self.output_original_background:
                                     # attach same for most things
@@ -1931,6 +1950,7 @@ class PWMSimsDataLoader(DataLoader):
             self.num_samples,
             background_regions=self.background_regions,
             output_original_background=self.output_original_background,
+            all_pwms=self.all_pwms,
             fasta=self.fasta)
                             
         return generator, dtypes_dict, shapes_dict
@@ -1971,6 +1991,7 @@ def setup_data_loader(args):
             min_spacing=args.min_spacing,
             background_regions=args.background_regions,
             output_original_background=not args.embedded_only,
+            all_pwms=args.pwm_list,
             fasta=args.fasta)
     else:
         raise ValueError("unrecognized data format!")
