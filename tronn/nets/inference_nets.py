@@ -131,6 +131,9 @@ def sequence_to_synergy_sims(inputs, params):
         num_interpretation_tasks, 1, 1]
     inputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS] = tf.zeros(thresholds_shape)
 
+    # move inputs to outputs
+    outputs = dict(inputs)
+    
     # and then run sequence to synergy
     outputs, params = sequence_to_synergy(outputs, params)
     
