@@ -57,6 +57,7 @@ def run(args):
     if args.data_format == "pwm_sims":
         args.grammar_pwms = [args.pwm_list[i] for i in sig_indices]
         args.embedded_only = True
+        args.params["inference_fn_name"] = "sequence_to_synergy_sims"
         
     # save out names
     sig_pwms_ordered_file = "{}/{}.synergy.pwms.order.txt".format(

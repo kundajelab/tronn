@@ -24,6 +24,16 @@ from tronn.nets.sequence_nets import decode_onehot_sequence
 from tronn.util.utils import DataKeys
 
 
+def sequence_to_importances(inputs, params):
+    """sequence (N, 1, pos, 4) to importances
+    """
+    outputs, params = get_task_importances(inputs, params)
+    params.update({"decode_key": DataKeys.ORIG_SEQ_ACTIVE})
+    outputs, _ = decode_onehot_sequence(outputs, params)
+
+    return outputs, params
+
+
 def sequence_to_pwm_scores(inputs, params):
     """Go from sequence (N, 1, pos, 4) to motif hits (N, motif)
     """
@@ -104,6 +114,25 @@ def sequence_to_synergy(inputs, params):
 
     # run model
     outputs, params = run_dfim(outputs, params)
+    
+    return outputs, params
+
+
+def sequence_to_synergy_sims(inputs, params):
+    """same as sequence to synergy, but prep some other tensors first
+    """
+    # set up orig seq tensor
+    inputs[DataKeys.ORIG_SEQ] = inputs[DataKeys.FEATURES]
+    
+    # set up thresholds tensor
+    num_interpretation_tasks = len(params["importance_task_indices"])
+    thresholds_shape = [
+        inputs[DataKeys.FEATURES].get_shape().as_list()[0],
+        num_interpretation_tasks, 1, 1]
+    inputs[DataKeys.THRESHOLDS] = tf.zeros(thresholds_shape)
+
+    # and then run sequence to synergy
+    outputs, params = sequence_to_synergy(outputs, params)
     
     return outputs, params
 
