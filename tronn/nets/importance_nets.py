@@ -1063,6 +1063,11 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         """build confidence intervals when multimodel
         """
         outputs = dict(inputs)
+
+        # use super to threshold weighted seq
+        outputs = super(
+            DeltaFeatureImportanceMapper, self).build_confidence_intervals(
+                outputs)
         
         # get confidence interval
         outputs["multimodel.importances.tmp"] = tf.reduce_sum(
@@ -1099,7 +1104,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # after using, flip axes for the CI to keep when extracting null muts
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI] = tf.transpose(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI], perm=[0,2,1,3,4])
-        
+
         # also filter the weighted seq again
         outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = tf.multiply(
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE],
