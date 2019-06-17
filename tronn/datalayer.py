@@ -1741,7 +1741,7 @@ class PWMSimsDataLoader(DataLoader):
                     fasta=None,
                     background_regions=None,
                     output_original_background=True,
-                    all_pwms=None
+                    all_pwms=None,
                     check_reporter_compatibility=True):
                 self.pwms = pwms
                 self.combinations = combinations
