@@ -1772,8 +1772,10 @@ class PWMSimsDataLoader(DataLoader):
 
                 # get global pwm indices, as needed
                 pwm_names = [pwm.name for pwm in self.pwms]
-                pwm_mask = [1 if pwm.name in pwm_names else 0 for pwm in self.all_pwms]
+                pwm_mask = np.array([1 if pwm.name in pwm_names else 0 for pwm in self.all_pwms])
                 global_pwm_indices = np.where(pwm_mask!=0)[0]
+                print pwm_mask
+                print global_pwm_indices
                 
                 # for every ordering:
                 rand_seed = 0
