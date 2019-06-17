@@ -129,7 +129,7 @@ def sequence_to_synergy_sims(inputs, params):
     thresholds_shape = [
         inputs[DataKeys.FEATURES].get_shape().as_list()[0],
         num_interpretation_tasks, 1, 1]
-    inputs[DataKeys.THRESHOLDS] = tf.zeros(thresholds_shape)
+    inputs[DataKeys.WEIGHTED_SEQ_THRESHOLDS] = tf.zeros(thresholds_shape)
 
     # and then run sequence to synergy
     outputs, params = sequence_to_synergy(outputs, params)
