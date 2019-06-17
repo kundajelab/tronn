@@ -12,6 +12,8 @@ import argparse
 import numpy as np
 import networkx as nx
 
+from scipy.stats import wilcoxon
+
 from tronn.interpretation.combinatorial import setup_combinations
 from tronn.interpretation.networks import attach_mut_logits
 from tronn.interpretation.networks import attach_data_summary
@@ -55,7 +57,7 @@ def parse_args():
     return args
 
 
-def parse_calculation_strings(args):
+def parse_calculation_strings_OLD(args):
     """form the strings into arrays
     """
     calculations = []
@@ -66,6 +68,18 @@ def parse_calculation_strings(args):
         background = np.fromstring(
             ",".join(calculation[1].replace("x", "0")), sep=",")
         calculations.append((foreground, background))
+    args.calculations = calculations
+    
+    return None
+
+def parse_calculation_strings(args):
+    """form the strings into arrays
+    """
+    calculations = []
+    for calculation in args.calculations:
+        calc_array = np.fromstring(
+            ",".join(calculation.replace("x", "0")), sep=",")
+        calculations.append(calc_array)
     args.calculations = calculations
     
     return None
@@ -187,6 +201,63 @@ def main():
     num_mut_motifs = len(sig_pwms_names)
     combinations = setup_combinations(num_mut_motifs)
     combinations = 1 - combinations
+    
+    # separate calculation which is correct synergy test (with 2 motifs)
+    # expected = (01 - 00) + (10 - 00)
+    # actual = 11 - 00
+    # just calculate expected, and maintain vectors of info {N, tasks}
+    # then for each, you can compare {N} for actual vs {N} expected.
+    # this is paired, don't assume normal distr, so use wilcoxon rank sum to get a value
+    for i in range(len(args.calculations)):
+
+        # 11
+        one_one_combo = args.calculations[i]
+        one_one_idx = np.where(
+            (np.transpose(combinations) == one_one_combo).all(axis=1))[0][0]
+        one_one_vals = outputs[:,one_one_idx]
+        
+        # pull indices
+        indices = np.where(args.calculations[i]==1)[0]
+        assert len(indices) == 2
+        
+        # 01
+        zero_one_combo = np.array(one_one_combo)
+        zero_one_combo[indices[0]] = 0
+        zero_one_idx = np.where(
+            (np.transpose(combinations) == zero_one_combo).all(axis=1))[0][0]
+        zero_one_vals = outputs[:,zero_one_idx]
+
+        # 10
+        one_zero_combo = np.array(one_one_combo)
+        one_zero_combo[indices[1]] = 0
+        one_zero_idx = np.where(
+            (np.transpose(combinations) == one_zero_combo).all(axis=1))[0][0]
+        one_zero_vals = outputs[:,one_zero_idx]
+
+        # 00
+        zero_zero_combo = np.array(zero_one_combo)
+        zero_zero_combo[indices[1]] = 0
+        zero_zero_idx = np.where(
+            (np.transpose(combinations) == zero_zero_combo).all(axis=1))[0][0]
+        zero_zero_vals = outputs[:,zero_zero_idx]
+        
+        # get expected: (01 - 00) + (10 - 00)
+        expected = (zero_one_vals - zero_zero_vals) + (one_zero_vals - zero_zero_vals)
+
+        # get actual: 11- 00
+        actual = one_one_vals - zero_zero_vals
+        
+        # compare the two
+        diff = actual - expected
+        pvals = np.apply_along_axis(wilcoxon, 0, diff)[1]
+        print sig_pwms_names, (pvals < 0.05).astype(int)
+        print np.mean(diff[0:13], axis=0)
+        
+        # save out: actual, expected, pvals
+        
+    quit()
+    
+    
     
     # go through calculations
     results = np.zeros((outputs.shape[0], len(args.calculations), outputs.shape[2]))
@@ -350,6 +421,8 @@ def main():
         # write out gml (to run downstream with annotate)
         gml_file = "{}.grammar.gml".format(out_prefix) # TODO have a better name!
         nx.write_gml(stringize_nx_graph(graph), gml_file)
+
+    
     
     return None
 

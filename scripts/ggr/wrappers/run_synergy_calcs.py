@@ -63,6 +63,7 @@ def main():
             calculations = [
                 "11/10 01/00",
                 "11/01 10/00"]
+            calculations = ["11"]
         elif num_motifs == 3:
             calculations = [
                 "101/001 100/000", # add first one in all contexts
@@ -79,6 +80,10 @@ def main():
                 "101/100 001/000",
                 "111/110 011/010",
                 "111/110 101/100"]
+            calculations = [
+                "110",
+                "101",
+                "011"]
             
         # calculate
         for calculation_idx in range(len(calculations)):
