@@ -1920,7 +1920,7 @@ class PWMSimsDataLoader(DataLoader):
                                     DataKeys.FEATURES: np.array([sequence])}
 
                                 # add in position info as needed
-                                if self.all_pwms is not None
+                                if self.all_pwms is not None:
                                     # given offset, update position indices
                                     position_max_idx = position_max_idx + rand_offset
                                     slice_array.update({
