@@ -1885,7 +1885,7 @@ class PWMSimsDataLoader(DataLoader):
                                             sequence[:int(position)],
                                             sampled_pwm,
                                             sequence[int(position+len_pwm):]])
-                                    
+
                                     # check compatibility
                                     if self.check_reporter_compatibility:
                                         if is_fragment_compatible(sequence):
@@ -1920,12 +1920,14 @@ class PWMSimsDataLoader(DataLoader):
                                     DataKeys.FEATURES: np.array([sequence])}
 
                                 # add in position info as needed
-                                if self.all_pwms is not None:
+                                if self.all_pwms is not None
+                                    # given offset, update position indices
+                                    position_max_idx = position_max_idx + rand_offset
                                     slice_array.update({
-                                    DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: np.array(
-                                        [position_max_idx]).astype(np.int64),
-                                    DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: np.array(
-                                        [position_max_val]).astype(np.float32)})
+                                        DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: np.array(
+                                            [position_max_idx]).astype(np.int64),
+                                        DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: np.array(
+                                            [position_max_val]).astype(np.float32)})
                                 
                                 # add background if needed
                                 if self.output_original_background:
