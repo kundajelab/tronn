@@ -1896,8 +1896,8 @@ class PWMSimsDataLoader(DataLoader):
                                 # build slice array
                                 slice_array = {
                                     DataKeys.SEQ_METADATA: np.array([metadata]),
-                                    "simul.pwm.indices": np.array([permuted_pwm_indices]),
-                                    "simul.pwm.pos": np.array([positions]),
+                                    "simul.pwm.indices": np.array([permuted_pwm_indices]).astype(np.int64),
+                                    "simul.pwm.pos": np.array([positions]).astype(np.int64),
                                     "simul.pwm.orientation": np.array([orientation]),
                                     "simul.pwm.sample_idx": np.array([sample_idx]),
                                     "grammar.string": np.expand_dims(np.array([grammar_string]), axis=-1),
