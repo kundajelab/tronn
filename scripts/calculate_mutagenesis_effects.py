@@ -201,6 +201,9 @@ def main():
     num_mut_motifs = len(sig_pwms_names)
     combinations = setup_combinations(num_mut_motifs)
     combinations = 1 - combinations
+
+    # TODO for each calculation, need to save out a different set of tensors
+    
     
     # separate calculation which is correct synergy test (with 2 motifs)
     # expected = (01 - 00) + (10 - 00)
@@ -251,9 +254,10 @@ def main():
         diff = actual - expected
         pvals = np.apply_along_axis(wilcoxon, 0, diff)[1]
         print sig_pwms_names, (pvals < 0.05).astype(int)
-        print np.mean(diff[0:13], axis=0)
-        
-        # save out: actual, expected, pvals
+        label_indices = [0,1,2,3,4,5,6,9,10,12]
+        print np.mean(actual[:,label_indices], axis=0)
+        print np.mean(expected[:,label_indices], axis=0)
+        print np.mean(diff[:,label_indices], axis=0)
         
     quit()
     
@@ -287,17 +291,6 @@ def main():
         
         # log scale, so subtract
         results[:,i] = outputs[:,foreground_idx] - outputs[:,background_idx]
-
-    # calculate sig for all pairs
-    for i in xrange(results.shape[1]):
-        for j in xrange(results.shape[1]):
-            if i >= j:
-                continue
-            
-            # calculate sig
-            delta_results = results[:,i] - results[:,j]
-            pvals = run_delta_permutation_test(delta_results)
-            # TODO this is currently unused!
             
     # save out into h5 file
     run_idx = 0
