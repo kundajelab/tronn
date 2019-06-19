@@ -1832,7 +1832,8 @@ class PWMSimsDataLoader(DataLoader):
                                 position_max_idx = np.zeros((len(self.all_pwms)))
                                 position_max_val = np.zeros((len(self.all_pwms)))
                                 for i in range(len(global_pwm_indices)):
-                                    position_max_idx[global_pwm_indices[i]] = positions[i]
+                                    pwm_center_shift = self.all_pwms[global_pwm_indices[i]].weights.shape[1] / 2
+                                    position_max_idx[global_pwm_indices[i]] = positions[i] + pwm_center_shift
                                     position_max_val[global_pwm_indices[i]] = 1
                                 position_max_idx = np.expand_dims(position_max_idx, axis=-1)
                                 position_max_val = np.expand_dims(position_max_val, axis=-1)

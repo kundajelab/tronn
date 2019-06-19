@@ -177,6 +177,9 @@ def main():
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
     out_prefix = "{}/{}".format(args.out_dir, args.prefix)
 
+    # TMP: clean up out dir
+    #os.system("rm {}/*".format(args.out_dir))
+    
     min_pwm_dist = 12 # ignore PWMs that overlap (likely same importance scores contributing)
     stdev_thresh = 2.0
         
@@ -202,26 +205,35 @@ def main():
     combinations = setup_combinations(num_mut_motifs)
     combinations = 1 - combinations
 
-    # TODO for each calculation, need to save out a different set of tensors
+    # for each calculation, need to save out a different set of tensors
+    num_calcs = len(args.calculations)
+    results = np.zeros((
+        outputs.shape[0],
+        num_calcs,
+        outputs.shape[2], 3)) # {N, calc, task, 3} where 3 is actual, exp, diff
+
+    # set up indices for each calculation
+    index_sets = []
+    for i in range(num_calcs):
+        indices = np.where(args.calculations[i]==1)[0]
+        assert len(indices) == 2
+        index_sets.append(indices)
     
-    
-    # separate calculation which is correct synergy test (with 2 motifs)
+    # calculate interaction score (actual vs expected)
     # expected = (01 - 00) + (10 - 00)
     # actual = 11 - 00
-    # just calculate expected, and maintain vectors of info {N, tasks}
-    # then for each, you can compare {N} for actual vs {N} expected.
-    # this is paired, don't assume normal distr, so use wilcoxon rank sum to get a value
-    for i in range(len(args.calculations)):
-
+    summary_file = "{}/{}.interactions.txt".format(args.out_dir, args.prefix)
+    header_str = "pwm1\tpwm2\tnum_examples\tsig\tbest_task_index\tactual\texpected\tdiff\tpval\tcategory\n"
+    with open(summary_file, "w") as fp:
+        fp.write(header_str)
+    for i in range(num_calcs):
+        indices = index_sets[i]
+        
         # 11
         one_one_combo = args.calculations[i]
         one_one_idx = np.where(
             (np.transpose(combinations) == one_one_combo).all(axis=1))[0][0]
         one_one_vals = outputs[:,one_one_idx]
-        
-        # pull indices
-        indices = np.where(args.calculations[i]==1)[0]
-        assert len(indices) == 2
         
         # 01
         zero_one_combo = np.array(one_one_combo)
@@ -253,147 +265,185 @@ def main():
         # compare the two
         diff = actual - expected
         pvals = np.apply_along_axis(wilcoxon, 0, diff)[1]
-        print sig_pwms_names, (pvals < 0.05).astype(int)
         label_indices = [0,1,2,3,4,5,6,9,10,12]
-        print np.mean(actual[:,label_indices], axis=0)
-        print np.mean(expected[:,label_indices], axis=0)
-        print np.mean(diff[:,label_indices], axis=0)
         
-    quit()
+        #print pvals
+        #print sig_pwms_names, (pvals < 0.05)[label_indices].astype(int)
+        #print np.mean(actual[:,label_indices], axis=0)
+        #print np.mean(expected[:,label_indices], axis=0)
+        #print np.mean(diff[:,label_indices], axis=0)
+
+        # put results into array
+        results[:,i,:,0] = actual
+        results[:,i,:,1] = expected
+        results[:,i,:,2] = diff
+
+        # ignore the ones that go below 0, (for actual - background) since not well defined
+        #good_indices = np.where(np.any(results[:,i,:,0] > 0, axis=-1))[0]
+        good_indices = np.where(
+            (np.mean(actual, axis=-1) > 0) &
+            (np.mean(expected, axis=-1) > 0))[0]
+
+        from scipy.stats import describe
+        print describe(zero_zero_vals[:,0])
+        print describe(one_one_vals[:,0])
     
-    
-    
-    # go through calculations
-    results = np.zeros((outputs.shape[0], len(args.calculations), outputs.shape[2]))
-    labels = []
-    for i in xrange(len(args.calculations)):
-
-        # extract foreground idx
-        foreground = args.calculations[i][0]
-        foreground_idx = np.where(
-            (np.transpose(combinations) == foreground).all(axis=1))[0][0]
-
-        # for logging
-        foreground_strings = _setup_output_string(sig_pwms_names, foreground)
-            
-        # extract background idx
-        background = args.calculations[i][1]
-        background_idx = np.where(
-            (np.transpose(combinations) == background).all(axis=1))[0][0]
-
-        # for logging
-        background_strings = _setup_output_string(sig_pwms_names, background)
-
-        # and adjust to conditional string
-        conditional_string = _make_conditional_string(
-            foreground_strings, background_strings)
-        labels.append(conditional_string)
         
-        # log scale, so subtract
-        results[:,i] = outputs[:,foreground_idx] - outputs[:,background_idx]
-            
-    # save out into h5 file
-    run_idx = 0
-    score_key = "{}.{}".format(DataKeys.SYNERGY_SCORES, run_idx)
-    while True:
-        print score_key
-        with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(score_key) is not None:
-                # check if matches, you can update that one
-                if list(hf[score_key].attrs[AttrKeys.PLOT_LABELS]) == labels:
-                    hf[score_key][:] = results
-                    break
-                run_idx += 1
-                score_key = "{}.{}".format(DataKeys.SYNERGY_SCORES, run_idx)
-                continue
+        print np.median(zero_zero_vals, axis=0)
+        print np.median(one_one_vals, axis=0)
+        
+        actual = actual[good_indices]
+        expected = expected[good_indices]
+        diff = diff[good_indices]
+
+        
+        # per calculation, save out
+        # names, best label idx, num observations (reduce back to orig), median diff
+        # any sig?
+        if True:
+            # get best task idx val
+            interpretation_indices = [0,1,2,3,4,5,6,9,10,12] 
+            label_mask = np.array(
+                [1 if val in interpretation_indices else 0
+                 for val in range(diff.shape[1])])
+            label_indices = np.arange(diff.shape[1])
+            sig_tasks = (pvals < 0.05) * label_mask
+            sig_task_indices = np.where(sig_tasks)[0]
+            if sig_task_indices.shape[0] != 0:
+                label_indices = label_indices[sig_task_indices]
+                sig = 1
             else:
-                hf.create_dataset(score_key, data=results)
-                hf[score_key].attrs[AttrKeys.PLOT_LABELS] = labels
-                break
-        
-    # calculate max index diff (pwm position diff) <- works for all numbers of motifs
-    dist_key = "{}.{}".format(DataKeys.SYNERGY_DIST, run_idx)
+                label_indices = label_indices[interpretation_indices]
+                sig = 0
+
+            # get mean values for selected tasks
+            actual_mean = np.mean(actual[:,label_indices], axis=0)
+            expected_mean = np.mean(expected[:,label_indices], axis=0)
+            diff_mean = np.mean(diff[:,label_indices], axis=0)
+            pvals_selected = pvals[label_indices]
+
+            # select best index to write out best result to summary
+            best_idx = np.argmax(np.abs(diff_mean))
+
+            # and also save out whether synergy/additive/buffer
+            category = "additive"
+            if sig == 1:
+                if diff_mean[best_idx] > 0:
+                    category = "synergy"
+                else:
+                    category = "buffer"
+            
+            results_str = "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(
+                "\t".join(sig_pwms_names),
+                actual.shape[0],
+                sig,
+                label_indices[best_idx],
+                actual_mean[best_idx],
+                expected_mean[best_idx],
+                diff_mean[best_idx],
+                pvals_selected[best_idx],
+                category)
+
+            # save out results str with header
+            with open(summary_file, "a") as fp:
+                fp.write(results_str)
+            
+            print results_str
+            
+    quit()
+
+    # TODO set up labels
+    
+    # save out into h5 file
+    score_key = DataKeys.SYNERGY_SCORES
     with h5py.File(args.synergy_file, "a") as hf:
-        indices = hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:]
-        distances = np.max(indices[:,-1], axis=-1) - np.min(indices[:,-1], axis=-1) # lose orientation but ok for now
+        if hf.get(score_key) is not None:
+            del hf[score_key]
+        hf.create_dataset(score_key, data=results)
+        #hf[score_key].attrs[AttrKeys.PLOT_LABELS] = labels
+
+    # calculate (max) distance between positions
+    dist_key = DataKeys.SYNERGY_DIST
+    with h5py.File(args.synergy_file, "a") as hf:
+        distances = np.zeros((results.shape[0], num_calcs))
+        for i in range(num_calcs):
+            indices = index_sets[i]
+            positions = hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:]
+            calc_dists = np.max(positions[:,-1], axis=-1) - np.min(positions[:,-1], axis=-1)
+            distances[:,i] = calc_dists
         if hf.get(dist_key) is not None:
             del hf[dist_key]
         hf.create_dataset(dist_key, data=distances)
 
-    # other calcs which only work with 2 calculations:
-    if len(args.calculations) == 2:
+    # differential test at the individual example level? diffs {N, logits}
+    # TODO need to consider two sided test
+    outlier_thresholds = np.percentile(
+        np.abs(diff), 75, axis=0, keepdims=True) # outlier filter (stabilize)
+    diffs_filt = np.where(
+        np.greater(np.abs(diff), outlier_thresholds),
+        0, diff)
+    diffs_filt = np.where(
+        np.isclose(diffs_filt, 0),
+        np.nan, diffs_filt)
+    stdevs = np.nanstd(diffs_filt, axis=0, keepdims=True)
+    means = np.nanmean(diffs_filt, axis=0, keepdims=True)
 
-        # get diff betwen the two calcs
-        synergy_diffs = results[:,0] - results[:,1] # {N, logit}
-        synergy_diffs_key = "{}.{}".format(DataKeys.SYNERGY_DIFF, run_idx)
-        with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(synergy_diffs_key) is not None:
-                del hf[synergy_diffs_key]
-            hf.create_dataset(synergy_diffs_key, data=synergy_diffs)
+    # differential cutoff: one tailed
+    if np.mean(diff) >= 0:
+        differential = diff > stdev_thresh * stdevs
+    else:
+        differential = diff < -stdev_thresh * stdevs
+    differential[np.abs(distances) < min_pwm_dist] = 0
 
-        # run a quick differential test (outlier stabilized gaussian)
-        outlier_thresholds = np.percentile(
-            np.abs(synergy_diffs), 75, axis=0, keepdims=True)
-        synergy_diffs_filt = np.where(
-            np.greater(np.abs(synergy_diffs), outlier_thresholds),
-            0, synergy_diffs)
-        synergy_diffs_filt = np.where(
-            np.isclose(synergy_diffs_filt, 0),
-            np.nan, synergy_diffs_filt)
-        stdevs = np.nanstd(synergy_diffs_filt, axis=0, keepdims=True)
-        means = np.nanmean(synergy_diffs_filt, axis=0, keepdims=True)
-        
-        # differential cutoff
-        differential = synergy_diffs > stdev_thresh * stdevs
-        differential[np.abs(distances) < min_pwm_dist] = 0
-        
-        # add in new dataset that marks differential
-        synergy_sig_key = "{}.{}".format(DataKeys.SYNERGY_DIFF_SIG, run_idx)
-        with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(synergy_sig_key) is not None:
-                del hf[synergy_sig_key]
-            hf.create_dataset(synergy_sig_key, data=differential)
-            hf[synergy_sig_key].attrs[AttrKeys.PLOT_LABELS] = labels
+    # add in new dataset that marks differential
+    synergy_sig_key = DataKeys.SYNERGY_DIFF_SIG
+    with h5py.File(args.synergy_file, "a") as hf:
+        if hf.get(synergy_sig_key) is not None:
+            del hf[synergy_sig_key]
+        hf.create_dataset(synergy_sig_key, data=differential)
+        #hf[synergy_sig_key].attrs[AttrKeys.PLOT_LABELS] = labels
 
-        # analyze max distance of synergistic interaction
-        diff_indices = np.greater_equal(np.sum(differential!=0, axis=1), 1)
-        diff_indices = np.where(diff_indices)[0]
-        diff_distances = distances[diff_indices] # {N}
-        max_dist = np.percentile(diff_distances, 95)
-        max_dist_key = "{}.{}".format(DataKeys.SYNERGY_MAX_DIST, run_idx)
-        with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(max_dist_key) is not None:
-                del hf[max_dist_key]
-            hf.create_dataset(max_dist_key, data=max_dist)
-            #hf.create_dataset(max_dist_key, data=0.)
+    # analyze max distance of synergistic interaction
+    diff_indices = np.greater_equal(np.sum(differential!=0, axis=1), 1)
+    diff_indices = np.where(diff_indices)[0]
+    diff_distances = distances[diff_indices] # {N}
+    max_dist = np.percentile(diff_distances, 95)
+    max_dist_key = DataKeys.SYNERGY_MAX_DIST
+    with h5py.File(args.synergy_file, "a") as hf:
+        if hf.get(max_dist_key) is not None:
+            del hf[max_dist_key]
+        hf.create_dataset(max_dist_key, data=max_dist)
 
-        # analyze pwm score strength
-        pwm_strength_key = "pwms.strength.{}".format(run_idx)
-        with h5py.File(args.synergy_file, "a") as hf:
-            if hf.get(pwm_strength_key) is not None:
-                del hf[pwm_strength_key]
-            pwm_scores = np.amin(hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT][:,-1], axis=1)
-            hf.create_dataset(
-                pwm_strength_key,
-                data=pwm_scores)
-            
-        # plot
-        min_dist = 12 # 12
-        plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {} \"\" {}".format(
-            args.synergy_file,
-            score_key,
-            synergy_diffs_key,
-            synergy_sig_key,
-            dist_key,
-            max_dist_key,
-            out_prefix,
-            min_dist)
-        print plot_cmd
-        os.system(plot_cmd)
+    # analyze pwm score strength
+    pwm_strength_key = "pwms.strength"
+    with h5py.File(args.synergy_file, "a") as hf:
+        if hf.get(pwm_strength_key) is not None:
+            del hf[pwm_strength_key]
+        pwm_scores = np.amin(
+            hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT][:,-1], axis=1)
+        hf.create_dataset(
+            pwm_strength_key,
+            data=pwm_scores)
+
+    # plot
+    min_dist = 12 # 12
+    plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {} \"\" {}".format(
+        args.synergy_file,
+        score_key,
+        synergy_diffs_key,
+        synergy_sig_key,
+        dist_key,
+        max_dist_key,
+        out_prefix,
+        min_dist)
+    print plot_cmd
+    os.system(plot_cmd)
 
     # refine:
-    if args.refine:
-        assert len(args.calculations) == 2
+    #if args.refine:
+    if False:   
+        
+        # do for each calculation set
         
         # take these new regions and save out gml
         # get logits, atac signals, delta logits, etc
