@@ -6,7 +6,6 @@ tronn synergy \
       --data_format pwm_sims \
       --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.negatives.bed.gz \
       --fasta /datasets/annotations.hg19/hg19.genome.fa \
-      --num_samples 3 \
       --fifo \
       --dataset_json $3/dataset.dmim.json $4 \
       --prediction_sample $3/ggr.dmim.prediction_sample.h5 \

@@ -1598,7 +1598,7 @@ class PWMSimsDataLoader(DataLoader):
         self.data_files = [grammar_file] # placeholder
         self.pwms = pwms
         self.offset_range = range(
-            sample_range[0], sample_range[1] - grammar_range[0]) # adjust for grammar range
+            sample_range[0], sample_range[1]) # adjust for grammar positions later
         self.grammar_positions = range(
             grammar_range[0]+1, grammar_range[1], stride)
         self.gc_range = gc_range
@@ -1793,17 +1793,21 @@ class PWMSimsDataLoader(DataLoader):
                         
                         new_ordered_pwms = []
                         for pwm_list in ordered_oriented_pwms:
+                            #pwm_list = [
+                            #    list(pwm_list) + [pwm],
+                            #    list(pwm_list) + [pwm.reverse_complement()]]
                             pwm_list = [
-                                list(pwm_list) + [pwm],
-                                list(pwm_list) + [pwm.reverse_complement()]]
+                                list(pwm_list) + [pwm]]
                             new_ordered_pwms += pwm_list
                         ordered_oriented_pwms = new_ordered_pwms
                         
                         new_orientations = []
                         for orientation_list in orientations:
+                            #orientation_list = [
+                            #    list(orientation_list) + [1],
+                            #    list(orientation_list) + [-1]]
                             orientation_list = [
-                                list(orientation_list) + [1],
-                                list(orientation_list) + [-1]]
+                                list(orientation_list) + [1]]
                             new_orientations += orientation_list
                         orientations = new_orientations
                 
@@ -1826,6 +1830,13 @@ class PWMSimsDataLoader(DataLoader):
                         pos_idx = 0
                         for positions in self.combinations:
                             positions = list(positions)
+
+                            # TODO - here, adjust offset range for position set?
+                            max_position = max(positions)
+                            max_offset = max(self.offset_range)
+                            new_max_offset = max_offset - max_position
+                            position_set_specific_offset_range = [
+                                val for val in self.offset_range if val < new_max_offset]
                             
                             # for this positions, make a fake idx tensor {pwm_idx, 1}
                             if self.all_pwms is not None:
@@ -1876,7 +1887,8 @@ class PWMSimsDataLoader(DataLoader):
                                     # embed pwms
                                     rand_state = RandomState(rand_seed)
                                     rand_seed += 1
-                                    rand_offset = rand_state.choice(self.offset_range)
+                                    #rand_offset = rand_state.choice(self.offset_range) # TODO change this
+                                    rand_offset = rand_state.choice(position_set_specific_offset_range)
                                     offset_positions = np.array(positions) + rand_offset
                                     for pos_idx in range(len(offset_positions)):
                                         pwm = ordered_oriented_pwms[oo_idx][pos_idx]
@@ -1925,10 +1937,10 @@ class PWMSimsDataLoader(DataLoader):
                                 # add in position info as needed
                                 if self.all_pwms is not None:
                                     # given offset, update position indices
-                                    position_max_idx = position_max_idx + rand_offset
+                                    sample_positions = position_max_idx + rand_offset
                                     slice_array.update({
                                         DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: np.array(
-                                            [position_max_idx]).astype(np.int64),
+                                            [sample_positions]).astype(np.int64),
                                         DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: np.array(
                                             [position_max_val]).astype(np.float32)})
                                 

@@ -277,10 +277,10 @@ def _add_dataset_pwmsims_args(parser):
     """dataset args specifically for simulations with PWMs
     """
     parser.add_argument(
-        "--sample_range", default=[420, 580], nargs="+",
+        "--sample_range", default=[420, 580], nargs="+", # 420 to 580
         help="range for embedding in sequence")
     parser.add_argument(
-        "--grammar_range", default=[0, 120], nargs="+",
+        "--grammar_range", default=[0, 70], nargs="+", # 0 to 120
         help="range of distances to consider")
     parser.add_argument(
         "--stride", default=1, type=int,
@@ -289,7 +289,7 @@ def _add_dataset_pwmsims_args(parser):
         "--min_spacing", default=12, type=int,
         help="bp resolution of tests")
     parser.add_argument(
-        "--num_samples", default=10, type=int,
+        "--num_samples", default=30, type=int,
         help="number of samples for each grammar setup")
     parser.add_argument(
         "--gc_range", default=[0.20, 0.80], nargs="+",

@@ -218,7 +218,11 @@ def main():
         indices = np.where(args.calculations[i]==1)[0]
         assert len(indices) == 2
         index_sets.append(indices)
-    
+
+    # TODO GGR specific!
+    print "WARNING GGR SPECIFIC HACK HERE"
+    interpretation_indices = [0,1,2,3,4,5,6,9,10,12] 
+        
     # calculate interaction score (actual vs expected)
     # expected = (01 - 00) + (10 - 00)
     # actual = 11 - 00
@@ -281,28 +285,23 @@ def main():
         # ignore the ones that go below 0, (for actual - background) since not well defined
         #good_indices = np.where(np.any(results[:,i,:,0] > 0, axis=-1))[0]
         good_indices = np.where(
-            (np.mean(actual, axis=-1) > 0) &
-            (np.mean(expected, axis=-1) > 0))[0]
+            #(np.max(zero_zero_combo, axis=-1) < 1.0) &
+            (np.max(actual[:, interpretation_indices], axis=-1) > 0) &
+            (np.max(expected[:, interpretation_indices], axis=-1) > 0))[0]
 
-        from scipy.stats import describe
-        print describe(zero_zero_vals[:,0])
-        print describe(one_one_vals[:,0])
-    
-        
-        print np.median(zero_zero_vals, axis=0)
-        print np.median(one_one_vals, axis=0)
-        
         actual = actual[good_indices]
         expected = expected[good_indices]
         diff = diff[good_indices]
 
+        from scipy.stats import describe
+        
+        
         
         # per calculation, save out
         # names, best label idx, num observations (reduce back to orig), median diff
         # any sig?
         if True:
             # get best task idx val
-            interpretation_indices = [0,1,2,3,4,5,6,9,10,12] 
             label_mask = np.array(
                 [1 if val in interpretation_indices else 0
                  for val in range(diff.shape[1])])
@@ -316,6 +315,20 @@ def main():
                 label_indices = label_indices[interpretation_indices]
                 sig = 0
 
+            # best idx
+            actual_mean = np.mean(actual[:,label_indices], axis=0)
+            best_idx = np.argmax(actual_mean)
+            label_idx = label_indices[best_idx]
+
+            # and pull good indices just for that index
+            good_indices = np.where(
+                (np.abs(diff[:,label_idx]) < 1) & # remove extreme outliers
+                (actual[:,label_idx] > 0) &
+                (expected[:,label_idx] > 0))
+            actual = actual[good_indices]
+            expected = expected[good_indices]
+            diff = diff[good_indices]
+            
             # get mean values for selected tasks
             actual_mean = np.mean(actual[:,label_indices], axis=0)
             expected_mean = np.mean(expected[:,label_indices], axis=0)
@@ -323,8 +336,13 @@ def main():
             pvals_selected = pvals[label_indices]
 
             # select best index to write out best result to summary
-            best_idx = np.argmax(np.abs(diff_mean))
+            #best_idx = np.argmax(np.abs(diff_mean))
+            #best_idx = np.argmax(actual_mean)
 
+            print describe(diff[:,label_indices[best_idx]])
+            print describe(actual[:,label_indices[best_idx]])
+            print describe(expected[:,label_indices[best_idx]])
+            
             # and also save out whether synergy/additive/buffer
             category = "additive"
             if sig == 1:

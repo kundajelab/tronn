@@ -24,7 +24,7 @@ def main():
         grammar_prefix = os.path.basename(grammar).split(".gml")[0]
         
         # get the synergy file
-        synergy_file = glob.glob("sims.synergy*/{}/ggr.synergy.h5".format(grammar_prefix))
+        synergy_file = glob.glob("sims.synergy/{}/ggr.synergy.h5".format(grammar_prefix))
         #synergy_file = glob.glob("synergy*/{}/ggr.synergy.h5".format(grammar_prefix))
         if len(synergy_file) != 1:
             print grammar
@@ -82,7 +82,7 @@ def main():
         print calc_synergy
         os.system(calc_synergy)
         print ""
-        quit()
+
         # extract the calculation results into a summary file
         if num_motifs == 2:
             summary_file = "{}/{}.interactions.txt".format(out_dir, prefix)
