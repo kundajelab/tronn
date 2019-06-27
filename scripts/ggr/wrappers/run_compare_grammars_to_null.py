@@ -8,6 +8,7 @@ import glob
 
 import numpy as np
 import pandas as pd
+import networkx as nx
 
 def aggregate_results(results_files, key):
     """aggregate and normalize results
@@ -93,7 +94,14 @@ def main():
     eqtl_bed_file = "{}/gtex.skin.atac_filt.bed.gz".format(variant_dir)
     eqtl_effects_file = "{}/Skin_Not_Sun_Exposed_Suprapubic.v7.signif_variant_gene_pairs.txt.gz".format(
         variant_dir)
-    
+
+    # test keys
+    score_keys = ["ATAC_SIGNALS.NORM", "H3K27ac_SIGNALS.NORM"]
+    for key in score_keys:
+        group_summary_file = "{}/{}.interactions.txt".format(out_dir, key)
+        header = 'echo "pwm1\tpwm2\tbest_task_index\tdiff\tpval" > {}'.format(group_summary_file)
+        os.system(header)
+        
     # read in grammar summary
     grammars_df = pd.read_table(grammar_summary_file)
 
@@ -107,35 +115,48 @@ def main():
         # get score files
         trajs = grammar_prefix.split(".")[1].split("_x_")
         score_files = ["{}/ggr.dmim.h5".format(traj) for traj in trajs]
-
+        
         # get synergy file
         synergy_file = "synergy/{}/ggr.synergy.h5".format(grammar_prefix)
 
         # commands
         grammar_out_dir = "{}/{}".format(out_dir, grammar_prefix)
-        if not os.path.isdir(grammar_out_dir):
+        #if not os.path.isdir(grammar_out_dir):
+        if True:
             command = (
-                "compare_grammar_to_null.py "
+                "compare_grammar_to_null.2.py "
                 "--grammar {} "
                 "--score_files {} "
-                "--synergy_file {} "
-                "--eqtl_bed_file {} "
-                "--eqtl_effects_file {} "
+                #"--synergy_file {} "
+                #"--eqtl_bed_file {} "
+                #"--eqtl_effects_file {} "
                 "-o {} "
                 "--prefix {}").format(
                     grammar_file,
                     " ".join(score_files),
-                    synergy_file,
-                    eqtl_bed_file,
-                    eqtl_effects_file,
+                    #synergy_file,
+                    #eqtl_bed_file,
+                    #eqtl_effects_file,
                     grammar_out_dir,
                     grammar_prefix)
             print command
             os.system(command)
-        
+
+            # only save out if only 2 nodes
+            grammar = nx.read_gml(grammar_file)
+            if len(grammar.nodes) == 2:
+                # collect results
+                for key in score_keys:
+                    group_summary_file = "{}/{}.interactions.txt".format(out_dir, key)
+                    summary_file = "{}/{}.{}.summary.txt".format(grammar_out_dir, grammar_prefix, key)
+                    get_summary = "cat {} >> {}".format(
+                        summary_file, group_summary_file)
+                    os.system(get_summary)
+
         # also run synergy only
         grammar_out_dir_synergy = "{}/{}.synergy_only".format(out_dir, grammar_prefix)
-        if not os.path.isdir(grammar_out_dir_synergy):
+        if False:
+        #if not os.path.isdir(grammar_out_dir_synergy):
             command = (
                 "compare_grammar_to_null.py "
                 "--grammar {} "
@@ -155,7 +176,10 @@ def main():
                     grammar_prefix)
             print command
             os.system(command)
-        
+
+    # and aggregate
+            
+    quit()
     # finally, aggregate
     # for ATAC/H3K27ac/variants, gather all files, sort, grab the commented lines
     # then go through and collect points, with null removed

@@ -7,6 +7,7 @@ in grammar regions vs non-grammar regions
 """
 
 import os
+import re
 import sys
 import h5py
 import logging
@@ -17,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from numpy.random import RandomState
+from scipy.stats import ranksums
 
 from tronn.util.scripts import setup_run_logs
 from tronn.util.utils import DataKeys
@@ -307,6 +309,14 @@ def main():
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
     prefix = "{}/{}".format(args.out_dir, args.prefix)
 
+    # set up summary files
+    summary_files = []
+    for i in range(len(args.compare_keys)):
+        summary_file = "{}.{}.summary.txt".format(prefix, args.compare_keys[i])
+        if os.path.isfile(summary_file):
+            os.system("rm {}".format(summary_file))
+        summary_files.append(summary_file)
+    
     # read in grammar
     grammar = nx.read_gml(args.grammar)
     grammar_instances = grammar.graph["examples"].split(",")
@@ -379,263 +389,71 @@ def main():
 
     # count key motifs (0,1,2)
     data["num_grammar_motifs"] = np.sum(data[raw_keys].values > 0, axis=1)
-    
-    from scipy.stats import describe
-
-    # the baseline expectation (when you have neither of them)
-    baselines = []
-    for i in range(len(args.compare_keys)):
-        key = args.compare_keys[i]
-        #print data[data["num_grammar_motifs"]==0].shape
-        baseline = np.median(data[data["num_grammar_motifs"] == 0][key])
-        baselines.append(baseline)
-        print "BASELINE", key, baseline
-        print np.median(data[
-            np.all(
-                data[weighted_keys].values==0, axis=1)][key])
         
     # get positive set
     data_grammar = data[data["grammar"] == 1]
     data_grammar = data_grammar[
         np.all(data_grammar[weighted_keys].values > 0, axis=1)]
-    #print data_grammar.shape
 
     # set up negative set
     data_neg_all = data[data["grammar"] != 1]
     data_neg_all = data[data["num_grammar_motifs"] == 1]
 
     # try select top 1000 by weighted impt
+    # TODO check this
     if True:
-        # TODO if using this, needs to be more rigorous
         for pwm_i in range(len(pwms)):
             pwm_name = pwms[pwm_i]
             score_key = "WEIGHTED.{}.taskidx-{}".format(pwm_name, best_idx)
             cutoff = np.percentile(data_grammar[score_key].values, 10)
             print pwm_name, score_key, cutoff
             data_grammar = data_grammar[data_grammar[score_key] > cutoff]
-    print data_grammar.shape
-            
-    #quit()
-            
-    # actual
-    actuals = []
-    for i in range(len(args.compare_keys)):
-        key = args.compare_keys[i]
-        actual = np.median(data_grammar[key].values)
-        #print actual
-        actuals.append(actual - baselines[i])
-        print "ACTUAL", key, actual - baselines[i], np.std(data_grammar[key].values - baselines[i])
-        print describe(data_grammar[key].values - baselines[i])
         
     # for each pwm, get a null distribution from negative set that matches positive set
-    split_expecteds = []
-    expecteds = []
     for i in range(len(args.compare_keys)):
-        expected = -2*baselines[i]
+        compare_key = args.compare_keys[i]
         for pwm_i in range(len(pwms)):
             pwm_name = pwms[pwm_i]
-
-            # weighted?
             score_key = raw_keys[pwm_i]
-            #score_key = weighted_keys[pwm_i]
-
-            # need to take places where only one motif is active
 
             # only take regions with active motifs
             data_neg_all_pwm = data_neg_all[data_neg_all[score_key] > 0]
-            #print data_neg_all_pwm[raw_keys]
             try:
                 data_neg_matched = get_matched_neg_set(
                     data_neg_all_pwm,
                     data_grammar,
                     score_key=score_key,
-                    replace=False)
+                    replace=True)
             except:
                 print ">>NO NULL"
-                quit()
+                return None
+
+            # just output diff for now, and figure out synergy/additive/buffer later
+            diff = np.median(data_grammar[compare_key].values) - np.median(data_neg_matched[compare_key].values)
                 
-            # print
-            key = args.compare_keys[i]
-            key_expected = np.median(data_neg_matched[key].values)
-            #print key_expected
-            expected += key_expected
-
-            split_expecteds.append(key_expected - baselines[i])
+            # wilcoxon rank sums (compare distributions)
+            _, pval = ranksums(
+                data_grammar[compare_key].values,
+                data_neg_matched[compare_key].values)
             
-        print "EXPECTED", key, expected
-        expecteds.append(expected)
-
-    diffs = []
-    for i in range(len(args.compare_keys)):
-        diff = actuals[i] - expecteds[i]
-        print "diff, {}: {}".format(
-            args.compare_keys[i], diff)
-        diffs.append(str(diff))
-        
-    echo_str = "{}\t{}\t{}\t{}".format(
-        "\t".join(pwms),
-        "\t".join([str(val) for val in actuals]),
-        "\t".join([str(val) for val in split_expecteds]),
-        "\t".join(diffs))
-    os.system('echo "{}" >> test.txt'.format(echo_str))
-    
-        
-    quit()
-    
-    # for each pwm in grammar, get null distributions and run tests
-    null_results_all = []
-    plot_data = None
-    for pwm in grammar.nodes:
-        print "\nRunning {}\n".format(pwm)
-        pwm_idx = int(grammar.nodes[pwm]["pwmidx"])
-
-        # get target scores (GC and pwms)
-        target_gc_scores = gc_scores[grammar_indices]
-        target_pwm_scores = pwm_raw_scores[grammar_indices,0,pwm_idx]
-        background_pwm_scores = pwm_raw_scores[:,0,pwm_idx]
-
-        # set up null store
-        nulls = {}
-        for key in results.keys():
-            nulls[key] = []
-            
-        # build n null sets        
-        for null_idx in range(args.n_null):
-
-            # logging
-            if null_idx % 10 == 0:
-                print null_idx
-            
-            # get null set
-            matched_background_indices = build_matched_null_set(
-                target_pwm_scores,
-                background_pwm_scores,
-                target_gc_scores,
-                gc_scores,
-                rand_seed=null_idx)
-            
-            # get null results
-            null_results = get_results(
-                matched_background_indices,
-                metadata,
-                args,
-                prefix="grammar.non_instances")
-            #for key in sorted(null_results.keys()):
-            #    print key, null_results[key].shape, np.median(null_results[key])
-            #print ""
-                
-            # save out null results
-            for key in sorted(null_results.keys()):
-                nulls[key].append(null_results[key])
-
-        # finally save out to overall list
-        null_results_all.append(nulls)
-                
-        if False:
-            # quick test save for plot
-            test_idx = 10 # 10
-            plot_background = background_signal[:,test_idx]
-            plot_background_data = pd.DataFrame(data=plot_background, columns=["signal"])
-            plot_background_data["variable"] = pwm
-
-            if plot_data is None:
-                plot_data = plot_background_data.copy()
+            # save out
+            if pwm_i == 1:
+                print_pwms = pwms[::-1]
             else:
-                plot_data = pd.concat([plot_data, plot_background_data], axis=0)
+                print_pwms = pwms
 
-            print np.mean(target_signal, axis=0)
-            print np.mean(background_signal, axis=0)
-
-            print ""
-
-    # get medians, calc significance
-    for key in sorted(results.keys()):
-
-        file_prefix = "{}/results.{}".format(args.out_dir, key.replace(".", "_"))
-        
-        pval_thresh = 0.05
-        print key
-
-        grammar_results = results[key]
-        grammar_median = np.median(grammar_results, axis=0)
-
-        if len(grammar_median.shape) > 0:
-            # split out
-            for i in range(grammar_median.shape[0]):
-                split_file_prefix = "{}.idx-{}".format(file_prefix, i)
-                null_sigs = []
-                null_median_medians = []
-                save_nulls = []
-                split_grammar_results = grammar_results[:,i]
-                split_grammar_median = grammar_median[i]
-                for null_idx in range(len(null_results_all)):
-                    null_results = null_results_all[null_idx][key]
-                    split_null_results = [
-                        vals[:,i]
-                        for vals in null_results]
-                    split_null_medians = [
-                        np.median(val, axis=0)
-                        for val in split_null_results]
-                    pval = get_sig(split_grammar_median, split_null_medians)
-                    null_sigs.append(pval)
-                    # get the median null dist
-                    if len(split_null_medians) % 2 == 0:
-                        split_null_medians = split_null_medians[1:]
-                    null_median_median = np.median(split_null_medians)
-                    null_median_medians.append(null_median_median)
-                    save_idx = split_null_medians.index(null_median_median)
-                    save_nulls.append(split_null_results[save_idx])
-
-                #print split_grammar_median, null_median_medians, null_sigs
-                filename = "{}.txt".format(split_file_prefix)
-                save_str = "filename={};pwms={};grammar_avg={};null_avgs={},null_sigs={}".format(
-                    filename,
-                    grammar.nodes,
-                    split_grammar_median,
-                    null_median_medians,
-                    null_sigs)
-                print save_str
-                save_results(
-                    filename,
-                    split_grammar_results,
-                    save_nulls,
-                    list(grammar.nodes),
-                    save_str)
+            print_pwms = [re.sub("HCLUST-\d+_", "", pwm_name) for pwm_name in print_pwms]
+            print_pwms = [re.sub(".UNK.0.A", "", pwm_name) for pwm_name in print_pwms]
                 
-        else:
-            null_sigs = []
-            null_median_medians = []
-            save_nulls = []
-            for null_idx in range(len(null_results_all)):
-                null_results = null_results_all[null_idx][key]
-                null_medians = [
-                    np.median(vals)
-                    for vals in null_results]
-                pval = get_sig(grammar_median, null_medians)
-                null_sigs.append(pval)
-                # get the median null dist
-                if len(null_medians) % 2 == 0:
-                    null_medians = null_medians[1:]
-                null_median_median = np.median(null_medians)
-                null_median_medians.append(null_median_median)
-                save_idx = null_medians.index(null_median_median)
-                save_nulls.append(null_results[save_idx])
-
-            #print grammar_median, null_median_medians, null_sigs
-            filename = "{}.txt".format(file_prefix)
-            save_str = "filename={};pwms={};grammar_avg={};null_avgs={};null_sigs={}".format(
-                filename,
-                grammar.nodes,
-                grammar_median,
-                null_median_medians,
-                null_sigs)
-            print save_str
-            save_results(
-                filename,
-                grammar_results,
-                save_nulls,
-                list(grammar.nodes),
-                save_str)
+            # only write out 2s?
+            with open(summary_files[i], "a") as fp:
+                out_str = "{}\t{}\t{}\t{}\n".format(
+                    "\t".join(print_pwms),
+                    best_idx,
+                    #pwm_name,
+                    diff,
+                    pval)
+                fp.write(out_str)
     
     return None
 
