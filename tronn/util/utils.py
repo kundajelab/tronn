@@ -151,6 +151,7 @@ class DataKeys(object):
     VARIANT_IDX = "{}.idx".format(VARIANT_ROOT)
     VARIANT_DMIM = "{}.dmim".format(VARIANT_ROOT)
     VARIANT_SIG = "{}.sig".format(VARIANT_ROOT)
+    VARIANT_IMPORTANCE = "{}.impt_score".format(VARIANT_ROOT)
     
     # split
     TASK_IDX_ROOT = "taskidx"

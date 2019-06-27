@@ -1152,6 +1152,9 @@ def get_task_importances(inputs, params):
              "positive_only": True})
         logging.info("OUT: {}".format(outputs[DataKeys.FEATURES].get_shape()))
 
+    # if variants loaded, isolate importance score on variant
+    outputs, params = isolate_variant_importance(outputs, params)
+    
     return outputs, params
 
 
@@ -1193,5 +1196,34 @@ def filter_by_importance(inputs, params):
     inputs["condition_mask"] = tf.greater(feature_sums, cutoff)
     params.update({"name": "importances_filter"})
     outputs, _ = filter_and_rebatch(inputs, params)
+    
+    return outputs, params
+
+
+def isolate_variant_importance(inputs, params):
+    """only apply this if you have variant position (from dataloader)
+    """
+    outputs = dict(inputs)
+
+    if inputs.get(DataKeys.VARIANT_IDX) is not None:
+        seq_len = 1000 # TODO fix this
+        variant_pos = inputs[DataKeys.VARIANT_IDX] - 1 # offshift 1
+        mask = tf.one_hot(variant_pos, seq_len)
+        # clip TODO check this
+        mask = mask[:,params["left_clip"]:params["right_clip"]] # {N, 160} 
+
+        # extend dims
+        mask = tf.expand_dims(mask, axis=1)
+        mask = tf.expand_dims(mask, axis=-1) # {N, 1, 160, 1}
+
+        # multiply with importances
+        importances = inputs[DataKeys.WEIGHTED_SEQ_ACTIVE]
+        variant_importance = tf.multiply(
+            importances,
+            mask) # {N, task, 160, 4}
+
+        # and reduce sum
+        variant_importance = tf.reduce_sum(variant_importance, axis=(2,3)) # {N, task}
+        outputs[DataKeys.VARIANT_IMPORTANCE] = variant_importance
     
     return outputs, params
