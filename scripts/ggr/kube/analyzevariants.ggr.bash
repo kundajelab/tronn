@@ -12,7 +12,7 @@ tronn analyzevariants \
       --inference_targets 0 1 2 3 4 5 6 9 10 12 \
       --prefix ggr \
       --pwm_file /datasets/ggr/1.0.0d/annotations/HOCOMOCOv11_core_pwms_HUMAN_mono.renamed.nonredundant.txt \
-      --sample_size 20000 \
+      --sample_size 10000000 \
       -o $5 \
       >> $5/job.out \
       2>> $5/job.err
