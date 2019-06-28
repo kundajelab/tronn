@@ -1373,7 +1373,7 @@ class VariantDataLoader(DataLoader):
             target_indices=[],
             examples_subset=[],
             seq_len=1000,
-            strided_reps=1,
+            strided_reps=10,
             lock=threading.Lock(),
             shuffle=True):
         """build generator function
@@ -1403,8 +1403,8 @@ class VariantDataLoader(DataLoader):
                 """call generator
                 """
                 # build converters
-                ref_converter = GenomicIntervalConverter(lock, self.ref_fasta, 1)
-                alt_converter = GenomicIntervalConverter(lock, self.alt_fasta, 1)
+                ref_converter = GenomicIntervalConverter(lock, self.ref_fasta, strided_reps)
+                alt_converter = GenomicIntervalConverter(lock, self.alt_fasta, strided_reps)
 
                 # determine padding amount at end of file
                 num_variants = 0
