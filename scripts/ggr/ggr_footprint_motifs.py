@@ -57,20 +57,26 @@ def parse_args():
     return args
 
 
-def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix):
+def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indices=""):
     """for a given motif, run footprinting and plots
     """
+    if label_indices != "":
+        label_indices = "--labels_indices {}".format(label_indices)
+    label_indices = ""
+        
     # extract matched sets of positives and negatives
     get_matched_motif_sites = (
         "python ~/git/tronn/scripts/split_motifs_by_importance_scores.py "
         "--data_files {} "
+        "--labels_key ATAC_LABELS " # TRAJ_LABELS
+        "{} "
         "--pwm_idx {} "
         "--out_dir {} "
         "--prefix {}").format(
-            data_file, pwm_idx, out_dir, prefix)
+            data_file, label_indices, pwm_idx, out_dir, prefix)
     print get_matched_motif_sites
     os.system(get_matched_motif_sites)
-    
+
     # go through bam files
     for bam_file in bam_files:
         bam_prefix = os.path.basename(bam_file).split(".bam")[0]
@@ -122,24 +128,39 @@ def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix):
              "neg": neg_data["c1"]})
         joint_data.to_csv(paired_file, sep="\t")
         plot_file = "{}/{}.{}.footprints.pdf".format(out_dir, prefix, bam_prefix)
-        plot_cmd = "Rscript /srv/scratch/dskim89/ggr/ggr.tronn.2019-06-13.footprinting/plot_footprints.R {} {}".format(
+        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-e.0.plot.footprints.R {} {}".format(
             paired_file, plot_file)
         os.system(plot_cmd)
+
+        # and also do a diff
+        diff_file = "{}/{}.diff.footprints.txt".format(bam_dir, prefix)
+        diff = joint_data["pos"] / joint_data["neg"]
+        diff_data = pd.DataFrame({"pos": diff})
+        diff_data.to_csv(diff_file, sep="\t")
+        plot_file = "{}/{}.{}.footprints.diff.pdf".format(out_dir, prefix, bam_prefix)
+        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-e.0.plot.footprints.R {} {}".format(
+            diff_file, plot_file)
+        #os.system(plot_cmd)
         
     # pull together files
     all_pos_file = "{}/{}.footprints.timepoints.txt".format(out_dir, prefix)
-    positive_files = sorted(glob.glob("{}/*/Lineplots/pos.txt".format(out_dir)))
+    #positive_files = sorted(glob.glob("{}/*/*diff.footprints.txt".format(out_dir)))
+    positive_files = sorted(glob.glob("{}/*/pos_w_neg.footprints.txt".format(out_dir)))
     pos_data = {}
     for i in range(len(positive_files)):
         positive_file = positive_files[i]
-        prefix = positive_file.split("/")[-3]
+        prefix = positive_file.split("/")[-2]
+        prefix = re.sub("0$", ".0", prefix)
         data = pd.read_csv(positive_file, sep="\t")
-        pos_data[prefix] = data["c1"]
+        neg_data = data["neg"]
+        norm_factor = (np.mean(neg_data[0:10]) + np.mean(neg_data[190:200])) / 2.
+        pos_data[prefix] = data["pos"] / norm_factor
     joint_data = pd.DataFrame(pos_data)
     joint_data.to_csv(all_pos_file, sep="\t")
     plot_file = "{}.pdf".format(all_pos_file.split(".txt")[0])
-    plot_cmd = "Rscript /srv/scratch/dskim89/ggr/ggr.tronn.2019-06-13.footprinting/plot_footprints.R {} {}".format(
-            all_pos_file, plot_file)
+    plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-e.0.plot.footprints.R {} {}".format(
+        all_pos_file, plot_file)
+    print plot_cmd
     os.system(plot_cmd)
     
     return
@@ -159,24 +180,30 @@ def main():
     motif_list = list(motifs.index)
     pwm_indices = [re.sub("HCLUST-", "", val) for val in motif_list]
     pwm_indices = [int(re.sub("_.+", "", val)) for val in pwm_indices]
-
-    # debug
-    if False:
-        motif_list = ["TP63"]
-        pwm_indices = [170]
     
     for i in range(len(motif_list)):
         motif_name = motif_list[i]
         pwm_idx = pwm_indices[i]
         pwm_dir = "{}/{}".format(args.out_dir, motif_name)
-        
+
+        # only look at specific trajectories
+        # NOTE CURRENTLY NOT USED
+        traj_indices = np.where(motifs.iloc[i].values!=0)[0]
+        trajectories = list(motifs.columns[traj_indices])
+        traj_indices = []
+        for traj in trajectories:
+            indices = traj.split("-")[1:]
+            traj_indices += traj.split("-")[1:]
+        traj_indices = " ".join(traj_indices)
+            
         print motif_name
         run_footprinting(
             args.data_file,
             pwm_idx,
             args.bam_files,
             pwm_dir,
-            "{}.{}".format(args.prefix, motif_name))
+            "{}.{}".format(args.prefix, motif_name),
+            label_indices=traj_indices)
         
     return
 

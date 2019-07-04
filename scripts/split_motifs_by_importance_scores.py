@@ -39,8 +39,11 @@ def parse_args():
         "--data_files", nargs="+",
         help="h5 files with information desired")
     parser.add_argument(
-        "--labels_key", default="ATAC_LABELS",
+        "--labels_key", default="TRAJ_LABELS", # ATAC_LABELS
         help="which label set to use for initial filtering")
+    parser.add_argument(
+        "--labels_indices", nargs="+", default=[], type=int,
+        help="label indices that should be filtered")
     parser.add_argument(
         "--pwm_idx", type=int, default=0,
         help="index of pwm")
@@ -51,13 +54,13 @@ def parse_args():
         "--weighted_pwm_key", default=DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM,
         help="key of weighted PWM scores")
     parser.add_argument(
-        "--raw_pwm_pos_key", default=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+        "--raw_pwm_pos_key", default=DataKeys.ORIG_PWM_SCORES_POSITION_MAX_IDX,
         help="key of PWM scores with position info")
     parser.add_argument(
         "--weighted_pwm_pos_key", default=DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX,
         help="key of PWM scores with position info")
     parser.add_argument(
-        "--gc_key", default=DataKeys.GC_CONTENT,
+        "--gc_key", default="ATAC_SIGNALS.NORM", #DataKeys.GC_CONTENT,
         help="key with GC content info")
     parser.add_argument(
         "--out_dir", "-o", dest="out_dir", type=str,
@@ -249,9 +252,9 @@ def main():
     # get labels
     labels = _get_data_from_h5_files(
         args.data_files, args.labels_key)
+    if len(args.labels_indices) > 0:
+        labels = labels[:,args.labels_indices]
     labels = np.any(labels!=0, axis=1).astype(int)
-    if False:
-        labels = labels[:,0]
     
     # confirm correct pwm
     with h5py.File(args.data_files[0], "r") as hf:
@@ -260,20 +263,24 @@ def main():
     # get PWM raw scores and max index positions
     raw_scores = _get_data_from_h5_files(
         args.data_files, args.raw_pwm_key)[:,0,args.pwm_idx]
-    raw_positional_scores = _get_data_from_h5_files(
-        args.data_files, args.raw_pwm_pos_key)[:,0,:,args.pwm_idx]
-    raw_max_positions = np.argmax(raw_positional_scores, axis=-1) + 12
-    #if True:
-    #    raw_max_positions += 420 + 12
     
-    # get PWM weighted scores and index positions
-    weighted_scores = _get_data_from_h5_files(
+    # get raw positions
+    raw_max_positions = _get_data_from_h5_files(
+        args.data_files, args.raw_pwm_pos_key)[:,args.pwm_idx,0].astype(int)
+    raw_max_positions -= 420
+    
+    # get PWM weighted scores
+    weighted_scores_orig = _get_data_from_h5_files(
         args.data_files, args.weighted_pwm_key)[:,:,args.pwm_idx]
-    # TODO fix this, max position?
-    weighted_scores = np.max(weighted_scores, axis=1)
+    weighted_scores = np.max(weighted_scores_orig, axis=1)
+    weighted_diff_scores = np.max(weighted_scores_orig, axis=1) - np.min(weighted_scores_orig, axis=1)
     
-    if False:
-        weighted_scores = weighted_scores[:,0] # just day 0 for now
+    # signal
+    signals = _get_data_from_h5_files(
+        args.data_files, "ATAC_SIGNALS.NORM")
+    signal_diff = np.max(signals, axis=1) - np.min(signals, axis=1)
+    
+    # get weighted positions
     weighted_max_positions = _get_data_from_h5_files(
         args.data_files, args.weighted_pwm_pos_key)[:,args.pwm_idx,0].astype(int)
     weighted_max_positions -= 420
@@ -281,6 +288,9 @@ def main():
     # get GC content
     gc_content = _get_data_from_h5_files(
         args.data_files, args.gc_key)
+    # here, instead try ATAC signal content
+    if True:
+        gc_content = np.max(gc_content, axis=-1)
 
     # get metadata
     metadata = _get_data_from_h5_files(
@@ -291,23 +301,52 @@ def main():
         "labels": labels,
         "raw_scores": raw_scores,
         "weighted_scores": weighted_scores,
+        "weighted_diff": weighted_diff_scores,
+        "signal_diff": signal_diff,
         "raw_offset": raw_max_positions,
         "weighted_offset": weighted_max_positions,
         "gc": gc_content,
         "metadata": metadata})
 
     # filter for accessibility and also places where raw score exists
+    print "all data", data.shape
+    print args.labels_key
+    print args.labels_indices
     data_filt = data[data["labels"] != 0]
+    print "after access filter", data_filt.shape
     data_filt = data_filt[data_filt["raw_scores"] != 0]
-
-    #print data_filt
-    #quit()
-    print data_filt[data_filt["weighted_scores"] > 0.05].shape
-    #quit()
+    print "after raw score > 0 filt", data_filt.shape
     
-    # and split to positive and negative set
-    data_filt_pos = data_filt[data_filt["weighted_scores"] > 0.01] # 0
-
+    # extra filters for cleanest footprints: raw scores + signal diff
+    raw_cutoff = np.percentile(data_filt["raw_scores"].values, 50)
+    signal_cutoff = np.percentile(data_filt["signal_diff"].values, 50)
+    data_filt = data_filt[
+        (data_filt["raw_scores"] > raw_cutoff) &
+        (data_filt["signal_diff"] > signal_cutoff)]
+    print "after raw score percentile filt", data_filt.shape
+    
+    # get positive and negative sets (initial)
+    data_filt_pos = data_filt[data_filt["weighted_scores"] > 0]
+    data_filt_neg_all = data_filt[data_filt["weighted_scores"] == 0]
+    print "pos set", data_filt_pos.shape
+    print "neg set", data_filt_neg_all.shape
+    
+    # filter on weighted scores
+    weighted_cutoff = np.percentile(data_filt_pos["weighted_scores"].values, 50)
+    weighted_diff_cutoff = np.percentile(data_filt_pos["weighted_diff"].values, 50)
+    data_filt_pos = data_filt_pos[
+        (data_filt_pos["weighted_scores"] > weighted_cutoff) &
+        (data_filt_pos["weighted_diff"] > weighted_diff_cutoff)]
+    print "post filter", data_filt_pos.shape
+    
+    # extra filters in case you still have a ton of sites after (for speed)
+    top_k = 10000
+    if data_filt_pos.shape[0] > top_k:
+        data_filt_pos = data_filt_pos.sort_values(
+            "weighted_diff", ascending=False)
+        data_filt_pos = data_filt_pos.iloc[0:top_k]
+        print "top k", data_filt_pos.shape
+        
     # save out to bed files and also build match files (for HINT)
     positives_bed_file = "{}/{}.impt_positive.bed".format(args.out_dir, args.prefix)
     get_bed_from_metadata_list(
@@ -324,9 +363,10 @@ def main():
         "{}").format(positives_bed_file, positives_match_file)
     os.system(make_match_file)
 
-    data_filt_neg_all = data_filt[data_filt["weighted_scores"] == 0]
+    # get matched neg set
     data_filt_neg = get_matched_neg_set(data_filt_neg_all, data_filt_pos)
-    
+
+    # and save out
     negatives_bed_file = "{}/{}.impt_negative.bed".format(args.out_dir, args.prefix)
     get_bed_from_metadata_list(
         data_filt_neg["metadata"].values,
