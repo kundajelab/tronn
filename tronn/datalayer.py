@@ -1509,6 +1509,7 @@ class BedDataLoader(DataLoader):
         # preprocess
         data_dir = os.path.dirname(self.data_files[0])
         if not preprocessed:
+            os.system("mkdir -p {}".format(tmp_dir))
             for data_file in self.data_files:
                 bin_regions_sharded(
                     data_file,
@@ -2025,7 +2026,7 @@ def setup_data_loader(args):
             data_files=args.data_files,
             fasta=args.fasta,
             chromsizes=args.chromsizes,
-            tmp_dir=args.tmp_dir)
+            tmp_dir="{}/tmp_data".format(args.tmp_dir))
     elif args.data_format == "pwm_sims":
         data_loader = PWMSimsDataLoader(
             args.grammar_file,
