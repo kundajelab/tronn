@@ -41,6 +41,7 @@ def run(args):
     logging.info(";".join(args.data_files))
     
     # collect a prediction sample for cross model quantile norm
+    args.processed_inputs = False
     if args.model["name"] == "ensemble":
         true_sample_size = args.sample_size
         args.sample_size = 1000
