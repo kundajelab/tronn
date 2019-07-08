@@ -638,10 +638,15 @@ def _setup_interpretation_args(args):
         args.pwm_file = args.infer_json.get("pwm_file")
             
     # pwm file
-    args.pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
-    args.pwm_names = [pwm.name for pwm in args.pwm_list]
-    args.pwm_dict = MotifSetManager.read_pwm_file(args.pwm_file, as_dict=True)
-
+    if args.pwm_file is not None:
+        args.pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
+        args.pwm_names = [pwm.name for pwm in args.pwm_list]
+        args.pwm_dict = MotifSetManager.read_pwm_file(args.pwm_file, as_dict=True)
+    else:
+        args.pwm_list = None
+        args.pwm_names = None
+        args.pwm_dict = None
+    
     # set up inference dict
     args.inference_params = {
         "cmd_name": args.subcommand_name,
