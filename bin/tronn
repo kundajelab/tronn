@@ -1104,15 +1104,7 @@ def add_buildtracks_parser(subparsers):
     # group for dataset
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
-    group_dataset.add_argument(
-        "--data_format", default="bed",
-        help="format for dataloader")
-    group_dataset.add_argument(
-        "--bed_file",
-        help="BED formatted input file of regions")
-    group_dataset.add_argument(
-        "--fasta",
-        help="fasta file")
+    _add_dataset_args(group_dataset)
     group_dataset.add_argument(
         "--chromsizes",
         help="chromsizes file")

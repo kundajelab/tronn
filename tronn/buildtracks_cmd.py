@@ -25,17 +25,19 @@ def run(args):
     args.bin_width = 200
     args.stride = 50
     args.final_length = 1000
-        
-    # check BED file, and shard as needed
-    bin_regions_sharded(
-        args.bed_file,
-        "{}/{}".format(args.tmp_dir, args.prefix),
-        args.bin_width,
-        args.stride,
-        args.final_length,
-        args.chromsizes)
-    args.data_files = sorted(glob.glob("{}/{}*filt.bed.gz".format(
-        args.tmp_dir, args.prefix)))
+    
+    # check BED files, and bin/shard as needed
+    assert args.data_format == "bed"
+    for data_file in args.data_files:
+        bin_regions_sharded(
+            data_file,
+            "{}/{}".format(args.tmp_dir, os.path.basename(data_file).split(".bed")[0]),
+            args.bin_width,
+            args.stride,
+            args.final_length,
+            args.chromsizes)
+    args.data_files = sorted(glob.glob("{}/*filt.bed.gz".format(
+        args.tmp_dir)))
     logging.info(";".join(args.data_files))
     
     # collect a prediction sample for cross model quantile norm
