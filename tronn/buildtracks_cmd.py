@@ -2,6 +2,7 @@
 """
 
 import os
+import glob
 import json
 import h5py
 import logging
@@ -26,15 +27,16 @@ def run(args):
     args.final_length = 1000
         
     # check BED file, and shard as needed
-    sharded_bed_file = "{}/inputs.sharded.bed.gz".format(args.tmp_dir)
     bin_regions_sharded(
         args.bed_file,
-        "{}/{}".format(args.out_dir, args.prefix),
+        "{}/{}".format(args.tmp_dir, args.prefix),
         args.bin_width,
         args.stride,
         args.final_length,
         args.chromsizes)
-    args.bed_file = sharded_bed_file
+    args.data_files = sorted(glob.glob("{}/{}*filt.bed.gz".format(
+        args.tmp_dir, args.prefix)))
+    logging.info(";".join(args.data_files))
     
     # collect a prediction sample for cross model quantile norm
     if args.model["name"] == "ensemble":
