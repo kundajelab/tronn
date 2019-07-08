@@ -23,6 +23,7 @@ from itertools import combinations
 from numpy.random import RandomState
 
 from tronn.learn.cross_validation import setup_train_valid_test
+from tronn.preprocess.bed import bin_regions_sharded
 from tronn.preprocess.fasta import GenomicIntervalConverter
 from tronn.nets.util_nets import rebatch
 from tronn.util.mpra import is_fragment_compatible
@@ -1488,13 +1489,37 @@ class VariantDataLoader(DataLoader):
 class BedDataLoader(DataLoader):
     """build a dataloader starting from a bed file"""
 
-    def __init__(self, data_files, fasta):
+    def __init__(
+            self,
+            data_files,
+            fasta,
+            preprocessed=False,
+            chromsizes=None,
+            bin_width=200,
+            stride=50,
+            final_length=1000):
         self.data_files = data_files
         self.fasta = fasta
 
         # check
         for data_file in self.data_files:
             assert data_file.endswith(".bed.gz")
+
+        # preprocess
+        data_dir = os.path.dirname(self.data_files[0])
+        if not preprocessed:
+            for data_file in self.data_files:
+                bin_regions_sharded(
+                    data_file,
+                    "{}/{}".format(data_dir, os.path.basename(data_file).split(".bed")[0]),
+                    bin_width,
+                    stride,
+                    final_length,
+                    chromsizes)
+            self.data_files = sorted(glob.glob("{}/*filt.bed.gz".format(
+                data_dir)))
+
+        # count num regions
         self.num_regions = self.get_num_regions()
 
         
@@ -1554,7 +1579,9 @@ class BedDataLoader(DataLoader):
                             print line
                             fields = line.strip().split("\t")
                             metadata = np.array(
-                                ["features={}:{}-{}".format(fields[0], fields[1], fields[2])])
+                                [fields[3]])
+                            #metadata = np.array(
+                            #    ["features={}:{}-{}".format(fields[0], fields[1], fields[2])])
                             metadata = np.expand_dims(metadata, axis=-1)
                             features = converter.convert(metadata)
                             slice_array = {
@@ -1995,7 +2022,8 @@ def setup_data_loader(args):
     elif args.data_format == "bed":
         data_loader = BedDataLoader(
             data_files=args.data_files,
-            fasta=args.fasta)
+            fasta=args.fasta,
+            chromsizes=args.chromsizes)
     elif args.data_format == "pwm_sims":
         data_loader = PWMSimsDataLoader(
             args.grammar_file,
