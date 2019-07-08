@@ -1509,15 +1509,16 @@ class BedDataLoader(DataLoader):
         # preprocess
         data_dir = os.path.dirname(self.data_files[0])
         if not preprocessed:
-            os.system("mkdir -p {}".format(tmp_dir))
-            for data_file in self.data_files:
-                bin_regions_sharded(
-                    data_file,
-                    "{}/{}".format(tmp_dir, os.path.basename(data_file).split(".bed")[0]),
-                    bin_width,
-                    stride,
-                    final_length,
-                    chromsizes)
+            if not os.path.isdir(tmp_dir):
+                os.system("mkdir -p {}".format(tmp_dir))
+                for data_file in self.data_files:
+                    bin_regions_sharded(
+                        data_file,
+                        "{}/{}".format(tmp_dir, os.path.basename(data_file).split(".bed")[0]),
+                        bin_width,
+                        stride,
+                        final_length,
+                        chromsizes)
             self.data_files = sorted(glob.glob("{}/*filt.bed.gz".format(
                 tmp_dir)))
 
