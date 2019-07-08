@@ -1131,6 +1131,9 @@ def add_buildtracks_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="grammars")
+    group_output.add_argument(
+        '--tmp_dir',
+        help='temporary scratch directory as needed')
     
     return
 
