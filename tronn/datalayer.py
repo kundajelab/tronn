@@ -1497,7 +1497,8 @@ class BedDataLoader(DataLoader):
             chromsizes=None,
             bin_width=200,
             stride=50,
-            final_length=1000):
+            final_length=1000
+            tmp_dir="."):
         self.data_files = data_files
         self.fasta = fasta
 
@@ -1511,13 +1512,13 @@ class BedDataLoader(DataLoader):
             for data_file in self.data_files:
                 bin_regions_sharded(
                     data_file,
-                    "{}/{}".format(data_dir, os.path.basename(data_file).split(".bed")[0]),
+                    "{}/{}".format(tmp_dir, os.path.basename(data_file).split(".bed")[0]),
                     bin_width,
                     stride,
                     final_length,
                     chromsizes)
             self.data_files = sorted(glob.glob("{}/*filt.bed.gz".format(
-                data_dir)))
+                tmp_dir)))
 
         # count num regions
         self.num_regions = self.get_num_regions()
@@ -1565,7 +1566,7 @@ class BedDataLoader(DataLoader):
                 
             def __call__(self, bed_file, yield_single_examples=True):
                 """run the generator"""
-                batch_size = self.batch_size
+                batch_size = 1 #self.batch_size
                 fasta = self.fasta
 
                 # set up interval to sequence converter
