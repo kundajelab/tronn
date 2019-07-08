@@ -7,6 +7,7 @@ import h5py
 import logging
 
 from tronn.preprocess.bed import bin_regions_sharded
+from tronn.interpretation.inference import run_inference
 
 def run(args):
     """command to plot a region
@@ -28,7 +29,7 @@ def run(args):
     sharded_bed_file = "{}/inputs.sharded.bed.gz".format(args.tmp_dir)
     bin_regions_sharded(
         args.bed_file,
-        args.prefix,
+        "{}/{}".format(args.out_dir, args.prefix),
         args.bin_width,
         args.stride,
         args.final_length,
