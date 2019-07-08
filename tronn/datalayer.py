@@ -1565,7 +1565,7 @@ class BedDataLoader(DataLoader):
                             
                     except ValueError as value_error:
                         logging.debug(value_error)
-                        logging.info("Stopping {}".format(h5_file))
+                        logging.info("Stopping {}".format(bed_file))
                         raise StopIteration
 
                     finally:
