@@ -9,7 +9,7 @@ tronn buildtracks \
       --inference_targets 0 1 2 3 4 5 6 9 10 12 \
       --prefix ggr \
       --fasta /datasets/annotations.hg19/hg19.genome.fa \
-      --chromsizes /datasets/annotations.hg19/hg19.chrom.sizes \ 
+      --chromsizes /datasets/annotations.hg19/hg19.chrom.sizes \
       --batch_size 16 \
       -o $4 \
       >> $4/job.out \
