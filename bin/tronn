@@ -1264,6 +1264,7 @@ def main():
         from tronn.run_tensorforest import run
         run(args)
     elif subcommand == "buildtracks":
+        _setup_interpretation_args(args)
         _setup_model_args(args)
         from tronn.buildtracks_cmd import run
         run(args)
