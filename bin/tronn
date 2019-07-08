@@ -1109,6 +1109,9 @@ def add_buildtracks_parser(subparsers):
         "--fasta",
         help="fasta file")
     group_dataset.add_argument(
+        "--chromsizes",
+        help="chromsizes file")
+    group_dataset.add_argument(
         "--stride", default=50, type=int,
         help="stride across regions")
     
