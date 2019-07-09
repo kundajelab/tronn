@@ -237,7 +237,6 @@ def strided_merge_generator(array, metadata, stride=50, bin_size=200):
             "stop": example_pos_stop})
         
         # get strided sum
-        # TODO for each one, need to check if actually contigous
         total_overlap = 0
         for stride_idx in range(array.shape[1]):
             slice_example_idx = example_idx + stride_idx # <- this is what to check
@@ -253,14 +252,6 @@ def strided_merge_generator(array, metadata, stride=50, bin_size=200):
 
         # get mean
         current_mean = current_sum / float(total_overlap)
-        if example_id == "region=chr1:956883-957524":
-            print metadata[example_idx]
-            print clip_start
-            print clip_end
-            print clip_len
-            print example_pos_start[0], example_pos_stop[-1]
-            print np.sum(current_mean)
-        
         
         yield current_mean, example_metadata
 
@@ -330,7 +321,7 @@ def h5_to_bigwig(
             continue
 
         #print end_idx
-        print current_id
+        #print current_id
         #count += 1
         #print count
         
