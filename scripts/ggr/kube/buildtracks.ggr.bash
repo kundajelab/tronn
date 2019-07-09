@@ -12,7 +12,7 @@ tronn buildtracks \
       --prediction_sample /datasets/inference.2019-02-05/motifs.input_x_grad.background/ggr.scanmotifs.prediction_sample.h5 \
       --inference_targets 0 1 2 3 4 5 6 9 10 12 \
       --prefix ggr \
-      --batch_size 20 \
+      --batch_size 16 \
       --num_gpus 6 \
       -o $4 \
       >> $4/job.out \
