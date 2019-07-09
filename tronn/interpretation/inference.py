@@ -119,12 +119,19 @@ def _setup_output_skip_keys(args):
             DataKeys.ORIG_SEQ_PWM_MAX_DENSITIES]
     elif args.subcommand_name == "buildtracks":
         skip_keys = [
+            DataKeys.LOGITS_CI,
+            DataKeys.LOGITS_CI_THRESH,
+            DataKeys.LOGITS_SHUF,
+            DataKeys.LOGITS_MULTIMODEL,
+            DataKeys.LOGITS_MULTIMODEL_NORM,
             DataKeys.IMPORTANCE_GRADIENTS,
             DataKeys.WEIGHTED_SEQ,
             DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
             DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH,
             DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
-            DataKeys.ORIG_SEQ_ACTIVE_SHUF]
+            DataKeys.WEIGHTED_SEQ_THRESHOLDS,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            DataKeys.FEATURES]
     else:
         skip_keys = []
         
