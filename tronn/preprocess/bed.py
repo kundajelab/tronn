@@ -121,7 +121,7 @@ def split_bed_to_chrom_bed_parallel(
 
 
 def _get_adjusted_start_and_stop(
-        start, stop, method, num_flanks=3):
+        start, stop, method, stride=50, num_flanks=3):
     """adjust the start and stop of a region based on whether
     flanks should be present
     """
@@ -181,7 +181,7 @@ def bin_regions_sharded(
 
             # adjust start/stop as needed
             adjusted_start, adjusted_stop = _get_adjusted_start_and_stop(
-                start, stop, method, num_flanks=num_flanks)
+                start, stop, method, stride=stride, num_flanks=num_flanks)
 
             # bin and save out
             while adjusted_start < adjusted_stop:
