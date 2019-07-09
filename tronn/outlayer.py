@@ -293,13 +293,10 @@ def h5_to_bigwig(
     """
     # pull data
     with h5py.File(h5_file, "r") as hf:
-        data = hf[features_key][:] # (N, task, seqlen, 4)
-        data = np.sum(data, axis=-1) # (N, task, seqlen)
-        data = np.swapaxes(data, -1, -2) # (N, seqlen, task)
+        num_tasks = hf[features_key].shape[2]
         metadata = hf[metadata_key][:,0] # (N)
         
     # clean up first
-    num_tasks = data.shape[2]
     for task_idx in range(num_tasks):
         out_file = "{}.taskidx-{}.bedgraph".format(out_prefix, task_idx)
         if os.path.isfile(out_file):
