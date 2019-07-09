@@ -186,6 +186,7 @@ class H5Handler(object):
     
 def strided_merge_generator(array, metadata, stride=50, bin_size=200):
     """given an array with stride, aggregate appropriately
+    assume contiguous?
     """
     # check length - assumes (N, seq_len, ...)
     seq_len = array.shape[1]
@@ -221,12 +222,12 @@ def strided_merge_generator(array, metadata, stride=50, bin_size=200):
     #new_shape = [num_valid*stride] + list(array.shape[3:])
     
     # now merge and save out
-    start_idx = array.shape[1]
+    start_idx = array.shape[1] - 1
     end_idx = array.shape[0] - array.shape[1] + 1
     for example_idx in range(start_idx, end_idx):
 
         # metadata
-        example_id = region[example_idx] # TODO this is wrong - need original feature
+        example_id = region[example_idx]
         example_chrom = np.repeat(chrom[example_idx], stride)
         example_pos_start = pos_stop[example_idx] - stride +  np.arange(stride)
         example_pos_stop = example_pos_start + 1
@@ -252,8 +253,16 @@ def strided_merge_generator(array, metadata, stride=50, bin_size=200):
 
         # get mean
         current_mean = current_sum / float(total_overlap)
-            
-        yield current_sum, example_metadata
+        if example_id == "region=chr1:956883-957524":
+            print metadata[example_idx]
+            print clip_start
+            print clip_end
+            print clip_len
+            print example_pos_start[0], example_pos_stop[-1]
+            print np.sum(current_mean)
+        
+        
+        yield current_mean, example_metadata
 
 
 def strided_merge_to_bedgraph(data, metadata, out_prefix, stride=50):
@@ -291,6 +300,7 @@ def h5_to_bigwig(
         metadata_key="example_metadata"):
     """
     """
+    # pull data
     with h5py.File(h5_file, "r") as hf:
         data = hf[features_key][:] # (N, task, seqlen, 4)
         data = np.sum(data, axis=-1) # (N, task, seqlen)
@@ -303,13 +313,55 @@ def h5_to_bigwig(
         out_file = "{}.taskidx-{}.bedgraph".format(out_prefix, task_idx)
         if os.path.isfile(out_file):
             os.system("rm {}".format(out_file))
+
+    # batching
+    #batch_size = 8192
+    start_idx = 0
+    #end_idx = start_idx + batch_size
+    end_idx = start_idx + 1
+    current_id = metadata[start_idx].split(";")[0]
+    #count = 0
+    num_examples = metadata.shape[0]
+    while end_idx < num_examples:
+
+        # check if same ID or not
+        if (metadata[end_idx].split(";")[0] == current_id) and (end_idx < num_examples-1):
+            end_idx += 1
+            continue
+
+        #print end_idx
+        print current_id
+        #count += 1
+        #print count
         
+        # get batch
+        if end_idx < num_examples:
+            with h5py.File(h5_file, "r") as hf:
+                data_batch = hf[features_key][start_idx:end_idx] # (N, task, seqlen, 4)
+            metadata_batch = metadata[start_idx:end_idx]
+        else:
+            with h5py.File(h5_file, "r") as hf:
+                data_batch = hf[features_key][start_idx:num_examples] # (N, task, seqlen, 4)
+            metadata_batch = metadata[start_idx:num_examples]
+
+        # other adjust
+        data_batch = np.sum(data_batch, axis=-1) # (N, task, seqlen)
+        data_batch = np.swapaxes(data_batch, -1, -2) # (N, seqlen, task)
+            
+        # strided merge
+        strided_merge_to_bedgraph(data_batch, metadata_batch, out_prefix, stride=50)
+        
+        # and get new
+        start_idx = end_idx
+        #end_idx = start_idx + batch_size
+        end_idx = start_idx + 1
+        current_id = metadata[start_idx].split(";")[0]
+
     # TO CONSIDER: also do the above in BATCHES. to reduce how much is being loaded into memory at one time.
-    strided_merge_to_bedgraph(data, metadata, out_prefix, stride=50)
+    #strided_merge_to_bedgraph(data, metadata, out_prefix, stride=50)
 
     # and then convert to bigwig
     bedgraph_files = sorted(glob.glob("{}*bedgraph".format(out_prefix)))
-    print bedgraph_files
     for bedgraph_file in bedgraph_files:
         bigwig_file = "{}.bigwig".format(bedgraph_file.split(".bedgraph")[0])
         bedgraph_to_bigwig_cmd = "bedGraphToBigWig {} {} {}".format(
