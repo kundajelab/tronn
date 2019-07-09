@@ -9,6 +9,7 @@ import logging
 
 from tronn.preprocess.bed import bin_regions_sharded
 from tronn.interpretation.inference import run_inference
+from tronn.outlayer import h5_to_bigwig
 
 def run(args):
     """command to plot a region
@@ -39,24 +40,7 @@ def run(args):
     # run inference
     inference_files = run_inference(args)
 
-    # convert to bp resolution bed file
-    # this seems wasteful, faster way to do this?
-    # but potentially not, if only keeping nonzero positions
-
-    # pad as needed up to the next stride:
-    # ex if stride 50 and length 160, pad to 200
-    # or snip down? so if 160, then half is 80, and need to go down to 50
-    # so then take it down to 100
+    # make bigwigs
+    h5_to_bigwig(inference_files[0], args.prefix, args.chromsizes)
     
-    # reshape by stride
-    # ie {N, 10, 100}, np.reshape(N, 10, -1, 50) -> (N, 10, 2, 50)
-    
-    # then need to figure out how to grab across axis 2
-    # if axis_len is 2, then: for loop 
-    # take sum of [i,:,axis_len-1] and [i+1,:,axis_len-2]
-
-    # get mean per base pair (bedtools merge)
-
-
-
     return
