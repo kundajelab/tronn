@@ -3,7 +3,7 @@ or merging regions as desired
 """
 
 import numpy as np
-
+import pandas as pd
 
 class H5Handler(object):
 
@@ -177,3 +177,93 @@ class H5Handler(object):
             self.h5_handle[h5_key].resize(dataset_final_shape)
             
         return
+
+
+    
+def strided_merge_generator(array, metadata, stride=50, bin_size=200):
+    """given an array with stride, aggregate appropriately
+    """
+    # check length - assumes (N, seq_len, ...)
+    seq_len = array.shape[1]
+
+    # adjust metadata here
+    metadata = pd.DataFrame(data=metadata)[0].str.split(";").str[1]
+    metadata = metadata.str.split("=").str[1]
+    chrom = metadata.str.split(":").str[0].values
+    coords = metadata.str.split(":").str[1]
+    pos_start = coords.str.split("-").str[0].values.astype(int)
+    pos_stop = coords.str.split("-").str[1].values.astype(int)
+    
+    # clip off edges that don't fit striding well
+    clip_len = (seq_len / 2) % stride
+    clip_start = clip_len
+    clip_end = seq_len - clip_len
+    array = array[:,clip_start:clip_end] # (N, seq_len, ...)
+
+    # also clip metadata, after checking new array shape
+    clip_len = bin_size/2 - array.shape[1]/2
+    pos_start += clip_len
+    pos_stop -= clip_len
+    
+    # figure out how to reshape
+    array_shape = list(array.shape) # (N, seqlen, ...)
+    array_shape.insert(1, -1) # (N, -1, seqlen, ...)
+    array_shape[2] = stride # (N, -1, stride, ...)
+    array = np.reshape(array, array_shape) # (N, num_strides, stride, ...)
+
+    # figure out how many strides will be valid
+    num_valid = array.shape[0] - 2*(array.shape[1] -1)
+    new_shape = [num_valid*stride] + list(array.shape[3:])
+    
+    # now merge and save out
+    start_idx = array.shape[1]
+    end_idx = array.shape[0] - array.shape[1] + 1
+    for example_idx in range(start_idx, end_idx):
+
+        # metadata
+        example_chrom = np.repeat(chrom[example_idx], stride)
+        example_pos_start = pos_stop[example_idx] - stride +  np.arange(stride)
+        example_pos_stop = example_pos_start + 1
+        example_metadata = pd.DataFrame({
+            "chrom": example_chrom,
+            "start": example_pos_start,
+            "stop": example_pos_stop})
+        
+        # get strided sum
+        for stride_idx in range(array.shape[1]):
+            slice_example_idx = example_idx + stride_idx
+            slice_stride_idx = array.shape[1] - stride_idx -1
+            array_slice = array[slice_example_idx, slice_stride_idx]
+            if stride_idx == 0:
+                current_sum = array_slice
+            else:
+                current_sum += array_slice
+        
+        yield current_sum, example_metadata
+
+
+def strided_merge_to_bedgraph(data, metadata, out_prefix, stride=50):
+    """write out strided merge to bedgraph files, separating task predictions
+    """
+    # get tasks
+    num_tasks = data.shape[2]
+
+    # make files for each, with file pointers?
+    generator = strided_merge_generator(data, metadata, stride=stride)
+    for data_merged, metadata_matched in generator:
+        for task_idx in range(num_tasks):
+            
+            # merge in data and metadata
+            results = metadata_matched.copy()
+            results["val"] = data_merged[:,task_idx]
+            
+            # filter out zeros
+            results = results[results["val"] != 0]
+
+            # save out info if anything remaining
+            if results.shape[0] != 0:
+                out_file = "{}.taskidx-{}.bedgraph".format(out_prefix, task_idx)
+                with open(out_file, "a") as fp:
+                    results.to_csv(fp, sep="\t", header=False, index=False)
+                    
+    return None

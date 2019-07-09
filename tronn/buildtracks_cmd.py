@@ -26,6 +26,7 @@ def run(args):
     args.bin_width = 200
     args.stride = 50
     args.final_length = 1000
+    args.fifo = True
     
     # collect a prediction sample for cross model quantile norm
     args.processed_inputs = False
@@ -39,10 +40,22 @@ def run(args):
     inference_files = run_inference(args)
 
     # convert to bp resolution bed file
+    # this seems wasteful, faster way to do this?
+    # but potentially not, if only keeping nonzero positions
 
-    # sort
+    # pad as needed up to the next stride:
+    # ex if stride 50 and length 160, pad to 200
+    # or snip down? so if 160, then half is 80, and need to go down to 50
+    # so then take it down to 100
+    
+    # reshape by stride
+    # ie {N, 10, 100}, np.reshape(N, 10, -1, 50) -> (N, 10, 2, 50)
+    
+    # then need to figure out how to grab across axis 2
+    # if axis_len is 2, then: for loop 
+    # take sum of [i,:,axis_len-1] and [i+1,:,axis_len-2]
 
-    # get mean per base pair
+    # get mean per base pair (bedtools merge)
 
 
 
