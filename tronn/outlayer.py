@@ -2,6 +2,10 @@
 or merging regions as desired
 """
 
+import os
+import glob
+import h5py
+
 import numpy as np
 import pandas as pd
 
@@ -187,10 +191,11 @@ def strided_merge_generator(array, metadata, stride=50, bin_size=200):
     seq_len = array.shape[1]
 
     # adjust metadata here
-    metadata = pd.DataFrame(data=metadata)[0].str.split(";").str[1]
-    metadata = metadata.str.split("=").str[1]
-    chrom = metadata.str.split(":").str[0].values
-    coords = metadata.str.split(":").str[1]
+    active = pd.DataFrame(data=metadata)[0].str.split(";").str[1]
+    region = pd.DataFrame(data=metadata)[0].str.split(";").str[0]
+    active = active.str.split("=").str[1]
+    chrom = active.str.split(":").str[0].values
+    coords = active.str.split(":").str[1]
     pos_start = coords.str.split("-").str[0].values.astype(int)
     pos_stop = coords.str.split("-").str[1].values.astype(int)
     
@@ -212,8 +217,8 @@ def strided_merge_generator(array, metadata, stride=50, bin_size=200):
     array = np.reshape(array, array_shape) # (N, num_strides, stride, ...)
 
     # figure out how many strides will be valid
-    num_valid = array.shape[0] - 2*(array.shape[1] -1)
-    new_shape = [num_valid*stride] + list(array.shape[3:])
+    #num_valid = array.shape[0] - 2*(array.shape[1] -1)
+    #new_shape = [num_valid*stride] + list(array.shape[3:])
     
     # now merge and save out
     start_idx = array.shape[1]
@@ -221,6 +226,7 @@ def strided_merge_generator(array, metadata, stride=50, bin_size=200):
     for example_idx in range(start_idx, end_idx):
 
         # metadata
+        example_id = region[example_idx] # TODO this is wrong - need original feature
         example_chrom = np.repeat(chrom[example_idx], stride)
         example_pos_start = pos_stop[example_idx] - stride +  np.arange(stride)
         example_pos_stop = example_pos_start + 1
@@ -230,15 +236,23 @@ def strided_merge_generator(array, metadata, stride=50, bin_size=200):
             "stop": example_pos_stop})
         
         # get strided sum
+        # TODO for each one, need to check if actually contigous
+        total_overlap = 0
         for stride_idx in range(array.shape[1]):
-            slice_example_idx = example_idx + stride_idx
+            slice_example_idx = example_idx + stride_idx # <- this is what to check
+            if region[slice_example_idx] != example_id:
+                continue
             slice_stride_idx = array.shape[1] - stride_idx -1
             array_slice = array[slice_example_idx, slice_stride_idx]
             if stride_idx == 0:
                 current_sum = array_slice
             else:
                 current_sum += array_slice
-        
+            total_overlap += 1
+
+        # get mean
+        current_mean = current_sum / float(total_overlap)
+            
         yield current_sum, example_metadata
 
 
@@ -266,4 +280,42 @@ def strided_merge_to_bedgraph(data, metadata, out_prefix, stride=50):
                 with open(out_file, "a") as fp:
                     results.to_csv(fp, sep="\t", header=False, index=False)
                     
+    return None
+
+
+def h5_to_bigwig(
+        h5_file,
+        out_prefix,
+        chromsizes,
+        features_key="sequence-weighted.active",
+        metadata_key="example_metadata"):
+    """
+    """
+    with h5py.File(h5_file, "r") as hf:
+        data = hf[features_key][:] # (N, task, seqlen, 4)
+        data = np.sum(data, axis=-1) # (N, task, seqlen)
+        data = np.swapaxes(data, -1, -2) # (N, seqlen, task)
+        metadata = hf[metadata_key][:,0] # (N)
+        
+    # clean up first
+    num_tasks = data.shape[2]
+    for task_idx in range(num_tasks):
+        out_file = "{}.taskidx-{}.bedgraph".format(out_prefix, task_idx)
+        if os.path.isfile(out_file):
+            os.system("rm {}".format(out_file))
+        
+    # TO CONSIDER: also do the above in BATCHES. to reduce how much is being loaded into memory at one time.
+    strided_merge_to_bedgraph(data, metadata, out_prefix, stride=50)
+
+    # and then convert to bigwig
+    bedgraph_files = sorted(glob.glob("{}*bedgraph".format(out_prefix)))
+    print bedgraph_files
+    for bedgraph_file in bedgraph_files:
+        bigwig_file = "{}.bigwig".format(bedgraph_file.split(".bedgraph")[0])
+        bedgraph_to_bigwig_cmd = "bedGraphToBigWig {} {} {}".format(
+            bedgraph_file,
+            chromsizes,
+            bigwig_file)
+        os.system(bedgraph_to_bigwig_cmd)
+    
     return None
