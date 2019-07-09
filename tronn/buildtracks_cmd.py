@@ -41,6 +41,7 @@ def run(args):
     inference_files = run_inference(args)
 
     # make bigwigs
-    h5_to_bigwig(inference_files[0], args.prefix, args.chromsizes)
+    out_prefix = "{}/{}".format(args.out_dir, args.prefix)
+    h5_to_bigwig(inference_files[0], out_prefix, args.chromsizes)
     
     return
