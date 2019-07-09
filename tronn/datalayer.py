@@ -1518,7 +1518,9 @@ class BedDataLoader(DataLoader):
                         bin_width,
                         stride,
                         final_length,
-                        chromsizes)
+                        chromsizes,
+                        method="plus_flank_negs",
+                        num_flanks=3)
             self.data_files = sorted(glob.glob("{}/*filt.bed.gz".format(
                 tmp_dir)))
 
