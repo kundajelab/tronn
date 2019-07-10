@@ -226,8 +226,13 @@ def main():
     corr_pvals_file = "{}/pvals.rna_filt.corr_filt.h5".format(args.out_dir)
     
     # read in RNA matrix
-    rna_patterns = pd.read_table(args.rna_expression_file)
+    rna_patterns = pd.read_csv(args.rna_expression_file, sep="\t", index_col=0)
+    rna_patterns = rna_patterns.iloc[:,[0,1,2,3,4,5,6,7,8,9,10,11,12,13]]
+    #print rna_patterns
+    #quit()
     rna_patterns["ensembl_ids"] = rna_patterns.index
+    logging.info("WARNING EPITHELIA SPECIFIC CHANGE HERE")
+
     
     # get foregrounds
     with h5py.File(expr_pvals_file, "r") as hf:
@@ -263,8 +268,8 @@ def main():
         example_scores = pwm_scores[foreground_indices]
         pwm_patterns = np.sum(example_scores, axis=0).transpose()
         # REMOVE LATER
-        logging.info("WARNING GGR SPECIFIC ADJUSTMENT HERE")
-        pwm_patterns = pwm_patterns[:,[0,2,3,4,5,6,7,8,9]]
+        logging.info("WARNING EPITHELIA SPECIFIC ADJUSTMENT HERE")
+        pwm_patterns = pwm_patterns[:,[1,2,3,4,5,6,7,8,9,10,11,12,13,14]]
         # add in all necessary information to pwm patterns (convert to dataframe)
         pwm_patterns = pd.DataFrame(pwm_patterns, index=pwm_names)
         pwm_patterns["ensembl_ids"] = ensembl_ids
@@ -349,7 +354,7 @@ def main():
                 new_sig_pwms_key, np.sum(new_sig_pwms), np.sum(old_sig_pwms)))
 
     # and plot
-    plot_cmd = "plot-h5.pwm_x_rna.R {} {}".format(corr_pvals_file, args.pvals_key)
+    plot_cmd = "Rscript /datasets/software/git/tronn/R/plot-h5.pwm_x_rna.R {} {}".format(corr_pvals_file, args.pvals_key)
     print plot_cmd
     os.system(plot_cmd)
     

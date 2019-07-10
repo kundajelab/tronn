@@ -14,7 +14,9 @@ library(rhdf5)
 args <- commandArgs(trailingOnly=TRUE)
 h5_file <- args[1]
 main_group <- args[2]
-col_labels <- c("d0.0", "d1.0", "d1.5", "d2.0", "d2.5", "d3.0", "d4.5", "d5.0", "d6.0")
+#col_labels <- c("d0.0", "d1.0", "d1.5", "d2.0", "d2.5", "d3.0", "d4.5", "d5.0", "d6.0")
+col_labels <- c("Astrocyte", "Bladder", "Colon", "Esophageal", "GDS.D0", "GDS.D3", "GDS.D6", "GM12878", "HMEC", "Melanocytes", "Ovarian", "Pancreas", "Prostate", "Renal")
+print(length(col_labels))
 out_dir <- dirname(h5_file)
 
 make_heatmap <- function(data, data_max, use_colsep, use_labrow) {
@@ -179,6 +181,7 @@ for (group_i in 1:length(groups)) {
         # 2) pwm scores (w max vector)
         # ===================
         pwm_scores <- aperm(group_data$pwm_patterns)
+	print(dim(pwm_scores))
 
         # adjust pwm names and put as rownames
         pwm_names <- attr(group_data, "pwm_names")
@@ -216,6 +219,7 @@ for (group_i in 1:length(groups)) {
         # 3) RNA scores (w max vector)
         # ===================
         rna_scores <- aperm(group_data$rna_patterns)
+	print(dim(rna_scores))
         rownames(rna_scores) <- attr(group_data, "hgnc_ids")
         colnames(rna_scores) <- col_labels
         
