@@ -10,7 +10,7 @@ library(grid)
 library(gridGraphics)
 library(gridExtra)
 
-library(extrafont)
+#library(extrafont)
 
 args <- commandArgs(trailingOnly=TRUE)
 motif_presence_file <- args[1]
@@ -60,8 +60,8 @@ make_heatmap <- function(data, colv, my_palette) {
         dendrogram="none",
         trace="none",
         density.info="none",
-        colsep=1:ncol(data),
-        rowsep=1:nrow(data),
+        colsep=0:(ncol(data)+1),
+        rowsep=0:(nrow(data)+1),
         sepcolor="black",
         sepwidth=c(0.01,0.01),
 
@@ -182,10 +182,12 @@ if (TRUE) {
 
 # normalize
 atac <- atac - apply(atac, 1, min)
-colnames(atac) <- c("d0.0", "d1.0", "d1.5", "d2.0", "d2.5", "d3.0", "d4.5", "d5.0", "d6.0")
+atac <- atac / apply(atac, 1, max)
+#colnames(atac) <- c("d0.0", "d1.0", "d1.5", "d2.0", "d2.5", "d3.0", "d4.5", "d5.0", "d6.0")
 
-rna <- rna  - apply(rna, 1, min)
-colnames(rna) <- c("d0.0", "d1.0", "d1.5", "d2.0", "d2.5", "d3.0", "d4.5", "d5.0", "d6.0")
+rna <- rna - apply(rna, 1, min)
+rna <- rna / apply(rna, 1, max)
+#colnames(rna) <- c("d0.0", "d1.0", "d1.5", "d2.0", "d2.5", "d3.0", "d4.5", "d5.0", "d6.0")
 
 # set up plotting fns for grob
 blue_palette <- colorRampPalette(brewer.pal(9, "Blues"))(49)
@@ -209,7 +211,6 @@ pdf(
     file=test_plot_file,
     height=12, width=21, onefile=FALSE, family="ArialMT", useDingbats=FALSE)
 grid.newpage()
-grid.arrange(grobs=grob_list, nrow=1, ncol=4, heights=c(10), widths=c(10, 1.5, 1.5, 8), clip=FALSE)
+grid.arrange(grobs=grob_list, nrow=1, ncol=4, heights=c(10), widths=c(7, 1.5, 1.5, 11), clip=FALSE)
 dev.off()
 
-embed_fonts(test_plot_file, outfile=plot_file)

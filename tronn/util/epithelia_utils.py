@@ -40,49 +40,74 @@ MANUAL_INTERESTING_GENES = []
 
 # manually curated functional terms
 GOOD_GO_TERMS = [
-    "stem cell differentiation",
-    "hemidesmosome",
-    "hair",
-    "cell migration",
-    "skin",
-    "keratinocyte",
-    "cell cycle",
-    "epiderm",
-    "cell junction",
-    "cell proliferation",
-    "adhesion",
-    "lipase activity",
-    "fatty acid",
-    "sphingolipid",
-    "glycerolipid"]
+    "neuro",
+    "axo",
+    "dendrit",
+    "pigment",
+    "melanin",
+    "melanocyte",
+    "melanosome",
+    "immune",
+    "cytokine",
+    "interleukin",
+    "hematopoietic",
+    "hemo",
+    "B cell"
+]
 
 REMOVE_GO_TERMS = [
-    "ameboidal",
-    "calcium-independent cell-cell adhesion via plasma membrane cell-adhesion molecules",
-    "spindle",
-    "via plasma membrane",
-    "adhesion molecules",
-    "cell spreading",
-    "endothelial",
-    "muscle"]
+    "adaptive immune response based on ",
+    "T cell",
+    "of chemotaxis",
+    "cell chemotaxis",
+    "myeloid dendritic cell activation",
+    "positive regulation of neuron projection development",
+    "cell morphogenesis involved in neuron differentiation",
+    "positive regulation of",
+    "lymphocyte activation involved in"
+    #"ameboidal",
+    #"calcium-independent cell-cell adhesion via plasma membrane cell-adhesion molecules",
+    #"spindle",
+    #"via plasma membrane",
+    #"adhesion molecules",
+    #"cell spreading",
+    #"endothelial",
+    #"muscle"
+]
 
 REMOVE_EXACT_TERMS = [
-    "biological adhesion",
-    "positive regulation of cell migration",
-    "positive regulation of cell junction assembly",
-    "positive regulation of epithelial cell proliferation",
-    "regulation of epithelial cell proliferation",
-    "calcium-independent cell-matrix adhesion",
-    "positive regulation of cell proliferation",
-    "regulation of cell proliferation",
-    "positive regulation of cell adhesion",
-    "regulation of cell adhesion",
-    "regulation of cell migration",
-    "regulatino of cell substrate adhesion"
+    "immune system process",
+    "adaptive immune response",
+    "immune response regulation of immune system process",
+    "regulation of immune response",
+    "regulation of B cell proliferation",
+    "hematopoietic or lymphoid organ development",
+    "B cell activation involved in immune response",
+    "regulation of neuron projection development",
+    "central nervous system neuron differentiation",
+    "central nervous system neuron development",
+    "regulation of interleukin 4 production",
+    "lymphocyte chemotaxis",
+    "regulation of interleukin 2 production",
+    "interleukin 2 production",
+    "dendritic cell differentiation",
+    "axon ensheathment",
+    "humoral immune response"
+    #"biological adhesion",
+    #"positive regulation of cell migration",
+    #"positive regulation of cell junction assembly",
+    #"positive regulation of epithelial cell proliferation",
+    #"regulation of epithelial cell proliferation",
+    #"calcium-independent cell-matrix adhesion",
+    #"positive regulation of cell proliferation",
+    #"regulation of cell proliferation",
+    #"positive regulation of cell adhesion",
+    #"regulation of cell adhesion",
+    #"regulation of cell migration",
+    #"regulatino of cell substrate adhesion"
 ]
 
 KEEP_GRAMMARS = [
-    ["TFAP2A", "KLF12"]
 ]
 
 def get_max_delta_logit(gml_file):
@@ -815,7 +840,7 @@ def merge_duplicates(
     return new_filt_summary_file
 
 
-def annotate_grammars(args, merge_grammars=True):
+def annotate_grammars(args, merge_grammars=False):
     """all the grammar annotation stuff
     """
     # generate blacklist pwms (length cutoff + manual)
@@ -955,7 +980,6 @@ def annotate_grammars(args, merge_grammars=True):
         
     # TODO make a function to adjust grammar colors?
     # color by function (not by ordering across time)?
-    
 
     return filt_summary_file
 
@@ -971,47 +995,32 @@ def plot_results(filt_summary_file, out_dir):
     grammars_df = pd.read_table(filt_summary_file)
     print grammars_df.shape
 
-    if False:
-        # remove the lowest signals
-        vals = grammars_df["ATAC_signal"].values
-        print np.min(vals), np.max(vals)
-        grammars_df = grammars_df[grammars_df["ATAC_signal"] > 2.85]
-
-        # remove the poorest performers
-        vals = grammars_df["delta_logit"].values
-        print np.min(vals), np.max(vals)
-        grammars_df = grammars_df[grammars_df["delta_logit"] < -0.09] # 0.8
-
-        # don't mess with RNA
-        vals = grammars_df["max_rna_vals"].values
-        print np.min(vals), np.max(vals)
-
     # get number of grammars
     num_grammars = grammars_df.shape[0]
 
     # adjust ordering
     num_to_order_val = {
-        0:1,
-        1:10,
-        2:11,
-        3:12,
-        4:13,
-        5:14,
-        7:2,
-        8:3,
-        9:4,
-        10:5,
-        11:6,
-        12:7,
-        13:8,
-        14:9
+        8:1,
+        10:3,
+        1:2
+        #3:12,
+        #4:13,
+        #5:14,
+        #7:2,
+        #8:3,
+        #9:4,
+        #10:5,
+        #11:6,
+        #12:7,
+        #13:8,
+        #14:9
     }
     
     for line_idx in range(num_grammars):
         grammar = nx.read_gml(grammars_df["filename"].iloc[line_idx])
         grammar_traj = int(
             os.path.basename(grammars_df["filename"].iloc[line_idx]).split(
-                ".")[1].replace("TRAJ_LABELS-", "").split("_")[0].split("-")[0])
+                ".")[1].replace("DIFF_TOPK_LABELS-", "").split("_")[0].split("-")[0])
         
         # get motifs and merge into motif df
         motifs = grammars_df["nodes"].iloc[line_idx].split(",")
@@ -1055,7 +1064,7 @@ def plot_results(filt_summary_file, out_dir):
 
         # extract ATAC vector and append
         epigenome_signals = np.array([float(val) for val in grammar.graph["ATACSIGNALSNORM"].split(",")])
-        atac = epigenome_signals[[0,2,3,4,5,6,9,10,12]]
+        atac = epigenome_signals[[1,2,3,4,5,6,7,8,9,10,11,12,13]]
         if line_idx == 0:
             atac_all = np.zeros((num_grammars, atac.shape[0]))
             atac_all[line_idx] = atac
@@ -1150,7 +1159,7 @@ def plot_results(filt_summary_file, out_dir):
         tf_set_clean = tf_set_clean.replace("KLF12;SP1;SP3;SP2;SP4;KLF4;KLF5;KLF3;KLF6;KLF9", "KLF4")
         tf_set_clean = tf_set_clean.replace(";MAF", "")
         tf_set_clean = tf_set_clean.replace(";CEBPB;DBP;HLF", "")
-        tf_set_clean = tf_set_clean.replace("TFAP2A;TFAP2C;", "")
+        tf_set_clean = tf_set_clean.replace(";TFAP2C;ZNF750", "")
         tf_set_clean = tf_set_clean.replace("TAF1;", "")
         tf_set_clean = tf_set_clean.replace(";CEBPG", "")
         tf_set_clean = tf_set_clean.replace("TCF12;TCF3;TFAP4;TCF4", "TCF3")
@@ -1165,6 +1174,9 @@ def plot_results(filt_summary_file, out_dir):
         tf_set_clean = tf_set_clean.replace(";SOX4", "")
         tf_set_clean = tf_set_clean.replace(";ISL1", "")
         tf_set_clean = tf_set_clean.replace(";TCF7L1;TCF7L2", "")
+        tf_set_clean = tf_set_clean.replace(";NFATC2;NFATC3;NFATC4", "")
+        tf_set_clean = tf_set_clean.replace("BACH1;BACH2;", "")
+        tf_set_clean = tf_set_clean.replace(";ZNF554FGK", "")
         tfs_clean.append(tf_set_clean)
     motifs_all.index = tfs_clean
         
