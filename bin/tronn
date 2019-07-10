@@ -232,6 +232,28 @@ def _add_dataset_args(parser):
         "--fifo", action="store_true",
         help="don't shuffle data")
 
+    # add input args if using BED file
+    _add_dataset_bed_args(parser)
+
+    return None
+
+
+def _add_dataset_bed_args(parser):
+    """add args specific to BED file input
+    """
+    parser.add_argument(
+        "--bin_width", type=int, default=200,
+        help="center active region length")
+    parser.add_argument(
+        "--stride", type=int, default=50,
+        help="stride (how many bp to skip when going to next interval)")
+    parser.add_argument(
+        "--final_length", type=int, default=1000,
+        help="final feature input length")
+    parser.add_argument(
+        "--num_flanks", type=int, default=3,
+        help="how many flanks to process on either side")
+    
     return None
 
 

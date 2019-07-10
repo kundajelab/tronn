@@ -22,12 +22,30 @@ def run(args):
     else:
         args.tmp_dir = args.out_dir
 
-    # TODO eventually put this in args
+    # input MUST be BED file of regions to process
     assert args.data_format == "bed"
-    args.bin_width = 200
-    args.stride = 50
-    args.final_length = 1000
+    
+    # force input to be ordered
+    logging.info("forcing input to be ordered.")
     args.fifo = True
+
+    # adjust BED file for strides, to make
+    # sure outputs don't clash when sequentially merging
+    clean_bed_file = "{}/regions.cleaned.bed.gz".format(args.out_dir)
+    merge_distance = 2 * args.num_flanks * args.stride
+    if args.data_files[0].endswith(".gz"):
+        open_cmd = "zcat"
+    else:
+        open_cmd = "cat"
+    merge_cmd = (
+        "{} {} | "
+        "sort -k1,1 -k2,2n | "
+        "bedtools merge -d {} -i stdin | "
+        "gzip -c > {}").format(
+            open_cmd,
+            merge_distance,
+            clean_bed_file)
+    args.data_files = [clean_bed_file]
     
     # collect a prediction sample for cross model quantile norm
     args.processed_inputs = False
