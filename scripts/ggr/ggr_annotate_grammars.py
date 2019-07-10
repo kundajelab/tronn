@@ -11,7 +11,7 @@ import sys
 import logging
 import argparse
 
-from tronn.util.ggr_utils import annotate_grammars
+from tronn.util.epithelia_utils import annotate_grammars
 from tronn.util.ggr_utils import plot_results
 from tronn.util.scripts import setup_run_logs
 
