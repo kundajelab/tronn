@@ -182,6 +182,9 @@ for (group_i in 1:length(groups)) {
         # ===================
         pwm_scores <- aperm(group_data$pwm_patterns)
 	print(dim(pwm_scores))
+	if (dim(pwm_scores)[1] <= 1) {
+	   next
+	}
 
         # adjust pwm names and put as rownames
         pwm_names <- attr(group_data, "pwm_names")

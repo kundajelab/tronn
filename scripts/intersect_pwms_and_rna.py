@@ -303,9 +303,22 @@ def main():
                 pwm_patterns_vals.values[i], rna_patterns_matched.values[i])
             pwm_rna_correlations[i] = corr_coef
 
-        # filter for correlation
+        # better way? top 3?
+        max_rna_idx = np.argmax(rna_patterns_matched.values, axis=-1)
+        if foreground_idx > 0:
+            is_max = max_rna_idx == (foreground_idx - 1)
+            rna_topk = np.argsort(rna_patterns_matched.values, axis=-1)
+            rna_topk = rna_topk[:,-3:]
+            print rna_topk.shape
+            is_max = np.any(rna_topk == (foreground_idx -1), axis=-1)
+        else:
+            is_max = max_rna_idx == foreground_idx
+        logging.info("EPITHELIA SPECIFIC")
+            
+        # filter for correlation and must be strongest in desired cell type
         if args.cor_thresh is not None:
             good_cor = pwm_rna_correlations >= args.cor_thresh
+            good_cor = np.logical_and(good_cor, is_max)
             pwm_patterns = pwm_patterns.iloc[good_cor]
             pwm_patterns_vals = pwm_patterns_vals.iloc[good_cor]
             rna_patterns_matched = rna_patterns_matched.iloc[good_cor]
