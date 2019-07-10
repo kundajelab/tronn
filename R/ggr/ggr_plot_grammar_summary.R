@@ -25,31 +25,11 @@ my_hclust <- function(data) {
 }
 
 make_heatmap <- function(data, colv, my_palette) {
-
-    
-    # color palette
-    #my_palette <- colorRampPalette(brewer.pal(9, "Reds"))(49)
-    #my_palette <- colorRampPalette(brewer.pal(9, "YlGnBu"))(49)
-    #my_palette <- colorRampPalette(brewer.pal(9, "Blues"))(49)
-    #my_palette <- rev(colorRampPalette(brewer.pal(9, "RdBu"))(49))
-    
-    # breaks
-    if (FALSE) {
-        color_granularity <- 50
-        data_melted <- melt(data)
-        my_breaks <- seq(
-            min(data_melted$value),
-                                        #0,
-                                        #quantile(data_melted$value, 0.01),
-            max(data_melted$value),
-                                        #quantile(data_melted$value, 0.90),
-            length.out=color_granularity)
-    }
     
     # grid
     mylmat = rbind(c(0,3,0),c(2,1,0),c(0,4,0))
     mylwid = c(1.0,7,1.0) # 0.5
-    mylhei = c(0.25,4,0.75) # 0.5
+    mylhei = c(0.05,4,1.37) # 0.5
 
     # plot
     heatmap.2(
@@ -66,7 +46,7 @@ make_heatmap <- function(data, colv, my_palette) {
         sepwidth=c(0.01,0.01),
 
         labRow=rep("", nrow(data)),
-        #labCol=labCol,
+	labCol=rep("", ncol(data)),
         cexCol=1.25,
         cexRow=1,
         srtCol=60,
@@ -76,13 +56,12 @@ make_heatmap <- function(data, colv, my_palette) {
         key.title=NA,
         key.xlab=NA,
         key.par=list(pin=c(4,0.1),
-            mar=c(3.1,1,3.1,1),
+            mar=c(11.1,8,0.1,8),
             mgp=c(3,1,0),
-            cex.axis=1.0,
-            font.axis=2),
+            cex.axis=1.0),
         key.xtickfun=function() {
             breaks <- pretty(parent.frame()$breaks)
-                                        #breaks <- breaks[c(1,length(breaks))]
+            breaks <- breaks[c(1,length(breaks))]
             list(at = parent.frame()$scale01(breaks),
                  labels = breaks)},
 
@@ -108,13 +87,15 @@ make_grammar_plot <- function(data) {
     data_melted$tfs <- factor(data_melted$tfs, levels=rev(rownames(data)))
     data_melted$variable <- factor(data_melted$variable, levels=colnames(data))
     
-    p <- ggplot(data_melted, aes(x=variable, y=tfs)) + geom_point(size=3) +
+    p <- ggplot(data_melted, aes(x=variable, y=tfs)) +
         geom_line(aes(group=tfs)) +
+        geom_point(shape=21, fill="white", color="black", size=3.5, stroke=0.75) +
         labs(x="Motif presence", y="Grammars") + 
         theme_bw() +
-            theme(
-                axis.text.x=element_text(size=14, angle=60, hjust=1),
-                axis.text.y=element_text(size=10))        
+        theme(
+	    plot.margin=margin(t=8, b=155),
+            axis.text.x=element_text(size=14, angle=60, hjust=1),
+            axis.text.y=element_text(size=14))        
     return(p)
     
 }
@@ -130,9 +111,10 @@ make_go_plot <- function(data) {
     
     p <- ggplot(data_melted, aes(x=variable, y=ids)) +
         geom_point(aes(size=value)) +
-        labs(y=NULL, x="GO terms") +
+        labs(size="-log10(p-value)", y=NULL, x="GO terms") +
         theme_bw() +
         theme(
+	    plot.margin=margin(t=8),
             axis.text.x=element_text(size=14, angle=60, hjust=1),
             axis.text.y=element_blank())       
     return(p)
@@ -209,8 +191,8 @@ grob_list <- list(
 test_plot_file <- "test.pdf"
 pdf(
     file=test_plot_file,
-    height=12, width=21, onefile=FALSE, family="ArialMT", useDingbats=FALSE)
+    height=12, width=23, onefile=FALSE, family="ArialMT", useDingbats=FALSE)
 grid.newpage()
-grid.arrange(grobs=grob_list, nrow=1, ncol=4, heights=c(10), widths=c(7, 1.5, 1.5, 11), clip=FALSE)
+grid.arrange(grobs=grob_list, nrow=1, ncol=4, heights=c(10), widths=c(7, 1.75, 1.75, 12), clip=FALSE)
 dev.off()
 

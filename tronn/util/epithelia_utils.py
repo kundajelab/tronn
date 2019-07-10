@@ -1174,9 +1174,10 @@ def plot_results(filt_summary_file, out_dir):
         tf_set_clean = tf_set_clean.replace(";SOX4", "")
         tf_set_clean = tf_set_clean.replace(";ISL1", "")
         tf_set_clean = tf_set_clean.replace(";TCF7L1;TCF7L2", "")
-        tf_set_clean = tf_set_clean.replace(";NFATC2;NFATC3;NFATC4", "")
+        tf_set_clean = tf_set_clean.replace(";NFATC2;NFATC3;NFATC4;ZNF384", "")
         tf_set_clean = tf_set_clean.replace("BACH1;BACH2;", "")
         tf_set_clean = tf_set_clean.replace(";ZNF554FGK", "")
+        tf_set_clean = tf_set_clean.replace(";PKNOX1", "")
         tfs_clean.append(tf_set_clean)
     motifs_all.index = tfs_clean
         
@@ -1219,6 +1220,7 @@ def plot_results(filt_summary_file, out_dir):
     plot_file = "{}/grammars.filt.summary.pdf".format(out_dir)
     plot_summary = "ggr_plot_grammar_summary.R {} {} {} {} {}".format(
         motifs_file, atac_file, rna_file, go_file, plot_file)
+    print plot_summary
     os.system(plot_summary)
     
     return
