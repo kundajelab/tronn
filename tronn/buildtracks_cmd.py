@@ -46,6 +46,8 @@ def run(args):
             " ".join(args.data_files),
             merge_distance,
             clean_bed_file)
+    logging.info(merge_cmd)
+    os.system(merge_cmd)
     args.data_files = [clean_bed_file]
     
     # collect a prediction sample for cross model quantile norm
