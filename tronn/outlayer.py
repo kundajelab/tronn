@@ -303,12 +303,9 @@ def h5_to_bigwig(
             os.system("rm {}".format(out_file))
 
     # batching
-    #batch_size = 8192
     start_idx = 0
-    #end_idx = start_idx + batch_size
     end_idx = start_idx + 1
     current_id = metadata[start_idx].split(";")[0]
-    #count = 0
     num_examples = metadata.shape[0]
     while end_idx < num_examples:
 
@@ -316,11 +313,6 @@ def h5_to_bigwig(
         if (metadata[end_idx].split(";")[0] == current_id) and (end_idx < num_examples-1):
             end_idx += 1
             continue
-
-        #print end_idx
-        #print current_id
-        #count += 1
-        #print count
         
         # get batch
         if end_idx < num_examples:
@@ -341,12 +333,8 @@ def h5_to_bigwig(
         
         # and get new
         start_idx = end_idx
-        #end_idx = start_idx + batch_size
         end_idx = start_idx + 1
         current_id = metadata[start_idx].split(";")[0]
-
-    # TO CONSIDER: also do the above in BATCHES. to reduce how much is being loaded into memory at one time.
-    #strided_merge_to_bedgraph(data, metadata, out_prefix, stride=50)
 
     # and then convert to bigwig
     bedgraph_files = sorted(glob.glob("{}*bedgraph".format(out_prefix)))
