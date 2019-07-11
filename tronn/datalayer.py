@@ -1498,6 +1498,7 @@ class BedDataLoader(DataLoader):
             final_length=1000,
             preprocessed=False,
             chromsizes=None,
+            ordered=True,
             tmp_dir="."):
         self.data_files = data_files
         self.fasta = fasta
@@ -1524,6 +1525,16 @@ class BedDataLoader(DataLoader):
             self.data_files = sorted(glob.glob("{}/*filt.bed.gz".format(
                 tmp_dir)))
 
+        # if ordered, need to remerge the files
+        if ordered:
+            merged_data_file = "{}/{}.merged.bed.gz".format(
+                tmp_dir,
+                os.path.basename(self.data_files[0]).split(".bed")[0])
+            remerge = "cat {} > {}".format(
+                " ".join(self.data_files), merged_data_file)
+            os.system(remerge)
+            self.data_files = [merged_data_file]
+            
         # count num regions
         self.num_regions = self.get_num_regions()
 
