@@ -1493,11 +1493,11 @@ class BedDataLoader(DataLoader):
             self,
             data_files,
             fasta,
-            preprocessed=False,
-            chromsizes=None,
             bin_width=200,
             stride=50,
             final_length=1000,
+            preprocessed=False,
+            chromsizes=None,
             tmp_dir="."):
         self.data_files = data_files
         self.fasta = fasta
@@ -2028,6 +2028,9 @@ def setup_data_loader(args):
         data_loader = BedDataLoader(
             data_files=args.data_files,
             fasta=args.fasta,
+            bin_width=args.bin_width,
+            stride=args.stride,
+            final_length=args.final_length,
             chromsizes=args.chromsizes,
             tmp_dir="{}/tmp_data".format(args.tmp_dir))
     elif args.data_format == "pwm_sims":

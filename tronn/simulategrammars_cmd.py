@@ -33,7 +33,7 @@ def _run_calculations(h5_file, args):
         [i for i in permutations(range(len(args.grammar_pwms)))])
     start_grammar_range = max(args.grammar_range[0], args.min_spacing)
     num_positions = len(
-        range(start_grammar_range, args.grammar_range[1], args.stride))
+        range(start_grammar_range, args.grammar_range[1], args.pwm_stride))
 
     # reshape logits: {N, logit} -> {syntax, pos, sample, 2, logit}
     num_positions = 108 # debug!
