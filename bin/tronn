@@ -1130,9 +1130,6 @@ def add_buildtracks_parser(subparsers):
     group_dataset.add_argument(
         "--chromsizes",
         help="chromsizes file")
-    group_dataset.add_argument(
-        "--stride", default=50, type=int,
-        help="stride across regions")
     
     # group for model
     group_model = cmd_argparser.add_argument_group(
