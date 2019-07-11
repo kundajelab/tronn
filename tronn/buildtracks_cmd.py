@@ -43,6 +43,7 @@ def run(args):
         "bedtools merge -d {} -i stdin | "
         "gzip -c > {}").format(
             open_cmd,
+            " ".join(args.data_files),
             merge_distance,
             clean_bed_file)
     args.data_files = [clean_bed_file]
