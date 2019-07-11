@@ -305,7 +305,7 @@ def _add_dataset_pwmsims_args(parser):
         "--grammar_range", default=[0, 70], nargs="+", # 0 to 120
         help="range of distances to consider")
     parser.add_argument(
-        "--stride", default=1, type=int,
+        "--pwm_stride", default=1, type=int,
         help="bp resolution of tests")
     parser.add_argument(
         "--min_spacing", default=12, type=int,

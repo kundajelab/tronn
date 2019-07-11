@@ -2036,7 +2036,7 @@ def setup_data_loader(args):
             args.grammar_pwms,
             args.sample_range,
             args.grammar_range,
-            args.stride,
+            args.pwm_stride,
             args.gc_range,
             num_samples=args.num_samples,
             min_spacing=args.min_spacing,
