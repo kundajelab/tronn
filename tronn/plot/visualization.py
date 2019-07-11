@@ -125,7 +125,7 @@ def plot_weights_group(array, plot_file, sig_array=None):
     """
     """
     # assume array is of form (task, seqlen, 4)
-    num_rows = array.shape[0] + 1
+    num_rows = array.shape[0]
     assert len(array.shape) == 3
     
     # calculate max/min height
