@@ -128,7 +128,7 @@ def _setup_output_skip_keys(args):
             DataKeys.LOGITS_MULTIMODEL,
             DataKeys.LOGITS_MULTIMODEL_NORM,
             DataKeys.IMPORTANCE_GRADIENTS,
-            DataKeys.WEIGHTED_SEQ,
+            #DataKeys.WEIGHTED_SEQ,
             DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
             DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH,
             DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
