@@ -75,7 +75,7 @@ def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indic
         "--prefix {}").format(
             data_file, label_indices, pwm_idx, out_dir, prefix)
     print get_matched_motif_sites
-    os.system(get_matched_motif_sites)
+    #os.system(get_matched_motif_sites)
 
     # go through bam files
     for bam_file in bam_files:
@@ -99,7 +99,7 @@ def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indic
             "--output-location={2}").format(
                 match_file, bam_file, bam_dir)
         print build_footprint
-        os.system(build_footprint)
+        #os.system(build_footprint)
         
         # get bias corrected negative sites footprint
         match_file="{}/{}.impt_negative.HINT.bed".format(out_dir, prefix)
@@ -117,7 +117,7 @@ def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indic
             "--output-location={2}").format(
                 match_file, bam_file, bam_dir)
         print build_footprint
-        os.system(build_footprint)
+        #os.system(build_footprint)
 
         # plot pair together
         paired_file = "{}/pos_w_neg.footprints.txt".format(bam_dir)
@@ -140,6 +140,7 @@ def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indic
         plot_file = "{}/{}.{}.footprints.diff.pdf".format(out_dir, prefix, bam_prefix)
         plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-e.0.plot.footprints.R {} {}".format(
             diff_file, plot_file)
+        print plot_cmd
         #os.system(plot_cmd)
         
     # pull together files
