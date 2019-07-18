@@ -8,7 +8,7 @@ import logging
 
 from tronn.datalayer import setup_data_loader
 from tronn.models import setup_model_manager
-
+from tronn.interpretation.inference import run_inference
 
 def run(args):
     """cmd to run predictions
@@ -18,8 +18,15 @@ def run(args):
     logger.info("Running predictions")
     os.system("mkdir -p {}".format(args.out_dir))
 
-    # if ensemble, make sure prediction sample present
+    # TODO load data file to get pwm name
     
+    # collect a prediction sample if ensemble (for cross model quantile norm)
+    # always need to do this if you're repeating backprop
+    if args.model["name"] == "ensemble":
+        true_sample_size = args.sample_size
+        args.sample_size = 1000
+        run_inference(args, warm_start=True)
+        args.sample_size = true_sample_size
     
     # set up model
     model_manager = setup_model_manager(args)
@@ -30,9 +37,10 @@ def run(args):
         args.batch_size,
         targets=args.targets,
         target_indices=args.target_indices,
-        filter_targets=args.filter_targets)
+        filter_targets=args.filter_targets,
+        use_queues=True)
 
-    # evaluate
+    # predict
     predictor = model_manager.predict(
         test_input_fn,
         args.out_dir,

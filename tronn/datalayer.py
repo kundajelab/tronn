@@ -2016,6 +2016,250 @@ class PWMSimsDataLoader(DataLoader):
         return generator, dtypes_dict, shapes_dict
 
     
+class SinglePWMSimsDataLoader(PWMSimsDataLoader):
+    """build a dataloader that generates synthetic sequences with desired params"""
+
+    def __init__(
+            self,
+            data_files,
+            pwms,
+            count_range,
+            sample_range,
+            gc_range,
+            background_regions=None,
+            num_samples=1000,
+            min_spacing=5,
+            count_by=1,
+            output_original_background=False,
+            fasta=None):
+        self.data_files = [data_files[0]] # placeholder
+        pwm_name = pd.read_csv(self.data_files[0]).iloc[0,0]
+        self.pwms = pwms
+        sim_pwms = [pwm for pwm in self.pwms if pwm_name in pwm.name]
+        assert len(sim_pwms) == 0, "PWM string is not unique!"
+        self.pwm = sim_pwm
+        self.count_range = range(count_range[0], count_range[1], count_by)
+        self.sample_range = range(sample_range[0], sample_range[1])
+        self.gc_range = gc_range
+        self.num_samples = num_samples
+        self.min_spacing = min_spacing
+        self.background_regions = background_regions
+        self.output_original_background = output_original_background
+        self.fasta = fasta
+        self.num_regions = self.get_num_regions()
+        self.all_pwms = all_pwms
+        
+        
+    def get_num_regions(self):
+        """count up how many sims will be done
+        """
+        num_regions = num_samples * len(count_range)
+        
+        return num_regions
+
+    
+    def build_generator(
+            self,
+            batch_size=256,
+            task_indices=[],
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            lock=threading.Lock(),
+            shuffle=True):
+        """generate all possibilities of grammars
+        """
+        # define which tensors will come out of generator
+        dtypes_dict = {
+            DataKeys.SEQ_METADATA: tf.string,
+            "simul.pwm.pos": tf.int64, # {N, M} - the positions
+            "simul.pwm.sample_idx": tf.int64, # {N}
+            "grammar.string": tf.string, # {N} - labels for plotting
+            "simul.pwm.count": tf.int64, # {N} - the total pwms embedded
+            DataKeys.FEATURES: tf.uint8}
+        shapes_dict = {
+            DataKeys.SEQ_METADATA: [1],
+            "simul.pwm.pos": [len(self.count_range)],
+            "simul.pwm.sample_idx": [],
+            "grammar.string": [1],
+            "simul.pwm.count": [],
+            DataKeys.FEATURES: [seq_len]}
+
+        class Generator(object):
+
+            def __init__(
+                    self,
+                    pwm,
+                    count_range,
+                    sample_range,
+                    num_samples,
+                    background_regions=None,
+                    seq_len=1000,
+                    min_gc=0.20,
+                    max_gc=0.80,
+                    fasta=None,
+                    output_original_background=True,
+                    check_reporter_compatibility=True):
+                self.pwm = pwm
+                self.offset_range = offset_range
+                self.num_samples = num_samples
+                self.seq_len = seq_len
+                self.min_gc = min_gc
+                self.max_gc = max_gc
+                self.fasta = fasta
+                self.background_regions = background_regions
+                self.output_original_background = output_original_background
+                self.all_pwms = all_pwms
+                self.check_reporter_compatibility = check_reporter_compatibility
+
+                # always do this in true background sequence
+                assert background_regions is not None
+                
+            def __call__(self, grammar_file, yield_single_examples=True):
+
+                # letters
+                BASES = ["A", "C", "G", "T"]
+                index_to_bp = {0: "A", 1: "C", 2: "G", 3: "T", 4: "N"}
+
+                # set up converter if using background regions
+                if self.background_regions is not None:
+                    converter = GenomicIntervalConverter(lock, self.fasta, 1)
+                    background_regions = pd.read_table(
+                        self.background_regions, header=None)
+                    background_regions.columns = ["chrom", "start", "stop"]
+
+                # for each sample
+                rand_seed = 0
+                for i in range(num_samples):
+                    sample_string = "sample-{}".format(rand_seed)
+                    
+                    # get a background sequence
+                    while True:
+                        # get a background region
+                        metadata = PWMSimsDataLoader.select_background_region(
+                            background_regions,
+                            self.seq_len,
+                            rand_seed)
+                        rand_seed += 1
+
+                        # get sequence string
+                        metadata = np.expand_dims(
+                            np.array([metadata]), axis=-1)
+                        sequence = converter.convert(metadata)[0]
+                        sequence = "".join(
+                            [index_to_bp[val] for val in sequence])
+                        if sequence.count("N") > 0:
+                            continue
+                        metadata = np.squeeze(metadata, axis=-1)
+                        background_sequence = "".join(sequence)
+
+                        # check GC
+                        if not PWMSimsDataLoader.is_gc_compatible(
+                                sequence, self.min_gc, self.max_gc):
+                            continue
+
+                        # embed pwms
+                        valid_indices = list(self.offset_range)
+                        sequence = str(background_sequence)
+                        for embed_count in self.count_range:
+                            
+                            # check valid indices - if no good windows, then break
+                            if len(valid_indices) == 0:
+                                break
+                            
+                            while True:
+                                # check valid indices
+                                if len(valid_indices) == 0:
+                                    break
+                                
+                                # select a position
+                                rand_state = RandomState(rand_seed)
+                                rand_seed += 1
+                                position = rand_state.choice(valid_indices)
+
+                                # check if position will fit in valid indices
+                                stop_position = position + len_pwm
+                                if stop_position not in valid_indices:
+                                    # remove these indices
+                                    # TODO adjus tmin spacing
+                                    for i in range(position, stop_position):
+                                        valid_indices.remove(i)
+                                    quit()
+                                    continue
+                                
+                                # try put pwm into position
+                                sampled_pwm = pwm.get_consensus_string()
+                                len_pwm = len(sampled_pwm)
+                                new_sequence = "".join([
+                                    sequence[:int(position)],
+                                    sampled_pwm,
+                                    sequence[int(position+len_pwm):]])
+
+                                # check compatibility
+                                if self.check_reporter_compatibility:
+                                    if is_fragment_compatible(new_sequence):
+                                        # change sequence to the new one and adjust valid indices
+                                        sequence = new_sequence
+                                        for i in range(position, stop_position):
+                                            valid_indices.remove(i)
+                                        break
+                                else:
+                                    # change sequence to the new one and adjust valid indices
+                                    sequence = new_sequence
+                                    for i in range(position, stop_position):
+                                        valid_indices.remove(i)
+                                    break    
+
+                            # convert to nums (for onehot conversion later)
+                            sequence = [str(BASES.index(bp)) for bp in sequence]
+                            sequence = ",".join(sequence)
+                            sequence = np.fromstring(sequence, dtype=np.uint8, sep=",")
+
+                            # also keep background sequence
+                            background_sequence = [str(BASES.index(bp))
+                                                   for bp in background_sequence]
+                            background_sequence = ",".join(background_sequence)
+                            background_sequence = np.fromstring(
+                                background_sequence, dtype=np.uint8, sep=",")
+
+                            # build slice array
+                            slice_array = {
+                                DataKeys.SEQ_METADATA: np.array([metadata]),
+                                "simul.pwm.pos": np.array([positions]),
+                                "simul.pwm.sample_idx": np.array([sample_idx]),
+                                "grammar.string": np.expand_dims(np.array([grammar_string]), axis=-1),
+                                DataKeys.FEATURES: np.array([sequence])}
+
+                            # add background if needed
+                            if self.output_original_background:
+                                # attach same for most things
+                                for key in slice_array.keys():
+                                    slice_array[key] = np.concatenate(
+                                        [slice_array[key], slice_array[key]], axis=0)
+                                # only change is features
+                                slice_array[DataKeys.FEATURES][1] = background_sequence
+
+                            yield (slice_array, 1.)
+
+                logging.info("finished {}".format(grammar_file))
+
+        # instantiate
+        generator = Generator(
+            self.pwms,
+            self.count_range,
+            self.sample_range,
+            self.num_samples,
+            background_regions=self.background_regions,
+            output_original_background=self.output_original_background,
+            fasta=self.fasta)
+                            
+        return generator, dtypes_dict, shapes_dict
+
+    
+    
 def setup_data_loader(args):
     """wrapper function to deal with dataloading 
     from different formats
@@ -2045,19 +2289,33 @@ def setup_data_loader(args):
             chromsizes=args.chromsizes,
             tmp_dir="{}/tmp_data".format(args.tmp_dir))
     elif args.data_format == "pwm_sims":
-        data_loader = PWMSimsDataLoader(
-            args.grammar_file,
-            args.grammar_pwms,
-            args.sample_range,
-            args.grammar_range,
-            args.pwm_stride,
-            args.gc_range,
-            num_samples=args.num_samples,
-            min_spacing=args.min_spacing,
-            background_regions=args.background_regions,
-            output_original_background=not args.embedded_only,
-            all_pwms=args.pwm_list,
-            fasta=args.fasta)
+        if not args.single_pwm:
+            data_loader = PWMSimsDataLoader(
+                args.grammar_file,
+                args.grammar_pwms,
+                args.sample_range,
+                args.grammar_range,
+                args.pwm_stride,
+                args.gc_range,
+                num_samples=args.num_samples,
+                min_spacing=args.min_spacing,
+                background_regions=args.background_regions,
+                output_original_background=not args.embedded_only,
+                all_pwms=args.pwm_list,
+                fasta=args.fasta)
+        else:
+            data_loader = SinglePWMSimsDataLoader(
+                args.data_files,
+                args.pwm,
+                args.sample_range,
+                args.count_range,
+                args.gc_range,
+                num_samples=args.num_samples,
+                min_spacing=args.min_spacing,
+                background_regions=args.background_regions,
+                output_original_background=not args.embedded_only,
+                all_pwms=args.datset_pwm_list,
+                fasta=args.fasta)
     else:
         raise ValueError("unrecognized data format!")
 

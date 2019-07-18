@@ -200,7 +200,7 @@ def _add_dataset_args(parser):
     """
     parser.add_argument(
         "--data_format", default="hdf5",
-        help="dataset storage format (hdf5, bed, custom)")
+        help="dataset storage format (hdf5, bed, pwm_sims)")
     parser.add_argument(
         "--data_dir",
         help="h5 file directory")
@@ -299,6 +299,9 @@ def _add_dataset_pwmsims_args(parser):
     """dataset args specifically for simulations with PWMs
     """
     parser.add_argument(
+        "--dataset_pwm_file",
+        help="pwm_file")
+    parser.add_argument(
         "--sample_range", default=[420, 580], nargs="+", # 420 to 580
         help="range for embedding in sequence")
     parser.add_argument(
@@ -322,6 +325,14 @@ def _add_dataset_pwmsims_args(parser):
     parser.add_argument(
         "--embedded_only", action="store_true",
         help="don't output the original background sequence")
+
+    # args if doing single pwm analyses (homotypic clustering)
+    parser.add_argument(
+        "--single_pwm", action="store_true",
+        help="pwm sims for single pwm analyses. REQURES data_files is a text file with a single pwm name")
+    parser.add_argument(
+        "--count_range", default=[1, 6], nargs="+",
+        help="number of PWMs to embed")
     
     return None
 
@@ -329,10 +340,23 @@ def _add_dataset_pwmsims_args(parser):
 def _setup_dataset_pwmsims_args(args):
     """set up simulate grammar args
     """
+    # load pwm file
+    if args.dataset_pwm_file is not None:
+        args.dataset_pwm_list = MotifSetManager.read_pwm_file(args.dataset_pwm_file)
+        args.dataset_pwm_names = [pwm.name for pwm in args.dataset_pwm_list]
+        args.dataset_pwm_dict = MotifSetManager.read_pwm_file(args.dataset_pwm_file, as_dict=True)
+    else:
+        args.dataset_pwm_list = None
+        args.dataset_pwm_names = None
+        args.dataset_pwm_dict = None
+
     # make sure dtypes are right
     args.sample_range = [int(val) for val in args.sample_range]
     args.grammar_range = [int(val) for val in args.grammar_range]
     args.gc_range = [float(val) for val in args.gc_range]
+
+    # only used for single pwm analyses
+    args.count_range = [float(val) for val in args.count_range]
     
     return None
 
