@@ -134,13 +134,16 @@ def plot_weights_group(array, plot_file, sig_array=None):
 
     # calculate ratio and adjust to fit in page width
     # assumes that 160 bps should be 6in wide
-    desired_width = 6.0
-    height_to_width_factor = 6
-    width_height_ratio = array.shape[0] / float(array.shape[1])
-    plot_height = height_to_width_factor * width_height_ratio * desired_width
+    # maintain same height
+    desired_height = 2.25
+    width_to_height_factor = 6
+    width_height_ratio = array.shape[1] / float(array.shape[0])
+    #plot_height = height_to_width_factor * width_height_ratio * desired_width
+    #desired_width = 6.0
+    desired_width = desired_height * width_height_ratio / width_to_height_factor
     
     # set up plot
-    f, ax = plt.subplots(num_rows, 1, figsize=(desired_width, plot_height))
+    f, ax = plt.subplots(num_rows, 1, figsize=(desired_width, desired_height))
     for row_idx in range(num_rows):
         x_lab = False
         y_lab = False
