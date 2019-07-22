@@ -358,8 +358,13 @@ def _setup_dataset_pwmsims_args(args):
     args.grammar_range = [int(val) for val in args.grammar_range]
     args.gc_range = [float(val) for val in args.gc_range]
 
+    assert len(args.sample_range) == 2
+    assert len(args.grammar_range) == 2
+    assert len(args.gc_range) == 2
+    
     # only used for single pwm analyses
     args.count_range = [float(val) for val in args.count_range]
+    assert len(args.count_range) == 2
     
     return None
 
