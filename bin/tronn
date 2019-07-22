@@ -340,6 +340,9 @@ def _add_dataset_pwmsims_args(parser):
 def _setup_dataset_pwmsims_args(args):
     """set up simulate grammar args
     """
+    # make sure data files is a list of length 1
+    assert len(args.data_files) == 1
+    
     # load pwm file
     if args.dataset_pwm_file is not None:
         args.dataset_pwm_list = MotifSetManager.read_pwm_file(args.dataset_pwm_file)
@@ -983,9 +986,6 @@ def add_simulategrammar_parser(subparsers):
     group_dataset.add_argument(
         "--processed_inputs", action="store_true",
         help="inputs are already preprocessed through some inference stack")
-    group_dataset.add_argument(
-        "--grammar_file",
-        help="gml file with grammar")
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
