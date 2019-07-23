@@ -1818,9 +1818,6 @@ class PWMSimsDataLoader(DataLoader):
             if sequence.count("N") > 0:
                 continue
 
-            # readjust metadata
-            metadata = np.squeeze(metadata, axis=-1)
-
             # check GC
             if not PWMSimsDataLoader.is_gc_compatible(
                     sequence, min_gc, max_gc):
