@@ -1885,7 +1885,7 @@ class PWMSimsDataLoader(DataLoader):
                     background_regions=None,
                     output_original_background=True,
                     all_pwms=None,
-                    check_reporter_compatibility=True):
+                    check_reporter_compatibility=False):
                 self.syntaxes = syntaxes
                 self.anchor_positions = anchor_positions
                 self.other_positions = other_positions
@@ -1917,28 +1917,19 @@ class PWMSimsDataLoader(DataLoader):
                     background_regions.columns = ["chrom", "start", "stop"]
 
                 # get global pwm indices, as needed
-                # TODO FIX THIS
                 pwm_names = [pwm.name for pwm in self.syntaxes[0]]
                 pwm_mask = np.array([1 if pwm.name in pwm_names else 0 for pwm in self.all_pwms])
                 global_pwm_indices = np.where(pwm_mask!=0)[0]
 
                 # generate spacings
                 for sample_idx in range(self.num_samples):
-                    print sample_idx
+                    logging.info("generating sample {}".format(sample_idx))
 
                     while True:
-
-                        # reset whether sequences are compatible
-                        sequences_are_compatible = True
                         
-                        # for each sample, get a background sequence
-                        metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
-                            converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
-
-                        # with that background sequence, choose a (random) anchor position
-                        rand_state = RandomState(rand_seed)
-                        rand_seed += 1
-                        anchor_position = rand_state.choice(self.anchor_positions)
+                        # reset whether sequences are compatible - use if trying to match all backgrounds
+                        sequences_are_compatible = True
+                        background_seed = 0
                         
                         # set up output results dict
                         results = {}
@@ -1947,14 +1938,14 @@ class PWMSimsDataLoader(DataLoader):
                             
                         # go through syntaxes
                         for syntax in self.syntaxes:
-                            if not sequences_are_compatible:
-                                continue
+                            #if not sequences_are_compatible:
+                            #    continue
                             
                             # generate syntax string
                             syntax_string = PWMSimsDataLoader.get_syntax(syntax)
                             syntax_string = np.array([syntax_string])
                             
-                            # generate ordered global indices
+                            # generate ordered global indices and orientations
                             syntax_pwm_indices = []
                             syntax_orientations = []
                             for grammar_pwm in syntax:
@@ -1967,44 +1958,40 @@ class PWMSimsDataLoader(DataLoader):
                                     syntax_orientations.append(-1)
                                 else:
                                     syntax_orientations.append(0)
-                                
-                            # insert first pwm at anchor position
-                            anchor_pwm = syntax[0]
-                            sampled_pwm = anchor_pwm.get_consensus_string()
-                            len_pwm = len(sampled_pwm)
-                            anchor_sequence = "".join([
-                                background_sequence[:int(anchor_position)],
-                                sampled_pwm,
-                                background_sequence[int(anchor_position+len_pwm):]])
-                            
-                            # check sequence
-                            if self.check_reporter_compatibility:
-                                if not is_fragment_compatible(anchor_sequence):
-                                    sequences_are_compatible = False
-                                    continue
                             
                             # and iterate through positions and pwms
                             for remaining_positions in self.other_positions:
-                                if not sequences_are_compatible:
-                                    continue
+                                #if not sequences_are_compatible:
+                                #    continue
 
-                                # copy sequence, reset indices
-                                sequence = str(anchor_sequence)
+                                # get a background sequence and anchor position
+                                # NOTE can fix background sequence by fixing rand seed
+                                metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
+                                    converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
+                                
+                                # insert first pwm at anchor position
+                                rand_state = RandomState(rand_seed)
+                                rand_seed += 1
+                                anchor_position = rand_state.choice(self.anchor_positions)
+                                sampled_pwm = syntax[0].get_consensus_string() # TODO adjust this?
+                                sequence = "".join([
+                                    background_sequence[:int(anchor_position)],
+                                    sampled_pwm,
+                                    background_sequence[int(anchor_position+len(sampled_pwm)):]])
                                 simul_indices = [anchor_position]
-                            
+
+                                # embed other pwms
                                 valid_positions = list(remaining_positions)[1:] + anchor_position
                                 for i in range(len(syntax[1:])):
-                                    # embed pwm
                                     pwm = syntax[i]
                                     position = valid_positions[i]
                                     sampled_pwm = pwm.get_consensus_string()
-                                    len_pwm = len(sampled_pwm)
                                     sequence = "".join([
                                         sequence[:int(position)],
                                         sampled_pwm,
-                                        sequence[int(position+len_pwm):]])
+                                        sequence[int(position+len(sampled_pwm)):]])
                                     simul_indices.append(position)
-                                    
+
                                 # check sequence
                                 if self.check_reporter_compatibility:
                                     if not is_fragment_compatible(sequence):
@@ -2029,6 +2016,7 @@ class PWMSimsDataLoader(DataLoader):
                                 max_vals = max_vals.astype(np.float32)
                                     
                                 # save out to results
+                                results[DataKeys.FEATURES].append(sequence)
                                 results[DataKeys.SEQ_METADATA].append(metadata)
                                 results["simul.pwm.indices"].append(syntax_pwm_indices)
                                 results["simul.pwm.pos"].append(simul_indices)
@@ -2036,33 +2024,53 @@ class PWMSimsDataLoader(DataLoader):
                                 results["simul.pwm.sample_idx"].append(sample_idx)
                                 results["grammar.string"].append(syntax_string)
                                 results["simul.pwm.dist"].append(dist)
-                                results[DataKeys.FEATURES].append(sequence)
                                 results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
                                 results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
 
-                        # add in background sequence if requested
-                        if self.output_original_background:
-                            # convert sequence
-                            background_sequence_out = [str(BASES.index(bp))
-                                                   for bp in background_sequence]
-                            background_sequence_out = ",".join(background_sequence_out)
-                            background_sequence_out = np.fromstring(
-                                background_sequence_out, dtype=np.uint8, sep=",")
+                                # and attach original background as needed
+                                if self.output_original_background:
+                                    background_sequence_out = [str(BASES.index(bp))
+                                                               for bp in background_sequence]
+                                    background_sequence_out = ",".join(background_sequence_out)
+                                    background_sequence_out = np.fromstring(
+                                    background_sequence_out, dtype=np.uint8, sep=",")
 
-                            # add to results
-                            results[DataKeys.SEQ_METADATA].append(metadata)
-                            results["simul.pwm.indices"].append(syntax_pwm_indices)
-                            results["simul.pwm.pos"].append(simul_indices)
-                            results["simul.pwm.orientation"].append(syntax_orientations)
-                            results["simul.pwm.sample_idx"].append(sample_idx)
-                            results["grammar.string"].append(np.array(["BACKGROUND"]))
-                            results["simul.pwm.dist"].append(dist)
-                            results[DataKeys.FEATURES].append(background_sequence_out)
-                            results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
-                            results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
-
+                                    results[DataKeys.FEATURES].append(background_sequence_out)
+                                    results[DataKeys.SEQ_METADATA].append(metadata)
+                                    results["simul.pwm.indices"].append(syntax_pwm_indices)
+                                    results["simul.pwm.pos"].append(simul_indices)
+                                    results["simul.pwm.orientation"].append(syntax_orientations)
+                                    results["simul.pwm.sample_idx"].append(sample_idx)
+                                    results["grammar.string"].append(syntax_string)
+                                    results["simul.pwm.dist"].append(dist)
+                                    results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
+                                    results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
+                                
                         if sequences_are_compatible:
                             break
+
+                    # add in background sequence if requested
+                    if False:
+                    #if self.output_original_background:
+                        # convert sequence
+                        background_sequence_out = [str(BASES.index(bp))
+                                               for bp in background_sequence]
+                        background_sequence_out = ",".join(background_sequence_out)
+                        background_sequence_out = np.fromstring(
+                            background_sequence_out, dtype=np.uint8, sep=",")
+
+                        # add to results
+                        results[DataKeys.SEQ_METADATA].append(metadata)
+                        results["simul.pwm.indices"].append(syntax_pwm_indices)
+                        results["simul.pwm.pos"].append(simul_indices)
+                        results["simul.pwm.orientation"].append(syntax_orientations)
+                        results["simul.pwm.sample_idx"].append(sample_idx)
+                        results["grammar.string"].append(np.array(["BACKGROUND"]))
+                        results["simul.pwm.dist"].append(dist)
+                        results[DataKeys.FEATURES].append(background_sequence_out)
+                        results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
+                        results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
+
                     
                     # convert everything to numpy array
                     for key in sorted(results.keys()):
@@ -2093,22 +2101,28 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
     def __init__(
             self,
             data_files,
-            pwms,
-            count_range,
-            sample_range,
-            gc_range,
+            count_range=(1,6),
+            sample_range=(420, 580),
+            gc_range=(0.2, 0.8),
             background_regions=None,
-            num_samples=1000,
+            num_samples=100,
             min_spacing=5,
             count_by=1,
             output_original_background=False,
+            all_pwms=None,
             fasta=None):
-        self.data_files = [data_files[0]] # placeholder
-        pwm_name = pd.read_csv(self.data_files[0]).iloc[0,0]
-        self.pwms = pwms
-        sim_pwms = [pwm for pwm in self.pwms if pwm_name in pwm.name]
-        assert len(sim_pwms) == 0, "PWM string is not unique!"
-        self.pwm = sim_pwm
+        """embed pwms into background sequence
+        """
+        # extract pwm name and match to pwm file
+        self.all_pwms = all_pwms
+        self.data_files = data_files
+        pwm_name = pd.read_csv(self.data_files[0], header=None).iloc[0,0]
+        sim_pwms = [pwm for pwm in self.all_pwms if pwm_name in pwm.name]
+        assert len(sim_pwms) == 1, "PWM string is not unique or missing!"
+        self.pwm = sim_pwms[0]
+
+        # load params
+        # TODO figure out how to deal with spacing, ignore for now
         self.count_range = range(count_range[0], count_range[1], count_by)
         self.sample_range = range(sample_range[0], sample_range[1])
         self.gc_range = gc_range
@@ -2118,15 +2132,12 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
         self.output_original_background = output_original_background
         self.fasta = fasta
         self.num_regions = self.get_num_regions()
-        self.all_pwms = all_pwms
         
         
     def get_num_regions(self):
         """count up how many sims will be done
         """
-        num_regions = num_samples * len(count_range)
-        
-        return num_regions
+        return self.num_samples * len(self.count_range)
 
     
     def build_generator(
@@ -2167,16 +2178,20 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                     count_range,
                     sample_range,
                     num_samples,
+                    shapes_dict,
                     background_regions=None,
                     seq_len=1000,
                     min_gc=0.20,
                     max_gc=0.80,
                     fasta=None,
                     output_original_background=True,
-                    check_reporter_compatibility=True):
+                    check_reporter_compatibility=True,
+                    all_pwms=None):
                 self.pwm = pwm
-                self.offset_range = offset_range
+                self.count_range = count_range
+                self.sample_range = sample_range
                 self.num_samples = num_samples
+                self.output_shapes = shapes_dict
                 self.seq_len = seq_len
                 self.min_gc = min_gc
                 self.max_gc = max_gc
@@ -2186,14 +2201,14 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                 self.all_pwms = all_pwms
                 self.check_reporter_compatibility = check_reporter_compatibility
 
-                # always do this in true background sequence
-                assert background_regions is not None
                 
             def __call__(self, grammar_file, yield_single_examples=True):
-
+                
+                # init
+                rand_seed = 0
+                
                 # letters
                 BASES = ["A", "C", "G", "T"]
-                index_to_bp = {0: "A", 1: "C", 2: "G", 3: "T", 4: "N"}
 
                 # set up converter if using background regions
                 if self.background_regions is not None:
@@ -2203,37 +2218,24 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                     background_regions.columns = ["chrom", "start", "stop"]
 
                 # for each sample
-                rand_seed = 0
-                for i in range(num_samples):
-                    sample_string = "sample-{}".format(rand_seed)
-                    
-                    # get a background sequence
+                for i in range(self.num_samples):
+                    sample_string = "sample-{}".format(i)
+
                     while True:
-                        # get a background region
-                        metadata = PWMSimsDataLoader.select_background_region(
-                            background_regions,
-                            self.seq_len,
-                            rand_seed)
-                        rand_seed += 1
+                        # reset whether sequences are compatible
+                        sequences_are_compatible = True
+                        
+                        # for each sample, get a background sequence
+                        metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
+                            converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
 
-                        # get sequence string
-                        metadata = np.expand_dims(
-                            np.array([metadata]), axis=-1)
-                        sequence = converter.convert(metadata)[0]
-                        sequence = "".join(
-                            [index_to_bp[val] for val in sequence])
-                        if sequence.count("N") > 0:
-                            continue
-                        metadata = np.squeeze(metadata, axis=-1)
-                        background_sequence = "".join(sequence)
-
-                        # check GC
-                        if not PWMSimsDataLoader.is_gc_compatible(
-                                sequence, self.min_gc, self.max_gc):
-                            continue
+                        # set up output results dict
+                        results = {}
+                        for key in self.output_shapes.keys():
+                            results[key] = []
 
                         # embed pwms
-                        valid_indices = list(self.offset_range)
+                        valid_indices = list(self.sample_range)
                         sequence = str(background_sequence)
                         for embed_count in self.count_range:
                             
@@ -2252,13 +2254,12 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                                 position = rand_state.choice(valid_indices)
 
                                 # check if position will fit in valid indices
-                                stop_position = position + len_pwm
+                                min_spacing = 12
+                                stop_position = max(position + len_pwm, position + min_spacing)
                                 if stop_position not in valid_indices:
                                     # remove these indices
-                                    # TODO adjus tmin spacing
                                     for i in range(position, stop_position):
                                         valid_indices.remove(i)
-                                    quit()
                                     continue
                                 
                                 # try put pwm into position
@@ -2268,7 +2269,8 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                                     sequence[:int(position)],
                                     sampled_pwm,
                                     sequence[int(position+len_pwm):]])
-
+                                print valid_indices
+                                quit()
                                 # check compatibility
                                 if self.check_reporter_compatibility:
                                     if is_fragment_compatible(new_sequence):
@@ -2319,13 +2321,15 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
 
         # instantiate
         generator = Generator(
-            self.pwms,
+            self.pwm,
             self.count_range,
             self.sample_range,
             self.num_samples,
+            shapes_dict,
             background_regions=self.background_regions,
             output_original_background=self.output_original_background,
-            fasta=self.fasta)
+            fasta=self.fasta,
+            all_pwms=self.all_pwms)
                             
         return generator, dtypes_dict, shapes_dict
 
@@ -2377,10 +2381,9 @@ def setup_data_loader(args):
         else:
             data_loader = SinglePWMSimsDataLoader(
                 args.data_files,
-                args.pwm,
-                args.sample_range,
-                args.count_range,
-                args.gc_range,
+                sample_range=args.sample_range,
+                count_range=args.count_range,
+                gc_range=args.gc_range,
                 num_samples=args.num_samples,
                 min_spacing=args.min_spacing,
                 background_regions=args.background_regions,
