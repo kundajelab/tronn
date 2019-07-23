@@ -26,6 +26,14 @@ class PWM(object):
             0: "A", 1: "C", 2: "G", 3: "T"}
 
         
+    def copy(self, new_name=None):
+        """make a new PWM instance
+        """
+        new_pwm = PWM(self.weights, name=new_name, threshold=self.threshold)
+        
+        return new_pwm
+
+    
     def normalize(self, style="gaussian", in_place=True):
         """Normalize pwm
         """
