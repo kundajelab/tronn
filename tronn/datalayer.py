@@ -1818,6 +1818,9 @@ class PWMSimsDataLoader(DataLoader):
             if sequence.count("N") > 0:
                 continue
 
+            # readjust metadata
+            metadata = np.squeeze(metadata, axis=-1)
+            
             # check GC
             if not PWMSimsDataLoader.is_gc_compatible(
                     sequence, min_gc, max_gc):
@@ -1949,7 +1952,8 @@ class PWMSimsDataLoader(DataLoader):
                             
                             # generate syntax string
                             syntax_string = PWMSimsDataLoader.get_syntax(syntax)
-
+                            syntax_string = np.array([syntax_string])
+                            
                             # generate ordered global indices
                             syntax_pwm_indices = []
                             syntax_orientations = []
@@ -2051,7 +2055,7 @@ class PWMSimsDataLoader(DataLoader):
                             results["simul.pwm.pos"].append(simul_indices)
                             results["simul.pwm.orientation"].append(syntax_orientations)
                             results["simul.pwm.sample_idx"].append(sample_idx)
-                            results["grammar.string"].append("BACKGROUND")
+                            results["grammar.string"].append(np.array(["BACKGROUND"]))
                             results["simul.pwm.dist"].append(dist)
                             results[DataKeys.FEATURES].append(background_sequence_out)
                             results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
