@@ -2206,8 +2206,6 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                 
                 # init
                 rand_seed = 0
-                
-                # letters
                 BASES = ["A", "C", "G", "T"]
 
                 # set up converter if using background regions
@@ -2218,104 +2216,121 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                     background_regions.columns = ["chrom", "start", "stop"]
 
                 # for each sample
-                for i in range(self.num_samples):
-                    sample_string = "sample-{}".format(i)
-
+                for sample_idx in range(self.num_samples):
+                    sample_string = "sample-{}".format(sample_idx)
+                    print sample_string
+                    
                     while True:
-                        # reset whether sequences are compatible
-                        sequences_are_compatible = True
+                        
+                        # set up output results dict
+                        results = {}
+                        for key in self.output_shapes.keys():
+                            results[key] = []
                         
                         # for each sample, get a background sequence
                         metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
                             converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
 
-                        # set up output results dict
-                        results = {}
-                        for key in self.output_shapes.keys():
-                            results[key] = []
-
                         # embed pwms
                         valid_indices = list(self.sample_range)
-                        sequence = str(background_sequence)
-                        for embed_count in self.count_range:
-                            
-                            # check valid indices - if no good windows, then break
-                            if len(valid_indices) == 0:
-                                break
+                        embed_sequence = str(background_sequence)
+                        simul_indices = np.zeros(len(self.count_range))
+                        # TODO this logic is not quite right
+                        embed_total = 0
+                        for embed_idx in range(len(self.count_range)):
                             
                             while True:
                                 # check valid indices
                                 if len(valid_indices) == 0:
                                     break
+
+                                # get current sequence
+                                curr_sequence = str(embed_sequence)
+                                
+                                # sample pwm
+                                sampled_pwm = self.pwm.get_consensus_string()
                                 
                                 # select a position
                                 rand_state = RandomState(rand_seed)
                                 rand_seed += 1
                                 position = rand_state.choice(valid_indices)
-
+                                
                                 # check if position will fit in valid indices
                                 min_spacing = 12
-                                stop_position = max(position + len_pwm, position + min_spacing)
+                                stop_position = max(position + len(sampled_pwm), position + min_spacing)
                                 if stop_position not in valid_indices:
                                     # remove these indices
                                     for i in range(position, stop_position):
-                                        valid_indices.remove(i)
+                                        try:
+                                            valid_indices.remove(i)
+                                        except:
+                                            continue
                                     continue
                                 
                                 # try put pwm into position
-                                sampled_pwm = pwm.get_consensus_string()
-                                len_pwm = len(sampled_pwm)
-                                new_sequence = "".join([
-                                    sequence[:int(position)],
+                                curr_sequence = "".join([
+                                    curr_sequence[:int(position)],
                                     sampled_pwm,
-                                    sequence[int(position+len_pwm):]])
-                                print valid_indices
-                                quit()
+                                    curr_sequence[int(position+len(sampled_pwm)):]])
+
                                 # check compatibility
                                 if self.check_reporter_compatibility:
-                                    if is_fragment_compatible(new_sequence):
+                                    if is_fragment_compatible(curr_sequence):
+                                        embed_sequence = str(curr_sequence)
                                         # change sequence to the new one and adjust valid indices
-                                        sequence = new_sequence
                                         for i in range(position, stop_position):
                                             valid_indices.remove(i)
                                         break
                                 else:
                                     # change sequence to the new one and adjust valid indices
-                                    sequence = new_sequence
+                                    embed_sequence = str(curr_sequence)
                                     for i in range(position, stop_position):
                                         valid_indices.remove(i)
-                                    break    
+                                    break
 
+                            if len(valid_indices) == 0:
+                                continue
+                            
+                            # other calcs
+                            grammar_string = "{}.embed-{}".format(sample_string, embed_idx)
+                            simul_indices[embed_idx] = position
+                            embed_total += 1
+                                
                             # convert to nums (for onehot conversion later)
+                            sequence = str(embed_sequence)
                             sequence = [str(BASES.index(bp)) for bp in sequence]
                             sequence = ",".join(sequence)
                             sequence = np.fromstring(sequence, dtype=np.uint8, sep=",")
 
+                            # add to results
+                            results[DataKeys.FEATURES].append(sequence)
+                            results[DataKeys.SEQ_METADATA].append(metadata)
+                            results["simul.pwm.pos"].append(simul_indices)
+                            results["simul.pwm.sample_idx"].append(sample_idx)
+                            results["simul.pwm.count"].append(embed_total)
+                            results["grammar.string"].append([grammar_string])
+                            
                             # also keep background sequence
-                            background_sequence = [str(BASES.index(bp))
-                                                   for bp in background_sequence]
-                            background_sequence = ",".join(background_sequence)
-                            background_sequence = np.fromstring(
-                                background_sequence, dtype=np.uint8, sep=",")
-
-                            # build slice array
-                            slice_array = {
-                                DataKeys.SEQ_METADATA: np.array([metadata]),
-                                "simul.pwm.pos": np.array([positions]),
-                                "simul.pwm.sample_idx": np.array([sample_idx]),
-                                "grammar.string": np.expand_dims(np.array([grammar_string]), axis=-1),
-                                DataKeys.FEATURES: np.array([sequence])}
-
-                            # add background if needed
                             if self.output_original_background:
-                                # attach same for most things
-                                for key in slice_array.keys():
-                                    slice_array[key] = np.concatenate(
-                                        [slice_array[key], slice_array[key]], axis=0)
-                                # only change is features
-                                slice_array[DataKeys.FEATURES][1] = background_sequence
+                                background_sequence_out = [str(BASES.index(bp))
+                                                       for bp in background_sequence]
+                                background_sequence_out = ",".join(background_sequence_out)
+                                background_sequence_out = np.fromstring(
+                                    background_sequence_out, dtype=np.uint8, sep=",")
+                                results[DataKeys.FEATURES].append(background_sequence_out)
+                                results[DataKeys.SEQ_METADATA].append(metadata)
+                                results["simul.pwm.pos"].append(simul_indices)
+                                results["simul.pwm.sample_idx"].append(sample_idx)
+                                results["simul.pwm.count"].append(embed_total)
+                                results["grammar.string"].append([grammar_string])
 
-                            yield (slice_array, 1.)
+                        break
+
+                    # stack to numpy array
+                    for key in sorted(results.keys()):
+                        results[key] = np.stack(results[key], axis=0)
+                                
+                    yield (results, 1.)
 
                 logging.info("finished {}".format(grammar_file))
 
