@@ -9,7 +9,7 @@ tronn simulategrammar \
       --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.negatives.bed.gz \
       --fasta /datasets/annotations.hg19/hg19.genome.fa \
       --batch_size 12 \
-      --num_samples 100 \
+      --num_samples 10 \
       --prediction_sample $4/ggr.dmim.prediction_sample.h5 \
       --model ensemble quantile_norm models=${PREFIX}0${SUFFIX},${PREFIX}1${SUFFIX},${PREFIX}2${SUFFIX},${PREFIX}3${SUFFIX},${PREFIX}4${SUFFIX},${PREFIX}5${SUFFIX},${PREFIX}6${SUFFIX},${PREFIX}7${SUFFIX},${PREFIX}8${SUFFIX},${PREFIX}9${SUFFIX} \
       --num_gpus 6 \
