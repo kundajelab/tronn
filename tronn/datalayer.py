@@ -1914,7 +1914,9 @@ class PWMSimsDataLoader(DataLoader):
                     converter = GenomicIntervalConverter(lock, self.fasta, 1)
                     background_regions = pd.read_table(
                         self.background_regions, header=None)
-                    background_regions.columns = ["chrom", "start", "stop"]
+                    colnames = list(background_regions.columns)
+                    colnames[0:3] = ["chrom", "start", "stop"]
+                    background_regions.columns = colnames
 
                 # get global pwm indices, as needed
                 pwm_names = [pwm.name for pwm in self.syntaxes[0]]
