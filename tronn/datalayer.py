@@ -1944,6 +1944,7 @@ class PWMSimsDataLoader(DataLoader):
                             converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
                             
                         # go through syntaxes
+                        anchor_seed = 0
                         for syntax in self.syntaxes:
                             if not sequences_are_compatible:
                                 continue
@@ -1966,15 +1967,15 @@ class PWMSimsDataLoader(DataLoader):
                                     syntax_orientations.append(-1)
                                 else:
                                     syntax_orientations.append(0)
-                            
+
                             # and iterate through positions and pwms
                             for remaining_positions in self.other_positions:
                                 if not sequences_are_compatible:
                                     continue
                                 
                                 # insert first pwm at anchor position
-                                rand_state = RandomState(rand_seed)
-                                rand_seed += 1
+                                rand_state = RandomState(anchor_seed)
+                                #rand_seed += 1
                                 anchor_position = rand_state.choice(self.anchor_positions)
                                 sampled_pwm = syntax[0].get_consensus_string() # TODO adjust this?
                                 sequence = "".join([
@@ -2029,7 +2030,10 @@ class PWMSimsDataLoader(DataLoader):
                                 results["simul.pwm.dist"].append(dist)
                                 results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
                                 results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
-                                
+
+                            # increment anchor seed after done with syntax
+                            anchor_seed += 1
+                            
                         if sequences_are_compatible:
                             break
 
