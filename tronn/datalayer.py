@@ -1885,7 +1885,7 @@ class PWMSimsDataLoader(DataLoader):
                     background_regions=None,
                     output_original_background=True,
                     all_pwms=None,
-                    check_reporter_compatibility=False):
+                    check_reporter_compatibility=True):
                 self.syntaxes = syntaxes
                 self.anchor_positions = anchor_positions
                 self.other_positions = other_positions
@@ -1926,20 +1926,25 @@ class PWMSimsDataLoader(DataLoader):
                     logging.info("generating sample {}".format(sample_idx))
 
                     while True:
-                        
-                        # reset whether sequences are compatible - use if trying to match all backgrounds
-                        sequences_are_compatible = True
-                        background_seed = 0
-                        
+
                         # set up output results dict
                         results = {}
                         for key in self.output_shapes.keys():
                             results[key] = []
+                        
+                        # reset whether sequences are compatible - use if trying to match all backgrounds
+                        sequences_are_compatible = True
+                        #background_seed = 0
+                        
+                        # get a background sequence and anchor position
+                        # NOTE can fix background sequence by fixing rand seed
+                        metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
+                            converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
                             
                         # go through syntaxes
                         for syntax in self.syntaxes:
-                            #if not sequences_are_compatible:
-                            #    continue
+                            if not sequences_are_compatible:
+                                continue
                             
                             # generate syntax string
                             syntax_string = PWMSimsDataLoader.get_syntax(syntax)
@@ -1949,8 +1954,9 @@ class PWMSimsDataLoader(DataLoader):
                             syntax_pwm_indices = []
                             syntax_orientations = []
                             for grammar_pwm in syntax:
-                                pwm_mask = np.array([1 if pwm.name in grammar_pwm.name else 0
-                                                     for pwm in self.all_pwms])
+                                pwm_mask = np.array(
+                                    [1 if pwm.name in grammar_pwm.name else 0
+                                     for pwm in self.all_pwms])
                                 syntax_pwm_indices.append(np.where(pwm_mask != 0)[0][0])
                                 if re.search("\+$", grammar_pwm.name):
                                     syntax_orientations.append(1)
@@ -1961,13 +1967,8 @@ class PWMSimsDataLoader(DataLoader):
                             
                             # and iterate through positions and pwms
                             for remaining_positions in self.other_positions:
-                                #if not sequences_are_compatible:
-                                #    continue
-
-                                # get a background sequence and anchor position
-                                # NOTE can fix background sequence by fixing rand seed
-                                metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
-                                    converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
+                                if not sequences_are_compatible:
+                                    continue
                                 
                                 # insert first pwm at anchor position
                                 rand_state = RandomState(rand_seed)
@@ -2026,32 +2027,12 @@ class PWMSimsDataLoader(DataLoader):
                                 results["simul.pwm.dist"].append(dist)
                                 results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
                                 results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
-
-                                # and attach original background as needed
-                                if self.output_original_background:
-                                    background_sequence_out = [str(BASES.index(bp))
-                                                               for bp in background_sequence]
-                                    background_sequence_out = ",".join(background_sequence_out)
-                                    background_sequence_out = np.fromstring(
-                                    background_sequence_out, dtype=np.uint8, sep=",")
-
-                                    results[DataKeys.FEATURES].append(background_sequence_out)
-                                    results[DataKeys.SEQ_METADATA].append(metadata)
-                                    results["simul.pwm.indices"].append(syntax_pwm_indices)
-                                    results["simul.pwm.pos"].append(simul_indices)
-                                    results["simul.pwm.orientation"].append(syntax_orientations)
-                                    results["simul.pwm.sample_idx"].append(sample_idx)
-                                    results["grammar.string"].append(syntax_string)
-                                    results["simul.pwm.dist"].append(dist)
-                                    results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
-                                    results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
                                 
                         if sequences_are_compatible:
                             break
 
                     # add in background sequence if requested
-                    if False:
-                    #if self.output_original_background:
+                    if self.output_original_background:
                         # convert sequence
                         background_sequence_out = [str(BASES.index(bp))
                                                for bp in background_sequence]
@@ -2070,7 +2051,6 @@ class PWMSimsDataLoader(DataLoader):
                         results[DataKeys.FEATURES].append(background_sequence_out)
                         results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
                         results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
-
                     
                     # convert everything to numpy array
                     for key in sorted(results.keys()):
