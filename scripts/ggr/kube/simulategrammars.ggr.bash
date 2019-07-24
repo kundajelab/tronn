@@ -6,7 +6,7 @@ tronn simulategrammar \
       --data_format pwm_sims \
       --data_files $3 \
       --dataset_pwm_file /datasets/ggr/1.0.0d/annotations/HOCOMOCOv11_core_pwms_HUMAN_mono.renamed.nonredundant.txt \
-      --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.negatives.bed.gz \
+      --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.reg2map_negatives.bed.gz \
       --fasta /datasets/annotations.hg19/hg19.genome.fa \
       --batch_size 12 \
       --num_samples 10 \
