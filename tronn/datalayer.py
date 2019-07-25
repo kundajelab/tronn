@@ -1751,7 +1751,7 @@ class PWMSimsDataLoader(DataLoader):
                 background_regions["chrom"].iloc[row_idx],
                 start,
                 start+seq_len)
-            return region
+            return region, rand_seed
     
 
     @staticmethod
@@ -1805,9 +1805,8 @@ class PWMSimsDataLoader(DataLoader):
         
         while True:
             # select an interval
-            metadata = PWMSimsDataLoader.select_background_region(
+            metadata, rand_seed = PWMSimsDataLoader.select_background_region(
                 background_regions, seq_len, rand_seed)
-            rand_seed += 1
             
             # get sequence
             metadata = np.expand_dims(
@@ -1942,7 +1941,6 @@ class PWMSimsDataLoader(DataLoader):
                         # NOTE can fix background sequence by fixing rand seed
                         metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
                             converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
-                        rand_seed += 1
                         
                         # go through syntaxes
                         anchor_seed = 0
