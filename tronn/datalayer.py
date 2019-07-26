@@ -1918,9 +1918,9 @@ class PWMSimsDataLoader(DataLoader):
                     background_regions.columns = colnames
 
                 # get global pwm indices, as needed
-                pwm_names = [pwm.name for pwm in self.syntaxes[0]]
-                pwm_mask = np.array([1 if pwm.name in pwm_names else 0 for pwm in self.all_pwms])
-                global_pwm_indices = np.where(pwm_mask!=0)[0]
+                #pwm_names = [pwm.name for pwm in self.syntaxes[0]]
+                #pwm_mask = np.array([1 if pwm.name in pwm_names else 0 for pwm in self.all_pwms])
+                #global_pwm_indices = np.where(pwm_mask!=0)[0]
 
                 # generate spacings
                 for sample_idx in range(self.num_samples):
@@ -2096,7 +2096,7 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
             output_original_background=False,
             all_pwms=None,
             fasta=None):
-        """embed pwms into background sequence
+        """embed pwms into background sequence. does NOT handle spacing
         """
         # extract pwm name and match to pwm file
         self.all_pwms = all_pwms
@@ -2106,8 +2106,7 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
         assert len(sim_pwms) == 1, "PWM string is not unique or missing!"
         self.pwm = sim_pwms[0]
 
-        # load params
-        # TODO figure out how to deal with spacing, ignore for now
+        # params
         self.count_range = range(count_range[0], count_range[1], count_by)
         self.sample_range = range(sample_range[0], sample_range[1])
         self.gc_range = gc_range
@@ -2198,7 +2197,9 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                     converter = GenomicIntervalConverter(lock, self.fasta, 1)
                     background_regions = pd.read_table(
                         self.background_regions, header=None)
-                    background_regions.columns = ["chrom", "start", "stop"]
+                    colnames = list(background_regions.columns)
+                    colnames[0:3] = ["chrom", "start", "stop"]
+                    background_regions.columns = colnames
 
                 # for each sample
                 for sample_idx in range(self.num_samples):
@@ -2229,10 +2230,8 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                                 if len(valid_indices) == 0:
                                     break
 
-                                # get current sequence
+                                # get current sequence, sample pwm
                                 curr_sequence = str(embed_sequence)
-                                
-                                # sample pwm
                                 sampled_pwm = self.pwm.get_consensus_string()
                                 
                                 # select a position
@@ -2277,7 +2276,7 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                                 continue
                             
                             # other calcs
-                            grammar_string = "{}.embed-{}".format(sample_string, embed_idx)
+                            grammar_string = "{}.embed-{}".format(sample_string, embed_idx+1)
                             simul_indices[embed_idx] = position
                             embed_total += 1
                                 
@@ -2290,26 +2289,27 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                             # add to results
                             results[DataKeys.FEATURES].append(sequence)
                             results[DataKeys.SEQ_METADATA].append(metadata)
-                            results["simul.pwm.pos"].append(simul_indices)
+                            results["simul.pwm.pos"].append(simul_indices.copy())
                             results["simul.pwm.sample_idx"].append(sample_idx)
                             results["simul.pwm.count"].append(embed_total)
                             results["grammar.string"].append([grammar_string])
-                            
-                            # also keep background sequence
-                            if self.output_original_background:
-                                background_sequence_out = [str(BASES.index(bp))
-                                                       for bp in background_sequence]
-                                background_sequence_out = ",".join(background_sequence_out)
-                                background_sequence_out = np.fromstring(
-                                    background_sequence_out, dtype=np.uint8, sep=",")
-                                results[DataKeys.FEATURES].append(background_sequence_out)
-                                results[DataKeys.SEQ_METADATA].append(metadata)
-                                results["simul.pwm.pos"].append(simul_indices)
-                                results["simul.pwm.sample_idx"].append(sample_idx)
-                                results["simul.pwm.count"].append(embed_total)
-                                results["grammar.string"].append([grammar_string])
 
                         break
+                    
+                    # tODO pull this out, keep at sample level
+                    # also keep background sequence
+                    if self.output_original_background:
+                        background_sequence_out = [str(BASES.index(bp))
+                                               for bp in background_sequence]
+                        background_sequence_out = ",".join(background_sequence_out)
+                        background_sequence_out = np.fromstring(
+                            background_sequence_out, dtype=np.uint8, sep=",")
+                        results[DataKeys.FEATURES].append(background_sequence_out)
+                        results[DataKeys.SEQ_METADATA].append(metadata)
+                        results["simul.pwm.pos"].append(simul_indices)
+                        results["simul.pwm.sample_idx"].append(sample_idx)
+                        results["simul.pwm.count"].append(0)
+                        results["grammar.string"].append(["BACKGROUND"])
 
                     # stack to numpy array
                     for key in sorted(results.keys()):
