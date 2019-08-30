@@ -37,7 +37,7 @@ def main():
         # set up input file
         input_file = "{}/input.txt".format(out_dir)
         pd.DataFrame(data=[motif]).to_csv(
-            motif_file, header=False, index=False)
+            input_file, header=False, index=False)
         
         # set up run cmd
         run_cmd = "{0} {1} {2} {3} {4} {5}".format(
