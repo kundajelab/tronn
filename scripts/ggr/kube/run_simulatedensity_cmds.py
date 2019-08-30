@@ -18,7 +18,7 @@ def main():
     bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/sims.predict.ggr.bash"
     
     # first get the desired motif list
-    motifs = pd.read_csv(motifs_file, sep="\t", header=True)
+    motifs = pd.read_csv(motifs_file, sep="\t", header=0)
     motifs = list(motifs.index)
 
     for motif in motifs:
