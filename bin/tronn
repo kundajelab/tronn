@@ -624,7 +624,7 @@ def add_predict_parser(subparsers):
     group_params.add_argument(
     	"--num_evals", default=1000, type=int,
     	help="Number of steps to run for prediction")
-    parser.add_argument(
+    group_params.add_argument(
         "--prediction_sample", default=None,
         help="file of predictions for quantile norm")
 
