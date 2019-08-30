@@ -363,7 +363,7 @@ def _setup_dataset_pwmsims_args(args):
     assert len(args.gc_range) == 2
     
     # only used for single pwm analyses
-    args.count_range = [float(val) for val in args.count_range]
+    args.count_range = [int(val) for val in args.count_range]
     assert len(args.count_range) == 2
     
     return None
