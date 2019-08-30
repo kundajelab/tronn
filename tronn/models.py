@@ -331,9 +331,9 @@ class ModelManager(object):
                     outputs = self.build_prediction_dataflow(
                         inputs, regression=regression, logit_indices=logit_indices)
                     scaffold = self._build_scaffold_with_custom_init_fn()
-                    logging.info("WARNING USING CUSTOM SCAFFOLD")
+                    logging.info("WARNING USING CUSTOM SCAFFOLD - ONLY WORKS FOR ENSEMBLES")
                     return tf.estimator.EstimatorSpec(
-                        mode, predictions=outputs, scaffold)
+                        mode, predictions=outputs, scaffold=scaffold)
                 else:
                     # inference mode
                     outputs, variables_to_restore = self.build_inference_dataflow(
