@@ -49,8 +49,6 @@ def main():
             out_dir)
         print run_cmd
         os.system(run_cmd)
-        
-        quit()
 
     return
 
