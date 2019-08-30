@@ -457,7 +457,7 @@ class ModelManager(object):
             logit_indices=logit_indices)
 
         # return prediction generator
-        return estimator.predict(
+        return estimator.infer( # NOTE: THIS IS BECAUSE WE ADJUSTED FOR ENSEMBLES
             input_fn=input_fn,
             checkpoint_path=checkpoint,
             hooks=hooks)
