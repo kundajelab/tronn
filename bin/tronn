@@ -605,6 +605,7 @@ def add_predict_parser(subparsers):
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
     _add_dataset_args(group_dataset)
+    _add_dataset_pwmsims_args(group_dataset)
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -1254,6 +1255,7 @@ def main():
         run(args)
     elif subcommand == "predict":
         _setup_dataset_args(args)
+        _setup_dataset_pwmsims_args(args)
         _setup_model_args(args)
         from tronn.predict_cmd import run
         run(args)
