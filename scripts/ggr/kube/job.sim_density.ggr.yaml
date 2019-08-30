@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.ggr.simulatedensity.basset
+spec:
+    template:
+      spec:
+        containers:
+        - name: train-container
+          image: dskim89/tronn
+          env:
+          - name: MODEL_DIR
+            value: "/datasets/models.2018-12-03"
+          - name: INFER_DIR
+            value: "/datasets/inference.2019-03-12"
+          - name: OUT_DIR
+            value: "/datasets/dskim89/inference.2019-08-30"
+          - name: MODEL
+            value: "basset"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/simulations.homotypic && mkdir -p $OUT_DIR && python /datasets/software/git/tronn/scripts/ggr/kube/run_simulatedensity_cmds.py $MODEL_DIR $MODEL $INFER_DIR $OUT_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 6
+              cpu: 8
+              memory: 32Gi
+            requests:
+              cpu: 4
+              memory: 20Gi
+          volumeMounts:
+          - mountPath: /datasets
+            name: datasets
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"
