@@ -2328,6 +2328,11 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                     # stack to numpy array
                     for key in sorted(results.keys()):
                         results[key] = np.stack(results[key], axis=0)
+
+                    # dtypes
+                    results["simul.pwm.pos"] = results["simul.pwm.pos"].astype(np.int64)
+                    results["simul.pwm.sample_idx"] = results["simul.pwm.sample_idx"].astype(np.int64)
+                    results["simul.pwm.count"] = results["simul.pwm.count"].astype(np.int64)
                         
                     # pass out as singles?
                     yield (results, 1.)
