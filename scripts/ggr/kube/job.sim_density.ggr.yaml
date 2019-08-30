@@ -21,12 +21,12 @@ spec:
           args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/simulations.homotypic && mkdir -p $OUT_DIR && python /datasets/software/git/tronn/scripts/ggr/kube/run_simulatedensity_cmds.py $MODEL_DIR $MODEL $INFER_DIR $OUT_DIR"]
           resources:
             limits:
-              nvidia.com/gpu: 6
+              nvidia.com/gpu: 4
               cpu: 8
               memory: 32Gi
             requests:
-              cpu: 4
-              memory: 20Gi
+              cpu: 2
+              memory: 8Gi
           volumeMounts:
           - mountPath: /datasets
             name: datasets
@@ -42,12 +42,12 @@ spec:
              path: /kundajelab
              mountUser: kundajelab
              mountSecret: ceph-fs-secret
-        affinity:
-          nodeAffinity:
-            requiredDuringSchedulingIgnoredDuringExecution:
-              nodeSelectorTerms:
-              - matchExpressions:
-                - key: gpu-type
-                  operator: In # Use NotIn for other types
-                  values:
-                  - "1080Ti"
+        #affinity:
+        #  nodeAffinity:
+        #    requiredDuringSchedulingIgnoredDuringExecution:
+        #      nodeSelectorTerms:
+        #      - matchExpressions:
+        #        - key: gpu-type
+        #          operator: In # Use NotIn for other types
+        #          values:
+        #          - "1080Ti"
