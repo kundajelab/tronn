@@ -39,6 +39,9 @@ def run(args):
             args.sample_size = 1000
             run_inference(args, warm_start=True)
             args.sample_size = true_sample_size
+
+    # attach prediction sample to model
+    args.model["params"]["prediction_sample"] = args.prediction_sample
     
     # set up model
     model_manager = setup_model_manager(args)
