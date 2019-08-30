@@ -24,7 +24,8 @@ def main():
     for motif in motifs:
         print motif
         # set up input motif file
-
+        logging.info(motif)
+        
         # set up out dir
 
         # if already exists don't rerun
