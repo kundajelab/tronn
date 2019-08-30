@@ -2107,7 +2107,7 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
         self.pwm = sim_pwms[0]
 
         # params
-        self.count_range = range(count_range[0], count_range[1], count_by)
+        self.count_range = range(count_range[0], count_range[1]+1, count_by) # note count range is inclusive at tail
         self.sample_range = range(sample_range[0], sample_range[1])
         self.gc_range = gc_range
         self.num_samples = num_samples
@@ -2204,7 +2204,6 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                 # for each sample
                 for sample_idx in range(self.num_samples):
                     sample_string = "sample-{}".format(sample_idx)
-                    print sample_string
                     
                     while True:
                         
@@ -2216,18 +2215,25 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                         # for each sample, get a background sequence
                         metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
                             converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
-
-                        # embed pwms
-                        valid_indices = list(self.sample_range)
                         embed_sequence = str(background_sequence)
-                        simul_indices = np.zeros(len(self.count_range))
-                        # TODO this logic is not quite right
+                        
+                        # check that the background sequence is ok
+                        if self.check_reporter_compatibility:
+                            if not is_fragment_compatible(embed_sequence):
+                                continue
+                        
+                        # embed pwms
+                        valid_indices = list(self.sample_range) # track which indices can be modified
+                        valid_starts = list(self.sample_range) # track possible starts
+                        simul_indices = np.zeros(len(self.count_range)) # track where the pwm was embedded
                         embed_total = 0
-                        for embed_idx in range(len(self.count_range)):
+                        for embed_idx in self.count_range:
                             
+                            # use a while loop to keep looking for embed positions
+                            # until you find a spot or run out of valid indices
                             while True:
-                                # check valid indices
-                                if len(valid_indices) == 0:
+                                # check valid starts
+                                if len(valid_starts) == 0:
                                     break
 
                                 # get current sequence, sample pwm
@@ -2237,18 +2243,14 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                                 # select a position
                                 rand_state = RandomState(rand_seed)
                                 rand_seed += 1
-                                position = rand_state.choice(valid_indices)
+                                position = rand_state.choice(valid_starts)
                                 
                                 # check if position will fit in valid indices
                                 min_spacing = 12
-                                stop_position = max(position + len(sampled_pwm), position + min_spacing)
+                                stop_position = position + int(len(sampled_pwm) / 2.) + min_spacing
                                 if stop_position not in valid_indices:
-                                    # remove these indices
-                                    for i in range(position, stop_position):
-                                        try:
-                                            valid_indices.remove(i)
-                                        except:
-                                            continue
+                                    # the start is not valid, remove
+                                    valid_starts.remove(position)
                                     continue
                                 
                                 # try put pwm into position
@@ -2261,23 +2263,34 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                                 if self.check_reporter_compatibility:
                                     if is_fragment_compatible(curr_sequence):
                                         embed_sequence = str(curr_sequence)
-                                        # change sequence to the new one and adjust valid indices
+                                        # change sequence to the new one and adjust valid indices/starts
                                         for i in range(position, stop_position):
                                             valid_indices.remove(i)
+                                            try:
+                                                valid_starts.remove(i)
+                                            except ValueError:
+                                                pass
                                         break
+                                    else:
+                                        # not valid, so need to remove this start position and DON'T break
+                                        valid_starts.remove(position)
                                 else:
-                                    # change sequence to the new one and adjust valid indices
+                                    # change sequence to the new one and adjust valid indices/starts
                                     embed_sequence = str(curr_sequence)
                                     for i in range(position, stop_position):
                                         valid_indices.remove(i)
+                                        try:
+                                            valid_starts.remove(i)
+                                        except ValueError:
+                                            pass
                                     break
 
-                            if len(valid_indices) == 0:
+                            if len(valid_starts) == 0:
                                 continue
                             
                             # other calcs
                             grammar_string = "{}.embed-{}".format(sample_string, embed_idx+1)
-                            simul_indices[embed_idx] = position
+                            simul_indices[embed_idx-1] = position # save into 0-indexed positions
                             embed_total += 1
                                 
                             # convert to nums (for onehot conversion later)
@@ -2294,9 +2307,10 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                             results["simul.pwm.count"].append(embed_total)
                             results["grammar.string"].append([grammar_string])
 
+                        # this covers the while loop above (non-functional
+                        # but will be used if doing any checks like for MPRA compatibility)
                         break
                     
-                    # tODO pull this out, keep at sample level
                     # also keep background sequence
                     if self.output_original_background:
                         background_sequence_out = [str(BASES.index(bp))
@@ -2306,15 +2320,16 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                             background_sequence_out, dtype=np.uint8, sep=",")
                         results[DataKeys.FEATURES].append(background_sequence_out)
                         results[DataKeys.SEQ_METADATA].append(metadata)
-                        results["simul.pwm.pos"].append(simul_indices)
+                        results["simul.pwm.pos"].append(np.zeros_like(simul_indices))
                         results["simul.pwm.sample_idx"].append(sample_idx)
                         results["simul.pwm.count"].append(0)
-                        results["grammar.string"].append(["BACKGROUND"])
-
+                        results["grammar.string"].append(["{}.BACKGROUND".format(sample_string)])
+                        
                     # stack to numpy array
                     for key in sorted(results.keys()):
                         results[key] = np.stack(results[key], axis=0)
-                                
+                        
+                    # pass out as singles?
                     yield (results, 1.)
 
                 logging.info("finished {}".format(grammar_file))
