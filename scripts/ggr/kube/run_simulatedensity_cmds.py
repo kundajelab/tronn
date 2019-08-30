@@ -22,13 +22,19 @@ def main():
     motifs = pd.read_csv(motifs_file, sep="\t", header=0, index_col=0)
     motifs = list(motifs.index)
 
+    # go through motifs
     for motif in motifs:
-        print motif
-        # set up input motif file
-        logging.info(motif)
-        
-        # set up out dir
 
+        # set up out dir
+        out_dir = "{}/{}".format(OUT_DIR, motif)
+        os.system("mkdir -p {}".format(out_dir))
+
+        # set up input file
+        motif_file = "{}/input.txt".format(out_dir)
+        pd.DataFrame(data=[motif]).to_csv(
+            motif_file, header=False, index=False)
+
+        quit()
         # if already exists don't rerun
         
         # set up run cmd
