@@ -50,6 +50,7 @@ def run(args):
     data_loader = setup_data_loader(args)
     input_fn = data_loader.build_input_fn(
         args.batch_size,
+        shuffle=not args.fifo if args.fifo is not None else True,
         targets=args.targets,
         target_indices=args.target_indices,
         filter_targets=args.filter_targets,
