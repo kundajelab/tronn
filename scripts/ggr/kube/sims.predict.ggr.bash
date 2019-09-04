@@ -8,6 +8,7 @@ tronn predict \
       --data_files $4 \
       --single_pwm \
       --count_range 1 6 \
+      --num_samples 100 \
       --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.negatives.bed.gz \
       --fasta /datasets/annotations.hg19/hg19.genome.fa \
       --fifo \
