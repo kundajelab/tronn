@@ -20,6 +20,7 @@ def main():
     bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/simulategrammars.ggr.bash"
 
     # prediction sample
+    TRAJ_DIR = "/datasets/inference.2019-03-12/dmim.shuffle/TRAJ_LABELS-0"
     prediction_sample_dir = "/datasets/inference.2019-02-05/motifs.input_x_grad.background"
     
     # first get the desired motif list
@@ -51,7 +52,7 @@ def main():
             MODEL_DIR,
             MODEL,
             grammar_file,
-            traj_dir,
+            TRAJ_DIR,
             out_dir)
         print run_cmd
         os.system(run_cmd)
