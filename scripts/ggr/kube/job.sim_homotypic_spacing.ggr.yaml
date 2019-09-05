@@ -42,12 +42,12 @@ spec:
              path: /kundajelab
              mountUser: kundajelab
              mountSecret: ceph-fs-secret
-        #affinity:
-        #  nodeAffinity:
-        #    requiredDuringSchedulingIgnoredDuringExecution:
-        #      nodeSelectorTerms:
-        #      - matchExpressions:
-        #        - key: gpu-type
-        #          operator: In # Use NotIn for other types
-        #          values:
-        #          - "1080Ti"
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"

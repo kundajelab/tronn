@@ -1635,7 +1635,7 @@ class PWMSimsDataLoader(DataLoader):
             stride=1,
             gc_range=(0.20, 0.80),
             num_samples=100,
-            min_spacing=12,
+            min_spacing=7,
             background_regions=None,
             output_original_background=True,
             all_pwms=None,
@@ -1670,6 +1670,12 @@ class PWMSimsDataLoader(DataLoader):
         # debug string
         pattern_string = "\n".join([PWMSimsDataLoader.get_syntax(syntax) for syntax in self.syntaxes])
         logging.info("Syntaxes:\n{}".format(pattern_string))
+
+        # adjust min spacing based on pwm lengths
+        min_spacing = np.mean(
+            np.array(
+                [pwm.weights.shape[1] / 2. for pwm in self.pwms]
+            )).astype(int) + min_length
         
         # set up all possible spacings
         self.anchor_positions = range(
@@ -1755,7 +1761,7 @@ class PWMSimsDataLoader(DataLoader):
     
 
     @staticmethod
-    def spacing_is_valid(positions, min_spacing=12):
+    def spacing_is_valid(positions, min_spacing=7):
         """assumes ORDERED
         """
         for i in range(len(positions)-1):
@@ -1767,7 +1773,7 @@ class PWMSimsDataLoader(DataLoader):
 
 
     @staticmethod
-    def get_clean_position_combinations(positions, r, min_spacing=12):
+    def get_clean_position_combinations(positions, r, min_spacing=7):
         """helper generator function that checks for min spacing 
         before outputting combination
         """
