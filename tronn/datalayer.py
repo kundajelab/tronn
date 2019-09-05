@@ -1675,7 +1675,7 @@ class PWMSimsDataLoader(DataLoader):
         min_spacing = np.mean(
             np.array(
                 [pwm.weights.shape[1] / 2. for pwm in self.pwms]
-            )).astype(int) + min_length
+            )).astype(int) + min_spacing
         
         # set up all possible spacings
         self.anchor_positions = range(
