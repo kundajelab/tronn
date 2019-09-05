@@ -17,10 +17,10 @@ def main():
     OUT_DIR = sys.argv[4]
     motifs_file = "{}/motifs.sig/motifs.adjust.diff.rna_filt.dmim/summary/ggr.pwms_patterns_summary.txt".format(
         INFER_DIR)
-    bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/simulategrammars.ggr.bash"
+    bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/sims.predict.spacing.ggr.bash"
 
     # prediction sample
-    TRAJ_DIR = "/datasets/inference.2019-03-12/dmim.shuffle/TRAJ_LABELS-0"
+    #TRAJ_DIR = "/datasets/inference.2019-03-12/dmim.shuffle/TRAJ_LABELS-0"
     prediction_sample_dir = "/datasets/inference.2019-02-05/motifs.input_x_grad.background"
     
     # first get the desired motif list
@@ -49,14 +49,14 @@ def main():
             bash_script,
             MODEL_DIR,
             MODEL,
+            prediction_sample_dir,
             grammar_file,
-            TRAJ_DIR,
             out_dir)
         print run_cmd
         os.system(run_cmd)
 
         quit()
-
+        
     return
 
 main()
