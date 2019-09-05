@@ -39,8 +39,8 @@ def main():
         pwm_idx = int(motif.split("_")[0].split("-")[1])
         grammar_file = "{}/input.gml".format(out_dir)
         graph = nx.Graph()
-        graph.add_node(motif, pwmidx=pwm_idx)
-        graph.add_node(motif, pwmidx=pwm_idx)
+        graph.add_node("{}-A".format(motif), pwmidx=pwm_idx)
+        graph.add_node("{}-B".format(motif), pwmidx=pwm_idx)
         nx.write_gml(graph, grammar_file)
         
         quit()
