@@ -30,6 +30,9 @@ def main():
     # go through motifs
     for motif in motifs:
 
+        if "TP53" not in motif:
+            continue
+        
         # set up out dir (but if it exists don't run)
         out_dir = "{}/{}".format(OUT_DIR, motif)
         if os.path.isdir(out_dir):
