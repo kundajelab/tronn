@@ -41,7 +41,7 @@ def main():
         graph = nx.Graph()
         graph.add_node(motif, pwmidx=pwm_idx)
         graph.add_node(motif, pwmidx=pwm_idx)
-        graph.write_gml(grammar_file)
+        nx.write_gml(graph, grammar_file)
         
         quit()
         
