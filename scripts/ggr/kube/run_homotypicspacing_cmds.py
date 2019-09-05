@@ -44,8 +44,6 @@ def main():
         graph.add_node("{}-B".format(motif), pwmidx=pwm_idx)
         nx.write_gml(graph, grammar_file)
         
-        quit()
-        
         # set up run cmd
         run_cmd = "{0} {1} {2} {3} {4} {5}".format(
             bash_script,
@@ -56,6 +54,8 @@ def main():
             out_dir)
         print run_cmd
         os.system(run_cmd)
+
+        quit()
 
     return
 
