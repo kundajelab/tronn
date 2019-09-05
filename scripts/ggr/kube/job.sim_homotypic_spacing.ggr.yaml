@@ -18,7 +18,7 @@ spec:
           - name: MODEL
             value: "basset"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/simulations.homotypic.spacing && mkdir -p $OUT_DIR && python /datasets/software/git/tronn/scripts/ggr/kube/run_homotypicspacing_cmds.py $MODEL_DIR $MODEL $INFER_DIR $OUT_DIR"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$OUT_DIR/simulations.homotypic.spacing && mkdir -p $OUT_DIR && pip install networkx==2.2 & python /datasets/software/git/tronn/scripts/ggr/kube/run_homotypicspacing_cmds.py $MODEL_DIR $MODEL $INFER_DIR $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 4
