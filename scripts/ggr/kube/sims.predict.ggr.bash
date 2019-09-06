@@ -9,7 +9,7 @@ tronn predict \
       --single_pwm \
       --count_range 1 6 \
       --num_samples 100 \
-      --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.negatives.bed.gz \
+      --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.reg2map_negatives.bed.gz \
       --fasta /datasets/annotations.hg19/hg19.genome.fa \
       --fifo \
       --prediction_sample $3/ggr.scanmotifs.prediction_sample.h5 \
@@ -21,4 +21,5 @@ tronn predict \
       >> $5/job.out \
       2>> $5/job.err;
 
+#--background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.negatives.bed.gz \
 
