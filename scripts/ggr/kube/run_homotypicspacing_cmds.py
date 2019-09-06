@@ -28,9 +28,6 @@ def main():
 
     # go through motifs
     for motif in motifs:
-
-        if "GRHL" not in motif:
-            continue
         
         # set up out dir (but if it exists don't run)
         out_dir = "{}/{}".format(OUT_DIR, motif)
