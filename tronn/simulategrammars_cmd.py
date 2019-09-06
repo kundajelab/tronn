@@ -122,13 +122,6 @@ def run(args):
     # setup
     logger = logging.getLogger(__name__)
     logger.info("Running motif scan")
-
-    # subset the pwms going into the dataloader
-    grammar = nx.read_gml(args.data_files[0])
-    pwm_indices = sorted([
-        val[1]
-        for val in list(grammar.nodes(data="pwmidx"))])
-    args.grammar_pwms = [args.pwm_list[i] for i in pwm_indices]
     
     # if ensemble, require a prediction sample
     if args.model["name"] == "ensemble":

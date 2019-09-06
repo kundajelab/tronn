@@ -17,6 +17,7 @@ import threading
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import networkx as nx
 
 from itertools import permutations
 from itertools import combinations
@@ -2391,9 +2392,15 @@ def setup_data_loader(args):
             tmp_dir="{}/tmp_data".format(args.tmp_dir))
     elif args.data_format == "pwm_sims":
         if not args.single_pwm:
+            grammar = nx.read_gml(args.data_files[0])
+            pwm_indices = sorted([
+                val[1]
+                for val in list(grammar.nodes(data="pwmidx"))])
+            sim_pwms = [args.pwm_list[i] for i in pwm_indices]
+            
             data_loader = PWMSimsDataLoader(
                 args.data_files,
-                args.grammar_pwms,
+                sim_pwms,
                 sample_range=args.sample_range,
                 grammar_range=args.grammar_range,
                 stride=args.pwm_stride,
