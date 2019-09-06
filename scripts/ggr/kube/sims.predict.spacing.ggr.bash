@@ -8,7 +8,7 @@ tronn predict \
       --data_files $4 \
       --grammar_range 0 30 \
       --num_samples 100 \
-      --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.negatives.bed.gz \
+      --background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.reg2map_negatives.bed.gz \
       --fasta /datasets/annotations.hg19/hg19.genome.fa \
       --batch_size 12 \
       --fifo \
@@ -21,3 +21,4 @@ tronn predict \
       2>> $5/job.err;
 
 
+#--background_regions /datasets/ggr/1.0.0d/annotations/ggr.atac.idr.negatives.bed.gz \
