@@ -311,7 +311,7 @@ def _add_dataset_pwmsims_args(parser):
         "--pwm_stride", default=1, type=int,
         help="bp resolution of tests")
     parser.add_argument(
-        "--min_spacing", default=7, type=int,
+        "--min_spacing", default=5, type=int,
         help="bp resolution of tests")
     parser.add_argument(
         "--num_samples", default=30, type=int,
