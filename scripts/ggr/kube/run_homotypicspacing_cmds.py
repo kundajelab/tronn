@@ -20,7 +20,6 @@ def main():
     bash_script = "/datasets/software/git/tronn/scripts/ggr/kube/sims.predict.spacing.ggr.bash"
 
     # prediction sample
-    #TRAJ_DIR = "/datasets/inference.2019-03-12/dmim.shuffle/TRAJ_LABELS-0"
     prediction_sample_dir = "/datasets/inference.2019-02-05/motifs.input_x_grad.background"
     
     # first get the desired motif list
@@ -30,7 +29,7 @@ def main():
     # go through motifs
     for motif in motifs:
 
-        if "TP53" not in motif:
+        if "GRHL" not in motif:
             continue
         
         # set up out dir (but if it exists don't run)
