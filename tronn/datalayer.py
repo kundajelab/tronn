@@ -2410,7 +2410,7 @@ def setup_data_loader(args):
                 min_spacing=args.min_spacing,
                 background_regions=args.background_regions,
                 output_original_background=not args.embedded_only,
-                all_pwms=args.pwm_list,
+                all_pwms=args.dataset_pwm_list,
                 fasta=args.fasta)
         else:
             data_loader = SinglePWMSimsDataLoader(
