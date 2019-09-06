@@ -2396,7 +2396,8 @@ def setup_data_loader(args):
             pwm_indices = sorted([
                 val[1]
                 for val in list(grammar.nodes(data="pwmidx"))])
-            sim_pwms = [args.pwm_list[i] for i in pwm_indices]
+            sim_pwms = [args.dataset_pwm_list[i]
+                        for i in pwm_indices]
             
             data_loader = PWMSimsDataLoader(
                 args.data_files,
