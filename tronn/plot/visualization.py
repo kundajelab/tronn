@@ -77,6 +77,63 @@ def plot_letter(letter, x, y, yscale=1, ax=None, color=None, alpha=1.0):
     return p
 
 
+def plot_pwm(
+        array,
+        plot_file):
+    """plot pwm
+    """
+    # set up figure
+    figsize=(array.shape[0]/20., 10/20.)
+    f = plt.figure(figsize=figsize)
+
+    # convert to entropy
+    entropy = np.zeros(array.shape)
+    entropy[array > 0] = array[array > 0] * -np.log2(array[array > 0])
+    entropy = np.sum(entropy, axis=1)
+    conservation = 2 - entropy
+    
+    # set up plot area
+    height_base = 0.0
+    logo_height = 1.0
+    logo_ax = plt.gca()
+
+    # go through each position and bp
+    for j in range(array.shape[0]) :
+        sort_index = np.argsort(array[j, :])
+        
+        for ii in range(0, 4) :
+            i = sort_index[ii]
+            nt_prob = array[j, i] * conservation[j]
+            
+            nt = ''
+            if i == 0 :
+                nt = 'A'
+            elif i == 1 :
+                nt = 'C'
+            elif i == 2 :
+                nt = 'G'
+            elif i == 3 :
+                nt = 'T'
+
+            if ii == 0 :
+                plot_letter(nt, j + 0.5, height_base, nt_prob * logo_height, logo_ax, color=None)
+            else :
+                prev_prob = np.sum(array[j, sort_index[:ii]] * conservation[j]) * logo_height
+                plot_letter(nt, j + 0.5, height_base + prev_prob, nt_prob * logo_height, logo_ax, color=None)
+
+    plt.xlim((0, array.shape[0]))
+    plt.ylim((0, 2))
+    plt.xticks([], [])
+    plt.yticks([], [])
+    plt.axis('off')
+    logo_ax.axhline(y=0.01 + height_base, color='black', linestyle='-', linewidth=2/10.)
+
+    plt.tight_layout()
+    plt.savefig(plot_file, transparent=True)
+    
+    return
+
+
 def plot_weights(
         array,
         ax,
@@ -159,7 +216,8 @@ def plot_weights_group(array, plot_file, sig_array=None):
             array[row_idx], ax[row_idx],
             height_min=min_val, height_max=max_val,
             x_lab=x_lab, y_lab=y_lab,
-            sig_array=plot_sig)
+            sig_array=None)
+            #sig_array=plot_sig)
     plt.tight_layout()
     plt.subplots_adjust(wspace=0, hspace=0)
     plt.savefig(plot_file, transparent=True)
