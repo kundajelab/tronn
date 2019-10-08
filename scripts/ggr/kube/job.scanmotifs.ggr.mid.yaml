@@ -22,7 +22,7 @@ spec:
           - name: NUM_GPU
             value: "4"
           - name: BATCH_SIZE
-            value: "16"
+            value: "8"
           command: ["bash", "-c"]
           args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $OUT_DIR"]
           resources:
