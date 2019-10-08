@@ -1,0 +1,1 @@
+Search.setIndex({docnames:["index"],envversion:54,filenames:["index.rst"],objects:{},objnames:{},objtypes:{},terms:{blah:0,index:0,modul:0,page:0,search:0},titles:["Welcome to tronn\u2019s documentation!"],titleterms:{document:0,featur:0,indic:0,project:0,tabl:0,tronn:0,welcom:0}})
