@@ -215,7 +215,6 @@ def run_single_model_inference(
         targets=args.targets,
         target_indices=args.target_indices,
         filter_targets=args.filter_targets,
-        singleton_filter_targets=args.singleton_filter_targets,
         examples_subset=args.dataset_examples,
         use_queues=True,
         skip_keys=_setup_input_skip_keys(args))
