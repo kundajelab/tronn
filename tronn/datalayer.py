@@ -136,7 +136,6 @@ class DataLoader(object):
             batch_size,
             shuffle=True,
             filter_targets=[],
-            singleton_filter_targets=[],
             target_indices=[],
             encode_onehot_features=True,
             num_threads=16,
@@ -151,7 +150,6 @@ class DataLoader(object):
           batch_size: batch size for batch going into the graph
           shuffle: whether to shuffle examples
           filter_targets: dict of keys with indices for filtering
-          singleton_filter_targets: list of keys for removing singletons
           num_threads: number of threads to use for data loading
           encode_onehot_features: if tensor with key "features" is a string
             of values that are not yet one-hot, then encode the features.
@@ -307,7 +305,6 @@ class DataLoader(object):
             batch_size,
             shuffle=True,
             filter_targets=[],
-            singleton_filter_targets=[],
             target_indices=[],
             encode_onehot_features=True,
             num_threads=16,
