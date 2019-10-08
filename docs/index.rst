@@ -8,8 +8,8 @@ Welcome to tronn's documentation!
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
 
+   install
 
 
 Indices and tables
@@ -29,4 +29,4 @@ Features
 -----------
 
 - blah blah
--blah blah
+- blah blah
