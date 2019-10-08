@@ -20,12 +20,14 @@ spec:
           - name: FILTER
             value: "TRAJ_LABELS=12,13,14,1 H3K27ac_LABELS=1 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           - name: NUM_GPU
-            value: "6"
+            value: "4"
+          - name: BATCH_SIZE
+            value: "16"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL $NUM_GPU \"$FILTER\" $OUT_DIR"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $OUT_DIR"]
           resources:
             limits:
-              nvidia.com/gpu: 6
+              nvidia.com/gpu: 4
               cpu: 8
               memory: 32Gi
             requests:
