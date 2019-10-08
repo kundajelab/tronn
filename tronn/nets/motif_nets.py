@@ -35,7 +35,6 @@ class MotifScanner(object):
         """Convolve with PWMs and normalize with vector projection:
           projection = a dot b / | b |
         """
-        # TODO options for running (1) FWD, (2) REV, (3) COMB
         assert inputs.get(DataKeys.FEATURES) is not None
         assert params.get("pwms") is not None
         assert params.get("filter_width") is not None
@@ -47,9 +46,14 @@ class MotifScanner(object):
         # params
         pwm_list = params["pwms"]
         max_size = params["filter_width"]
+        add_rc_pwms = params["add_rc_pwms"]
         num_filters = len(pwm_list)
         reuse = params.get("reuse_pwm_layer", False)
 
+        # adjust if rc pwms
+        if add_rc_pwms:
+            num_filters *= 2
+        
         # make the convolution net for dot product, normal filters
         # here, the pwms are already normalized to unit vectors for vector projection
         kernel_size = [1, max_size]
@@ -61,11 +65,7 @@ class MotifScanner(object):
                 padding="valid",
                 activation=None,
                 kernel_initializer=pwm_simple_initializer(
-                    kernel_size,
-                    pwm_list,
-                    get_fan_in(features),
-                    unit_vector=True,
-                    length_norm=True),
+                    kernel_size, pwm_list, reverse_complement=add_rc_pwms),
                 use_bias=False,
                 bias_initializer=None,
                 trainable=False,
