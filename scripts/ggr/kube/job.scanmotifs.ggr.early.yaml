@@ -6,27 +6,29 @@ spec:
     template:
       spec:
         containers:
-        - name: train-container
+        - name: infer-container
           image: dskim89/tensorflow-genomics
           env:
+          - name: SCRIPT_DIR
+            value: "/datasets/software/git/tronn/scripts/ggr/wrappers"
           - name: MODEL_DIR
-            value: "/datasets/models.2018-12-03"
+            value: "/datasets/dskim89/models.2018-12-03"
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/inference.2019-03-05/motifs.input_x_grad.dynamic.early"
+            value: "/datasets/dskim89/inference.2019-10-08/motifs.input_x_grad.dynamic.early"
           - name: FILTER
             value: "TRAJ_LABELS=0,7,8,9,10,11 H3K27ac_LABELS=0 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/scanmotifs.ggr.bash $MODEL_DIR $MODEL \"$FILTER\" $OUT_DIR"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 6
-          #    cpu: 16
+              cpu: 8
               memory: 32Gi
-          #requests:
-          #    cpu: 8
-          #    memory: 8Gi
+          requests:
+              cpu: 2
+              memory: 8Gi
           volumeMounts:
           - mountPath: /datasets
             name: datasets
