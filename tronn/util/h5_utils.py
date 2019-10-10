@@ -84,3 +84,22 @@ def copy_h5_dataset_slices(in_h5_file, out_h5_file, keys=[], indices=[], test_ke
                     out[key].attrs[attr_key] = val
 
     return None
+
+
+def load_data_from_multiple_h5_files(h5_files, key, example_indices=None, concat=True):
+    """convenience wrapper
+    example indices is a list of index arrays, ordered same as h5 files
+    """
+    key_data = []
+    for h5_idx in range(len(h5_files)):
+        h5_file = h5_files[h5_idx]
+        with h5py.File(h5_file, "r") as hf:
+            if example_indices is not None:
+                key_data.append(hf[key][:][example_indices[h5_idx]])
+            else:
+                key_data.append(hf[key][:])
+
+    if concat:
+        key_data = np.concatenate(key_data, axis=0)
+    
+    return key_data
