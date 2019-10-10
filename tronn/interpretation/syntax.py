@@ -137,9 +137,28 @@ def analyze_syntax(
             max_vals, pwm_indices, orientations)
         example_indices.append(file_examples)
 
-    # then collect data
+    # set up anchor position (max index)
+    # adjust choice based on orientation
     max_indices = load_data_from_multiple_h5_files(
-        h5_files, max_idx_key, example_indices=example_indices)[:,pwm_indices[0],0]
+        h5_files, max_idx_key, example_indices=example_indices)
+    max_vals = load_data_from_multiple_h5_files(
+        h5_files, max_val_key, example_indices=example_indices)
+    
+    num_pwms_if_rc = max_indices.shape[1] / 2
+    rc_idx = pwm_indices[0] + num_pwms_if_rc
+    if orientations[0] == "FWD":
+        max_indices = max_indices[:,pwm_indices[0],0]
+    elif orientations[0] == "REV":
+        max_indices = max_indices[:,rc_idx,0]
+    elif orientations[0] == "BOTH":
+        max_vals = max_vals[:,[pwm_indices[0], rc_idx],0] # {N, 2}
+        max_idx = np.argmax(max_vals, axis=1) # {N}
+        max_indices = np.where(
+            max_idx==0,
+            max_indices[:,pwm_indices[0], 0],
+            max_indices[:,rc_idx,0])
+
+    # collect other data
     metadata = load_data_from_multiple_h5_files(
         h5_files, metadata_key, example_indices=example_indices)[:,0]
     signals = {}
