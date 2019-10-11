@@ -71,6 +71,18 @@ def _load_pwm_scores(args):
     return pwm_scores
 
 
+def _load_importances(args):
+    """load importances
+    """
+    h5_file, importances_key, example_indices, clip_start, clip_end = args
+    with h5py.File(h5_file, "r") as hf:
+        importances = np.sum(
+            hf[importances_key][example_indices,:,:,:], axis=(1,3))
+        importances = importances[:,clip_start:clip_end]
+
+    return importances
+
+
 def filter_for_pwm_importance_overlap(importances, pwm_scores, fract_thresh=0.9, window=20):
     """using max index to mark, get importance fract
     """
@@ -116,7 +128,11 @@ def analyze_syntax(
         min_region_count=500,
         min_dist=7,
         solo_filter=False,
+        solo_filter_fract=0.9,
+        solo_filter_window=20,
         importances_key=DataKeys.WEIGHTED_SEQ_ACTIVE,
+        impt_clip_start=12,
+        impt_clip_end=148,
         num_threads=24):
     """analyze syntax by aligning to anchor pwm and seeing what patterns
     look like around it
@@ -129,51 +145,28 @@ def analyze_syntax(
     # assertions
     assert len(pwm_indices) > 1
     
-    # load max vals (to determine which examples are of interest)
+    # load max vals and determine which examples are of interest
     max_vals_per_file = load_data_from_multiple_h5_files(
         h5_files, max_val_key, concat=False)
-    
-    # determine which examples fit the desired syntax
     example_indices = []
     for max_vals in max_vals_per_file:
         file_examples = get_syntax_matching_examples(
             max_vals, pwm_indices)
         example_indices.append(file_examples)
-
-    # TODO here add in solo filter?
-    if solo_filter:
-        for h5_idx in range(len(h5_files)):
-            with h5py.File(motifs_files[motifs_file_idx], "r") as hf:
-                importances_reduced = np.sum(
-                    hf[importances_key][example_indices[h5_idx],:,:,:], axis=(1,3))
-                importances_reduced = importances_reduced[:,impt_clip_start:impt_clip_end]
-                importances.append(importances_reduced)
-        importances = np.concatenate(importances, axis=0)
         
-    # set up anchor position (max index)
-    # adjust choice based on orientation
+    # set up anchor position (max index of first pwm in list)
     max_indices = load_data_from_multiple_h5_files(
         h5_files, max_idx_key, example_indices=example_indices)
     max_indices = max_indices[:,pwm_indices[0],0]
-
-    # collect other data
-    metadata = load_data_from_multiple_h5_files(
-        h5_files, metadata_key, example_indices=example_indices)[:,0]
-    signals = {}
-    for key in signal_keys.keys():
-        signals[key] = load_data_from_multiple_h5_files(
-            h5_files, key, example_indices=example_indices)
         
     # do not continue if don't have enough regions
     if max_indices.shape[0] < min_region_count:
         return None
 
     # collect scores for pwms
-    scores = []
+    scores = [] # list of arrays, one for each pwm
     for pwm_idx in range(1, len(pwm_indices)):
         global_pwm_idx = pwm_indices[pwm_idx]
-        print pwm_idx, global_pwm_idx
-        pwm_scores = []
 
         # use pool to speed up loading
         pool = Pool(processes=min(num_threads, len(h5_files)))
@@ -190,9 +183,48 @@ def analyze_syntax(
             pwm_scores = np.max(pwm_scores, axis=1)
         else:
             raise ValueError, "Unimplemented reduce method!"
-        print pwm_scores.shape
         scores.append(pwm_scores)
+
+    # metadata and signals
+    metadata = load_data_from_multiple_h5_files(
+        h5_files, metadata_key, example_indices=example_indices)[:,0]
+    signals = {}
+    for key in signal_keys.keys():
+        signals[key] = load_data_from_multiple_h5_files(
+            h5_files, key, example_indices=example_indices)
         
+    # if solo filter, need to load importances and filter with those thresholds
+    if solo_filter:
+        # use pool to load faster
+        pool = Pool(processes=min(num_threads, len(h5_files)))
+        pool_inputs = []
+        for h5_idx in range(len(h5_files)):
+            pool_inputs.append(
+                (h5_files[h5_idx],
+                 importances_key,
+                 example_indices[h5_idx],
+                 impt_clip_start,
+                 impt_clip_end))
+        pool_outputs = pool.map(_load_importances, pool_inputs)
+        importances = np.concatenate(pool_outputs, axis=0)
+
+        # get solo indices. NOTE: the solo indices reference indices AFTER applying
+        # example_indices!!
+        solo_indices = filter_for_pwm_importance_overlap(
+            importances,
+            pwm_scores,
+            fract_thresh=solo_filter_fract,
+            window=solo_filter_window)
+
+        # filter all: scores, metadata, signals
+        for i in range(len(scores)):
+            scores[i] = scores[i][solo_indices]
+        metadata = metadata[solo_indices]
+        for key in signal_keys.keys():
+            signals[key] = signals[key][solo_indices]
+
+    print "examples found:", metadata.shape[0]
+            
     # align each
     aligned_results = {}
     for pwm_idx in range(1,len(pwm_indices)):
@@ -222,25 +254,19 @@ def analyze_syntax(
                 task_results = np.multiply(pwm_aligned_hits, task_signals) # {N, 321}
                 
                 # flatten, remove zeros
-                task_df = pd.DataFrame(data=task_results, columns=positions.tolist())
+                task_df = pd.DataFrame(
+                    data=task_results,
+                    columns=positions.tolist(),
+                    index=metadata.tolist())
                 task_df = task_df[np.sum(task_df.values, axis=1) != 0]
                 task_melt_df = task_df.melt()
-                task_melt_df.columns = ["position", "score"]
+                task_melt_df.columns = ["position", "score"] # todo fix
                 task_melt_df = task_melt_df[task_melt_df["score"] != 0]
                 aligned_results[global_pwm_idx][key][task_idx] = task_melt_df
                 
         # and then reduce the scores df further, if zeros
         scores_df = scores_df[np.sum(scores_df.values, axis=1) > 0]
         aligned_results[global_pwm_idx]["scores"] = scores_df
-
-        # only here can filter for importance?
-        if False:
-            filter_for_pwm_importance_overlap(
-                importances,
-                pwm_scores,
-                fract_thresh=0.9,
-                window=20)
-        
         
     return aligned_results
 
@@ -268,7 +294,6 @@ def recombine_syntax_results(results, orientations, anchor_sides, signal_keys):
         merged_scores.append(scores)
     merged_scores = pd.concat(merged_scores, axis=0)
     merged_scores = merged_scores[np.sum(merged_scores.values, axis=1) > 0]
-    print "merged:", merged_scores.shape
     recombined["scores"] = merged_scores
 
     # then recombine signals
