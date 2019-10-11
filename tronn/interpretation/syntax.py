@@ -86,26 +86,30 @@ def _load_importances(args):
 def filter_for_pwm_importance_overlap(importances, pwm_scores, fract_thresh=0.9, window=20):
     """using max index to mark, get importance fract
     """
+    assert importances.shape[0] == pwm_scores.shape[0]
+    
     # set up results arrays
     pwm_impt_coverage = np.zeros((pwm_scores.shape[0]))
 
     # go through per example
     for example_idx in range(importances.shape[0]):
+        example_importances = importances[example_idx] > 0
+        
         # figure out how many positions were marked
-        impt_sum_total = np.sum(importances[example_idx] > 0)
+        impt_sum_total = np.sum(example_importances).astype(float)
             
         # per index, get window around and collect importance scores
         pwm_pos_indices = np.where(pwm_scores[example_idx] > 0)[0]
             
         # collect importance scores within window
-        impt_sum_pwm_overlap = 0
+        impt_sum_pwm_overlap = 0.
         for pwm_pos_idx in pwm_pos_indices:
             start = max(pwm_pos_idx - window/2, 0)
-            end = min(pwm_pos_idx + window/2, importances.shape[0])
-            impt_sum_pwm_overlap += np.sum(importances[example_idx,start:end] > 0)
+            end = min(pwm_pos_idx + window/2, importances.shape[1])
+            impt_sum_pwm_overlap += np.sum(example_importances[start:end]).astype(float)
         
         # and check
-        fract_covered = impt_sum_pwm_overlap / float(impt_sum_total)
+        fract_covered = impt_sum_pwm_overlap / impt_sum_total
         pwm_impt_coverage[example_idx] = fract_covered
 
     # filter
