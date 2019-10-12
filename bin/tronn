@@ -37,6 +37,9 @@ def parse_args():
     # command for motif scan
     add_scanmotifs_parser(subparsers)
 
+    # command for mutate motifs
+    add_mutatemotifs_parser(subparsers)
+
     # command for dmim scan
     add_dmim_parser(subparsers)
     
@@ -915,6 +918,52 @@ def add_buildgrammars_parser(subparsers):
     return
 
 
+def add_mutatemotifs_parser(subparsers):
+    """scan grammars from a grammar file
+    """
+    cmd_argparser = subparsers.add_parser(
+        "mutatemotifs",
+        help="Mutate motifs and predict results")
+
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    _add_sig_pwms_args(group_dataset)
+    group_dataset.add_argument(
+        "--batch_size", default=4, type=int,
+        help="batch size")
+    
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
+        
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    _add_mutate_args(
+        group_interpret)
+    _add_outlayer_args(group_interpret)
+
+    # group for cmd specific functions
+    group_other = cmd_argparser.add_argument_group(
+        "Misc params")
+    group_other.add_argument(
+        "--foreground_targets", nargs="+",
+        help="must match label in sig pwms file!")
+    
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    _add_output_args(group_output, out_dir="mutatemotifs")
+    group_output.add_argument(
+        '--tmp_dir',
+        help='temporary scratch directory')
+    
+    return
+
+
 def add_dmim_parser(subparsers):
     """scan grammars from a grammar file
     """
@@ -949,8 +998,6 @@ def add_dmim_parser(subparsers):
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
         "Misc params")
-    #group_other.add_argument(
-    #    "--manifold_file", help="manifold h5 file")
     group_other.add_argument(
         "--foreground_targets", nargs="+",
         help="which targets to use as foreground for calling motif enrichment")
@@ -1299,6 +1346,11 @@ def main():
         _setup_model_args(args)
         _setup_visualization_args(args)
         from tronn.scanmotifs_cmd import run
+        run(args)
+    elif subcommand == "mutatemotifs":
+        _setup_dataset_args(args)
+        _setup_model_args(args)
+        from tronn.mutatemotifs_cmd import run
         run(args)
     elif subcommand == "dmim":
         _setup_interpretation_args(args)

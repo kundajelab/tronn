@@ -16,7 +16,6 @@ from tensorflow.python.estimator import model_fn as model_fn_lib
 from tensorflow.python.estimator.keras import _clone_and_build_model as build_keras_model
 
 from tensorflow.python.keras import models
-#from tensorflow.python.keras import backend as K
 
 from tensorflow.python.training import monitored_session
 
@@ -288,7 +287,7 @@ class ModelManager(object):
     
     def build_estimator(
             self,
-            params=None,
+            params=None, # TODO use params to load in premodel? key: premodel_params
             config=None,
             warm_start=None,
             regression=False,
@@ -322,6 +321,12 @@ class ModelManager(object):
             # set up the input dict for model fn
             # note that all input goes through features (including labels)
             inputs = features
+
+            # TODO: here is where to run a premodel fn
+            if params is not None:
+                premodel_params = params.get("premodel_fn", {})
+                if len(premodel_params.keys()) != 0:
+                    inputs = premodel_params["premodel_fn"](inputs, premodel_params)
             
             # attach necessary things and return EstimatorSpec
             if mode == tf.estimator.ModeKeys.PREDICT:

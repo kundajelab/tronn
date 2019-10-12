@@ -11,16 +11,6 @@ from tronn.models import setup_model_manager
 from tronn.interpretation.inference import run_inference
 
 
-def run_prediction(args):
-    """run prediction
-    """
-
-
-    return
-
-
-
-
 def run(args):
     """cmd to run predictions
     """
@@ -28,8 +18,6 @@ def run(args):
     logger = logging.getLogger(__name__)
     logger.info("Running predictions")
     os.system("mkdir -p {}".format(args.out_dir))
-
-    # TODO load data file to get pwm name
     
     # collect a prediction sample if ensemble (for cross model quantile norm)
     # always need to do this if you're repeating backprop
@@ -40,8 +28,8 @@ def run(args):
             run_inference(args, warm_start=True)
             args.sample_size = true_sample_size
 
-    # attach prediction sample to model
-    args.model["params"]["prediction_sample"] = args.prediction_sample
+        # attach prediction sample to model
+        args.model["params"]["prediction_sample"] = args.prediction_sample
     
     # set up model
     model_manager = setup_model_manager(args)

@@ -1,0 +1,69 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.ggr.dmim.basset.traj-0
+spec:
+    template:
+      spec:
+        containers:
+        - name: infer-container
+          image: dskim89/tensorflow-genomics
+          env:
+          - name: SCRIPT_DIR
+            value: "/datasets/software/git/tronn/scripts/ggr/kube/wrappers"
+          - name: MODEL_DIR
+            value: "/datasets/dskim89/models.2018-12-03"
+          - name: MODEL
+            value: "basset"
+          - name: INFER_DIR
+            value: "/datasets/dskim89/inference.2019-03-10"
+          - name: MOTIFS_DIR
+            evalue: "/datasets/inference.2019-02-05/motifs"
+          - name: WORK_DIR
+            value: "/datasets/dskim89/inference.2019-03-10"
+          - name: MUTATE_TYPE
+            value: "shuffle"
+          - name: PATTERN
+            value: "early"
+          - name: FOREGROUND
+            value: "TRAJ_LABELS=0"
+          - name: FOREGROUND_NAME
+            value: "TRAJ_LABELS-0"
+          - name: BATCH_SIZE
+            value: "4"
+          - name: NUM_GPUS
+            value: "6"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/$DMIM_DIR/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/dmim.ggr.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUMGPUS $MUTATE_TYPE $OUT_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 6
+              cpu: 8
+              memory: 128Gi
+            requests:
+              cpu: 2
+              memory: 8Gi
+          volumeMounts:
+          - mountPath: /datasets
+            name: datasets
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        #affinity:
+        #  nodeAffinity:
+        #    requiredDuringSchedulingIgnoredDuringExecution:
+        #      nodeSelectorTerms:
+        #      - matchExpressions:
+        #        - key: gpu-type
+        #          operator: In # Use NotIn for other types
+        #          values:
+        #          - "1080Ti"
