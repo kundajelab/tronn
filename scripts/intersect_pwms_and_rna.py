@@ -240,6 +240,12 @@ def main():
     for target, target_indices in args.other_targets:
         other_targets[target] = data_loader.load_dataset(target)[:,target_indices]
     pwm_scores = data_loader.load_dataset(args.pwm_scores_key)
+    
+    # adjust pwm scores IF rc pwms included
+    # this is indicated by the len of pwm names relative to background (2x scores)
+    scores_tmp = np.reshape(
+        pwm_scores, list(pwm_scores.shape)[:2] + [2, -1])
+    pwm_scores = np.sum(scores_tmp, axis=-2)
         
     for foreground_idx in xrange(len(foreground_keys)):
         foreground_key = foreground_keys[foreground_idx]
