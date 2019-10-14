@@ -48,4 +48,4 @@ def postprocess_mutate(inputs, params):
     outputs, _ = get_sig_mut_logits(outputs, params)
     del outputs[DataKeys.FEATURES]
 
-    return
+    return outputs, params
