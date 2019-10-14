@@ -18,7 +18,7 @@ spec:
           - name: INFER_DIR
             value: "/datasets/dskim89/inference.2019-03-10"
           - name: MOTIFS_DIR
-            evalue: "/datasets/inference.2019-03-10"
+            value: "/datasets/inference.2019-03-10"
           - name: WORK_DIR
             value: "/datasets/dskim89/inference.2019-03-10"
           - name: MUTATE_TYPE
@@ -32,12 +32,12 @@ spec:
           - name: BATCH_SIZE
             value: "16"
           - name: NUM_GPUS
-            value: "6"
+            value: "4"
           command: ["bash", "-c"]
           args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/dmim.$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.ggr.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $OUT_DIR"]
           resources:
             limits:
-              nvidia.com/gpu: 6
+              nvidia.com/gpu: 4
               cpu: 8
               memory: 128Gi
             requests:
