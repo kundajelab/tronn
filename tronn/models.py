@@ -322,12 +322,12 @@ class ModelManager(object):
             # note that all input goes through features (including labels)
             inputs = features
 
-            # TODO: here is where to run a premodel fn
+            # set up premodel fn (preprocessing) as needed
             if params is not None:
-                premodel_params = params.get("premodel_fn", {})
-                if len(premodel_params.keys()) != 0:
-                    inputs = premodel_params["premodel_fn"](inputs, premodel_params)
-            
+                premodel_fn = params.get("premodel_fn", None)
+                if premodel_fn is not None:
+                    inputs, _ = premodel_fn(inputs, params)
+                    
             # attach necessary things and return EstimatorSpec
             if mode == tf.estimator.ModeKeys.PREDICT:
                 inference_mode = params.get("inference_mode", False)
