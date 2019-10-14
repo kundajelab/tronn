@@ -10,10 +10,7 @@ import numpy as np
 from tronn.datalayer import H5DataLoader
 from tronn.interpretation.inference import run_inference
 from tronn.interpretation.motifs import get_sig_pwm_vector
-
 from tronn.nets.preprocess_nets import mutate_sequences_single_motif
-from tronn.nets.preprocess_nets import postprocess_mutate
-
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.formats import write_to_json
 from tronn.util.scripts import parse_multi_target_selection_strings
@@ -34,14 +31,15 @@ def run(args):
     # set up inference params
     args.inference_params = {
         "cmd_name": "mutatemotifs",
-        "premodel_params": {
-            "premodel_fn": mutate_sequences_single_motif},
+        "inference_mode": True,
+        "premodel_fn": mutate_sequences_single_motif,
         "mutate_type": args.mutate_type,
         "inference_fn_name": "postprocess_mutate",
         "use_filtering": True}
     args.debug = False
         
     # get a sig pwms vector
+    # Note that if rc pwms used, will adjust in preprocess fn
     sig_pwms = get_sig_pwm_vector(
         args.sig_pwms_file,
         args.sig_pwms_key,
