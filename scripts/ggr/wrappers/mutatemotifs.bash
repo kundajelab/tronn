@@ -5,7 +5,7 @@ python setup.py develop;
 PREFIX="${1}/ggr.${2}.regr.pretrained.folds.testfold-"
 SUFFIX="/model.json"
 tronn mutatemotifs \
-      --dataset_json $3/motifs.input_x_grad.dynamic.$4/dataset.scanmotifs.2.json \
+      --dataset_json $3/motifs.input_x_grad.dynamic.$4/dataset.scanmotifs.json \
       --sig_pwms_file $5/motifs.sig/motifs.adjust.diff.rna_filt/pvals.rna_filt.corr_filt.h5 \
       --prediction_sample $3/motifs.input_x_grad.dynamic.$4/ggr.scanmotifs.prediction_sample.h5 \
       --foreground_targets $6 \
