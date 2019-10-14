@@ -18,7 +18,7 @@ spec:
           - name: INFER_DIR
             value: "/datasets/dskim89/inference.2019-10-08"
           - name: MOTIFS_DIR
-            value: "/datasets/inference.2019-10-08"
+            value: "/datasets/dskim89/inference.2019-10-08"
           - name: WORK_DIR
             value: "/datasets/dskim89/inference.2019-10-08"
           - name: MUTATE_TYPE
