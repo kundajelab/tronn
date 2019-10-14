@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 
 import os
 
@@ -7,18 +8,24 @@ def main():
     """
     # in case inputs are elsewhere
     SCANMOTIFS_DIR = "/datasets/inference.2019-02-05"
+    SCANMOTIFS_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/nn/inference.2019-10-08"
 
     foreground_main_groups = ["early", "mid", "late"]
-    foreground_files = ["{}/motifs.input_x_grad.{}/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR, val)
+    foreground_files = ["{}/motifs.input_x_grad.dynamic.{}/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR, val)
                         for val in foreground_main_groups]
     diff_dir = "motifs.adjust.diff"
-    pwms = "/datasets/ggr/1.0.0d/annotations/HOCOMOCOv11_core_pwms_HUMAN_mono.renamed.nonredundant.txt"
-    pwm_metadata = "/datasets/ggr/1.0.0d/annotations/HOCOMOCOv11_core_annotation_HUMAN_mono.nonredundant.expressed.txt"
+
+    # GGR files
+    GGR_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/integrative/v1.0.0a"
+    pwms = "{}/annotations/HOCOMOCOv11_core_pwms_HUMAN_mono.renamed.nonredundant.txt".format(GGR_DIR)
+    pwm_metadata = "{}/annotations/HOCOMOCOv11_core_annotation_HUMAN_mono.nonredundant.expressed.txt".format(GGR_DIR)
+    rna = "{}/results/rna/timeseries/matrices/ggr.rna.counts.pc.expressed.timeseries_adj.pooled.rlog.mat.txt.gz".format(GGR_DIR)
+
+    # params
     min_cor = 0.75
-    rna = "/datasets/ggr/1.0.0d/annotations/ggr.rna.counts.pc.expressed.timeseries_adj.pooled.rlog.mat.txt.gz"
     use_max_pwm_length = "--max_pwm_length 17 "
     #use_max_pwm_length = ""
-    out_dir = "motifs.adjust.diff.rna_filt.dmim"
+    out_dir = "motifs.adjust.diff.rna_filt.dmim.test"
     
     cmd = "intersect_pwms_and_rna.py "
     cmd += "--dataset_files {} ".format(" ".join(foreground_files))

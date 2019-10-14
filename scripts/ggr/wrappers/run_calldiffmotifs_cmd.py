@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 
 import os
 
@@ -6,15 +7,17 @@ def main():
     Run inside inference directory
     """
     # in case inputs are elsewhere
-    SCANMOTIFS_DIR = "/datasets/inference.2019-02-05"
+    #SCANMOTIFS_DIR = "/datasets/inference.2019-02-05"
+    SCANMOTIFS_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/nn/inference.2019-10-08"
     
-    # qval
-    qval = 0.05
+    # params
+    qval = 0.10
+    num_threads = 1
     
     # scanmotifs files
     foreground_main_groups = ["early", "mid", "late"]
-    foreground_files = ["{}/motifs.input_x_grad.{}/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR, val) for val in foreground_main_groups]
-    background_files = ["{}/motifs.input_x_grad.background/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR)]
+    foreground_files = ["{}/motifs.input_x_grad.dynamic.{}/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR, val) for val in foreground_main_groups]
+    background_files = ["{}/motifs.input_x_grad.lite/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR)]
 
     # foregrounds and background
     refine = True
@@ -49,7 +52,7 @@ def main():
     background = "ATAC_LABELS=0,1,2,3,4,5,6,9,10,12"
 
     # infer json
-    infer_json = "{}/motifs.input_x_grad.background/infer.scanmotifs.json".format(SCANMOTIFS_DIR)
+    infer_json = "{}/motifs.input_x_grad.lite/infer.scanmotifs.json".format(SCANMOTIFS_DIR)
     
     # out
     out_dir = "motifs.adjust.diff"
@@ -62,6 +65,7 @@ def main():
     cmd += "--background {} ".format(background)
     cmd += "--inference_json {} ".format(infer_json)
     cmd += "--qval_thresh {} ".format(qval)
+    cmd += "--num_threads {} ".format(num_threads)
     cmd += "-o {}".format(out_dir)
 
     print cmd
