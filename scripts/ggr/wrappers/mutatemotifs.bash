@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#cd /datasets/software/git/tronn;
-#python setup.py develop;
+cd /datasets/software/git/tronn;
+python setup.py develop;
 PREFIX="${1}/ggr.${2}.regr.pretrained.folds.testfold-"
 SUFFIX="/model.json"
 tronn mutatemotifs \
@@ -17,6 +17,3 @@ tronn mutatemotifs \
       -o ${10} \
       >> ${10}/job.out \
       2>> ${10}/job.err;
-
-
-#      --infer_json $3/motifs.input_x_grad.$4/infer.scanmotifs.json \
