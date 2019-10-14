@@ -13,7 +13,7 @@ from tronn.util.utils import DataKeys
 def _setup_input_skip_keys(args):
     """reduce tensors pulled from data files to save time/space
     """
-    if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy"):
+    if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy") or (args.subcommand_name == "mutatemotifs"):
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,
             DataKeys.ORIG_SEQ_ACTIVE_SHUF,
@@ -66,6 +66,9 @@ def _setup_output_skip_keys(args):
     """
     if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy"):
         skip_keys = []
+    elif (args.subcommand_name == "mutatemotifs"):
+        skip_keys = [
+            DataKeys.ORIG_SEQ_PWM_HITS]
     elif args.subcommand_name == "scanmotifs":
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,
