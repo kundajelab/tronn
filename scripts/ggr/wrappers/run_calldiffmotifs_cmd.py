@@ -16,7 +16,8 @@ def main():
     
     # scanmotifs files
     foreground_main_groups = ["early", "mid", "late"]
-    foreground_files = ["{}/motifs.input_x_grad.dynamic.{}/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR, val) for val in foreground_main_groups]
+    foreground_files = ["{}/motifs.input_x_grad.dynamic.{}/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR, val)
+                        for val in foreground_main_groups]
     background_files = ["{}/motifs.input_x_grad.lite/ggr.scanmotifs.h5".format(SCANMOTIFS_DIR)]
 
     # foregrounds and background
@@ -55,7 +56,7 @@ def main():
     infer_json = "{}/motifs.input_x_grad.lite/infer.scanmotifs.json".format(SCANMOTIFS_DIR)
     
     # out
-    out_dir = "motifs.adjust.diff"
+    out_dir = "{}/motifs.sig/motifs.adjust.diff".format(SCANMOTIFS_DIR)
     
     # cmd
     cmd = "call_differential_motifs.py "

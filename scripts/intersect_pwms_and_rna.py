@@ -226,7 +226,7 @@ def main():
     corr_pvals_file = "{}/pvals.rna_filt.corr_filt.h5".format(args.out_dir)
     
     # read in RNA matrix
-    rna_patterns = pd.read_table(args.rna_expression_file)
+    rna_patterns = pd.read_table(args.rna_expression_file, sep="\t", index_col=0)
     rna_patterns["ensembl_ids"] = rna_patterns.index
     
     # get foregrounds
