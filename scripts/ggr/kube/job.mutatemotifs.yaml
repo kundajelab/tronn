@@ -10,7 +10,7 @@ spec:
           image: dskim89/tensorflow-genomics
           env:
           - name: SCRIPT_DIR
-            value: "/datasets/software/git/tronn/scripts/ggr/kube/wrappers"
+            value: "/datasets/software/git/tronn/scripts/ggr/wrappers"
           - name: MODEL_DIR
             value: "/datasets/dskim89/models.2018-12-03"
           - name: MODEL
@@ -34,7 +34,7 @@ spec:
           - name: NUM_GPUS
             value: "4"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/dmim.$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.ggr.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $OUT_DIR"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/dmim.$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 4
