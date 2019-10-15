@@ -998,6 +998,7 @@ class H5DataLoader(DataLoader):
                             
                     except ValueError as value_error:
                         logging.debug(value_error)
+                        logging.info(batch_id)
                         logging.info("Stopping {}".format(h5_file))
                         raise StopIteration
 
