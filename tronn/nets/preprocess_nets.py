@@ -24,13 +24,13 @@ def mutate_sequences_single_motif(inputs, params):
             [params["sig_pwms"], params["sig_pwms"]], axis=0)
     
     # filter and mutate
-    #with tf.device("/cpu:0"):
-    outputs, params = filter_for_any_sig_pwms(inputs, params)
-    outputs, params = mutate_weighted_motif_sites(outputs, params)
+    with tf.device("/cpu:0"):
+        outputs, params = filter_for_any_sig_pwms(inputs, params)
+        outputs, params = mutate_weighted_motif_sites(outputs, params)
     
-    # attach
-    dfim = DeltaFeatureImportanceMapper(None)
-    outputs, params = dfim.preprocess(outputs, params)
+        # attach
+        dfim = DeltaFeatureImportanceMapper(None)
+        outputs, params = dfim.preprocess(outputs, params)
     
     return outputs, params
 
@@ -40,13 +40,14 @@ def postprocess_mutate(inputs, params):
     """
     # remove the shuffles - weighted seq (orig seq shuffles are already saved)
     params.update({"rebatch_name": "detach_mut_motif_seq"})
-    
-    #  use dfim to detach
-    dfim = DeltaFeatureImportanceMapper(None)
-    params.update({"save_aux": {DataKeys.LOGITS: DataKeys.MUT_MOTIF_LOGITS}})
-    outputs, params = detach_auxiliary_tensors(inputs, params)
-    outputs, _ = extract_null_results(outputs, params)
-    outputs, _ = get_sig_mut_logits(outputs, params)
-    del outputs[DataKeys.FEATURES]
+
+    with tf.device("/cpu:0"):
+        #  use dfim to detach
+        dfim = DeltaFeatureImportanceMapper(None)
+        params.update({"save_aux": {DataKeys.LOGITS: DataKeys.MUT_MOTIF_LOGITS}})
+        outputs, params = detach_auxiliary_tensors(inputs, params)
+        outputs, _ = extract_null_results(outputs, params)
+        outputs, _ = get_sig_mut_logits(outputs, params)
+        del outputs[DataKeys.FEATURES]
 
     return outputs, params
