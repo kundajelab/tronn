@@ -68,7 +68,13 @@ def _setup_output_skip_keys(args):
         skip_keys = []
     elif (args.subcommand_name == "mutatemotifs"):
         skip_keys = [
-            DataKeys.ORIG_SEQ_PWM_HITS]
+            DataKeys.ORIG_SEQ_PWM_HITS,
+            DataKeys.MUT_MOTIF_ORIG_SEQ,
+            DataKeys.MUT_MOTIF_POS,
+            DataKeys.MUT_MOTIF_MASK]
+        for key in skip_keys:
+            if "motif_mut" in key:
+                skip_keys.append(key.replace("motif_mut", "null_mut"))
     elif args.subcommand_name == "scanmotifs":
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,
