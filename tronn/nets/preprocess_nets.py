@@ -24,13 +24,13 @@ def mutate_sequences_single_motif(inputs, params):
             [params["sig_pwms"], params["sig_pwms"]], axis=0)
     
     # filter and mutate
-    with tf.device("/cpu:0"):
-        outputs, params = filter_for_any_sig_pwms(inputs, params)
-        outputs, params = mutate_weighted_motif_sites(outputs, params)
-
-        # attach
-        dfim = DeltaFeatureImportanceMapper(None)
-        outputs, params = dfim.preprocess(outputs, params)
+    #with tf.device("/cpu:0"):
+    outputs, params = filter_for_any_sig_pwms(inputs, params)
+    outputs, params = mutate_weighted_motif_sites(outputs, params)
+    
+    # attach
+    dfim = DeltaFeatureImportanceMapper(None)
+    outputs, params = dfim.preprocess(outputs, params)
     
     return outputs, params
 
