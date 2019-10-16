@@ -73,7 +73,7 @@ def run(args):
     # save out dataset json
     results_data_log = "{}/dataset.{}.json".format(args.out_dir, args.subcommand_name)
     results_data_loader = H5DataLoader(
-        data_dir=args.out_dir, data_files=predictions_files, fasta=args.fasta)
+        data_dir=args.out_dir, data_files=inference_files, fasta=args.fasta)
     dataset = results_data_loader.describe()
     dataset.update({
         "targets": args.targets,
