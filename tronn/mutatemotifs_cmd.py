@@ -70,6 +70,11 @@ def run(args):
     # run inference
     inference_files = run_inference(args)
     
+    # add in PWM names to the datasets
+    pwm_names = [pwm.name for pwm in args.pwm_list]
+    for inference_file in inference_files:
+        add_pwm_names_to_h5(inference_file, pwm_names)
+
     # save out dataset json
     results_data_log = "{}/dataset.{}.json".format(args.out_dir, args.subcommand_name)
     results_data_loader = H5DataLoader(
