@@ -737,7 +737,8 @@ class H5DataLoader(DataLoader):
                     else:
                         slice_tmp = h5_handle[key][start_idx:end_idx]
                         slice_pad = np.array(
-                            ["N" for i in range(batch_padding_num)])
+                            ["N" for i in range(batch_padding_num)]).reshape(
+                                [batch_padding_num] + list(slice_tmp.shape[1:]))
                 else:
                     slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
                     slice_pad_shape = [batch_padding_num] + list(slice_tmp.shape[1:])
