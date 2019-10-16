@@ -79,16 +79,5 @@ def run(args):
         "targets": args.targets,
         "target_indices": args.target_indices})
     write_to_json(dataset, results_data_log)
-
-    # save out inference json
-    infer_log = "{}/infer.{}.json".format(args.out_dir, args.subcommand_name)
-    infer_vals = {
-        "infer_dir": args.out_dir,
-        "model_json": args.model_json,
-        "targets": args.targets,
-        "inference_targets": args.inference_targets,
-        "target_indices": args.target_indices,
-        "pwm_file": args.pwm_file}
-    write_to_json(infer_vals, infer_log)
     
     return None
