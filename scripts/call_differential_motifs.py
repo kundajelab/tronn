@@ -31,6 +31,7 @@ from tronn.datalayer import H5DataLoader
 from tronn.interpretation.motifs import test_differential_motifs
 from tronn.stats.nonparametric import threshold_by_qvalues
 from tronn.util.h5_utils import AttrKeys
+from tronn.util.pwms import PWMParams
 from tronn.util.scripts import setup_run_logs
 from tronn.util.scripts import parse_multi_target_selection_strings
 from tronn.util.scripts import load_selected_targets
@@ -262,7 +263,15 @@ def main():
         overall_thresholded = num_sig >= eval(args.reduce_type[1])
     else:
         raise ValueError, "reduce type not recognized!"
-        
+
+    # if removing blacklisted, do so here
+    logging.info("Removed blacklisted pwms with substrings {}".format(
+        ",".join(PWMParams.BLACKLIST_SUBSTRINGS)))
+    for pwm_i in range(len(background_pwm_names)):
+        for substr in PWMParams.BLACKLIST_SUBSTRINGS:
+            if substr in background_pwm_names[pwm_i]:
+                overall_thresholded[:,pwm_i] = 0
+    
     logging.info("Significant motifs per foreground: {}".format(
         " ".join([str(i) for i in np.sum(overall_thresholded, axis=1).tolist()])))
     

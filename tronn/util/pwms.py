@@ -14,6 +14,18 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform
 
 
+class PWMParams(object):
+
+    BLACKLIST_SUBSTRINGS = [
+        "NANOG",
+        "SMARC",
+        "ZFP82",
+        "ZNF667",
+        "ZNF547",
+        "ZNF317",
+        "ZNF322"]
+
+    
 class PWM(object):
     """PWM class for PWM operations
     """
