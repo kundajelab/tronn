@@ -13,6 +13,7 @@ from tronn.interpretation.motifs import get_sig_pwm_vector
 from tronn.nets.preprocess_nets import mutate_sequences_single_motif
 from tronn.util.h5_utils import add_pwm_names_to_h5
 from tronn.util.formats import write_to_json
+from tronn.util.pwms import MotifSetManager
 from tronn.util.scripts import parse_multi_target_selection_strings
 from tronn.util.utils import DataKeys
 
@@ -71,9 +72,12 @@ def run(args):
     inference_files = run_inference(args)
     
     # add in PWM names to the datasets
-    pwm_names = [pwm.name for pwm in args.pwm_list]
-    for inference_file in inference_files:
-        add_pwm_names_to_h5(inference_file, pwm_names)
+    if args.infer_json is not None:
+        pwm_file = args.infer_json.get("pwm_file")
+        pwm_list = MotifSetManager.read_pwm_file(pwm_file)
+        pwm_names = [pwm.name for pwm in pwm_list]
+        for inference_file in inference_files:
+            add_pwm_names_to_h5(inference_file, pwm_names)
 
     # save out dataset json
     results_data_log = "{}/dataset.{}.json".format(args.out_dir, args.subcommand_name)

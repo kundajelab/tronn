@@ -942,6 +942,9 @@ def add_mutatemotifs_parser(subparsers):
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
+    group_interpret.add_argument(
+        "--infer_json",
+        help="load in infer json from scanmotifs (get pwm file)")
     _add_mutate_args(
         group_interpret)
     _add_outlayer_args(group_interpret)
