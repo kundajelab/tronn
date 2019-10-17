@@ -3,6 +3,7 @@
 import os
 import h5py
 import glob
+import json
 import logging
 
 import numpy as np
@@ -73,6 +74,8 @@ def run(args):
     
     # add in PWM names to the datasets
     if args.infer_json is not None:
+        with open(args.infer_json, "r") as fp:
+            args.infer_json = json.load(fp)
         pwm_file = args.infer_json.get("pwm_file")
         pwm_list = MotifSetManager.read_pwm_file(pwm_file)
         pwm_names = [pwm.name for pwm in pwm_list]
