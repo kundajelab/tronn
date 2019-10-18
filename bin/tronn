@@ -906,6 +906,9 @@ def add_buildgrammars_parser(subparsers):
         "--keep_grammars", nargs="+", default=[],
         help="grammars to keep IF they exist. use pwm names separated by commas")
     group_dataset.add_argument(
+        "--ignore_pwms", nargs="+", default=[],
+        help="motifs to ignore in grammar building")
+    group_dataset.add_argument(
         "--aux_data_keys", nargs="+", default=[],
         help="extra dataset summaries to add")
     _add_sig_pwms_args(group_dataset)

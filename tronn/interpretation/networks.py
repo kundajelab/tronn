@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 
+from scipy.stats import fisher_exact
+
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.h5_utils import copy_h5_dataset_slices
 from tronn.util.utils import DataKeys
@@ -50,7 +52,8 @@ def _build_nodes(
         example_metadata,
         pwm_indices,
         pwm_names,
-        sig_reduce_type="any"):
+        sig_reduce_type="any",
+        ignore_pwms=[]):
     """build nodes. when building, build with following attributes:
     1) examples
     2) global_idx (based on pwmvector)
@@ -61,11 +64,18 @@ def _build_nodes(
         reduce_fn = np.any
     else:
         raise ValueError("reduce fn is not valid!")
-
+    
     nodes = []
     for pwm_i in range(len(pwm_indices)):
         pwm_global_idx = pwm_indices[pwm_i]
-        pwm_name = pwm_names[pwm_global_idx]
+        pwm_name = pwm_names[pwm_i]
+        keep_pwm = True
+        for substr in ignore_pwms:
+            if substr in pwm_name:
+                # don't add if ignoring pwm
+                keep_pwm = False
+        if not keep_pwm:
+            continue
         pwm_sig_mut_outputs = all_sig_mut_outputs[:,pwm_i] # {N, logit}
         pwm_sig_mut_outputs_reduced = reduce_fn(pwm_sig_mut_outputs != 0, axis=1) # {N}
         example_indices = np.where(pwm_sig_mut_outputs_reduced)[0]
@@ -85,6 +95,8 @@ def _build_nodes(
 def _build_co_occurrence_edges(
         graph,
         min_region_num,
+        total_examples,
+        fisher_thresh=0.001,
         sig_reduce_type="any",
         keep_grammars=[]):
     """build co-occurrence edges
@@ -103,16 +115,33 @@ def _build_co_occurrence_edges(
             node2_examples = graph.nodes[node2_name]["examples"]
             intersect = node1_examples.intersection(node2_examples)
 
-            # check if should keep
+            # check conditions
             keep_edge = False
+
+            # fisher exact test
+            num_intersect = len(intersect)
+            num_1_only = len(node1_examples.difference(node2_examples))
+            num_2_only = len(node2_examples.difference(node1_examples))
+            num_neither = total_examples - (num_intersect + num_1_only + num_2_only)
+            contingency = [
+                [num_intersect, num_1_only],
+                [num_2_only, num_neither]]
+            odds_ratio, pval = fisher_exact(contingency)
+            if (pval < fisher_thresh) and (len(intersect) > min_region_num):
+            #if len(intersect) > min_region_num:
+                keep_edge = True
+                if (pval > fisher_thresh):
+                    print node1_name, node2_name
+
+            # check if required to keep
             for grammar in keep_grammars:
                 if set([node1_name, node2_name]).issubset(set(grammar)):
                     keep_edge = True
                     logging.info("from keep_grammars, keeping {},{} (size {})".format(
                         node1_name, node2_name, len(intersect)))
-            
-            # add an edge if passes min region num OR passes exception num
-            if (len(intersect) > min_region_num) or keep_edge:
+
+            # if passed the above AND passes min region requirement, keep
+            if keep_edge:
                 # make an edge
                 edge_attrs = {
                     "examples": intersect,
@@ -122,11 +151,11 @@ def _build_co_occurrence_edges(
                 edges.append(edge)
 
     logging.info("created {} co-occurrence edges".format(len(edges)))
-
+    
     return edges
 
 
-def _build_synergy_edges(
+def _build_synergy_edges_OLD(
         graph,
         dmim_scores,
         example_metadata,
@@ -175,25 +204,31 @@ def _build_synergy_edges(
 
 
 def build_full_graph(
-        dmim_h5_file,
+        h5_file,
         sig_pwms_indices,
+        sig_pwm_names,
         sig_mut_logits_key=DataKeys.MUT_MOTIF_LOGITS_SIG,
-        dmim_scores_key=DataKeys.DMIM_SCORES_SIG,
-        sig_responses=DataKeys.FEATURES,
-        min_positive_tasks=2,
         min_region_num=1000,
-        keep_grammars=[]):
+        keep_grammars=[],
+        ignore_pwms=[]):
     """build full graph with co-occurrence and synergy edges
     """
     # instantiate empty graph
     graph = nx.MultiDiGraph()
 
-    # 1) build nodes
     # first extract sig mut logits to make nodes
-    with h5py.File(dmim_h5_file, "r") as hf:
+    with h5py.File(h5_file, "r") as hf:
         example_metadata = hf[DataKeys.SEQ_METADATA][:,0]
         sig_mut_outputs = hf[sig_mut_logits_key][:]
-        pwm_names = hf[DataKeys.FEATURES].attrs[AttrKeys.PWM_NAMES]
+        
+    # adjust sig outputs if RC
+    # know this if sig pwm names is half of axis
+    if 2*len(sig_pwms_indices) == sig_mut_outputs.shape[1]:
+        sig_mut_outputs = np.reshape(
+            sig_mut_outputs,
+            [sig_mut_outputs.shape[0], -1, 2, sig_mut_outputs.shape[2]])
+        sig_mut_outputs = np.any(sig_mut_outputs != 0, axis=-2)
+
     assert sig_mut_outputs.shape[1] == len(sig_pwms_indices)
     
     # build nodes
@@ -201,27 +236,19 @@ def build_full_graph(
         sig_mut_outputs,
         example_metadata,
         sig_pwms_indices,
-        pwm_names,
-        sig_reduce_type="any")
+        sig_pwm_names,
+        sig_reduce_type="any",
+        ignore_pwms=ignore_pwms)
     graph.add_nodes_from(nodes)
     
-    # 2) build co-occurrence edges
+    # build co-occurrence edges
     co_occurrence_edges = _build_co_occurrence_edges(
-        graph, min_region_num, sig_reduce_type="any",
+        graph,
+        min_region_num,
+        example_metadata.shape[0],
+        sig_reduce_type="any",
         keep_grammars=keep_grammars)
     graph.add_edges_from(co_occurrence_edges)
-
-    # 3) build synergy edges
-    # TODO somewhere before this do a signifiance test
-    with h5py.File(dmim_h5_file, "r") as hf:
-        dmim_scores = hf[dmim_scores_key][:]
-    synergy_edges = _build_synergy_edges(
-        graph,
-        dmim_scores,
-        example_metadata,
-        min_region_num,
-        sig_reduce_type="any")
-    graph.add_edges_from(synergy_edges)
     
     return graph
 
@@ -319,7 +346,7 @@ def get_maxsize_k_subgraphs(graph, min_region_count, k=3, keep_grammars=[]):
     subgraphs = []
     for i in range(k):
         subgraphs += get_size_k_subgraphs(graph, min_region_count, i+1, keep_grammars)
-        logging.info("Found {} subgraphs for size {}".format(len(subgraphs), i+1))
+        logging.info("Found {} subgraphs for size less than or equal to {}".format(len(subgraphs), i+1))
         
     return subgraphs
 

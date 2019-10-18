@@ -30,10 +30,16 @@ def run(args):
         sig_pwms = hf[args.sig_pwms_key][args.foreground_targets]["sig"][:]
         sig_pwms_indices = np.where(sig_pwms != 0)[0]
 
-    # adjust the min number of regions based on min fract and min support
+    # get pwm names, adjust as needed
     with h5py.File(args.scan_file, "r") as hf:
-        total_examples = hf[DataKeys.FEATURES].shape[0]
+        pwm_names = hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].attrs["pwm_names"]
+        sig_pwms_names = [pwm_names[i] for i in sig_pwms_indices]
+        
+    # figure out min support
+    with h5py.File(args.scan_file, "r") as hf:
+        total_examples = hf[DataKeys.SEQ_METADATA].shape[0]
     min_support = max(total_examples * args.min_support_fract, args.min_support)
+    logging.info("Using min support of {}".format(min_support))
 
     # adjust the pwms by presence arg
     args.keep_grammars = [pwms.split(",") for pwms in args.keep_grammars]
@@ -42,13 +48,15 @@ def run(args):
     graph = build_full_graph(
         args.scan_file,
         sig_pwms_indices,
+        sig_pwms_names,
         min_positive_tasks=args.min_positive_tasks,
         min_region_num=min_support,
-        keep_grammars=args.keep_grammars)
+        keep_grammars=args.keep_grammars,
+        ignore_pwms=args.ignore_pwms)
 
     # get subgraphs
     subgraphs = get_maxsize_k_subgraphs(graph, min_support, keep_grammars=args.keep_grammars)
-
+    
     # attach delta logits to nodes
     subgraphs = attach_mut_logits(subgraphs, args.scan_file)
 
