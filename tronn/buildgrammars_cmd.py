@@ -49,7 +49,6 @@ def run(args):
         args.scan_file,
         sig_pwms_indices,
         sig_pwms_names,
-        min_positive_tasks=args.min_positive_tasks,
         min_region_num=min_support,
         keep_grammars=args.keep_grammars,
         ignore_pwms=args.ignore_pwms)
