@@ -19,11 +19,14 @@ from tronn.util.h5_utils import copy_h5_dataset_slices
 from tronn.util.utils import DataKeys
 
 
-def get_bed_from_nx_graph(graph, bed_file, interval_key="active", merge=True):
+def get_bed_from_nx_graph(graph, bed_file, interval_key="active", merge=True, return_key="region"):
     """get BED file from nx examples
     """
+    if isinstance(graph.graph["examples"], basestring):
+        graph.graph["examples"] = graph.graph["examples"].split(",")
     examples = list(graph.graph["examples"])
 
+    return_intervals = []
     with open(bed_file, "w") as fp:
         for region_metadata in examples:
             interval_types = region_metadata.split(";")
@@ -31,7 +34,8 @@ def get_bed_from_nx_graph(graph, bed_file, interval_key="active", merge=True):
                 interval_type.split("=")[0:2]
                 for interval_type in interval_types])
             interval_string = interval_types[interval_key]
-
+            return_intervals.append(interval_types[return_key])
+            
             chrom = interval_string.split(":")[0]
             start = interval_string.split(":")[1].split("-")[0]
             stop = interval_string.split("-")[1]
@@ -44,7 +48,7 @@ def get_bed_from_nx_graph(graph, bed_file, interval_key="active", merge=True):
             tmp_bed_file, bed_file))
         os.system("rm {}".format(tmp_bed_file))
     
-    return None
+    return return_intervals
 
 
 def _build_nodes(

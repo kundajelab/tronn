@@ -25,16 +25,6 @@ from tronn.util.pwms import MotifSetManager
 from tronn.util.scripts import setup_run_logs
 from tronn.util.utils import DataKeys
 
-# manually curated pwms to blacklist
-MANUAL_BLACKLIST_PWMS = [
-    "NANOG",
-    "SMARC",
-    "ZFP82",
-    "ZNF667",
-    "ZNF547",
-    "ZNF317",
-    "ZNF322"]
-
 # manually curated genes of interest
 MANUAL_INTERESTING_GENES = []
 
@@ -127,81 +117,6 @@ def get_edge_type(gml_file):
     return edge_type
 
 
-def _run_great(bed_file, out_dir):
-    """run great
-    """
-    run_cmd = "run_rgreat.R {} {}/{}".format(
-        bed_file,
-        out_dir,
-        os.path.basename(bed_file).split(".bed")[0])
-    print run_cmd
-    os.system('GREPDB="{}"; /bin/bash -c "$GREPDB"'.format(run_cmd))
-    
-    return None
-
-
-def _run_david(foreground_genes, background_genes, out_dir):
-    """run david
-    """
-    # run david
-    results_file = "{}/{}.rna.foreground.go_rdavid.GOTERM_BP_ALL.txt".format(
-        out_dir, os.path.basename(foreground_genes).split(".rna.foreground")[0])
-    if not os.path.isfile(results_file):
-        run_david = "/users/dskim89/git/ggr-project/R/bioinformatics.go.rdavid.R {} {} {}".format(
-            foreground_genes,
-            background_genes,
-            out_dir)
-        print run_david
-        os.system(run_david)
-    
-    # read in
-    try:
-        david_results = pd.read_table(results_file)
-        if david_results.shape[0] > 10:
-            david_results = david_results.iloc[0:10]
-        functional_terms = david_results["Term"].values.tolist()
-    except:
-        functional_terms = []
-            
-    return functional_terms
-
-
-def _run_gprofiler(foreground_genes, background_genes, out_dir):
-    """run david
-    """
-    # run gprofiler
-    results_file = "{}/{}.rna.foreground.go_gprofiler.txt".format(
-        out_dir, os.path.basename(foreground_genes).split(".rna.foreground")[0])
-    if not os.path.isfile(results_file):
-        run_gprofiler = "bioinformatics.go.gProfileR.R {} {} {}".format(
-            foreground_genes,
-            background_genes,
-            out_dir)
-        print run_gprofiler
-        os.system(run_gprofiler)
-
-    # read in
-    try:
-        gprofiler_results = pd.read_table(results_file)
-        gprofiler_results = gprofiler_results[gprofiler_results["domain"] == "BP"]
-        functional_terms = gprofiler_results["term.name"].values.tolist()
-    except:
-        functional_terms = []
-        
-    return functional_terms
-
-
-def get_functional_enrichment(foreground_genes, background_genes, out_dir, method="david"):
-    """wrapper around different functional enrichment tools
-    """
-    if method == "david":
-        results = _run_david(foreground_genes, background_genes, out_dir)
-    elif method == "gprofiler":
-        results = _run_gprofiler(foreground_genes, background_genes, out_dir)
-
-    return results
-
-
 def expand_pwms_by_rna(pwms_df, split_cols, split_char=";"):
     """given column(s) with multiple values in a row, expand so that
     each row has a single value
@@ -225,32 +140,6 @@ def expand_pwms_by_rna(pwms_df, split_cols, split_char=";"):
                 pwms_df.columns.tolist()]
 
     return pwms_df_expanded
-
-
-def get_nearby_genes(
-        bed_file,
-        tss_file,
-        k,
-        max_dist,
-        tmp_file="tss_overlap.tmp.txt"):
-    """get proximal genes
-    """
-    # bedtools closest
-    closest = "bedtools closest -d -k {} -a {} -b {} > {}".format(
-        k, bed_file, tss_file, tmp_file)
-    os.system(closest)
-
-    # load results and use distance cutoff
-    data = pd.read_table(tmp_file, header=None)
-    data = data[data[9] < max_dist]
-    data = data[[6,9]]
-    data.columns = ["gene_id", "distance"]
-    data = data.set_index("gene_id")
-
-    # cleanup
-    os.system("rm {}".format(tmp_file))
-    
-    return data
 
 
 def check_substrings(desired_substrings, main_strings):
@@ -281,19 +170,17 @@ def get_num_lines(file_name):
 
 
 def annotate_one_grammar(
+        args,
         grammar_file,
-        grammar,
         new_grammar_file,
-        pwm_to_rna_dict,
-        tss,
-        dynamic_genes,
-        interesting_genes,
-        background_rna,
-        out_dir,
-        k_closest=2,
-        max_dist=250000): # TODO adjust here - Nat gen GTEX paper, use 250kbp?
+        corr_pval_thresh=0.10):
     """return a dict of results
     """
+    from ggr.analyses.linking import regions_to_genes
+    from ggr.analyses.bioinformatics import run_gprofiler
+    
+    # read in grammar
+    grammar = nx.read_gml(grammar_file)
     results = {}
     
     # attach motif names
@@ -303,13 +190,14 @@ def annotate_one_grammar(
     # attach TF names
     # TODO ideally adjust for only the RNAs that had matched the pattern (good correlation)
     rna_node_names = ",".join(
-        [pwm_to_rna_dict[node_name] for node_name in grammar.nodes])
+        [args.pwm_to_rna_dict[node_name] for node_name in grammar.nodes])
     results["nodes_rna"] = rna_node_names
     
     # make a BED file, get num regions
     grammar_bed = "{}/{}.bed".format(
-        out_dir, os.path.basename(grammar_file).split(".gml")[0])
-    get_bed_from_nx_graph(grammar, grammar_bed)
+        args.out_dir, os.path.basename(grammar_file).split(".gml")[0])
+    grammar_region_ids = get_bed_from_nx_graph(grammar, grammar_bed)
+    grammar_region_ids = list(set(grammar_region_ids))
     results["region_num"] = get_num_lines(grammar_bed)
 
     # get signal and delta scores
@@ -317,110 +205,97 @@ def annotate_one_grammar(
     results["delta_logit"] = get_max_delta_logit(grammar_file)
     results["edge_type"] = get_edge_type(grammar_file)
 
-    # run proximal RNA based analyses
-    # get nearby genes
-    nearby_genes = get_nearby_genes(grammar_bed, tss, k_closest, max_dist)
-    logging.info("proximal genes within {} bp: {}".format(max_dist, nearby_genes.shape[0]))
+    # linking
+    tmp_out_file = "{}/{}.linked_genes.txt.gz".format(
+        args.tmp_dir, os.path.basename(grammar_file).split(".gml")[0])
+    if not os.path.isfile(tmp_out_file):
+        regions_to_genes(
+            grammar_bed,
+            args.links_file,
+            args.tss_file,
+            tmp_out_file,
+            filter_by_score=0.5,
+            filter_genes=args.filter_genes)
+    linked_genes = pd.read_csv(tmp_out_file, sep="\t", header=0, index_col=0)
 
-    # intersect with foreground set (in our case, dynamic genes only)
-    nearby_dynamic_genes = dynamic_genes.merge(nearby_genes, left_index=True, right_index=True)
-    logging.info("proximal genes that are DYNAMIC: {}".format(nearby_dynamic_genes.shape[0]))
+    # filter vs atac signal pattern
+    grammar_rna_signal = args.rna_signal_mat.loc[linked_genes.index.values.tolist()]
+    grammar_region_signal = args.region_signal_mat.loc[grammar_region_ids]
+    corr, pval = pearsonr(grammar_rna_signal.mean(axis=0), grammar_region_signal.mean(axis=0))
+    #if pval > corr_pval_thresh:
+    if corr <= 0:
+        logging.info("does not pass correlation")
+        return {}
 
-    # and filter vs the ATAC signal pattern
-    atac_pattern = np.array(
-        [float(val) for val in grammar.graph["ATACSIGNALSNORM"].split(",")])
-    atac_pattern = atac_pattern[[0,2,3,4,5,6,9,10,12]] # remove media timepoints
-    nearby_dynamic_genes["corr"] = nearby_dynamic_genes.iloc[:,:-1].apply(
-        lambda x: pearsonr(x, atac_pattern)[0], axis=1)
-    nearby_dynamic_genes["corr_pval"] = nearby_dynamic_genes.iloc[:,:-2].apply(
-        lambda x: pearsonr(x, atac_pattern)[1], axis=1)
-    nearby_dynamic_genes_atac_filt = nearby_dynamic_genes[nearby_dynamic_genes["corr"] > 0]
-    nearby_dynamic_genes_atac_filt = nearby_dynamic_genes_atac_filt[
-        nearby_dynamic_genes_atac_filt["corr_pval"] < 0.10]
-    nearby_dynamic_genes_atac_filt = nearby_dynamic_genes_atac_filt.sort_values("corr", ascending=False)
-    results["num_target_genes"] = nearby_dynamic_genes_atac_filt.shape[0]
-    logging.info("proximal genes that are well correlated to ATAC signal: {}".format(
-        nearby_dynamic_genes_atac_filt.shape[0]))
+    # could filter genes vs pattern
+    if True:
+        keep_genes = pd.DataFrame(
+            grammar_rna_signal.apply(
+                lambda x: pearsonr(x, grammar_region_signal.mean(axis=0)),
+                axis=1).values.tolist(),
+            columns=["corr", "pval"],
+            index=grammar_rna_signal.index)
+        keep_genes = keep_genes[keep_genes["corr"] > 0]
+        keep_genes = keep_genes[keep_genes["pval"] < 0.10] # TODO is this too strict
+        grammar_rna_signal = grammar_rna_signal[grammar_rna_signal.index.isin(keep_genes.index)]
+        linked_genes = linked_genes[linked_genes.index.isin(keep_genes.index)]
+        linked_genes = linked_genes.sort_values("score", ascending=False)
+        
+    results["num_target_genes"] = grammar_rna_signal.shape[0]
+    logging.info("proximal genes kept: {}".format(grammar_rna_signal.shape[0]))
 
-    # if no target genes, clear out
+    # if no target genes, exit
     if results["num_target_genes"] == 0:
-        results["region_to_RNA"] = 0.0
-        results["downstream_interesting"] = ""
-        results["MSE"] = 0.0
-        results["max_rna_vals"] = 0.0
-        results["GO_terms"] = 0
-        results["filename"] = "None"
-        return results
+        return {}
         
     # get the region to rna ratio
     results["region_to_rna"] = results["region_num"] / float(results["num_target_genes"])
         
     # check for relevant downstream genes
     interesting_downstream_genes = sorted(list(
-        set(interesting_genes.keys()).intersection(
-            set(nearby_dynamic_genes_atac_filt.index))))
+        set(args.interesting_genes.keys()).intersection(
+            set(grammar_rna_signal.index))))
     hgnc_interesting = [
-        interesting_genes[ensembl_id]
+        args.interesting_genes[ensembl_id]
         for ensembl_id in interesting_downstream_genes]
     results["downstream_interesting"] = ",".join(hgnc_interesting)
 
-    # set up zscores (for a weighted MSE and for plotting), attach max val and distance
-    rna_z = zscore(nearby_dynamic_genes_atac_filt.values[:,:-3], axis=1)
-    rna_z = pd.DataFrame(
-        rna_z,
-        index=nearby_dynamic_genes_atac_filt.index,
-        columns=nearby_dynamic_genes_atac_filt.columns[:-3])
-    rna_z["max"] = np.max(nearby_dynamic_genes_atac_filt.values[:,:-3], axis=1)
-    rna_z["distance"] = nearby_dynamic_genes_atac_filt["distance"]
-    # adjust distances with ENSG id to make sure unique
-    decimals = "." + rna_z.reset_index()["index"].str.split("ENSG000", n=1, expand=True)[1]
-    rna_z["decimal_id"] = decimals.values.astype(float)
-    rna_z["distance"] = rna_z["distance"] + rna_z["decimal_id"]
-    del rna_z["decimal_id"]
-    # and now convert distances to a decay value
-    coeff = -np.log(0.5) / (max_dist / 8.)
-    rna_z["weights"] = 1 * np.exp(-coeff * rna_z["distance"].values)
-
-    # get a weighted MSE (with a weighted mean average)
-    rna_z_array = rna_z.values[:,:-3]
-    distance_weights = rna_z.values[:,-1]
-    weighted_patterns = np.multiply(
-        rna_z_array,
-        np.expand_dims(distance_weights, axis=1))
-    weighted_pattern_sum = np.sum(weighted_patterns, axis=0)
-    weighted_mean = weighted_pattern_sum / distance_weights.sum()
-    grammar.graph["RNASIGNALS"] = weighted_mean.tolist() # saving out RNA vector
-    weighted_mean = np.expand_dims(weighted_mean, axis=0)
-
-    # get weighted MSE
-    mean_sq_errors = np.square(
-        np.subtract(rna_z_array, weighted_mean)).mean(axis=1)
-    weighted_mean_sq_errors = np.multiply(
-        mean_sq_errors,
-        distance_weights)
-    weighted_MSE = np.sum(weighted_mean_sq_errors) / distance_weights.sum()
-    results["MSE"] = weighted_MSE
-    logging.info("{}".format(weighted_MSE))
-
-    # get a weighted mean but NOT normalized
-    weighted_orig_rna = np.multiply(
-        nearby_dynamic_genes_atac_filt.values[:,:-3],
-        np.expand_dims(distance_weights, axis=1))
-    weighted_orig_mean = np.sum(weighted_orig_rna, axis=0) / distance_weights.sum()
-    results["max_rna_vals"] = np.max(weighted_orig_mean)
-
-    # adjust for plotting - just plot out the CLOSEST ones
-    plotting = False
-    if plotting:
-        pass
+    # generate a weighted RNA curve based on link scores
+    # note: convert scores to distribution across genes so that final mean
+    # is properly maintained
+    scores_as_fract = np.divide(
+        linked_genes["score"].values,
+        linked_genes["score"].sum())
+    weighted_rna_signal = np.multiply(
+        grammar_rna_signal.values,
+        np.expand_dims(scores_as_fract, axis=1))
+    grammar.graph["RNASIGNALS"] = np.mean(weighted_rna_signal, axis=0).tolist()
 
     # run functional enrichment using these genes
     foreground_gene_file = "{}/{}.rna.foreground.txt.gz".format(
-        out_dir, os.path.basename(grammar_bed).split(".bed")[0])
-    nearby_dynamic_genes_atac_filt.reset_index().to_csv(
-        foreground_gene_file, columns=["index"], header=False, index=False, compression="gzip")
-    functional_terms = get_functional_enrichment(
-        foreground_gene_file, background_rna, out_dir, method="gprofiler")
+        args.tmp_dir, os.path.basename(grammar_bed).split(".bed")[0])
+    results_file = "{}.go_gprofiler.txt".format(
+        foreground_gene_file.split(".txt")[0])
+    if not os.path.isfile(results_file):
+        linked_genes.reset_index().to_csv(
+            foreground_gene_file, columns=["gene_id"], index=False, compression="gzip")
+        run_gprofiler(
+            foreground_gene_file, args.background_rna,
+            args.tmp_dir, ordered=True, header=True)
+
+    # check for good GO terms and remove BAD go terms
+    functional_terms = pd.read_csv(results_file, sep="\t")
+    functional_terms = functional_terms[functional_terms["domain"] == "BP"]
+    functional_terms = functional_terms["term.name"].values.tolist()
+    keep_terms = []
+    for func_term in functional_terms:
+        keep = True
+        for bad_term_str in REMOVE_GO_TERMS:
+            if bad_term_str in func_term:
+                keep = False
+        if keep:
+            keep_terms.append(func_term)
+    functional_terms = keep_terms
     if check_substrings(GOOD_GO_TERMS, functional_terms):
         logging.info("was functionally enriched: {}".format(",".join(functional_terms)))
         results["GO_terms"] = 1
@@ -434,9 +309,13 @@ def annotate_one_grammar(
     for keep_grammar in KEEP_GRAMMARS:
         if len(set(clean_node_names.split(",")).difference(set(keep_grammar))) == 0:
             results["GO_terms"] = 1
-        
+
+    for key in sorted(results.keys()):
+        print key, results[key]
+            
     # and save out updated gml file
-    nx.write_gml(stringize_nx_graph(grammar), new_grammar_file)
+    if results["GO_terms"] == 1:
+        nx.write_gml(stringize_nx_graph(grammar), new_grammar_file)
     results["filename"] = new_grammar_file
 
     return results
@@ -704,12 +583,7 @@ def merge_synergy_files(
 
 def merge_duplicates(
         filt_summary_file,
-        pwm_to_rna_dict,
-        tss,
-        dynamic_genes,
-        interesting_genes,
-        background_rna,
-        out_dir,
+        args,
         synergy_dirs=[],
         merged_synergy_dir=None):
     """for each line, check for duplicate lines and merge them all
@@ -732,9 +606,7 @@ def merge_duplicates(
         "filename": [],
         "region_num": [],
         "num_target_genes": [],
-        "max_rna_vals": [],
         "region_to_rna": [],
-        "MSE": [],
         "downstream_interesting": [],
         "edge_type": [],
         "GO_terms": [],
@@ -763,22 +635,16 @@ def merge_duplicates(
                 print [nx.read_gml(grammar).edges(data="edgetype") for grammar in curr_grammars]
                 
                 # merge
-                merged_grammar_file = merge_grammars_from_files(curr_grammars, out_dir)
+                merged_grammar_file = merge_grammars_from_files(curr_grammars, args.out_dir)
                 merged_grammar = nx.read_gml(merged_grammar_file)
                 merged_grammar.graph["examples"] = set(
                     merged_grammar.graph["examples"].split(","))
                 new_grammar_file = "{}/{}".format(
-                    out_dir, os.path.basename(merged_grammar_file))
+                    args.out_dir, os.path.basename(merged_grammar_file))
                 grammar_results = annotate_one_grammar(
+                    args,
                     merged_grammar_file,
-                    merged_grammar,
-                    new_grammar_file,
-                    pwm_to_rna_dict,
-                    tss,
-                    dynamic_genes,
-                    interesting_genes,
-                    background_rna,
-                    out_dir)
+                    new_grammar_file)
 
                 # merge synergy files into new dir
                 if len(synergy_dirs) > 0:
@@ -807,7 +673,7 @@ def merge_duplicates(
     # finally save into new filt file
     summary_df = pd.DataFrame(results)
     summary_df.insert(0, "manual_filt", np.ones(summary_df.shape[0]))
-    new_filt_summary_file = "{}/grammar_summary.filt.dedup.txt".format(out_dir)
+    new_filt_summary_file = "{}/grammar_summary.filt.dedup.txt".format(args.out_dir)
     summary_df.to_csv(new_filt_summary_file, sep="\t")
     
     return new_filt_summary_file
@@ -816,21 +682,24 @@ def merge_duplicates(
 def annotate_grammars(args, merge_grammars=True):
     """all the grammar annotation stuff
     """
-    # generate blacklist pwms (length cutoff + manual)
-    pwms = MotifSetManager.read_pwm_file(args.pwms)
-    blacklist_pwms = []
-    for pwm in pwms:
-        if pwm.weights.shape[1] > args.max_pwm_length:
-            blacklist_pwms.append(pwm.name)
-    blacklist_pwms += MANUAL_BLACKLIST_PWMS
-    logging.info("Blacklist pwms: {}".format(";".join(blacklist_pwms)))
+    # read in dynamic genes as list
+    args.filter_genes = pd.read_table(
+        args.foreground_rna, index_col=0).index.values.tolist()
 
-    # read in dynamic genes
-    dynamic_genes = pd.read_table(args.foreground_rna, index_col=0)
+    # read in signals, normalize
+    args.region_signal_mat = pd.read_csv(args.region_signal_mat_file, sep="\t", index_col=0)
+    args.region_signal_mat[:] = np.subtract(
+        args.region_signal_mat.values,
+        np.expand_dims(args.region_signal_mat.values[:,0], axis=-1))
+    args.region_signal_mat = args.region_signal_mat.drop("d05", axis=1)
+    args.rna_signal_mat = pd.read_csv(args.rna_signal_mat_file, sep="\t", index_col=0)
+    args.rna_signal_mat[:] = np.subtract(
+        args.rna_signal_mat.values,
+        np.expand_dims(args.rna_signal_mat.values[:,0], axis=-1))
     
     # get list of interesting genes
     pwm_metadata = pd.read_table(args.pwm_metadata).dropna()
-    pwm_to_rna_dict = dict(zip(
+    args.pwm_to_rna_dict = dict(zip(
         pwm_metadata["hclust_model_name"].values.tolist(),
         pwm_metadata["expressed_hgnc"].values.tolist()))
     split_cols = ["expressed", "expressed_hgnc"]
@@ -838,20 +707,18 @@ def annotate_grammars(args, merge_grammars=True):
     genes_w_pwms = dict(zip(
         pwm_metadata["expressed"].values.tolist(),
         pwm_metadata["expressed_hgnc"].values.tolist()))
-    interesting_genes = genes_w_pwms
+    args.interesting_genes = genes_w_pwms
     # TODO filter these for just the dynamic ones
-    for key in interesting_genes.keys():
-        pass
     logging.info("Expressed genes with matching pwms: {}".format(len(genes_w_pwms)))
         
     # load grammars and adjust as needed
-    args.grammars = sorted(args.grammars)
-    grammars = [nx.read_gml(grammar) for grammar in args.grammars]
-    for grammar in grammars:
-        grammar.graph["examples"] = set(
-            grammar.graph["examples"].split(","))
-    logging.info("Starting with {} grammars".format(len(grammars)))
-
+    if False:
+        grammars = [nx.read_gml(grammar) for grammar in args.grammars]
+        for grammar in grammars:
+            grammar.graph["examples"] = set(
+                grammar.graph["examples"].split(","))
+        logging.info("Starting with {} grammars".format(len(grammars)))
+        
     # set up results 
     results = {
         "nodes": [],
@@ -861,21 +728,19 @@ def annotate_grammars(args, merge_grammars=True):
         "filename": [],
         "region_num": [],
         "num_target_genes": [],
-        "max_rna_vals": [],
+        #"max_rna_vals": [],
         "region_to_rna": [],
-        "MSE": [],
         "downstream_interesting": [],
         "edge_type": [],
         "GO_terms": [],
         "GO_descriptions": []}
 
     if True:
-        # for each grammar, run analyses:
-        for grammar_idx in range(len(grammars)):
-
-            # get grammar file and grammar graph
+        total_kept = 0
+        for grammar_idx in range(len(args.grammars)):
+            # load grammar
             grammar_file = args.grammars[grammar_idx]
-            grammar = grammars[grammar_idx]
+            grammar = nx.read_gml(grammar_file)
             logging.debug("annotating {} with nodes {}".format(
                 grammar_file, ";".join(grammar.nodes)))
 
@@ -884,36 +749,26 @@ def annotate_grammars(args, merge_grammars=True):
                 logging.info("skipping since 1 node")
                 continue
 
-            # immediately ignore blacklist
-            node_names = list(grammar.nodes)
-            if check_substrings(blacklist_pwms, node_names):
-                logging.info("skipping since grammar contains blacklist motif")
-                continue
-
             # annotate the grammar
             new_grammar_file = "{}/{}.annot-{}.gml".format(
                 args.out_dir,
                 os.path.basename(grammar_file).split(".gml")[0],
                 grammar_idx)
             grammar_results = annotate_one_grammar(
+                args,
                 grammar_file,
-                grammar,
-                new_grammar_file,
-                pwm_to_rna_dict,
-                args.tss,
-                dynamic_genes,
-                interesting_genes,
-                args.background_rna,
-                args.out_dir)
+                new_grammar_file)
 
             # do not save out if no results
-            if grammar_results["filename"] == "None":
+            if grammar_results.get("filename", None) is None:
                 logging.info("{} does not have proximal genes, not saving".format(grammar_file))
                 continue
             
             # attach the results
             for key in grammar_results.keys():
                 results[key].append(grammar_results[key])
+            total_kept += 1
+            print total_kept / float(grammar_idx+1)
 
         # save out summary
         summary_file = "{}/grammar_summary.txt".format(args.out_dir)
@@ -940,22 +795,12 @@ def annotate_grammars(args, merge_grammars=True):
     # TODO merge needs to happen here
     if merge_grammars:
         filt_summary_file = "{}/grammar_summary.filt.txt".format(args.out_dir)
-        filt_summary_file = merge_duplicates(
-            filt_summary_file,
-            pwm_to_rna_dict,
-            args.tss,
-            dynamic_genes,
-            interesting_genes,
-            args.background_rna,
-            args.out_dir)
+        filt_summary_file = merge_duplicates(filt_summary_file, args)
         
     # TODO make a function to adjust grammar colors?
     # color by function (not by ordering across time)?
-    
 
     return filt_summary_file
-
-
 
 
 def plot_results(filt_summary_file, out_dir):

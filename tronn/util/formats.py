@@ -35,7 +35,7 @@ def write_to_json(data, out_file):
             cls=NumpyEncoder)
 
 
-def array_to_bed(data, bed_file, interval_key="active", merge=True):
+def array_to_bed(data, bed_file, interval_key="active", name_key="region", merge=True):
     """take an array of metadata and extract out 
     desired bed regions
     """
@@ -48,11 +48,13 @@ def array_to_bed(data, bed_file, interval_key="active", merge=True):
                 interval_type.split("=")[0:2]
                 for interval_type in interval_types])
             interval_string = interval_types[interval_key]
-
+            region_name = interval_types[name_key]
+            
             chrom = interval_string.split(":")[0]
             start = interval_string.split(":")[1].split("-")[0]
             stop = interval_string.split("-")[1]
-            out.write("{}\t{}\t{}\n".format(chrom, start, stop))
+            out.write("{}\t{}\t{}\t{}\t1000\t.\n".format(
+                chrom, start, stop, region_name))
 
     if merge:
         tmp_bed_file = "{}.tmp.bed.gz".format(bed_file.split(".bed")[0])

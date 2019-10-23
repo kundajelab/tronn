@@ -3,6 +3,7 @@
 
 import os
 import h5py
+import logging
 
 import numpy as np
 import pandas as pd
@@ -116,6 +117,164 @@ def filter_for_pwm_importance_overlap(importances, pwm_scores, fract_thresh=0.9,
     keep_indices = np.where(pwm_impt_coverage >= fract_thresh)[0]
     
     return keep_indices
+
+
+def analyze_multiplicity(
+        h5_files,
+        pwm_indices,
+        max_val_key=DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL,
+        scores_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+        metadata_key=DataKeys.SEQ_METADATA,
+        signal_keys={"ATAC_SIGNALS": [0,6,12], "H3K27ac_SIGNALS": [0,1,2]},
+        reduce_method="max",
+        pool_window=20,
+        max_count=6,
+        tol=1e-5,
+        min_region_count=500,
+        min_hit_region_count=50,
+        solo_filter=False,
+        solo_filter_fract=0.9,
+        solo_filter_window=20,
+        importances_key=DataKeys.WEIGHTED_SEQ_ACTIVE,
+        impt_clip_start=12,
+        impt_clip_end=148,
+        num_threads=24):
+    """analyze syntax by aligning to anchor pwm and seeing what patterns
+    look like around it
+
+    Args:
+      - h5_files: files with data
+      - pwm_indices: which pwms are being tested. MUST provide at least TWO.
+      - orientations: what orientation to test (FWD, REV, BOTH)
+    """
+    # load max vals and determine which examples are of interest
+    # don't care about which direction, so load jointly
+    max_vals_per_file = load_data_from_multiple_h5_files(
+        h5_files, max_val_key, concat=False)
+    example_indices = []
+    for max_vals in max_vals_per_file:
+        #print max_vals.shape[0]
+        file_examples = []
+        for pwm_idx in pwm_indices:
+            file_examples += get_syntax_matching_examples(
+                max_vals, [pwm_idx]).tolist()
+        #print len(file_examples)
+        file_examples = np.array(sorted(list(set(file_examples))))
+        #print file_examples.shape[0]
+        example_indices.append(file_examples)
+        
+    # do not continue if don't have enough regions
+    total_regions = np.sum([examples.shape[0] for examples in example_indices])
+    print total_regions
+    if total_regions < min_region_count:
+        return None
+    
+    # TODO - here could also choose to utilize mutate motifs to reduce the number
+    # being considered.
+    # this is complicated because need to go through ALL traj mutatemotifs results
+    
+    # collect scores for pwms
+    scores = [] # list of arrays, one for each pwm
+    for pwm_idx in range(len(pwm_indices)):
+        global_pwm_idx = pwm_indices[pwm_idx]
+        logging.info("collecting scores for {}".format(global_pwm_idx))
+        
+        # use pool to speed up loading
+        pool = Pool(processes=min(num_threads, len(h5_files)))
+        pool_inputs = []
+        for h5_idx in range(len(h5_files)):
+            pool_inputs.append(
+                (h5_files[h5_idx],
+                 scores_key,
+                 example_indices[h5_idx],
+                 global_pwm_idx))
+        pool_outputs = pool.map(_load_pwm_scores, pool_inputs)
+        pwm_scores = np.concatenate(pool_outputs, axis=0)
+        # reduce across tasks
+        if reduce_method == "max":
+            pwm_scores = np.max(pwm_scores, axis=1)
+        else:
+            raise ValueError, "Unimplemented reduce method!"
+        # DON'T SUM YET ACROSS POSITIONS - need for solo filter
+        scores.append(pwm_scores)
+
+    scores = np.sum(scores, axis=0) # {N, M} <- non-oriented now, since combined fwd/rev
+    print scores.shape
+
+    # metadata and signals
+    metadata = load_data_from_multiple_h5_files(
+        h5_files, metadata_key, example_indices=example_indices)[:,0]
+    signals = {}
+    for key in signal_keys.keys():
+        signals[key] = load_data_from_multiple_h5_files(
+            h5_files, key, example_indices=example_indices)
+        
+    # if solo filter, need to load importances and filter with those thresholds
+    if solo_filter:
+        logging.info("using solo filtering")
+        # use pool to load faster
+        pool = Pool(processes=min(num_threads, len(h5_files)))
+        pool_inputs = []
+        for h5_idx in range(len(h5_files)):
+            pool_inputs.append(
+                (h5_files[h5_idx],
+                 importances_key,
+                 example_indices[h5_idx],
+                 impt_clip_start,
+                 impt_clip_end))
+        pool_outputs = pool.map(_load_importances, pool_inputs)
+        importances = np.concatenate(pool_outputs, axis=0)
+
+        # get solo indices. NOTE: the solo indices reference indices AFTER applying
+        # example_indices!!
+        solo_indices = filter_for_pwm_importance_overlap(
+            importances,
+            scores,
+            fract_thresh=solo_filter_fract,
+            window=solo_filter_window)
+
+        print solo_indices.shape[0]
+        if solo_indices.shape[0] < min_region_count:
+            return None
+        
+        # filter all: scores, metadata, signals
+        scores = scores[solo_indices]
+        metadata = metadata[solo_indices]
+        for key in signal_keys.keys():
+            signals[key] = signals[key][solo_indices]
+
+    print "examples found:", metadata.shape[0]
+    
+    # convert to hits
+    hits = np.sum(scores > 0, axis=1)
+    hits = pd.DataFrame(data=hits, index=metadata, columns=["hits"])
+    hits["present"] = 1
+    
+    # attach signals and aggregate
+    results = {"hits_per_region": hits}
+    for key in sorted(signal_keys.keys()):
+        signal_task_indices = signal_keys[key]
+        results[key] = {}
+        results[key]["count"] = np.zeros((
+            len(signal_task_indices),
+            max_count))
+        for i in range(len(signal_task_indices)):
+            task_idx = signal_task_indices[i]
+            task_hits = hits.copy()
+            task_hits[task_idx] = signals[key][:,task_idx]
+            # aggregate
+            task_results = task_hits.groupby("hits").median()
+            # don't consider results if not covered by enough regions
+            task_results["present"] = task_hits.groupby("hits")["present"].sum()
+            task_results = task_results[task_results["present"] > min_hit_region_count]
+            #task_results.loc[task_results["present"] < min_hit_region_count] = 0
+
+            # save in
+            for count in range(1,max_count+1):
+                if count in task_results.index:
+                    results[key]["count"][i,count-1] = task_results.loc[count][task_idx]
+                    
+    return results
 
 
 def analyze_syntax(
