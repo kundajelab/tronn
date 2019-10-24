@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.scanmotifs.stable.h3k27ac-stable
+spec:
+    template:
+      spec:
+        containers:
+        - name: infer-container
+          image: dskim89/tensorflow-genomics
+          env:
+          - name: SCRIPT_DIR
+            value: "/datasets/software/git/tronn/scripts/ggr/wrappers"
+          - name: MODEL_DIR
+            value: "/datasets/dskim89/models.2018-12-03"
+          - name: MODEL
+            value: "basset"
+          - name: OUT_DIR
+            value: "/datasets/dskim89/inference.2019-10-08/motifs.input_x_grad.stable.H3K27ac_stable"
+          - name: FILTER
+            value: "STABLE_MARK_LABELS=4 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
+          - name: NUM_GPU
+            value: "4"
+          - name: BATCH_SIZE
+            value: "8"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $OUT_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 4
+              cpu: 8
+              memory: 128Gi
+            requests:
+              cpu: 2
+              memory: 8Gi
+          volumeMounts:
+          - mountPath: /datasets
+            name: datasets
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        #affinity:
+        #  nodeAffinity:
+        #    requiredDuringSchedulingIgnoredDuringExecution:
+        #      nodeSelectorTerms:
+        #      - matchExpressions:
+        #        - key: gpu-type
+        #          operator: In # Use NotIn for other types
+        #          values:
+        #          - "1080Ti"
