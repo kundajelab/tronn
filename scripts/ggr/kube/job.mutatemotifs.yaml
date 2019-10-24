@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-    name: dk.job.ggr.mutatemotifs.traj-0
+    name: dk.job.mutatemotifs.traj-0
 spec:
     template:
       spec:
@@ -30,14 +30,14 @@ spec:
           - name: FOREGROUND_NAME
             value: "TRAJ_LABELS-0"
           - name: BATCH_SIZE
-            value: "24"
+            value: "6"
           - name: NUM_GPUS
-            value: "4"
+            value: "1"
           command: ["bash", "-c"]
           args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/mutatemotifs.$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $OUT_DIR"]
           resources:
             limits:
-              nvidia.com/gpu: 4
+              nvidia.com/gpu: 1
               cpu: 8
               memory: 128Gi
             requests:
@@ -58,12 +58,12 @@ spec:
              path: /kundajelab
              mountUser: kundajelab
              mountSecret: ceph-fs-secret
-        #affinity:
-        #  nodeAffinity:
-        #    requiredDuringSchedulingIgnoredDuringExecution:
-        #      nodeSelectorTerms:
-        #      - matchExpressions:
-        #        - key: gpu-type
-        #          operator: In # Use NotIn for other types
-        #          values:
-        #          - "1080Ti"
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"
