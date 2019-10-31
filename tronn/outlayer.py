@@ -45,11 +45,17 @@ class H5Handler(object):
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
             maxshape = dataset_shape if resizable else None
             if "example_metadata" in key:
-                self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape, dtype="S100")
+                self.h5_handle.create_dataset(
+                    h5_key, dataset_shape, maxshape=maxshape, dtype="S100",
+                    compression="gzip", compression_opts=9)
             elif "string" in key:
-                self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape, dtype="S1000")
+                self.h5_handle.create_dataset(
+                    h5_key, dataset_shape, maxshape=maxshape, dtype="S1000",
+                    compression="gzip", compression_opts=9)
             else:
-                self.h5_handle.create_dataset(h5_key, dataset_shape, maxshape=maxshape)
+                self.h5_handle.create_dataset(
+                    h5_key, dataset_shape, maxshape=maxshape,
+                    compression="gzip", compression_opts=9)
             self.example_keys.append(key)
         self.resizable = resizable
         self.batch_size = batch_size

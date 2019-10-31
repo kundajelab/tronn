@@ -884,7 +884,7 @@ def add_buildgrammars_parser(subparsers):
         "--min_positive_tasks", default=2, type=int,
         help="minimum cell states (tasks) in which effect exists to generate edge")
     group_analysis.add_argument(
-        "--subgraph_max_k", default=3, type=int,
+        "--subgraph_max_k", default=2, type=int,
         help="when searching graph, max nodes to include in a subgraph")
     group_analysis.add_argument(
         "--min_support_fract", default=0.10, type=float,

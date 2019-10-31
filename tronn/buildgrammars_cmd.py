@@ -54,7 +54,11 @@ def run(args):
         ignore_pwms=args.ignore_pwms)
 
     # get subgraphs
-    subgraphs = get_maxsize_k_subgraphs(graph, min_support, keep_grammars=args.keep_grammars)
+    subgraphs = get_maxsize_k_subgraphs(
+        graph,
+        min_support,
+        k=args.subgraph_max_k,
+        keep_grammars=args.keep_grammars)
     
     # attach delta logits to nodes
     subgraphs = attach_mut_logits(subgraphs, args.scan_file)
