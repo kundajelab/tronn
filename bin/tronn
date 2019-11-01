@@ -84,6 +84,9 @@ def _add_output_args(parser, out_dir="./"):
         default=out_dir,
         help = "Output directory (default: current)")
     parser.add_argument(
+        "--scratch_dir",
+        help = "scratch directory (default: current) - scratch space for faster I/O")
+    parser.add_argument(
         '--prefix', required=True,
         help='prefix to attach onto file names')
 
@@ -1321,6 +1324,15 @@ def main():
     os.system("mkdir -p {}".format(args.out_dir))
     setup_run_logs(args, args.subcommand_name)
 
+    # if using scratch dir, change out dir to scratch
+    # copy back into out dir at end
+    using_scratch = False
+    if args.scratch_dir is not None:
+        os.system("mkdir -p {}".format(args.scratch_dir))
+        out_dir = str(args.out_dir)
+        args.out_dir = args.scratch_dir
+        using_scratch = True
+    
     # get subcommand run function and run
     subcommand = args.subcommand_name
 
@@ -1414,7 +1426,13 @@ def main():
         run(args)
     else:
         raise ValueError, "command not implemented!"
-        
+    
+    # if used scratch_dir, copy back
+    if using_scratch:
+        copy_cmd = "rsync -avz --progress {}/ {}/".format(args.out_dir, out_dir)
+        print copy_cmd
+        os.system(copy_cmd)
+    
     return None
 
 
