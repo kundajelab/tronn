@@ -16,7 +16,7 @@ spec:
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/dskim89/inference.2019-10-08/motifs.dynamic.early"
+            value: "/datasets/dskim89/inference.2019-11-01/motifs.dynamic.early"
           - name: FILTER
             value: "TRAJ_LABELS=0,7,8,9,10,11 H3K27ac_LABELS=0 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           - name: NUM_GPU

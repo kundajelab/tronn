@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-    name: dk.job.ggr.scanmotifs.basset.dynamic.mid
+    name: dk.job.ggr.scanmotifs.dynamic.late
 spec:
     template:
       spec:
@@ -16,9 +16,9 @@ spec:
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/dskim89/inference.2019-10-08/motifs.input_x_grad.dynamic.mid"
+            value: "/datasets/dskim89/inference.2019-11-01/motifs.dynamic.late"
           - name: FILTER
-            value: "TRAJ_LABELS=12,13,14,1 H3K27ac_LABELS=1 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
+            value: "TRAJ_LABELS=2,3,4,5 H3K27ac_LABELS=2 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           - name: NUM_GPU
             value: "4"
           - name: BATCH_SIZE
@@ -56,4 +56,4 @@ spec:
         #        - key: gpu-type
         #          operator: In # Use NotIn for other types
         #          values:
-        #          - "1080Ti"
+        #          - "2080Ti"
