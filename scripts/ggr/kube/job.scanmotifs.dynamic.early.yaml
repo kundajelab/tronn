@@ -17,6 +17,8 @@ spec:
             value: "basset"
           - name: OUT_DIR
             value: "/datasets/dskim89/inference.2019-11-01/motifs.dynamic.early"
+          - name: SCRATCH_DIR
+            value: "/srv/motifs.dynamic.early"
           - name: FILTER
             value: "TRAJ_LABELS=0,7,8,9,10,11 H3K27ac_LABELS=0 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           - name: NUM_GPU
@@ -24,7 +26,7 @@ spec:
           - name: BATCH_SIZE
             value: "8"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $OUT_DIR"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $OUT_DIR $SCRATCH_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 4
