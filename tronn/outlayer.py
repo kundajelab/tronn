@@ -47,7 +47,7 @@ class H5Handler(object):
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(
                     h5_key, dataset_shape, maxshape=maxshape, dtype="S100",
-                    compression="gzip", compression_opts=9, shiffle=True)
+                    compression="gzip", compression_opts=9, shuffle=True)
             elif "string" in key:
                 self.h5_handle.create_dataset(
                     h5_key, dataset_shape, maxshape=maxshape, dtype="S1000",
