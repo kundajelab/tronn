@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-    name: dk.job.ggr.scanmotifs.basset.lite
+    name: dk.job.ggr.scanmotifs.background.lite
 spec:
     template:
       spec:
@@ -16,7 +16,7 @@ spec:
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/dskim89/inference.2019-10-08/motifs.input_x_grad.lite"
+            value: "/datasets/dskim89/inference.2019-11-01/motifs.input_x_grad.lite"
           - name: FILTER
             value: "ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           - name: NUM_GPU
