@@ -103,3 +103,28 @@ def load_data_from_multiple_h5_files(h5_files, key, example_indices=None, concat
         key_data = np.concatenate(key_data, axis=0)
     
     return key_data
+
+
+
+def compress_h5_file(input_file, output_file):
+    """take an h5 file and repack to compress
+    """
+    # pull the keys
+    with h5py.File(input_file, "r") as hf:
+        keys = sorted(hf.keys())
+    
+    # for each key
+    for key in keys:
+        print key
+        with h5py.File(input_file, "r") as hf:
+            with h5py.File(output_file, "a") as out:
+                # create dataset and copy
+                out.create_dataset(
+                    key, data=hf[key],
+                    compression="gzip", compression_opts=9, shuffle=True)
+                    
+                # and copy all attributes
+                for attr_key, val in hf[key].attrs.iteritems():
+                    out[key].attrs[attr_key] = val
+
+    return
