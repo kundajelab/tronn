@@ -800,7 +800,7 @@ class ModelManager(object):
 
     
     @staticmethod
-    def infer_and_save_to_h5(generator, h5_file, sample_size, debug=False):
+    def infer_and_save_to_h5(generator, h5_file, sample_size, h5_saver_batch_size=4096, debug=False):
         """wrapper routine to run inference and save the results out
         """
         if debug:
@@ -819,7 +819,7 @@ class ModelManager(object):
                 first_example,
                 sample_size,
                 resizable=True,
-                batch_size=min(4096, sample_size),
+                batch_size=min(h5_saver_batch_size, sample_size),
                 is_tensor_input=False)
 
             # and store first outputs
@@ -857,7 +857,7 @@ class ModelManager(object):
 
     
     @staticmethod
-    def dream_and_save_to_h5(generator, h5_handle, group, sample_size=100000):
+    def dream_and_save_to_h5(generator, h5_handle, group, sample_size=100000, h5_saver_batch_size=4096):
         """wrapper routine to run dreaming and save results out
         """
         logging.info("starting dream")
@@ -870,7 +870,7 @@ class ModelManager(object):
             sample_size,
             group=group,
             resizable=True,
-            batch_size=4096,
+            batch_size=h5_saver_batch_size,
             is_tensor_input=False)
 
         # and score first output

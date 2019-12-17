@@ -615,6 +615,9 @@ def _add_outlayer_args(parser):
         "--prediction_sample", default=None,
         help="file of predictions for quantile norm")
     parser.add_argument(
+        "--h5_saver_batch_size", default=2048, type=int,
+        help="chunking before saving to h5 (improve I/O)")
+    parser.add_argument(
         "--sample_size", default=10000000, type=int,
         help="total regions (post filtering) to return")
     

@@ -256,6 +256,7 @@ def run_single_model_inference(
             inference_generator,
             out_file,
             args.sample_size,
+            h5_saver_batch_size=args.h5_saver_batch_size,
             debug=args.debug)
 
         # get chrom tags and transfer in
