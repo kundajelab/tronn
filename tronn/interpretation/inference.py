@@ -250,7 +250,6 @@ def run_single_model_inference(
         yield_single_examples=True)
 
     # run inference and save out
-    #os.system("rm {}".format(out_file)) # TODO for nautilus remove this later
     if not os.path.isfile(out_file):
         model_manager.infer_and_save_to_h5(
             inference_generator,

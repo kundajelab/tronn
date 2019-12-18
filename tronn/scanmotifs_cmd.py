@@ -21,12 +21,6 @@ def run(args):
     logger = logging.getLogger(__name__)
     logger.info("Running motif scan")
 
-    # set up tmp dir
-    if args.tmp_dir is not None:
-        os.system('mkdir -p {}'.format(args.tmp_dir))
-    else:
-        args.tmp_dir = args.out_dir
-
     # collect a prediction sample for cross model quantile norm
     if args.model["name"] == "ensemble":
         true_sample_size = args.sample_size

@@ -87,6 +87,9 @@ def _add_output_args(parser, out_dir="./"):
         "--scratch_dir",
         help = "scratch directory (default: current) - scratch space for faster I/O")
     parser.add_argument(
+        "--tmp_dir",
+        help = "tmp directory (default: $out_dir/tmp) - where to put data/results that will be deleted after the run")
+    parser.add_argument(
         '--prefix', required=True,
         help='prefix to attach onto file names')
 
@@ -195,8 +198,6 @@ def add_preprocess_parser(subparsers):
     group_output = argparser_preprocess.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="./datasets/dataset")
-    group_output.add_argument(
-        "--tmp_dir", help="directory for tmp files")
 
     return
 
@@ -866,9 +867,6 @@ def add_scanmotifs_parser(subparsers):
     group_output.add_argument(
         "--lite", action="store_true",
         help="store only most essential tensors (lite output)")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory as needed')
 
     return
 
@@ -969,9 +967,6 @@ def add_mutatemotifs_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="mutatemotifs")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory')
     
     return
 
@@ -1018,9 +1013,6 @@ def add_dmim_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="dmim")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory')
     
     return
 
@@ -1066,9 +1058,6 @@ def add_synergy_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="dmim")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory')
     
     return
 
@@ -1187,10 +1176,6 @@ def add_analyzevariants_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="motifs")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory')
-
     
     return
 
@@ -1273,9 +1258,6 @@ def add_buildtracks_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="grammars")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory as needed')
     
     return
 
@@ -1332,6 +1314,11 @@ def main():
     else:
         out_dir_final = args.out_dir
 
+    # set up tmp dir as needed
+    if args.tmp_dir is None:
+        args.tmp_dir = "{}/tmp".format(args.out_dir)
+    os.system("mkdir -p {}".format(args.tmp_dir))
+            
     # set up logs
     args.out_dir = os.path.abspath(args.out_dir)
     os.system("mkdir -p {}".format(args.out_dir))
@@ -1430,6 +1417,9 @@ def main():
         run(args)
     else:
         raise ValueError, "command not implemented!"
+
+    # clear the tmp dir
+    os.system("rm -r {}".format(args.tmp_dir))
     
     # if used scratch_dir, copy back
     if out_dir_final != args.out_dir:
