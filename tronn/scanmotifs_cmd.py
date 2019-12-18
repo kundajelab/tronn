@@ -20,6 +20,16 @@ def run(args):
     # setup
     logger = logging.getLogger(__name__)
     logger.info("Running motif scan")
+
+    # set up scratch dir, always write everything to scratch dir
+    if args.scratch_dir is not None:
+        args.out_dir_final = str(args.out_dir)
+        args.out_dir = args.scratch_dir
+        os.system("mkdir -p {}".format(args.scratch_dir))
+    else:
+        args.out_dir_final = args.out_dir
+
+    # set up tmp dir
     if args.tmp_dir is not None:
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
@@ -62,6 +72,11 @@ def run(args):
         "target_indices": args.target_indices,
         "pwm_file": args.pwm_file}
     write_to_json(infer_vals, infer_log)
+
+    # if scratch dir is NOT the same as the out dir, copy over
+    if args.out_dir_final != args.out_dir:
+        os.system("rsync -avz --progress {}/ {}/".format(
+            args.out_dir, args.out_dir_final))
 
     return None
 
