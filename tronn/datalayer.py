@@ -470,6 +470,7 @@ class H5DataLoader(DataLoader):
             data_dir=None,
             data_files=[],
             fasta=None,
+            scratch_dir=None,
             tmp_dir=None,
             **kwargs):
         """initialize with data files
@@ -490,9 +491,9 @@ class H5DataLoader(DataLoader):
         # set up fasta
         self.fasta = fasta
         
-        # if using a tmp directory (faster I/O dir), copy over now
-        # and resolve again
-        if tmp_dir is not None:
+        # if using a scratch directory (faster I/O dir), copy over
+        # to tmp dir (in scratch), and resolve again
+        if scratch_dir is not None:
             # copy over data files
             for filename in self.h5_files:
                 os.system("rsync -avz --progress {} {}/".format(filename, tmp_dir))
@@ -2391,7 +2392,8 @@ def setup_data_loader(args):
             data_dir=args.data_dir,
             data_files=args.data_files,
             fasta=args.fasta,
-            tmp_dir=args.scratch_dir)
+            scratch_dir=args.scratch_dir,
+            tmp_dir=args.tmp_dir)
     elif args.data_format == "vcf":
         data_loader = VariantDataLoader(
             vcf_file=args.vcf_file,
