@@ -21,7 +21,8 @@ class H5Handler(object):
             resizable=True,
             is_tensor_input=True,
             skip=[],
-            direct_transfer=["label_metadata"]):
+            direct_transfer=["label_metadata"],
+            compression_opts=9):
         """Keep h5 handle and other relevant storing mechanisms
         """
         self.h5_handle = h5_handle
@@ -47,15 +48,15 @@ class H5Handler(object):
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(
                     h5_key, dataset_shape, maxshape=maxshape, dtype="S100",
-                    compression="gzip", compression_opts=9, shuffle=True)
+                    compression="gzip", compression_opts=compression_opts, shuffle=True)
             elif "string" in key:
                 self.h5_handle.create_dataset(
                     h5_key, dataset_shape, maxshape=maxshape, dtype="S1000",
-                    compression="gzip", compression_opts=9, shuffle=True)
+                    compression="gzip", compression_opts=compression_opts, shuffle=True)
             else:
                 self.h5_handle.create_dataset(
                     h5_key, dataset_shape, maxshape=maxshape,
-                    compression="gzip", compression_opts=9, shuffle=True)
+                    compression="gzip", compression_opts=compression_opts, shuffle=True)
             self.example_keys.append(key)
         self.resizable = resizable
         self.batch_size = batch_size
