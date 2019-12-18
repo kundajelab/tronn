@@ -18,7 +18,7 @@ spec:
           - name: OUT_DIR
             value: "/datasets/dskim89/inference.2019-11-01/motifs.dynamic.early"
           - name: SCRATCH_DIR
-            value: "/srv/motifs.dynamic.early"
+            value: "/lscratch/motifs.dynamic.early"
           - name: FILTER
             value: "TRAJ_LABELS=0,7,8,9,10,11 H3K27ac_LABELS=0 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           - name: NUM_GPU
@@ -32,12 +32,16 @@ spec:
               nvidia.com/gpu: 4
               cpu: 8
               memory: 128Gi
+              ephemeral-storage: 100Gi
             requests:
               cpu: 4
               memory: 24Gi
+              ephemeral-storage: 100Gi
           volumeMounts:
-          - mountPath: /datasets
-            name: datasets
+          - name: datasets
+            mountPath: /datasets
+          - name: lscratch
+            mountPath: /lscratch
         restartPolicy: Never
         volumes:
         - name: datasets
@@ -50,6 +54,8 @@ spec:
              path: /kundajelab
              mountUser: kundajelab
              mountSecret: ceph-fs-secret
+        - name: lscratch
+          emptyDir: {}
         affinity:
           nodeAffinity:
             requiredDuringSchedulingIgnoredDuringExecution:
