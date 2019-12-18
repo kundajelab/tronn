@@ -503,7 +503,7 @@ class H5DataLoader(DataLoader):
 
             # copy fasta if present
             if self.fasta is not None:
-                os.sytem("rsync -avz --progress {} {}/".format(self.fasta, tmp_dir))
+                os.system("rsync -avz --progress {} {}/".format(self.fasta, tmp_dir))
                 self.fasta = "{}/{}".format(tmp_dir, os.path.basename(self.fasta))
             
         # calculate basic stats
