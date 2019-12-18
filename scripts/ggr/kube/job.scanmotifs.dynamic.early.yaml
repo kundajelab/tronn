@@ -33,8 +33,8 @@ spec:
               cpu: 8
               memory: 128Gi
             requests:
-              cpu: 2
-              memory: 8Gi
+              cpu: 4
+              memory: 24Gi
           volumeMounts:
           - mountPath: /datasets
             name: datasets
@@ -50,12 +50,12 @@ spec:
              path: /kundajelab
              mountUser: kundajelab
              mountSecret: ceph-fs-secret
-        #affinity:
-        #  nodeAffinity:
-        #    requiredDuringSchedulingIgnoredDuringExecution:
-        #      nodeSelectorTerms:
-        #      - matchExpressions:
-        #        - key: gpu-type
-        #          operator: In # Use NotIn for other types
-        #          values:
-        #          - "1080Ti"
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"
