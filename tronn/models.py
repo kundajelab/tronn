@@ -803,7 +803,7 @@ class ModelManager(object):
     @staticmethod
     def infer_and_save_to_h5(
             generator, h5_file, sample_size,
-            h5_saver_batch_size=2048, compress=False, debug=False):
+            h5_saver_batch_size=2048, compress=True, debug=False):
         """wrapper routine to run inference and save the results out
         """
         if debug:
