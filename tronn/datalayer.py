@@ -963,7 +963,8 @@ class H5DataLoader(DataLoader):
                 converter = GenomicIntervalConverter(lock, fasta, batch_size)
                 
                 # open h5 file
-                with h5py_cache.File(h5_file, "r", chunk_cache_mem_size=(1024**2)*1000) as h5_handle:
+                #with h5py_cache.File(h5_file, "r", chunk_cache_mem_size=(1024**2)*1000) as h5_handle:
+                with h5py.File(h5_file, "r") as h5_handle:
                     test_key = list(h5_handle.keys())[0]
 
                     # if using examples, then get the indices and change batch size to 1
