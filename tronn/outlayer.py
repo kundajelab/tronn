@@ -134,7 +134,7 @@ class H5Handler(object):
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
             #try:
-            self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
+            self.h5_handle[h5_key][self.batch_start:self.batch_end,...] = self.tmp_arrays[key]
             #except:
             #    import ipdb
             #    ipdb.set_trace()
