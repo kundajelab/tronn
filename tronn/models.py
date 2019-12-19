@@ -5,6 +5,7 @@ import os
 import json
 import logging
 import h5py
+import h5py_cache
 
 import six
 
@@ -803,7 +804,7 @@ class ModelManager(object):
     @staticmethod
     def infer_and_save_to_h5(
             generator, h5_file, sample_size,
-            h5_saver_batch_size=2048, compress=True, debug=False):
+            h5_saver_batch_size=2048, compress=False, debug=False):
         """wrapper routine to run inference and save the results out
         """
         if debug:
@@ -815,7 +816,7 @@ class ModelManager(object):
         first_example = generator.next()
         
         # set up the saver
-        with h5py.File(h5_file, "w") as hf:
+        with h5py_cache.File(h5_file, "w", chunk_cache_mem_size=(1024**2)*4000) as hf:
 
             h5_handler = H5Handler(
                 hf,
