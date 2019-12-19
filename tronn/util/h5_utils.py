@@ -1,5 +1,6 @@
 # description: some helpful utils for working with h5 files
 
+import os
 import h5py
 
 import numpy as np
@@ -106,9 +107,21 @@ def load_data_from_multiple_h5_files(h5_files, key, example_indices=None, concat
 
 
 
-def compress_h5_file(input_file, output_file):
+def compress_h5_file(input_file, output_file=None):
     """take an h5 file and repack to compress
     """
+    # if output file is none, then we want to compress
+    # and save to original file. make a tmp
+    if output_file is None:
+        tmp_file = "{}/{}.tmp.h5".format(
+            os.path.dirname(input_file),
+            os.path.basename(input_file).split(".h5")[0].split(".hdf5")[0])
+        os.system("mv {} {}".format(input_file, tmp_file))
+        output_file = input_file
+        input_file = tmp_file
+    else:
+        tmp_file = None
+        
     # pull the keys
     with h5py.File(input_file, "r") as hf:
         keys = sorted(hf.keys())
@@ -127,4 +140,8 @@ def compress_h5_file(input_file, output_file):
                 for attr_key, val in hf[key].attrs.iteritems():
                     out[key].attrs[attr_key] = val
 
+    # clean up
+    if tmp_file is not None:
+        os.system("rm {}".format(tmp_file))
+    
     return

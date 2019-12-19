@@ -44,6 +44,7 @@ from tronn.nets.normalization_nets import interpolate_logits_to_labels
 
 from tronn.visualization import visualize_debug
 
+from tronn.util.h5_utils import compress_h5_file
 from tronn.util.utils import DataKeys
 from tronn.util.formats import write_to_json
 
@@ -800,7 +801,9 @@ class ModelManager(object):
 
     
     @staticmethod
-    def infer_and_save_to_h5(generator, h5_file, sample_size, h5_saver_batch_size=4096, debug=False):
+    def infer_and_save_to_h5(
+            generator, h5_file, sample_size,
+            h5_saver_batch_size=2048, compress=False, debug=False):
         """wrapper routine to run inference and save the results out
         """
         if debug:
@@ -853,6 +856,10 @@ class ModelManager(object):
                 h5_handler.flush()
                 h5_handler.chomp_datasets()
 
+        # and compress if requested
+        if compress:
+            compress_h5_file(h5_file)
+        
         return sample_size - total_examples
 
     
