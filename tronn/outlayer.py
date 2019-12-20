@@ -43,10 +43,10 @@ class H5Handler(object):
                 continue
             if is_tensor_input:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
-                chunk_shape = [chunk_batch_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
+                chunk_shape = tuple([chunk_batch_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]])
             else:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
-                chunk_shape = [chunk_batch_size] + [int(i) for i in tensor_dict[key].shape]
+                chunk_shape = tuple([chunk_batch_size] + [int(i) for i in tensor_dict[key].shape])
             maxshape = dataset_shape if resizable else None
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(
