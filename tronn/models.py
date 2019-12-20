@@ -5,7 +5,7 @@ import os
 import json
 import logging
 import h5py
-import h5py_cache
+#import h5py_cache
 
 import six
 
@@ -816,7 +816,8 @@ class ModelManager(object):
         first_example = generator.next()
         
         # set up the saver
-        with h5py_cache.File(h5_file, "w", chunk_cache_mem_size=(1024**2)*4000) as hf:
+        #with h5py_cache.File(h5_file, "w", chunk_cache_mem_size=(1024**2)*4000) as hf:
+        with h5py.File(h5_file, "w") as hf:
 
             h5_handler = H5Handler(
                 hf,

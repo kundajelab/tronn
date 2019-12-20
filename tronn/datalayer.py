@@ -8,7 +8,6 @@ import abc
 import gzip
 import glob
 import h5py
-import h5py_cache
 import json
 import math
 import random
