@@ -18,7 +18,7 @@ class H5Handler(object):
             sample_size,
             group="",
             batch_size=512,
-            chunk_batch_size=16,
+            chunk_batch_size=32,
             resizable=True,
             is_tensor_input=True,
             skip=[],

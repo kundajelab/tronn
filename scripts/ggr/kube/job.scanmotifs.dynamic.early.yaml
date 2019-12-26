@@ -16,7 +16,7 @@ spec:
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/dskim89/inference.2019-11-01/motifs.dynamic.early"
+            value: "/datasets/dskim89/analysis.2019-12-26/motifs.dynamic.early"
           - name: SCRATCH_DIR
             value: "/lscratch/motifs.dynamic.early"
           - name: FILTER
