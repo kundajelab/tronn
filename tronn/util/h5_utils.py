@@ -131,10 +131,15 @@ def compress_h5_file(input_file, output_file=None):
         print key
         with h5py.File(input_file, "r") as hf:
             with h5py.File(output_file, "a") as out:
-                # create dataset and copy
-                out.create_dataset(
-                    key, data=hf[key],
-                    compression="gzip", compression_opts=9, shuffle=True)
+
+                if len(hf[key].shape) != 0:
+                    # array: compress and copy
+                    out.create_dataset(
+                        key, data=hf[key],
+                        compression="gzip", compression_opts=9, shuffle=True)
+                else:
+                    # scalar: just copy
+                    out.create_dataset(key, data=hf[key])
                     
                 # and copy all attributes
                 for attr_key, val in hf[key].attrs.iteritems():
