@@ -54,6 +54,7 @@ class H5Handler(object):
             for dim_val in dataset_shape[1:]:
                 bits_per_example *= dim_val
             chunk_batch_size = max((1024**2) / bits_per_example, 1) # make sure is at least size 1
+            chunk_batch_size = min(sample_size, chunk_batch_size) # make sure not larger than sample size
             chunk_shape = tuple([chunk_batch_size] + dataset_shape[1:])
             
             if "example_metadata" in key:
