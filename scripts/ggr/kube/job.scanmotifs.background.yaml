@@ -34,8 +34,8 @@ spec:
               memory: 128Gi
               ephemeral-storage: 200Gi
             requests:
-              cpu: 2
-              memory: 8Gi
+              cpu: 4
+              memory: 32Gi
               ephemeral-storage: 200Gi
           volumeMounts:
           - name: datasets
