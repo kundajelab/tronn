@@ -17,6 +17,8 @@ spec:
             value: "basset"
           - name: OUT_DIR
             value: "/datasets/dskim89/inference.2019-11-01/motifs.dynamic.mid"
+          - name: SCRATCH_DIR
+            value: "/lscratch/motifs.dynamic.mid"
           - name: FILTER
             value: "TRAJ_LABELS=12,13,14,1 H3K27ac_LABELS=1 ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           - name: NUM_GPU
@@ -24,18 +26,22 @@ spec:
           - name: BATCH_SIZE
             value: "8"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $OUT_DIR"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $SCRATCH_DIR $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 4
               cpu: 8
               memory: 128Gi
+              ephemeral-storage: 200Gi
             requests:
               cpu: 2
               memory: 8Gi
+              ephemeral-storage: 200Gi
           volumeMounts:
-          - mountPath: /datasets
-            name: datasets
+          - name: datasets
+            mountPath: /datasets
+          - name: lscratch
+            mountPath: /lscratch
         restartPolicy: Never
         volumes:
         - name: datasets
@@ -48,12 +54,14 @@ spec:
              path: /kundajelab
              mountUser: kundajelab
              mountSecret: ceph-fs-secret
-        #affinity:
-        #  nodeAffinity:
-        #    requiredDuringSchedulingIgnoredDuringExecution:
-        #      nodeSelectorTerms:
-        #      - matchExpressions:
-        #        - key: gpu-type
-        #          operator: In # Use NotIn for other types
-        #          values:
-        #          - "1080Ti"
+        - name: lscratch
+          emptyDir: {}
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"
