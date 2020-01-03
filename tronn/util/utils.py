@@ -54,6 +54,7 @@ class DataKeys(object):
     PWM_SCORES_ROOT = "pwm-scores"
 
     ORIG_SEQ_PWM_HITS = "{}.pwm-hits".format(ORIG_SEQ_ACTIVE)
+    ORIG_SEQ_PWM_HITS_COUNT = "{}.count".format(ORIG_SEQ_PWM_HITS)
     ORIG_SEQ_PWM_SCORES = "{}.{}".format(ORIG_SEQ_ACTIVE, PWM_SCORES_ROOT)
     ORIG_SEQ_PWM_SCORES_THRESH = "{}.thresh".format(ORIG_SEQ_PWM_SCORES)
     ORIG_SEQ_PWM_SCORES_THRESHOLDS = "{}.thresholds".format(ORIG_SEQ_PWM_SCORES)
@@ -64,6 +65,7 @@ class DataKeys(object):
     ORIG_SEQ_PWM_MAX_DENSITIES = "{}.max".format(ORIG_SEQ_PWM_DENSITIES)
     
     WEIGHTED_SEQ_PWM_HITS = "{}.pwm-hits".format(WEIGHTED_SEQ_ACTIVE)    
+    WEIGHTED_SEQ_PWM_HITS_COUNT = "{}.count".format(WEIGHTED_SEQ_PWM_HITS)
     WEIGHTED_SEQ_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE, PWM_SCORES_ROOT)
     WEIGHTED_SEQ_PWM_SCORES_THRESH = "{}.thresh".format(WEIGHTED_SEQ_PWM_SCORES)
     WEIGHTED_SEQ_PWM_SCORES_THRESHOLDS = "{}.thresholds".format(WEIGHTED_SEQ_PWM_SCORES)

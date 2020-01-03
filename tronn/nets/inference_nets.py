@@ -8,7 +8,7 @@ from tronn.nets.importance_nets import get_task_importances
 from tronn.nets.importance_nets import run_dfim
 
 from tronn.nets.motif_nets import get_pwm_scores
-from tronn.nets.motif_nets import get_motif_densities
+#from tronn.nets.motif_nets import get_motif_densities
 from tronn.nets.motif_nets import filter_for_any_sig_pwms
 from tronn.nets.motif_nets import run_dmim
 from tronn.nets.motif_nets import extract_null_results
@@ -44,9 +44,10 @@ def sequence_to_pwm_scores(inputs, params):
     outputs, _ = decode_onehot_sequence(outputs, params)
     
     # move to CPU - GPU mostly needed for gradient calc in model
-    with tf.device("/cpu:0"):
-        outputs, params = get_pwm_scores(outputs, params)
-        outputs, params = get_motif_densities(outputs, params)
+    # To consider - move this back to gpu?
+    #with tf.device("/cpu:0"):
+    outputs, params = get_pwm_scores(outputs, params)
+    #outputs, params = get_motif_densities(outputs, params)
     
     return outputs, params
 

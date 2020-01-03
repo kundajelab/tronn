@@ -377,7 +377,7 @@ def get_pwm_scores(inputs, params):
     """scan raw and weighted sequence with shuffles, and threshold
     using shuffles as null distribution
     """
-    # note: need to get (1) raw scores, (2) raw hits, (3) thresholded scores
+    # note: need to get (1) raw scores, (2) raw hits, (3) thresholded scores, (4) count of hits per pwm
     
     # run original sequence
     scanner = MotifScannerWithThresholds(
@@ -423,9 +423,6 @@ def get_pwm_scores(inputs, params):
     outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.multiply(
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH],
         outputs[DataKeys.ORIG_SEQ_PWM_HITS])
-
-    # TODO mask raw scores with weighted hits?
-    
     
     # squeeze the raw and weighted to get summed motif score for the example
     # this happens here because you need to filter the scores
@@ -433,13 +430,6 @@ def get_pwm_scores(inputs, params):
     # TODO can try max instead of sum?
     outputs[DataKeys.ORIG_SEQ_PWM_SCORES_SUM] = tf.reduce_sum(
         outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH], axis=2) # {N, 1, M}
-
-    # relu on the weighted scores for now
-    # TODO remove this?
-    if False:
-        outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.nn.relu(
-            outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]) # {N, task, pos, M}
-
     outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] = tf.reduce_sum(
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH], axis=2) # {N, task, M}
     
@@ -450,6 +440,12 @@ def get_pwm_scores(inputs, params):
     outputs, _ = get_pwm_max_vals_and_positions(outputs, params)
     outputs, _ = get_raw_pwm_max_vals_and_positions(outputs, params)
     outputs, _ = get_pwm_null_positions(outputs, params)
+
+    # get the hit counts per pwm (for downstream analysis)
+    outputs[DataKeys.ORIG_SEQ_PWM_HITS_COUNT] = tf.reduce_sum(
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS], axis=2) # {N, 1, M}
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS_COUNT] = tf.reduce_sum(
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS], axis=2) # {N, task, M}
     
     # filter for just those with a motif present
     if params.get("use_filtering", True):
@@ -688,7 +684,7 @@ def cleanup_null_muts(inputs, params):
     return
 
 
-def get_motif_densities(inputs, params):
+def get_motif_densities_OLD(inputs, params):
     """use an avg pool to get density within window
     and also save out the max motif density val
     for now only do on original sequence
