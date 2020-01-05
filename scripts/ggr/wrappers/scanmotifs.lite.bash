@@ -19,7 +19,8 @@ tronn scanmotifs \
       --pwm_file /datasets/ggr/1.0.0d/annotations/HOCOMOCOv11_core_pwms_HUMAN_mono.renamed.nonredundant.txt \
       --add_rc_pwms \
       --lite \
-      -o $6 \
-      >> $6/job.out \
-      2>> $6/job.err;
-
+      --scratch_dir $6 \
+      -o $7;
+      #-o $7 \
+      #>> $7/job.out \
+      #2>> $7/job.err;
