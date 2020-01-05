@@ -16,7 +16,7 @@ spec:
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/dskim89/inference.2019-11-01/motifs.background.lite"
+            value: "/datasets/dskim89/analysis.2019-12-26/motifs.background.lite"
           - name: SCRATCH_DIR
             value: "/lscratch/motifs.background.lite"
           - name: FILTER
