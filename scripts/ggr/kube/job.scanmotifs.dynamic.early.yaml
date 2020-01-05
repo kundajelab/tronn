@@ -32,11 +32,11 @@ spec:
               nvidia.com/gpu: 4
               cpu: 8
               memory: 128Gi
-              ephemeral-storage: 200Gi
+              ephemeral-storage: 100Gi
             requests:
               cpu: 4
               memory: 24Gi
-              ephemeral-storage: 200Gi
+              ephemeral-storage: 100Gi
           volumeMounts:
           - name: datasets
             mountPath: /datasets
