@@ -16,7 +16,7 @@ spec:
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/dskim89/inference.2019-11-01/motifs.dynamic.mid"
+            value: "/datasets/dskim89/analysis.2019-12-26/motifs.dynamic.mid"
           - name: SCRATCH_DIR
             value: "/lscratch/motifs.dynamic.mid"
           - name: FILTER
@@ -32,11 +32,11 @@ spec:
               nvidia.com/gpu: 4
               cpu: 8
               memory: 128Gi
-              ephemeral-storage: 200Gi
+              ephemeral-storage: 100Gi
             requests:
-              cpu: 2
-              memory: 8Gi
-              ephemeral-storage: 200Gi
+              cpu: 4
+              memory: 24Gi
+              ephemeral-storage: 100Gi
           volumeMounts:
           - name: datasets
             mountPath: /datasets
