@@ -16,9 +16,9 @@ spec:
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/dskim89/analysis.2019-12-26/motifs.background"
+            value: "/datasets/dskim89/analysis.2019-12-26/motifs.background.100k"
           - name: SCRATCH_DIR
-            value: "/lscratch/motifs.background"
+            value: "/lscratch/motifs.background.100k"
           - name: FILTER
             value: "ATAC_LABELS=0,1,2,3,4,5,6,9,10,12::reduce_type=min,min=2"
           - name: NUM_GPU
@@ -26,17 +26,17 @@ spec:
           - name: BATCH_SIZE
             value: "8"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $SCRATCH_DIR $OUT_DIR"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && $SCRIPT_DIR/scanmotifs.100k.bash $MODEL_DIR $MODEL \"$FILTER\" $BATCH_SIZE $NUM_GPU $SCRATCH_DIR $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 4
               cpu: 8
               memory: 128Gi
-              ephemeral-storage: 200Gi
+              ephemeral-storage: 100Gi
             requests:
               cpu: 4
               memory: 32Gi
-              ephemeral-storage: 200Gi
+              ephemeral-storage: 100Gi
           volumeMounts:
           - name: datasets
             mountPath: /datasets
