@@ -238,6 +238,9 @@ def _add_dataset_args(parser):
     parser.add_argument(
         "--dataset_examples", nargs="+", default=[],
         help="H5 INPUT ONLY: option to throw in specific examples to run")
+    parser.add_argument(
+        "--copy_data_to_tmp", action="store_true",
+        help="if needed (faster disk, reduce network time) copy data to tmp_dir")
     
     # add input args if using BED file
     _add_dataset_bed_args(parser)
@@ -1314,11 +1317,17 @@ def main():
     else:
         out_dir_final = args.out_dir
 
-    # set up tmp dir as needed
+    # set up tmp dir
     if args.tmp_dir is None:
         args.tmp_dir = "{}/tmp".format(args.out_dir)
     os.system("mkdir -p {}".format(args.tmp_dir))
-            
+
+    # if user wants to copy data over to tmp set up args.tmp_data_dir
+    if args.copy_data_to_tmp:
+        args.tmp_data_dir = args.tmp_dir
+    else:
+        args.tmp_data_dir = None
+        
     # set up logs
     args.out_dir = os.path.abspath(args.out_dir)
     os.system("mkdir -p {}".format(args.out_dir))
