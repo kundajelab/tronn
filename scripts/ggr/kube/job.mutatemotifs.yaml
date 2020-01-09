@@ -48,8 +48,10 @@ spec:
               memory: 24Gi
               ephemeral-storage: 100Gi
           volumeMounts:
-          - mountPath: /datasets
-            name: datasets
+          - name: datasets
+            mountPath: /datasets
+          - name: lscratch
+            mountPath: /lscratch
         restartPolicy: Never
         volumes:
         - name: datasets
@@ -62,6 +64,8 @@ spec:
              path: /kundajelab
              mountUser: kundajelab
              mountSecret: ceph-fs-secret
+        - name: lscratch
+          emptyDir: {}
         affinity:
           nodeAffinity:
             requiredDuringSchedulingIgnoredDuringExecution:
