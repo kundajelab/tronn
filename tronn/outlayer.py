@@ -18,12 +18,12 @@ class H5Handler(object):
             sample_size,
             group="",
             batch_size=512,
-            chunk_batch_size=32,
+            chunk_batch_size=32, # note not used currently
             resizable=True,
             is_tensor_input=True,
             skip=[],
             direct_transfer=["label_metadata"],
-            compression_opts=9):
+            compression_opts=9): # note compression opts not used currently
         """Keep h5 handle and other relevant storing mechanisms
         """
         self.h5_handle = h5_handle
@@ -43,10 +43,8 @@ class H5Handler(object):
                 continue
             if is_tensor_input:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
-                #chunk_shape = tuple([chunk_batch_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]])
             else:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
-                #chunk_shape = tuple([chunk_batch_size] + [int(i) for i in tensor_dict[key].shape])
             maxshape = dataset_shape if resizable else None
 
             # adjust chunk shape here?
@@ -59,19 +57,19 @@ class H5Handler(object):
             
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(
-                    h5_key, dataset_shape, maxshape=maxshape, dtype="S100",
-                    chunks=chunk_shape,
-                    compression="gzip", compression_opts=compression_opts, shuffle=True)
+                    h5_key, dataset_shape, maxshape=maxshape, dtype="S100")
+                    #chunks=chunk_shape,
+                    #compression="gzip", compression_opts=compression_opts, shuffle=True)
             elif "string" in key:
                 self.h5_handle.create_dataset(
-                    h5_key, dataset_shape, maxshape=maxshape, dtype="S1000",
-                    chunks=chunk_shape,
-                    compression="gzip", compression_opts=compression_opts, shuffle=True)
+                    h5_key, dataset_shape, maxshape=maxshape, dtype="S1000")
+                    #chunks=chunk_shape,
+                    #compression="gzip", compression_opts=compression_opts, shuffle=True)
             else:
                 self.h5_handle.create_dataset(
-                    h5_key, dataset_shape, maxshape=maxshape,
-                    chunks=chunk_shape,
-                    compression="gzip", compression_opts=compression_opts, shuffle=True)
+                    h5_key, dataset_shape, maxshape=maxshape)
+                    #chunks=chunk_shape,
+                    #compression="gzip", compression_opts=compression_opts, shuffle=True)
             self.example_keys.append(key)
         self.resizable = resizable
         self.batch_size = batch_size
