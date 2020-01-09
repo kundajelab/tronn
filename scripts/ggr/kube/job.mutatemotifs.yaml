@@ -21,6 +21,8 @@ spec:
             value: "/datasets/dskim89/inference.2019-10-08"
           - name: WORK_DIR
             value: "/datasets/dskim89/inference.2019-10-08"
+          - name: SCRATCH_DIR
+            value: "/lscratch"
           - name: MUTATE_TYPE
             value: "shuffle"
           - name: PATTERN
@@ -34,15 +36,17 @@ spec:
           - name: NUM_GPUS
             value: "1"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/mutatemotifs.$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $OUT_DIR"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/mutatemotifs.$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $SCRATCH_DIR $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 1
               cpu: 8
               memory: 128Gi
+              ephemeral-storage: 100Gi
             requests:
               cpu: 4
-              memory: 16Gi
+              memory: 24Gi
+              ephemeral-storage: 100Gi
           volumeMounts:
           - mountPath: /datasets
             name: datasets
