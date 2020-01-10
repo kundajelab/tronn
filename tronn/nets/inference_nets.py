@@ -21,8 +21,6 @@ from tronn.nets.mutate_nets import mutate_weighted_motif_sites_combinatorially
 from tronn.nets.sequence_nets import calc_gc_content
 from tronn.nets.sequence_nets import decode_onehot_sequence
 
-from tronn.nets.util_nets import rebatch
-
 from tronn.util.utils import DataKeys
 
 
@@ -50,10 +48,6 @@ def sequence_to_pwm_scores(inputs, params):
     #with tf.device("/cpu:0"):
     outputs, params = get_pwm_scores(outputs, params)
     #outputs, params = get_motif_densities(outputs, params)
-
-    # rebatch to send out
-    params["name"] = "rebatch_to_OUT"
-    outputs, _ = rebatch(outputs, params)
     
     return outputs, params
 
