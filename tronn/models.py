@@ -467,7 +467,8 @@ class ModelManager(object):
         return estimator.infer( # NOTE: THIS IS BECAUSE WE ADJUSTED FOR ENSEMBLES
             input_fn=input_fn,
             checkpoint_path=checkpoint,
-            hooks=hooks)
+            hooks=hooks,
+            yield_single_examples=yield_single_examples)
 
     
     def infer(
@@ -500,7 +501,8 @@ class ModelManager(object):
         return estimator.infer(
             input_fn=input_fn,
             checkpoint_path=checkpoint,
-            hooks=hooks)
+            hooks=hooks,
+            yield_single_examples=yield_single_examples)
 
     
     def dream(
