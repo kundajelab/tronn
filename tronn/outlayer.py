@@ -126,10 +126,17 @@ class H5Handler(object):
         """
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
+            # stack or concatenate
             if self.saving_single_examples:
                 tmp_array = np.stack(self.tmp_arrays[key], axis=0)
             else:
                 tmp_array = np.concatenate(self.tmp_arrays[key], axis=0)
+            # adjust dtype as needed
+            if key == "example_metadata":
+                tmp_array = tmp_array.astype("S100")
+            elif "string" in key:
+                tmp_array = tmp_array.astype("S1000")
+            # and write in
             self.h5_handle[h5_key][self.batch_start:self.batch_end] = tmp_array
                 
         # set new point in batch
