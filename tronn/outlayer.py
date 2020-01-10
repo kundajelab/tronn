@@ -24,7 +24,7 @@ class H5Handler(object):
             skip=[],
             direct_transfer=["label_metadata"],
             saving_single_examples=True, # this should be changed if saving over batch
-            compression_opts=9): # note compression opts not used currently
+            compression_opts=4):
         """Keep h5 handle and other relevant storing mechanisms
         """
         self.h5_handle = h5_handle
@@ -63,19 +63,19 @@ class H5Handler(object):
             
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(
-                    h5_key, dataset_shape, maxshape=maxshape, dtype="S100")
+                    h5_key, dataset_shape, maxshape=maxshape, dtype="S100",
                     #chunks=chunk_shape,
-                    #compression="gzip", compression_opts=compression_opts, shuffle=True)
+                    compression="gzip", compression_opts=compression_opts, shuffle=True)
             elif "string" in key:
                 self.h5_handle.create_dataset(
-                    h5_key, dataset_shape, maxshape=maxshape, dtype="S1000")
+                    h5_key, dataset_shape, maxshape=maxshape, dtype="S1000",
                     #chunks=chunk_shape,
-                    #compression="gzip", compression_opts=compression_opts, shuffle=True)
+                    compression="gzip", compression_opts=compression_opts, shuffle=True)
             else:
                 self.h5_handle.create_dataset(
-                    h5_key, dataset_shape, maxshape=maxshape)
+                    h5_key, dataset_shape, maxshape=maxshape,
                     #chunks=chunk_shape,
-                    #compression="gzip", compression_opts=compression_opts, shuffle=True)
+                    compression="gzip", compression_opts=compression_opts, shuffle=True)
             self.example_keys.append(key)
         self.resizable = resizable
         self.batch_size = batch_size
