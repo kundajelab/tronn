@@ -23,6 +23,7 @@ class H5Handler(object):
             is_tensor_input=True,
             skip=[],
             direct_transfer=["label_metadata"],
+            saving_single_examples=True, # this should be changed if saving over batch
             compression_opts=9): # note compression opts not used currently
         """Keep h5 handle and other relevant storing mechanisms
         """
@@ -44,7 +45,12 @@ class H5Handler(object):
             if is_tensor_input:
                 dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].get_shape()[1:]]
             else:
-                dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
+                if saving_single_examples:
+                    # batch is not in first dim
+                    dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape]
+                else:
+                    # batch IS in first dim
+                    dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape[1:]]
             maxshape = dataset_shape if resizable else None
 
             # adjust chunk shape here?
@@ -117,6 +123,7 @@ class H5Handler(object):
     def store_example(self, example_arrays):
         """Store an example into the tmp numpy arrays, push batch out if done with batch
         """
+        # i think might just need to change here to push batch instead of indiv
         for key in self.example_keys:
             #try:
             self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]

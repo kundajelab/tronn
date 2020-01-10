@@ -190,7 +190,8 @@ def run_single_model_inference(
         args,
         out_prefix=None,
         positives_only=True,
-        kfold=False):
+        kfold=False,
+        yield_single_examples=True): # adjust here for single vs batch output
     """wrapper for inference
     """
     # set up out_file
@@ -247,7 +248,7 @@ def run_single_model_inference(
         args.out_dir,
         args.inference_params,
         checkpoint=model_manager.model_checkpoint,
-        yield_single_examples=True)
+        yield_single_examples=yield_single_examples)
 
     # run inference and save out
     if not os.path.isfile(out_file):
@@ -256,6 +257,7 @@ def run_single_model_inference(
             out_file,
             args.sample_size,
             h5_saver_batch_size=args.h5_saver_batch_size,
+            yield_single_examples=yield_single_examples,
             debug=args.debug)
 
         # get chrom tags and transfer in

@@ -804,7 +804,8 @@ class ModelManager(object):
     @staticmethod
     def infer_and_save_to_h5(
             generator, h5_file, sample_size,
-            h5_saver_batch_size=2048, compress=False, debug=False):
+            h5_saver_batch_size=2048, compress=False,
+            yield_single_examples=True, debug=False):
         """wrapper routine to run inference and save the results out
         """
         if debug:
@@ -825,6 +826,7 @@ class ModelManager(object):
                 sample_size,
                 resizable=True,
                 batch_size=min(h5_saver_batch_size, sample_size),
+                saving_single_examples=yield_single_examples,
                 is_tensor_input=False)
 
             # and store first outputs
