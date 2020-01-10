@@ -53,7 +53,7 @@ class H5Handler(object):
                 else:
                     # batch IS in first dim
                     dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape[1:]]
-                    self.input_batch_size = tensor_dict[key].shape[0] # save new input batch size
+                    self.input_batch_size = int(tensor_dict[key].shape[0]) # save new input batch size
             maxshape = dataset_shape if resizable else None
 
             # adjust chunk shape here?
@@ -82,7 +82,7 @@ class H5Handler(object):
             self.example_keys.append(key)
         
         # batch size must be a multiple of the input batch size
-        assert batch_size % self.input_batch_size == 0, "batch size: {}; input batch size: {}".format(batch_size, self.input_batch_size) 
+        assert batch_size % self.input_batch_size == 0, "batch size: {}; input batch size: {}, from {}".format(batch_size, self.input_batch_size, key) 
 
         # other needed args            
         self.resizable = resizable
