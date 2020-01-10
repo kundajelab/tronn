@@ -144,7 +144,13 @@ def compress_h5_file(input_file, output_file=None):
                 # and copy all attributes
                 for attr_key, val in hf[key].attrs.iteritems():
                     out[key].attrs[attr_key] = val
-
+                    
+    # don't forget to also copy attributes attached to root level
+    with h5py.File(input_file, "r") as hf:
+        with h5py.File(output_file, "a") as out:
+            for attr_key, val in hf["/"].attrs.iteritems():
+                out["/"].attrs[attr_key] = val
+                    
     # clean up
     if tmp_file is not None:
         os.system("rm {}".format(tmp_file))
