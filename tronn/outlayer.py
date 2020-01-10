@@ -127,10 +127,11 @@ class H5Handler(object):
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
             if self.saving_single_examples:
-                self.h5_handle[h5_key][self.batch_start:self.batch_end] = np.stack(self.tmp_arrays[key], axis=0)
+                tmp_array = np.stack(self.tmp_arrays[key], axis=0)
             else:
-                self.h5_handle[h5_key][self.batch_start:self.batch_end] = np.concatenate(self.tmp_arrays[key], axis=0)
-            
+                tmp_array = np.concatenate(self.tmp_arrays[key], axis=0)
+            self.h5_handle[h5_key][self.batch_start:self.batch_end] = tmp_array
+                
         # set new point in batch
         self.batch_start = self.batch_end
         self.batch_end += self.batch_size
