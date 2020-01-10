@@ -28,12 +28,15 @@ class H5Handler(object):
         """Keep h5 handle and other relevant storing mechanisms
         """
         self.h5_handle = h5_handle
+        #self.tensor_dict = tensor_dict
+        #self.sample_size = sample_size
         self.group = group
+        #self.is_tensor_input = is_tensor_input
+        #self.skip = skip
+        #self.direct_transfer = direct_transfer
         self.example_keys = []
         self.input_batch_size = 1 # preset as 1
-        self.saving_single_examples = saving_single_examples
         
-        # set up h5 datasets
         for key in tensor_dict.keys():
             h5_key = "{}/{}".format(self.group, key)
             if key in skip:
@@ -52,18 +55,29 @@ class H5Handler(object):
                     dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape[1:]]
                     self.input_batch_size = int(tensor_dict[key].shape[0]) # save new input batch size
             maxshape = dataset_shape if resizable else None
+
+            # adjust chunk shape here?
+            bits_per_example = 1
+            for dim_val in dataset_shape[1:]:
+                bits_per_example *= dim_val
+            chunk_batch_size = max((1024**2) / bits_per_example, 1) # make sure is at least size 1
+            chunk_batch_size = min(sample_size, chunk_batch_size) # make sure not larger than sample size
+            chunk_shape = tuple([chunk_batch_size] + dataset_shape[1:])
             
             if "example_metadata" in key:
                 self.h5_handle.create_dataset(
                     h5_key, dataset_shape, maxshape=maxshape, dtype="S100",
+                    #chunks=chunk_shape,
                     compression="gzip", compression_opts=compression_opts, shuffle=True)
             elif "string" in key:
                 self.h5_handle.create_dataset(
                     h5_key, dataset_shape, maxshape=maxshape, dtype="S1000",
+                    #chunks=chunk_shape,
                     compression="gzip", compression_opts=compression_opts, shuffle=True)
             else:
                 self.h5_handle.create_dataset(
                     h5_key, dataset_shape, maxshape=maxshape,
+                    #chunks=chunk_shape,
                     compression="gzip", compression_opts=compression_opts, shuffle=True)
             self.example_keys.append(key)
         
@@ -83,7 +97,18 @@ class H5Handler(object):
         """
         tmp_arrays = {}
         for key in self.example_keys:
-            tmp_arrays[key] = [] # just lists, stack at end
+            h5_key = "{}/{}".format(self.group, key)
+            
+            dataset_shape = [self.batch_size] + [int(i) for i in self.h5_handle[h5_key].shape[1:]]
+
+            if key == "example_metadata":
+                tmp_arrays[key] = np.empty(dataset_shape, dtype="S100")
+                tmp_arrays[key].fill("features=chr1:0-1000")
+            elif "string" in key:
+                tmp_arrays[key] = np.empty(dataset_shape, dtype="S1000")
+                tmp_arrays[key].fill("NNNN")
+            else:
+                tmp_arrays[key] = np.zeros(dataset_shape)
         self.tmp_arrays = tmp_arrays
         self.tmp_arrays_idx = 0
 
@@ -111,7 +136,7 @@ class H5Handler(object):
         tmp_i_stop = self.tmp_arrays_idx + self.input_batch_size
         
         for key in self.example_keys:
-            self.tmp_arrays[key].append(example_arrays[key])
+            self.tmp_arrays[key][tmp_i_start:tmp_i_stop] = example_arrays[key]
         self.tmp_arrays_idx += self.input_batch_size
         
         # now if at end of batch, push out and reset tmp
@@ -121,15 +146,21 @@ class H5Handler(object):
         return
 
     
+    def store_batch_DEPRECATE(self, batch):
+        """Coming from batch input
+        """
+        self.tmp_arrays = batch
+        self.push_batch()
+        
+        return
+
+    
     def push_batch(self):
         """Go from the tmp array to the h5 file
         """
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
-            if self.saving_single_examples:
-                self.h5_handle[h5_key][self.batch_start:self.batch_end] = np.stack(self.tmp_arrays[key], axis=0)
-            else:
-                self.h5_handle[h5_key][self.batch_start:self.batch_end] = np.concatenate(self.tmp_arrays[key], axis=0)
+            self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
             
         # set new point in batch
         self.batch_start = self.batch_end
@@ -143,16 +174,19 @@ class H5Handler(object):
     def flush(self, defined_batch_end=None):
         """Check to see how many are real examples and push the last batch gracefully in
         """
-        # determine actual batch end
-        test_key = "example_metadata"
-        batch_end = len(self.tmp_arrays[test_key]) * self.input_batch_size
+        if defined_batch_end is not None:
+            batch_end = defined_batch_end
+        else:
+            for batch_end in xrange(self.tmp_arrays["example_metadata"].shape[0]):
+                if self.tmp_arrays["example_metadata"][batch_end][0].rstrip("\0") == "features=chr1:0-1000":
+                    break
+        self.batch_end = self.batch_start + batch_end
         
-        # in this set up, easy to just use push batch again
-        self.push_batch()
-        
-        # adjust batch end
-        self.batch_end = self.batch_end - self.batch_size + batch_end
-        
+        # save out
+        for key in self.example_keys:
+            h5_key = "{}/{}".format(self.group, key)
+            self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
+
         return
 
     
