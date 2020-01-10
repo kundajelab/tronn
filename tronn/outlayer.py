@@ -28,18 +28,20 @@ class H5Handler(object):
         """Keep h5 handle and other relevant storing mechanisms
         """
         self.h5_handle = h5_handle
-        self.tensor_dict = tensor_dict
-        self.sample_size = sample_size
+        #self.tensor_dict = tensor_dict
+        #self.sample_size = sample_size
         self.group = group
-        self.is_tensor_input = is_tensor_input
-        self.skip = skip
-        self.direct_transfer = direct_transfer
+        #self.is_tensor_input = is_tensor_input
+        #self.skip = skip
+        #self.direct_transfer = direct_transfer
         self.example_keys = []
+        self.input_batch_size = 1 # preset as 1
+        
         for key in tensor_dict.keys():
             h5_key = "{}/{}".format(self.group, key)
-            if key in self.skip:
+            if key in skip:
                 continue
-            if key in self.direct_transfer:
+            if key in direct_transfer:
                 self.h5_handle.create_dataset(key, data=tensor_dict[key])
                 continue
             if is_tensor_input:
@@ -51,6 +53,7 @@ class H5Handler(object):
                 else:
                     # batch IS in first dim
                     dataset_shape = [sample_size] + [int(i) for i in tensor_dict[key].shape[1:]]
+                    self.input_batch_size = tensor_dict[key].shape[0] # save new input batch size
             maxshape = dataset_shape if resizable else None
 
             # adjust chunk shape here?
@@ -77,6 +80,10 @@ class H5Handler(object):
                     #chunks=chunk_shape,
                     compression="gzip", compression_opts=compression_opts, shuffle=True)
             self.example_keys.append(key)
+
+        assert batch_size % self.input_batch_size == 0 # batch size must be a multiple of the input batch size
+
+        # other needed args            
         self.resizable = resizable
         self.batch_size = batch_size
         self.batch_start = 0
@@ -124,13 +131,12 @@ class H5Handler(object):
         """Store an example into the tmp numpy arrays, push batch out if done with batch
         """
         # i think might just need to change here to push batch instead of indiv
+        tmp_i_start = self.tmp_arrays_idx
+        tmp_i_stop = self.tmp_arrays_idx + self.input_batch_size
+        
         for key in self.example_keys:
-            #try:
-            self.tmp_arrays[key][self.tmp_arrays_idx] = example_arrays[key]
-            #except:
-            #    import ipdb
-            #    ipdb.set_trace()
-        self.tmp_arrays_idx += 1
+            self.tmp_arrays[key][tmp_i_start:tmp_i_stop] = example_arrays[key]
+        self.tmp_arrays_idx += self.input_batch_size
         
         # now if at end of batch, push out and reset tmp
         if self.tmp_arrays_idx == self.batch_size:
@@ -139,7 +145,7 @@ class H5Handler(object):
         return
 
     
-    def store_batch(self, batch):
+    def store_batch_DEPRECATE(self, batch):
         """Coming from batch input
         """
         self.tmp_arrays = batch
@@ -153,11 +159,7 @@ class H5Handler(object):
         """
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
-            #try:
             self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key]
-            #except:
-            #    import ipdb
-            #    ipdb.set_trace()
             
         # set new point in batch
         self.batch_start = self.batch_end
@@ -178,21 +180,11 @@ class H5Handler(object):
                 if self.tmp_arrays["example_metadata"][batch_end][0].rstrip("\0") == "features=chr1:0-1000":
                     break
         self.batch_end = self.batch_start + batch_end
-
-        # check if smaller than batch size
-        #test_key = self.example_keys[0]
-        #if self.h5_handle[test_key][self.batch_start:self.batch_end].shape[0] < batch_end:
-        #    batch_end = self.h5_handle[test_key][self.batch_start:self.batch_end].shape[0]
-        #    self.batch_end = self.batch_start + batch_end # TODO something up with this
         
         # save out
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
-            #try:
             self.h5_handle[h5_key][self.batch_start:self.batch_end] = self.tmp_arrays[key][0:batch_end]
-            #except:
-            #    import ipdb
-            #    ipdb.set_trace()
 
         return
 
