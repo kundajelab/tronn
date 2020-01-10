@@ -80,8 +80,9 @@ class H5Handler(object):
                     #chunks=chunk_shape,
                     compression="gzip", compression_opts=compression_opts, shuffle=True)
             self.example_keys.append(key)
-
-        assert batch_size % self.input_batch_size == 0 # batch size must be a multiple of the input batch size
+        
+        # batch size must be a multiple of the input batch size
+        assert batch_size % self.input_batch_size == 0, "batch size: {}; input batch size: {}".format(batch_size, self.input_batch_size) 
 
         # other needed args            
         self.resizable = resizable
