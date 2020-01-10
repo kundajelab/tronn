@@ -805,7 +805,7 @@ class ModelManager(object):
     
     @staticmethod
     def infer_and_save_to_h5(
-            generator, h5_file, sample_size,
+            generator, h5_file, sample_size, batch_size=1,
             h5_saver_batch_size=2048, compress=False,
             yield_single_examples=True, debug=False):
         """wrapper routine to run inference and save the results out
@@ -835,15 +835,15 @@ class ModelManager(object):
             h5_handler.store_example(first_example)
 
             # now run
-            total_examples = 1
+            total_examples = batch_size
             try:
-                for i in xrange(1, sample_size):
-                    if total_examples % 1000 == 0:
+                for i in xrange(batch_size, sample_size, batch_size):
+                    if total_examples % (100*batch_size) == 0:
                         logging.info("finished {}".format(total_examples))
 
                     example = generator.next()
                     h5_handler.store_example(example)
-                    total_examples += 1
+                    total_examples += batch_size
                     
                     if debug:
                         # here, generate useful graphs

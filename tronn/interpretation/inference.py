@@ -256,6 +256,7 @@ def run_single_model_inference(
             inference_generator,
             out_file,
             args.sample_size,
+            batch_size=args.batch_size,
             h5_saver_batch_size=args.h5_saver_batch_size,
             yield_single_examples=yield_single_examples,
             debug=args.debug)
