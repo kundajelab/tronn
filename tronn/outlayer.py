@@ -166,8 +166,8 @@ class H5Handler(object):
         if batch_end != 0:
             self.push_batch()
         
-            # adjust batch end
-            self.batch_end = self.batch_end - self.batch_size + batch_end
+        # adjust batch end
+        self.batch_end = self.batch_end - self.batch_size + batch_end
         
         return
 
