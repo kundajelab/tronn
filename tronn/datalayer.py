@@ -732,8 +732,9 @@ class H5DataLoader(DataLoader):
                     else:
                         slices[key] = h5_handle[key][start_idx:end_idx]
                 else:
-                    with h5_handle[key].astype(np.float32):
-                        slices[key] = h5_handle[key][start_idx:end_idx]
+                    dataset_handle = h5_handle[key]
+                    with dataset_handle.astype(np.float32):
+                        slices[key] = dataset_handle[start_idx:end_idx]
         else:
             # TODO - don't pad anymore?
             end_idx = h5_handle[keys_to_load[0]].shape[0]
