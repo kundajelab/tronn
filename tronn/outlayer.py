@@ -133,7 +133,8 @@ class H5Handler(object):
         # go through each key
         for key in self.example_keys:
             h5_key = "{}/{}".format(self.group, key)
-
+            print h5_key
+            
             # save in with different dtypes, as needed
             if key == "example_metadata":
                 self.h5_handle[h5_key][self.batch_start:self.batch_end] = merge_fn(
