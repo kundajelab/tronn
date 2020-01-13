@@ -158,17 +158,16 @@ class H5Handler(object):
     def flush(self, defined_batch_end=None):
         """Check to see how many are real examples and push the last batch gracefully in
         """
-        # determine actual batch end
+        # determine actual batch end and adjust
         test_key = "example_metadata"
-        batch_end = len(self.tmp_arrays[test_key]) * self.input_batch_size
+        final_batch_size = len(self.tmp_arrays[test_key]) * self.input_batch_size
+        self.batch_end = self.batch_end - self.batch_size + final_batch_size
+        self.batch_size = final_batch_size
         
         # in this set up, easy to just use push batch again
         if batch_end != 0:
             self.push_batch()
-        
-        # adjust batch end
-        self.batch_end = self.batch_end - self.batch_size + batch_end
-        
+            
         return
 
     
