@@ -165,7 +165,7 @@ class H5Handler(object):
         self.batch_size = final_batch_size
         
         # in this set up, easy to just use push batch again
-        if batch_end != 0:
+        if final_batch_size != 0:
             self.push_batch()
             
         return
