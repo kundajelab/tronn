@@ -48,6 +48,31 @@ def get_bed_from_nx_graph(graph, bed_file, chromsizes, interval_key="active", me
     return None
 
 
+def download_if_needed(annot_set, out_dir="."):
+    """only download if dir/file does not exist
+    """
+    # check for dir or file
+    annot_exists = True
+    if annot_set.get("dir", None) is not None:
+        annot_exists = os.path.isdir(annot_set["dir"])
+    else:
+        annot_exists = os.path.isfile(annot_set["file"])
+
+    # if it doesn't exist, download and unzip
+    if not annot_exists:
+        url = annot_set["url"]
+        download_cmd = "wget {} -P {}".format(url, out_dir)
+        if url.endswith(".tgz"):
+            unzip_cmd = "tar -xzvf {}/{}".format(out_dir, os.path.basename(url))
+        elif url.endswith(".bz2"):
+            unzip_cmd = "bunzip2 {}/{}".format(out_dir, os.path.basename(url))
+        os.system(download_cmd)
+        os.system(unzip_cmd)
+        os.system("rm {}".format(os.path.basename(url)))
+        
+    return None
+
+
 def setup_ldsc_annotations(bed_file, bim_prefix, hapmap_prefix, out_dir):
     """set up annotations
     """
@@ -78,8 +103,112 @@ def setup_ldsc_annotations(bed_file, bim_prefix, hapmap_prefix, out_dir):
                 prefix, bim_prefix, chrom, hapmap_prefix, out_dir)
         print compute_ld
         os.system(compute_ld)
+    
+    return
 
-        quit()
+
+def setup_ggr_annotations(
+        ldsc_annot, out_dir, custom_annot_dir, annot_table_file,
+        chromsizes,
+        grammar_dir="."):
+    """set up GGR annotation sets
+    """
+    # annotation prefixes
+    plink_prefix = "{}/{}/{}".format(
+        out_dir, ldsc_annot["plink"]["dir"], ldsc_annot["plink"]["prefix"])
+    hapmap_prefix = "{}/{}/{}".format(
+        out_dir, ldsc_annot["hapmap3_snps"]["dir"], ldsc_annot["hapmap3_snps"]["prefix"])
+
+    # TODO add univ DHS regions
+    
+    # get an unrelated cell type - HepG2
+    HEPG2_DIR = "/mnt/lab_data/kundaje/users/dskim89/encode-roadmap/encode.dnase.peaks"
+    hepg2_bed_file = "{}/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq_rep1-pr.IDR0.1.filt.narrowPeak.gz".format(
+        HEPG2_DIR)
+    prefix = os.path.basename(hepg2_bed_file).split(".bed")[0] # this is more for checking isfile
+    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+        custom_annot_dir, prefix)
+    if not os.path.isfile(ldscore_file):
+        setup_ldsc_annotations(
+            hepg2_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+    with open(annot_table_file, "w") as fp:
+        fp.write("HepG2\t{}/{}.\n".format(
+            custom_annot_dir, prefix))
+        
+    # get ATAC all
+    GGR_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/integrative/v1.0.0a"
+    ggr_master_bed_file = "{}/data/ggr.atac.idr.master.bed.gz".format(GGR_DIR)
+    prefix = os.path.basename(ggr_master_bed_file).split(".bed")[0]
+    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+        custom_annot_dir, prefix)
+    if not os.path.isfile(ldscore_file):
+        setup_ldsc_annotations(
+            ggr_master_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+    with open(annot_table_file, "a") as fp:
+        fp.write("GGR_ALL\t{}/{}.\n".format(
+            custom_annot_dir, prefix))
+        
+    # get ATAC timepoints
+    timepoint_dir = "{}/results/atac/peaks.timepoints".format(GGR_DIR)
+    timepoint_bed_files = sorted(glob.glob("{}/*narrowPeak.gz".format(timepoint_dir)))
+    for timepoint_bed_file in timepoint_bed_files:
+        prefix = os.path.basename(timepoint_bed_file).split(".bed")[0]
+        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+            custom_annot_dir, prefix)
+        if not os.path.isfile(ldscore_file):
+            setup_ldsc_annotations(
+                timepoint_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+        with open(annot_table_file, "a") as fp:
+            fp.write("{1}\t{0}/{1}.\n".format(
+                custom_annot_dir, prefix))
+
+    # get ATAC traj files
+    traj_dir = "{}/results/atac/timeseries/dp_gp/reproducible/hard/reordered/bed".format(GGR_DIR)
+    traj_bed_files = sorted(glob.glob("{}/*bed.gz".format(traj_dir)))
+    for traj_bed_file in traj_bed_files:
+        prefix = os.path.basename(traj_bed_file).split(".bed")[0]
+        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+            custom_annot_dir, prefix)
+        if not os.path.isfile(ldscore_file):
+            setup_ldsc_annotations(
+                traj_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+        with open(annot_table_file, "a") as fp:
+            fp.write("{1}\t{0}/{1}.\n".format(
+                custom_annot_dir, prefix))
+
+    # and grammars here
+    grammar_dir = "/mnt/lab_data/kundaje/users/dskim89/ggr/nn/inference.2019-03-12/dmim.shuffle.OLD/grammars.annotated.manual_filt.merged.final"
+    
+    # get BED files from grammar files
+    #grammar_summary_file = "{}/grammar_summary.filt.txt".format(grammar_dir)
+    grammar_summary_file = "{}/grammars_summary.txt".format(grammar_dir)
+    grammars = pd.read_csv(grammar_summary_file, sep="\t")
+    for grammar_idx in range(grammars.shape[0]):
+        print grammar_idx
+
+        # read in grammar
+        grammar_file = grammars.iloc[grammar_idx]["filename"]
+        grammar_file = "{}/{}".format(
+            grammar_dir, os.path.basename(grammar_file))
+        grammar = nx.read_gml(grammar_file)
+        grammar.graph["examples"] = grammar.graph["examples"].split(",")
+
+        # make bed file
+        bed_file = "{}.bed.gz".format(grammar_file.split(".gml")[0])
+        if not os.path.isfile(bed_file):
+            get_bed_from_nx_graph(grammar, bed_file, chromsizes, extend_len=500) # param from Finucane 2018
+            # TODO ^ redo this?
+
+        # then make annotations
+        prefix = os.path.basename(bed_file).split(".bed")[0]
+        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+            custom_annot_dir, prefix)
+        if not os.path.isfile(ldscore_file):
+            setup_ldsc_annotations(
+                bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+        with open(annot_table_file, "a") as fp:
+            fp.write("{1}\t{0}/{1}.\n".format(
+                custom_annot_dir, prefix))
     
     return
 
@@ -103,187 +232,15 @@ def setup_sumstats_file(sumstats_file, merge_alleles_file, out_file, other_param
     return None
 
 
-def download_if_needed(annot_set, out_dir="."):
-    """only download if dir/file does not exist
+def setup_sumstats_files(sumstats_dir, sumstats_orig_dir):
+    """build sumstats files
     """
-    # check for dir or file
-    annot_exists = True
-    if annot_set.get("dir", None) is not None:
-        annot_exists = os.path.isdir(annot_set["dir"])
-    else:
-        annot_exists = os.path.isfile(annot_set["file"])
+    sumstats_files = []
 
-    # if it doesn't exist, download and unzip
-    if not annot_exists:
-        url = annot_set["url"]
-        download_cmd = "wget {} -P {}".format(url, out_dir)
-        if url.endswith(".tgz"):
-            unzip_cmd = "tar -xzvf {}/{}".format(out_dir, os.path.basename(url))
-        elif url.endswith(".bz2"):
-            unzip_cmd = "bunzip2 {}/{}".format(out_dir, os.path.basename(url))
-        os.system(download_cmd)
-        os.system(unzip_cmd)
-        os.system("rm {}".format(os.path.basename(url)))
-        
-    return None
+    # -------------------------------
+    # ukbb codes
+    # -------------------------------
 
-
-def setup_ggr_annotations(ldsc_annot, out_dir, custom_annot_dir, annot_table_file):
-    """set up GGR annotation sets
-    """
-    # annotation prefixes
-    plink_prefix = "{}/{}/{}".format(
-        out_dir, ldsc_annot["plink"]["dir"], ldsc_annot["plink"]["prefix"])
-    hapmap_prefix = "{}/{}/{}".format(
-        out_dir, ldsc_annot["hapmap3_snps"]["dir"], ldsc_annot["hapmap3_snps"]["prefix"])
-    
-    # get an unrelated cell type - HepG2
-    HEPG2_DIR = "/mnt/lab_data/kundaje/users/dskim89/encode-roadmap/encode.dnase.peaks"
-    hepg2_bed_file = "{}/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq_rep1-pr.IDR0.1.filt.narrowPeak.gz".format(
-        HEPG2_DIR)
-    prefix = os.path.basename(hepg2_bed_file).split(".bed")[0] # this is more for checking isfile
-    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-        custom_annot_dir, prefix)
-    if not os.path.isfile(ldscore_file):
-        setup_ldsc_annotations(
-            hepg2_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
-    with open(ldsc_table_file, "w") as fp:
-        fp.write("HepG2\t{}/{}.\n".format(
-            custom_annot_dir, prefix))
-        
-    # get ATAC all
-    GGR_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/integrative/v1.0.0a"
-    ggr_master_bed_file = "{}/data/ggr.atac.idr.master.bed.gz".format(GGR_DIR)
-    prefix = os.path.basename(ggr_master_bed_file).split(".bed")[0]
-    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-        custom_annot_dir, prefix)
-    if not os.path.isfile(ldscore_file):
-        setup_ldsc_annotations(
-            ggr_master_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
-    with open(ldsc_table_file, "a") as fp:
-        fp.write("GGR_ALL\t{}/{}.\n".format(
-            custom_annot_dir, prefix))
-        
-    # get ATAC timepoints
-    timepoint_dir = "{}/results/atac/peaks.timepoints".format(GGR_DIR)
-    timepoint_bed_files = sorted(glob.glob("{}/*narrowPeak.gz".format(timepoint_dir)))
-    for timepoint_bed_file in timepoint_bed_files:
-        prefix = os.path.basename(timepoint_bed_file).split(".bed")[0]
-        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-            custom_annot_dir, prefix)
-        if not os.path.isfile(ldscore_file):
-            setup_ldsc_annotations(
-                timepoint_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
-        with open(ldsc_table_file, "a") as fp:
-            fp.write("{1}\t{0}/{1}.\n".format(
-                custom_annot_dir, prefix))
-
-    # get ATAC traj files
-    traj_dir = "{}/results/atac/timeseries/dp_gp/reproducible/hard/reordered/bed".format(GGR_DIR)
-    traj_bed_files = sorted(glob.glob("{}/*bed.gz".format(traj_dir)))
-    for traj_bed_file in traj_bed_files:
-        prefix = os.path.basename(traj_bed_file).split(".bed")[0]
-        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-            custom_annot_dir, prefix)
-        if not os.path.isfile(ldscore_file):
-            setup_ldsc_annotations(
-                traj_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
-        with open(ldsc_table_file, "a") as fp:
-            fp.write("{1}\t{0}/{1}.\n".format(
-                custom_annot_dir, prefix))
-
-    # and grammars here
-    
-    
-    return
-
-
-
-def main():
-    """run all analyses for GGR GWAS variants
-    """
-    # args
-    annotations_json = sys.argv[1]
-    ANNOT_DIR = sys.argv[2]
-    in_dir = sys.argv[3]
-    grammar_dir = sys.argv[4]
-    out_dir = sys.argv[5]
-    
-    # setup generic annotations
-    chromsizes = "{}/hg19.chrom.sizes".format(ANNOT_DIR)
-
-    # setup LDSC annotations
-    with open(annotations_json, "r") as fp:
-        ldsc_annotations = json.load(fp)
-    for annot_set_key in sorted(ldsc_annotations.keys()):
-        print annot_set_key
-        download_if_needed(ldsc_annotations[annot_set_key], out_dir=out_dir)
-
-    # generate annot files for custom region sets and save to table file
-    custom_annot_dir = "{}/annot.custom".format(out_dir)
-    os.system("mkdir -p {}".format(custom_annot_dir))
-    annot_table_file = "{}/annot.table.txt".format(out_dir)
-    setup_ggr_annotations(ldsc_annotations, out_dir, custom_annot_dir, annot_table_file)
-    
-    quit()
-
-
-    # TODO adjust here to get other grammars
-    # grammar dir
-    grammar_dir = "/srv/scratch/dskim89/ggr/ggr.tronn.2020-01-13.buildgrammars/grammars.annotated"
-    
-    if False:
-        # get BED files from grammar files
-        grammar_summary_file = "{}/grammar_summary.filt.txt".format(grammar_dir)
-        grammars = pd.read_csv(grammar_summary_file, sep="\t")
-        for grammar_idx in range(grammars.shape[0]):
-            print grammar_idx
-
-            # read in grammar
-            grammar_file = grammars.iloc[grammar_idx]["filename"]
-            grammar_file = "{}/{}".format(
-                grammar_dir, os.path.basename(grammar_file))
-            grammar = nx.read_gml(grammar_file)
-            grammar.graph["examples"] = grammar.graph["examples"].split(",")
-
-            # make bed file
-            bed_file = "{}.bed.gz".format(grammar_file.split(".gml")[0])
-            if not os.path.isfile(bed_file):
-                get_bed_from_nx_graph(grammar, bed_file, chromsizes, extend_len=500) # param from Finucane 2018
-                #get_bed_from_nx_graph(grammar, bed_file, chromsizes, extend_len=100000) # param from Finucane 2018
-
-            # then make annotations
-            prefix = os.path.basename(bed_file).split(".bed")[0]
-            ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-                ldsc_annot_dir, prefix)
-            if not os.path.isfile(ldscore_file):
-                setup_ldsc_annotations(
-                    bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
-            with open(ldsc_table_file, "a") as fp:
-                fp.write("{1}\t{0}/{1}.\n".format(
-                    ldsc_annot_dir, prefix))
-    
-    # pull relevant GWAS summary stats (plus UKBB), configure, and run
-    sumstats_dir = "./sumstats"
-    os.system("mkdir -p {}".format(sumstats_dir))
-    sumstats_orig_dir = "{}/orig".format(sumstats_dir)
-    os.system("mkdir -p {}".format(sumstats_orig_dir))
-
-    # also set up results dir
-    results_dir = "./results.v2"
-    os.system("mkdir -p {}".format(results_dir))
-    
-    # get UKBB derm stats (from LDSC repo)
-    ukbb_derm_sumstats = "{}/ukbb.none.derm.ldsc.sumstats.gz".format(sumstats_dir)
-    if not os.path.isfile(ukbb_derm_sumstats):
-        file_url = "https://data.broadinstitute.org/alkesgroup/UKBB/disease_DERMATOLOGY.sumstats.gz"
-        save_file = "{}/ukbb.ldsc_pheno.dermatology.sumstats.gz".format(sumstats_orig_dir)
-        get_ukbb = "wget {} -O {}".format(
-            file_url,
-            save_file)
-        os.system(get_ukbb)
-        setup_sumstats_file(save_file, hapmap_snps_file, ukbb_derm_sumstats)
-        
     # ukbb standardized, can do all in one go
     ukbb_manifest_file = "./ukbb/ukbb.gwas_imputed_3.release_20180731.tsv"
     ukbb_manifest = pd.read_csv(ukbb_manifest_file, sep="\t")
@@ -352,16 +309,10 @@ def main():
         "L57", # skin changes from nonionizing radiation ICD
         "L12_OTHERDISSKINANDSUBCUTIS", # other
         "L98", # other
-        
+        #"21001_irnt" # BMI (non skin condition control)
     ]
 
-    ukbb_codes = [
-        "21001_irnt"
-    ]
-    
-    # debug
-    ldsc_table_file = "./annot.table.tmp.ldsc" # debug
-    
+        
     # for each, download and process
     for ukbb_code in ukbb_codes:
         id_metadata = ukbb_manifest[ukbb_manifest["Phenotype Code"] == ukbb_code]
@@ -407,67 +358,26 @@ def main():
                 other_params="--N-col n_complete_samples --a1 ref --a2 alt --frq AF")
                 #other_params="--N-col n_called --a1 ref --a2 alt --frq AF") # use for BMI
 
-        if False:
-            # Cell type specific analysis
-            # run tests
-            out_prefix = "{}/{}".format(results_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
-            out_results_file = "{}.cell_type_results.txt".format(out_prefix)
-            if not os.path.isfile(out_results_file):
-                run_ldsc = (
-                    "python ~/git/ldsc/ldsc.py "
-                    "--h2-cts {} "
-                    "--ref-ld-chr {} "
-                    "--out {} "
-                    "--ref-ld-chr-cts {} "
-                    "--w-ld-chr {}").format(
-                        final_sumstats_file,
-                        baseline_model_prefix,
-                        out_prefix,
-                        ldsc_table_file,
-                        weights_prefix)
-                print run_ldsc
-                os.system(run_ldsc)
-
-
-        if False:
-        #if "20001_1061" in final_sumstats_file:
-            # partition heritability (want to see enrichment val)
-            grammar_prefix = "ldsc.annot/ggr.TRAJ_LABELS-0.grammar-57.annot-53."
-            grammar_prefix = "ldsc.annot/ggr.TRAJ_LABELS-8-10-11.grammar-55.annot-735."
-            atac_prefix = "ldsc.annot/ggr.atac.idr.master."
-            traj_prefix = "ldsc.annot/ggr.atac.reproducible.hard.reordered.cluster_1."
-            baseline_prefix = baseline_model_prefix
-
-            test_prefixes = [baseline_prefix]
-            
-            out_prefix = "{}/{}".format(results_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
-
-            run_ldsc = (
-                "python ~/git/ldsc/ldsc.py "
-                "--h2 {} "
-                "--ref-ld-chr {} "
-                "--w-ld-chr {} "
-                "--overlap-annot "
-                "--frqfile-chr {} "
-                "--out {} "
-                "--print-coefficients").format(
-                    final_sumstats_file,
-                    ",".join(test_prefixes),
-                    weights_prefix,
-                    frqfiles_prefix,
-                    out_prefix)
-            
-            print run_ldsc
-            os.system(run_ldsc)
-
-    # plot results
-    order_file = "./annot.order.txt"
-    results_files = sorted(glob.glob("{}*cell_type_results.txt".format(results_dir)))
-    for results_file in results_files:
-        
-        pass
+        # append
+        sumstats_files.append(final_sumstats_file)
     
+    # -------------------------------
+    # ukbb LDSC preprocessed files
+    # -------------------------------
     
+    # derm
+    ukbb_derm_sumstats = "{}/ukbb.none.derm.ldsc.sumstats.gz".format(sumstats_dir)
+    if not os.path.isfile(ukbb_derm_sumstats):
+        file_url = "https://data.broadinstitute.org/alkesgroup/UKBB/disease_DERMATOLOGY.sumstats.gz"
+        save_file = "{}/ukbb.ldsc_pheno.dermatology.sumstats.gz".format(sumstats_orig_dir)
+        get_ukbb = "wget {} -O {}".format(file_url, save_file)
+        os.system(get_ukbb)
+        setup_sumstats_file(save_file, hapmap_snps_file, ukbb_derm_sumstats)
+    sumstats_files.append(ukbb_derm_sumstats)
+
+    # -------------------------------
+    # other GWAS with sumstats
+    # -------------------------------
             
     # acne - confirmed genome-wide genotyping array, Affy
     gwas_acne_sumstats = "{}/gwas.GCST006640.acne.ldsc.sumstats.gz".format(sumstats_dir)
@@ -481,59 +391,122 @@ def main():
             hapmap_snps_file,
             gwas_acne_sumstats,
             other_params="--N-cas 1115 --N-con 4619 --ignore regional.analysis")
+    sumstats_files.append(gwas_acne_sumstats)
+    
+    return sumstats_files
+
+
+def run_ldsc(
+        annot_table_file,
+        sumstats_file,
+        baseline_model_prefix,
+        weights_prefix,
+        out_dir,
+        celltype_specific=False):
+    """
+    """
+    if celltype_specific:
+        # Cell type specific analysis
+        out_prefix = "{}/{}".format(out_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
+        out_results_file = "{}.cell_type_results.txt".format(out_prefix)
+        if not os.path.isfile(out_results_file):
+            run_ldsc = (
+                "python ~/git/ldsc/ldsc.py "
+                "--h2-cts {} "
+                "--ref-ld-chr {} "
+                "--w-ld-chr {} "
+                "--ref-ld-chr-cts {} "
+                "--out {}").format(
+                    final_sumstats_file,
+                    baseline_model_prefix,
+                    weights_prefix,
+                    annot_table_file,
+                    out_prefix)
+            print run_ldsc
+            os.system(run_ldsc)
+    else:
+        # run full partition heritability
+        # read in cell type table
+
+        # for each line, run model
         
-    grammar_prefix = "ldsc.annot/ggr.TRAJ_LABELS-0.grammar-57.annot-53."
-    grammar_prefix = "ldsc.annot/ggr.TRAJ_LABELS-8-10-11.grammar-55.annot-735."
-    atac_prefix = "ldsc.annot/ggr.atac.idr.master."
-    traj_prefix = "ldsc.annot/ggr.atac.reproducible.hard.reordered.cluster_1."
-    baseline_prefix = baseline_model_prefix
+        out_prefix = "{}/{}".format(out_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
 
-    test_prefixes = [traj_prefix]
-            
-    out_prefix = "{}/{}".format(results_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
-
-    run_ldsc = (
-        "python ~/git/ldsc/ldsc.py "
-        "--h2 {} "
-        "--ref-ld-chr {} "
-        "--w-ld-chr {} "
-        "--overlap-annot "
-        "--frqfile-chr {} "
-        "--out {} "
-        "--print-coefficients").format(
-            gwas_acne_sumstats,
-            ",".join(test_prefixes),
-            weights_prefix,
-            frqfiles_prefix,
-            out_prefix)
-            
-    print run_ldsc
-    os.system(run_ldsc)
-
-    quit()
-
-        
-    out_prefix = "{}/{}".format(results_dir, os.path.basename(gwas_acne_sumstats).split(".ldsc")[0])
-    out_results_file = "{}.cell_type_results.txt".format(out_prefix)
-    if not os.path.isfile(out_results_file):
         run_ldsc = (
             "python ~/git/ldsc/ldsc.py "
-            "--h2-cts {} "
+            "--h2 {} "
             "--ref-ld-chr {} "
+            "--w-ld-chr {} "
+            "--overlap-annot "
+            "--frqfile-chr {} "
             "--out {} "
-            "--ref-ld-chr-cts {} "
-            "--w-ld-chr {}").format(
-                gwas_acne_sumstats,
-                baseline_model_prefix,
-                out_prefix,
-                ldsc_table_file,
-                weights_prefix)
+            "--print-coefficients").format(
+                final_sumstats_file,
+                ",".join(test_prefixes),
+                weights_prefix,
+                frqfiles_prefix,
+                out_prefix)
+        
         print run_ldsc
         os.system(run_ldsc)
+    
+    return
 
 
+def main():
+    """run all analyses for GGR GWAS variants
+    """
+    # args
+    annotations_json = sys.argv[1]
+    ANNOT_DIR = sys.argv[2]
+    in_dir = sys.argv[3]
+    grammar_dir = sys.argv[4]
+    out_dir = sys.argv[5]
+    
+    # setup generic annotations
+    chromsizes = "{}/hg19.chrom.sizes".format(ANNOT_DIR)
+
+    # setup LDSC annotations
+    with open(annotations_json, "r") as fp:
+        ldsc_annotations = json.load(fp)
+    for annot_set_key in sorted(ldsc_annotations.keys()):
+        print annot_set_key
+        download_if_needed(ldsc_annotations[annot_set_key], out_dir=out_dir)
+
+    # generate annot files for custom region sets and save to table file
+    custom_annot_dir = "{}/annot.custom".format(out_dir)
+    os.system("mkdir -p {}".format(custom_annot_dir))
+    annot_table_file = "{}/annot.table.txt".format(out_dir)
+    setup_ggr_annotations(
+        ldsc_annotations, out_dir, custom_annot_dir, annot_table_file,
+        chromsizes)
+
+    # set up summary stats files
+    sumstats_dir = "./sumstats"
+    os.system("mkdir -p {}".format(sumstats_dir))
+    sumstats_orig_dir = "{}/orig".format(sumstats_dir)
+    os.system("mkdir -p {}".format(sumstats_orig_dir))
+    sumstats_files = setup_sumstats_files(sumstats_dir, sumstats_orig_dir)
+    print len(sumstats_files)
+    print "\n".join(sumstats_files)
+    
+    # go through sumstats files
+    results_dir = "{}/results".format(out_dir)
+    os.system("mkdir -p {}".format(results_dir))
+
+    for sumstats_file in sumstats_files:
+        # run partition heritability and get enrichments
+        # use the cell type table
+        run_ldsc(
+            annot_table_file,
+            sumstats_file,
+            "{}/{}/{}".format(out_dir, ldsc_annotations["baseline"]["dir"], ldsc_annotations["baseline"]["prefix"]),
+            "{}/{}/{}".format(out_dir, ldsc_annotations["weights"]["dir"], ldsc_annotations["weights"]["prefix"]),
+            results_dir,
+            celltype_specific=True)
+    
     quit()
-        
+
     # alopecia - genome-wide genotyping array
     gwas_alopecia_sumstats = "{}/gwas.GCST006661.alopecia.ldsc.sumstats.gz".format(sumstats_dir)
     if not os.path.isfile(gwas_alopecia_sumstats):
