@@ -184,7 +184,6 @@ def setup_ggr_annotations(
     grammar_summary_file = "{}/grammars_summary.txt".format(grammar_dir)
     grammars = pd.read_csv(grammar_summary_file, sep="\t")
     for grammar_idx in range(grammars.shape[0]):
-        print grammar_idx
 
         # read in grammar
         grammar_file = grammars.iloc[grammar_idx]["filename"]
@@ -213,7 +212,11 @@ def setup_ggr_annotations(
     return
 
 
-def setup_sumstats_file(sumstats_file, merge_alleles_file, out_file, other_params=""):
+def setup_sumstats_file(
+        sumstats_file,
+        merge_alleles_file,
+        out_file,
+        other_params=""):
     """setup summary states file
     """
     munge_cmd = (
@@ -232,7 +235,10 @@ def setup_sumstats_file(sumstats_file, merge_alleles_file, out_file, other_param
     return None
 
 
-def setup_sumstats_files(sumstats_dir, sumstats_orig_dir):
+def setup_sumstats_files(
+        sumstats_dir,
+        sumstats_orig_dir,
+        hapmap_snps_file):
     """build sumstats files
     """
     sumstats_files = []
@@ -311,10 +317,11 @@ def setup_sumstats_files(sumstats_dir, sumstats_orig_dir):
         "L98", # other
         #"21001_irnt" # BMI (non skin condition control)
     ]
-
         
     # for each, download and process
     for ukbb_code in ukbb_codes:
+
+        # get ID
         id_metadata = ukbb_manifest[ukbb_manifest["Phenotype Code"] == ukbb_code]
         if id_metadata.shape[0] > 1:
             id_metadata = id_metadata[id_metadata["Sex"] == "both_sexes"]
@@ -366,14 +373,36 @@ def setup_sumstats_files(sumstats_dir, sumstats_orig_dir):
     # -------------------------------
     
     # derm
-    ukbb_derm_sumstats = "{}/ukbb.none.derm.ldsc.sumstats.gz".format(sumstats_dir)
+    ukbb_derm_sumstats = "{}/ukbb.LDSCORE.derm.ldsc.sumstats.gz".format(sumstats_dir)
     if not os.path.isfile(ukbb_derm_sumstats):
-        file_url = "https://data.broadinstitute.org/alkesgroup/UKBB/disease_DERMATOLOGY.sumstats.gz"
-        save_file = "{}/ukbb.ldsc_pheno.dermatology.sumstats.gz".format(sumstats_orig_dir)
-        get_ukbb = "wget {} -O {}".format(file_url, save_file)
+        file_url = "https://data.broadinstitute.org/alkesgroup/LDSCORE/independent_sumstats/UKB_460K.disease_DERMATOLOGY.sumstats.gz"
+        get_ukbb = "wget {} -O {}".format(file_url, ukbb_derm_sumstats)
         os.system(get_ukbb)
-        setup_sumstats_file(save_file, hapmap_snps_file, ukbb_derm_sumstats)
     sumstats_files.append(ukbb_derm_sumstats)
+
+    # eczema
+    ukbb_eczema_sumstats = "{}/ukbb.LDSCORE.eczema.ldsc.sumstats.gz".format(sumstats_dir)
+    if not os.path.isfile(ukbb_eczema_sumstats):
+        file_url = "https://data.broadinstitute.org/alkesgroup/LDSCORE/independent_sumstats/UKB_460K.disease_ALLERGY_ECZEMA_DIAGNOSED.sumstats.gz"
+        get_ukbb = "wget {} -O {}".format(file_url, ukbb_eczema_sumstats)
+        os.system(get_ukbb)
+    sumstats_files.append(ukbb_eczema_sumstats)
+
+    # bmi (as baseline control phenotype)
+    ukbb_bmi_sumstats = "{}/ukbb.LDSCORE.bmi.ldsc.sumstats.gz".format(sumstats_dir)
+    if not os.path.isfile(ukbb_bmi_sumstats):
+        file_url = "https://data.broadinstitute.org/alkesgroup/LDSCORE/independent_sumstats/UKB_460K.body_BMIz.sumstats.gz"
+        get_ukbb = "wget {} -O {}".format(file_url, ukbb_bmi_sumstats)
+        os.system(get_ukbb)
+    sumstats_files.append(ukbb_bmi_sumstats)
+    
+    # height (as baseline control phenotype)
+    ukbb_bmi_sumstats = "{}/ukbb.LDSCORE.height.ldsc.sumstats.gz".format(sumstats_dir)
+    if not os.path.isfile(ukbb_bmi_sumstats):
+        file_url = "https://data.broadinstitute.org/alkesgroup/LDSCORE/independent_sumstats/UKB_460K.body_HEIGHTz.sumstats.gz"
+        get_ukbb = "wget {} -O {}".format(file_url, ukbb_bmi_sumstats)
+        os.system(get_ukbb)
+    sumstats_files.append(ukbb_bmi_sumstats)
 
     # -------------------------------
     # other GWAS with sumstats
@@ -393,120 +422,6 @@ def setup_sumstats_files(sumstats_dir, sumstats_orig_dir):
             other_params="--N-cas 1115 --N-con 4619 --ignore regional.analysis")
     sumstats_files.append(gwas_acne_sumstats)
     
-    return sumstats_files
-
-
-def run_ldsc(
-        annot_table_file,
-        sumstats_file,
-        baseline_model_prefix,
-        weights_prefix,
-        out_dir,
-        celltype_specific=False):
-    """
-    """
-    if celltype_specific:
-        # Cell type specific analysis
-        out_prefix = "{}/{}".format(out_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
-        out_results_file = "{}.cell_type_results.txt".format(out_prefix)
-        if not os.path.isfile(out_results_file):
-            run_ldsc = (
-                "python ~/git/ldsc/ldsc.py "
-                "--h2-cts {} "
-                "--ref-ld-chr {} "
-                "--w-ld-chr {} "
-                "--ref-ld-chr-cts {} "
-                "--out {}").format(
-                    final_sumstats_file,
-                    baseline_model_prefix,
-                    weights_prefix,
-                    annot_table_file,
-                    out_prefix)
-            print run_ldsc
-            os.system(run_ldsc)
-    else:
-        # run full partition heritability
-        # read in cell type table
-
-        # for each line, run model
-        
-        out_prefix = "{}/{}".format(out_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
-
-        run_ldsc = (
-            "python ~/git/ldsc/ldsc.py "
-            "--h2 {} "
-            "--ref-ld-chr {} "
-            "--w-ld-chr {} "
-            "--overlap-annot "
-            "--frqfile-chr {} "
-            "--out {} "
-            "--print-coefficients").format(
-                final_sumstats_file,
-                ",".join(test_prefixes),
-                weights_prefix,
-                frqfiles_prefix,
-                out_prefix)
-        
-        print run_ldsc
-        os.system(run_ldsc)
-    
-    return
-
-
-def main():
-    """run all analyses for GGR GWAS variants
-    """
-    # args
-    annotations_json = sys.argv[1]
-    ANNOT_DIR = sys.argv[2]
-    in_dir = sys.argv[3]
-    grammar_dir = sys.argv[4]
-    out_dir = sys.argv[5]
-    
-    # setup generic annotations
-    chromsizes = "{}/hg19.chrom.sizes".format(ANNOT_DIR)
-
-    # setup LDSC annotations
-    with open(annotations_json, "r") as fp:
-        ldsc_annotations = json.load(fp)
-    for annot_set_key in sorted(ldsc_annotations.keys()):
-        print annot_set_key
-        download_if_needed(ldsc_annotations[annot_set_key], out_dir=out_dir)
-
-    # generate annot files for custom region sets and save to table file
-    custom_annot_dir = "{}/annot.custom".format(out_dir)
-    os.system("mkdir -p {}".format(custom_annot_dir))
-    annot_table_file = "{}/annot.table.txt".format(out_dir)
-    setup_ggr_annotations(
-        ldsc_annotations, out_dir, custom_annot_dir, annot_table_file,
-        chromsizes)
-
-    # set up summary stats files
-    sumstats_dir = "./sumstats"
-    os.system("mkdir -p {}".format(sumstats_dir))
-    sumstats_orig_dir = "{}/orig".format(sumstats_dir)
-    os.system("mkdir -p {}".format(sumstats_orig_dir))
-    sumstats_files = setup_sumstats_files(sumstats_dir, sumstats_orig_dir)
-    print len(sumstats_files)
-    print "\n".join(sumstats_files)
-    
-    # go through sumstats files
-    results_dir = "{}/results".format(out_dir)
-    os.system("mkdir -p {}".format(results_dir))
-
-    for sumstats_file in sumstats_files:
-        # run partition heritability and get enrichments
-        # use the cell type table
-        run_ldsc(
-            annot_table_file,
-            sumstats_file,
-            "{}/{}/{}".format(out_dir, ldsc_annotations["baseline"]["dir"], ldsc_annotations["baseline"]["prefix"]),
-            "{}/{}/{}".format(out_dir, ldsc_annotations["weights"]["dir"], ldsc_annotations["weights"]["prefix"]),
-            results_dir,
-            celltype_specific=True)
-    
-    quit()
-
     # alopecia - genome-wide genotyping array
     gwas_alopecia_sumstats = "{}/gwas.GCST006661.alopecia.ldsc.sumstats.gz".format(sumstats_dir)
     if not os.path.isfile(gwas_alopecia_sumstats):
@@ -521,6 +436,7 @@ def main():
             hapmap_snps_file,
             gwas_alopecia_sumstats,
             other_params="--N 52874 --snp Markername")
+    sumstats_files.append(gwas_alopecia_sumstats)
         
     # dermatitis - genome-wide genotyping array, illumina
     gwas_dermatitis_sumstats = "{}/gwas.GCST003184.dermatitis.ldsc.sumstats.gz".format(sumstats_dir)
@@ -534,6 +450,7 @@ def main():
             hapmap_snps_file,
             gwas_dermatitis_sumstats,
             other_params="--N-col AllEthnicities_N")
+    sumstats_files.append(gwas_dermatitis_sumstats)
         
     # lupus - genome-wide genotyping array, illumina
     gwas_lupus_sumstats = "{}/gwas.GCST005831.lupus.ldsc.sumstats.gz".format(sumstats_dir)
@@ -546,9 +463,7 @@ def main():
             hapmap_snps_file,
             gwas_lupus_sumstats,
             other_params="--N-cas 4943 --N-con 8483 --a1 A1lele1 --a2 Allele2")
-
-    # lupus - targeted array, ignore
-    gwas_lupus_sumstats = "{}.gwas.GCST007400.lupus.ldsc.sumstats.gz"
+    sumstats_files.append(gwas_lupus_sumstats)
 
     # lupus - genome-wide genotyping array, illumina
     gwas_lupus_sumstats = "{}/gwas.GCST003156.lupus.ldsc.sumstats.gz".format(sumstats_dir)
@@ -561,13 +476,17 @@ def main():
             hapmap_snps_file,
             gwas_lupus_sumstats,
             other_params="--N 14267 --N-cas 5201 --N-con 9066 --ignore OR,OR_lower,OR_upper")
+    sumstats_files.append(gwas_lupus_sumstats)
+        
+    # lupus - targeted array, ignore
+    gwas_lupus_sumstats = "{}.gwas.GCST007400.lupus.ldsc.sumstats.gz"
         
     # psoriasis - targeted array, ignore
     gwas_psoriasis_sumstats = "{}/gwas.GCST005527.psoriasis.ldsc.sumstats.gz".format(sumstats_dir)
-    
-    # baldness - NOTE problem with pval column
-    gwas_baldness_sumstats = "{}/gwas.GCST007020.baldness.ldsc.sumstats.gz".format(sumstats_dir)
+
+    # baldness - NOTE problem with pval column, do not use
     if False:
+        gwas_baldness_sumstats = "{}/gwas.GCST007020.baldness.ldsc.sumstats.gz".format(sumstats_dir)
         if not os.path.isfile(gwas_baldness_sumstats):
             file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/YapCX_30573740_GCST007020/mpb_bolt_lmm_aut_x.tab.zip"
             unzip_dir = "{}/gwas.GCST007020.baldness".format(sumstats_orig_dir)
@@ -578,18 +497,19 @@ def main():
             save_file = "{}/mpb_bolt_lmm_aut_x.tab".format(unzip_dir)
             setup_sumstats(save_file, gwas_baldness_sumstats, other_params="--N 205327 --p P_BOLT_LMM_INF --a1 ALLELE1 --a2 ALLELE0")
     
-    # solar lentigines - genome-wide genotyping array, Affy
-    gwas_lentigines_sumstats = "{}/gwas.GCST006096.lentigines.ldsc.sumstats.gz".format(sumstats_dir)
-    if not os.path.isfile(gwas_lentigines_sumstats):
-        file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/EndoC_29895819_GCST006096/DatasetS1.txt"
-        save_file = "{}/gwas.GCST006096.lentigines.sumstats.gz".format(sumstats_orig_dir)
-        get_file = "wget {} -O - | gzip -c > {}".format(file_url, save_file)
-        os.system(get_file)
-        setup_sumstats(
-            save_file,
-            hapmap_snps_file,
-            gwas_lentigines_sumstats,
-            other_params="--N 11253 --N-cas 3815 --N-con 7438")
+    # solar lentigines - genome-wide genotyping array, Affy - NOTE more pigmentation change, do not use
+    if False:
+        gwas_lentigines_sumstats = "{}/gwas.GCST006096.lentigines.ldsc.sumstats.gz".format(sumstats_dir)
+        if not os.path.isfile(gwas_lentigines_sumstats):
+            file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/EndoC_29895819_GCST006096/DatasetS1.txt"
+            save_file = "{}/gwas.GCST006096.lentigines.sumstats.gz".format(sumstats_orig_dir)
+            get_file = "wget {} -O - | gzip -c > {}".format(file_url, save_file)
+            os.system(get_file)
+            setup_sumstats(
+                save_file,
+                hapmap_snps_file,
+                gwas_lentigines_sumstats,
+                other_params="--N 11253 --N-cas 3815 --N-con 7438")
     
     # hyperhidrosis - genome-wide genotyping array, Affy
     gwas_hyperhidrosis_sumstats = "{}/gwas.GCST006090.hyperhidrosis.ldsc.sumstats.gz".format(sumstats_dir)
@@ -602,7 +522,8 @@ def main():
             hapmap_snps_file,
             gwas_hyperhidrosis_sumstats,
             other_params="--N 4538 --N-cas 1245 --N-con 3293")
-        
+    sumstats_files.append(gwas_hyperhidrosis_sumstats)
+
     # hirsutism (1) GCST006095
     gwas_hirsutism_sumstats = "{}/gwas.GCST006095.hirsutism.ldsc.sumstats.gz".format(sumstats_dir)
     if not os.path.isfile(gwas_hirsutism_sumstats):
@@ -614,12 +535,14 @@ def main():
             hapmap_snps_file,
             gwas_hyperhidrosis_sumstats,
             other_params="--N 11244 --N-cas 3830 --N-con 7414")
-
+    sumstats_files.append(gwas_hirsutism_sumstats)
+    
     if False:
         # sarcoidosis (1) GCST005540
         gwas_sarcoidosis_sumstats = ""
-
-        # lofgren - NOTE some error in the harmonized file?
+        
+    # lofgren - NOTE some error in the harmonized file - do not use
+    if False:
         gwas_lofgrens_sumstats = "{}/gwas.GCST005540.lofgrens.ldsc.sumstats.gz".format(sumstats_orig_dir)
         if not os.path.isfile(gwas_lofgrens_sumstats):
             file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/RiveraNV_26651848_GCST005540/harmonised/26651848-GCST005540-EFO_0009466.h.tsv.gz"
@@ -628,40 +551,163 @@ def main():
             setup_sumstats(save_file, gwas_lofgrens_sumstats, other_params="")
     
     # vitiligo (4) GCST007112, GCST007111, GCST004785, GCST001509
-    gwas_vitiligo_sumstats = "{}/gwas.GCST007112.vitiligo.ldsc.sumstats.gz"
-    
-    gwas_vitiligo_sumstats = "{}/gwas.GCST007111.vitiligo.ldsc.sumstats.gz"
-
-
-    gwas_vitiligo_sumstats = "{}/gwas.GCST004785.vitiligo.ldsc.sumstats.gz".format(sumstats_dir)
-
-    
-    gwas_vitiligo_sumstats = "{}/gwas.GCST001509.vitiligo.ldsc.sumstats.gz".format(sumstats_dir)
-    
-    
-    quit()
-    
-
-    sumstats_files = glob.glob("{}/*ldsc.sumstats.gz".format(sumstats_dir))
-    
     if False:
-        run_ldsc = (
-            "python ~/git/ldsc/ldsc.py "
-            "--h2-cts {} "
-            "--ref-ld-chr {} "
-            "--out {} "
-            "--ref-ld-chr-cts {} "
-            "--w-ld-chr {}").format(
-                sum_stats_file,
-                baseline_model_prefix,
-                out_prefix,
-                condition_table_file,
-                weights_prefix)
+        gwas_vitiligo_sumstats = "{}/gwas.GCST007112.vitiligo.ldsc.sumstats.gz"
+        gwas_vitiligo_sumstats = "{}/gwas.GCST007111.vitiligo.ldsc.sumstats.gz"
+        gwas_vitiligo_sumstats = "{}/gwas.GCST004785.vitiligo.ldsc.sumstats.gz".format(sumstats_dir)
+        gwas_vitiligo_sumstats = "{}/gwas.GCST001509.vitiligo.ldsc.sumstats.gz".format(sumstats_dir)
     
+    return sumstats_files
 
-    # make plots
+
+def run_ldsc(
+        annot_table_file,
+        sumstats_file,
+        baseline_model_prefix,
+        weights_prefix,
+        out_dir,
+        celltype_specific=False,
+        freq_prefix=None):
+    """run LD score regression, either cell type specific (as recommended in tutorials) or as 
+    partitioned heritability (to pick up enrichment scores)
+    """
+    if celltype_specific:
+        # Cell type specific analysis
+        out_prefix = "{}/{}".format(out_dir, os.path.basename(sumstats_file).split(".ldsc")[0])
+        out_results_file = "{}.cell_type_results.txt".format(out_prefix)
+        if not os.path.isfile(out_results_file):
+            run_ldsc_cmd = (
+                "python ~/git/ldsc/ldsc.py "
+                "--h2-cts {} "
+                "--ref-ld-chr {} "
+                "--w-ld-chr {} "
+                "--ref-ld-chr-cts {} "
+                "--out {}").format(
+                    sumstats_file,
+                    baseline_model_prefix,
+                    weights_prefix,
+                    annot_table_file,
+                    out_prefix)
+            print run_ldsc_cmd
+            os.system(run_ldsc_cmd)
+    else:
+        # run full partition heritability
+        # first check heritability, only use those above approx 0.07 h2
+        out_prefix = "{}/{}.BASELINE.heritability".format(
+            out_dir, os.path.basename(sumstats_file).split(".ldsc")[0])
+        if not os.path.isfile("{}.results".format(out_prefix)):
+            run_ldsc_cmd = (
+                "python ~/git/ldsc/ldsc.py "
+                "--h2 {} "
+                "--ref-ld-chr {} "
+                "--w-ld-chr {} "
+                "--overlap-annot "
+                "--frqfile-chr {} "
+                "--out {} "
+                "--print-coefficients").format(
+                    sumstats_file,
+                    baseline_model_prefix,
+                    weights_prefix,
+                    freq_prefix,
+                    out_prefix)
+            print run_ldsc_cmd
+            os.system(run_ldsc_cmd)
+
+        # save out heritability in an easy to read format...
+        save_name = "echo -n {} >> {}/heritabilities.log".format(
+            os.path.basename(out_prefix), out_dir)
+        grep_h2 = (
+            "cat {}.log | "
+            "grep 'Total Observed scale h2' | "
+            "awk -F ': ' '{{ print \"\t\"$2 }}' "
+            ">> {}/heritabilities.log".format(out_prefix, out_dir))
+        save_out = "{}; {}".format(save_name, grep_h2)
+        print save_out
+        os.system(save_out)
+        
+        if False:
+            annotations = pd.read_csv(annot_table_file, sep="\t", header=None)
+
+            # for each line, run model
+            for annot_i in range(annotations.shape[0]):
+                annot_name_prefix = annotations[0].iloc[annot_i]
+                annot_file_prefix = anotations[1].iloc[annot_i]
+                out_prefix = "{}/{}.{}".format(
+                    out_dir,
+                    os.path.basename(sumstats_file).split(".ldsc")[0],
+                    annot_name_prefix)
+                print out_prefix
+                run_ldsc_cmd = (
+                    "python ~/git/ldsc/ldsc.py "
+                    "--h2 {} "
+                    "--ref-ld-chr {} "
+                    "--w-ld-chr {} "
+                    "--overlap-annot "
+                    "--frqfile-chr {} "
+                    "--out {} "
+                    "--print-coefficients").format(
+                        final_sumstats_file,
+                        annot_file_prefix,
+                        weights_prefix,
+                        freq_prefix,
+                        out_prefix)
+                print run_ldsc_cmd
+                os.system(run_ldsc_cmd)
     
+    return
+
+
+def main():
+    """run all analyses for GGR GWAS variants
+    """
+    # args
+    annotations_json = sys.argv[1]
+    ANNOT_DIR = sys.argv[2]
+    in_dir = sys.argv[3]
+    grammar_dir = sys.argv[4]
+    out_dir = sys.argv[5]
+
+    # setup LDSC annotations
+    with open(annotations_json, "r") as fp:
+        ldsc_annotations = json.load(fp)
+    for annot_set_key in sorted(ldsc_annotations.keys()):
+        print annot_set_key
+        download_if_needed(ldsc_annotations[annot_set_key], out_dir=out_dir)
+
+    # generate annot files for custom region sets and save to table file
+    custom_annot_dir = "{}/annot.custom".format(out_dir)
+    os.system("mkdir -p {}".format(custom_annot_dir))
+    annot_table_file = "{}/annot.table.txt".format(out_dir)
+    setup_ggr_annotations(
+        ldsc_annotations, out_dir, custom_annot_dir, annot_table_file,
+        "{}/hg19.chrom.sizes".format(ANNOT_DIR))
+
+    # set up summary stats files
+    sumstats_dir = "./sumstats"
+    os.system("mkdir -p {}".format(sumstats_dir))
+    sumstats_orig_dir = "{}/orig".format(sumstats_dir)
+    os.system("mkdir -p {}".format(sumstats_orig_dir))
+    sumstats_files = setup_sumstats_files(
+        sumstats_dir, sumstats_orig_dir,
+        "{}/{}".format(out_dir, ldsc_annotations["hapmap3_snp_list"]["file"]))
+    sumstats_files = sorted(sumstats_files)
+    print "\n".join(sumstats_files)
     
+    # go through sumstats files and get enrichments
+    results_dir = "{}/results".format(out_dir)
+    os.system("mkdir -p {}".format(results_dir))
+    for sumstats_file in sumstats_files:
+        print sumstats_file
+        run_ldsc(
+            annot_table_file,
+            sumstats_file,
+            "{}/{}/{}".format(out_dir, ldsc_annotations["baseline_model"]["dir"], ldsc_annotations["baseline_model"]["prefix"]),
+            "{}/{}/{}".format(out_dir, ldsc_annotations["weights"]["dir"], ldsc_annotations["weights"]["prefix"]),
+            results_dir,
+            celltype_specific=False,
+            freq_prefix="{}/{}/{}".format(out_dir, ldsc_annotations["freqs"]["dir"], ldsc_annotations["freqs"]["prefix"]))
+        
+        quit()
 
     return
 
