@@ -78,6 +78,8 @@ def setup_ldsc_annotations(bed_file, bim_prefix, hapmap_prefix, out_dir):
                 prefix, bim_prefix, chrom, hapmap_prefix, out_dir)
         print compute_ld
         os.system(compute_ld)
+
+        quit()
     
     return
 
@@ -121,8 +123,79 @@ def download_if_needed(annot_set, out_dir="."):
             unzip_cmd = "bunzip2 {}/{}".format(out_dir, os.path.basename(url))
         os.system(download_cmd)
         os.system(unzip_cmd)
+        os.system("rm {}".format(os.path.basename(url)))
         
     return None
+
+
+def setup_ggr_annotations(ldsc_annot, out_dir, custom_annot_dir, annot_table_file):
+    """set up GGR annotation sets
+    """
+    # annotation prefixes
+    plink_prefix = "{}/{}/{}".format(
+        out_dir, ldsc_annot["plink"]["dir"], ldsc_annot["plink"]["prefix"])
+    hapmap_prefix = "{}/{}/{}".format(
+        out_dir, ldsc_annot["hapmap3_snps"]["dir"], ldsc_annot["hapmap3_snps"]["prefix"])
+    
+    # get an unrelated cell type - HepG2
+    HEPG2_DIR = "/mnt/lab_data/kundaje/users/dskim89/encode-roadmap/encode.dnase.peaks"
+    hepg2_bed_file = "{}/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq_rep1-pr.IDR0.1.filt.narrowPeak.gz".format(
+        HEPG2_DIR)
+    prefix = os.path.basename(hepg2_bed_file).split(".bed")[0] # this is more for checking isfile
+    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+        custom_annot_dir, prefix)
+    if not os.path.isfile(ldscore_file):
+        setup_ldsc_annotations(
+            hepg2_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+    with open(ldsc_table_file, "w") as fp:
+        fp.write("HepG2\t{}/{}.\n".format(
+            custom_annot_dir, prefix))
+        
+    # get ATAC all
+    GGR_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/integrative/v1.0.0a"
+    ggr_master_bed_file = "{}/data/ggr.atac.idr.master.bed.gz".format(GGR_DIR)
+    prefix = os.path.basename(ggr_master_bed_file).split(".bed")[0]
+    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+        custom_annot_dir, prefix)
+    if not os.path.isfile(ldscore_file):
+        setup_ldsc_annotations(
+            ggr_master_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+    with open(ldsc_table_file, "a") as fp:
+        fp.write("GGR_ALL\t{}/{}.\n".format(
+            custom_annot_dir, prefix))
+        
+    # get ATAC timepoints
+    timepoint_dir = "{}/results/atac/peaks.timepoints".format(GGR_DIR)
+    timepoint_bed_files = sorted(glob.glob("{}/*narrowPeak.gz".format(timepoint_dir)))
+    for timepoint_bed_file in timepoint_bed_files:
+        prefix = os.path.basename(timepoint_bed_file).split(".bed")[0]
+        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+            custom_annot_dir, prefix)
+        if not os.path.isfile(ldscore_file):
+            setup_ldsc_annotations(
+                timepoint_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+        with open(ldsc_table_file, "a") as fp:
+            fp.write("{1}\t{0}/{1}.\n".format(
+                custom_annot_dir, prefix))
+
+    # get ATAC traj files
+    traj_dir = "{}/results/atac/timeseries/dp_gp/reproducible/hard/reordered/bed".format(GGR_DIR)
+    traj_bed_files = sorted(glob.glob("{}/*bed.gz".format(traj_dir)))
+    for traj_bed_file in traj_bed_files:
+        prefix = os.path.basename(traj_bed_file).split(".bed")[0]
+        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+            custom_annot_dir, prefix)
+        if not os.path.isfile(ldscore_file):
+            setup_ldsc_annotations(
+                traj_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+        with open(ldsc_table_file, "a") as fp:
+            fp.write("{1}\t{0}/{1}.\n".format(
+                custom_annot_dir, prefix))
+
+    # and grammars here
+    
+    
+    return
 
 
 
@@ -133,7 +206,8 @@ def main():
     annotations_json = sys.argv[1]
     ANNOT_DIR = sys.argv[2]
     in_dir = sys.argv[3]
-    out_dir = sys.argv[4]
+    grammar_dir = sys.argv[4]
+    out_dir = sys.argv[5]
     
     # setup generic annotations
     chromsizes = "{}/hg19.chrom.sizes".format(ANNOT_DIR)
@@ -145,118 +219,13 @@ def main():
         print annot_set_key
         download_if_needed(ldsc_annotations[annot_set_key], out_dir=out_dir)
 
+    # generate annot files for custom region sets and save to table file
+    custom_annot_dir = "{}/annot.custom".format(out_dir)
+    os.system("mkdir -p {}".format(custom_annot_dir))
+    annot_table_file = "{}/annot.table.txt".format(out_dir)
+    setup_ggr_annotations(ldsc_annotations, out_dir, custom_annot_dir, annot_table_file)
+    
     quit()
-    
-    
-    # get baseline ldsc model
-    if not os.path.isdir("1000G_EUR_Phase3_baseline"):
-        get_baseline_model = "wget https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_baseline_ldscores.tgz"
-        setup_baseline_model = "tar -xvzf 1000G_Phase3_baseline_ldscores.tgz"
-        os.system(get_baseline_model)
-        os.system(setup_baseline_model)
-    baseline_model_prefix = "1000G_EUR_Phase3_baseline/baseline."
-
-    # get model weights
-    if not os.path.isdir("weights_hm3_no_hla"):
-        get_weights = "wget https://data.broadinstitute.org/alkesgroup/LDSCORE/weights_hm3_no_hla.tgz"
-        setup_weights = "tar -xvzf weights_hm3_no_hla.tgz"
-        os.system(get_weights)
-        os.system(setup_weights)
-    weights_prefix = "weights_hm3_no_hla/weights."
-
-    # get freq file
-    if not os.path.isdir("1000G_Phase3_frq"):
-        get_frqfiles = "wget https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_frq.tgz"
-        setup_frqfiles = "tar -zxvf 1000G_Phase3_frq.tgz"
-        os.system(get_frqfiles)
-        os.system(setup_frqfiles)
-    frqfiles_prefix = "1000G_Phase3_frq/1000G.EUR.QC."
-    
-    # get plink files (for setting up annotations from BED)
-    if not os.path.isdir("1000G_EUR_Phase3_plink"):
-        get_plink = "wget https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_plinkfiles.tgz"
-        setup_plink = "tar -xzvf 1000G_Phase3_plinkfiles.tgz"
-        os.system(get_plink)
-        os.system(setup_plink)
-    bim_prefix = "1000G_EUR_Phase3_plink/1000G.EUR.QC"
-        
-    # get hapmap
-    if not os.path.isdir("hapmap3_snps"):
-        get_hapmap = "wget https://data.broadinstitute.org/alkesgroup/LDSCORE/hapmap3_snps.tgz"
-        setup_hapmap = "tar -xzvf hapmap3_snps.tgz"
-        os.system(get_hapmap)
-        os.system(setup_hapmap)
-    hapmap_prefix = "hapmap3_snps/hm"
-
-    # get snp list
-    hapmap_snps_file = "w_hm3.snplist"
-    if not os.path.isfile(hapmap_snps_file):
-        get_snps = "wget https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2"
-        setup_snps = "bunzip2 w_hm3.snplist.bz2"
-        os.system(get_snps)
-        os.system(setup_snps)
-    
-    # ldsc annot dir
-    ldsc_annot_dir = "./ldsc.annot"
-    os.system("mkdir -p {}".format(ldsc_annot_dir))
-
-    # ldsc file table
-    ldsc_table_file = "./annot.table.tmp2.ldsc"
-    
-    # get an unrelated cell type - Liver
-    HEPG2_DIR = "/mnt/data/integrative/dnase/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq/out_50m/peak/idr/pseudo_reps/rep1"
-    hepg2_bed_file = "{}/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq_rep1-pr.IDR0.1.filt.narrowPeak.gz".format(
-        HEPG2_DIR)
-    prefix = os.path.basename(hepg2_bed_file).split(".bed")[0]
-    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-        ldsc_annot_dir, prefix)
-    if not os.path.isfile(ldscore_file):
-        setup_ldsc_annotations(
-            hepg2_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
-    with open(ldsc_table_file, "w") as fp:
-        fp.write("HepG2\t{}/{}.\n".format(
-            ldsc_annot_dir, prefix))
-
-    # get ATAC all
-    GGR_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/integrative/v1.0.0a"
-    ggr_master_bed_file = "{}/data/ggr.atac.idr.master.bed.gz".format(GGR_DIR)
-    prefix = os.path.basename(ggr_master_bed_file).split(".bed")[0]
-    ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-        ldsc_annot_dir, prefix)
-    if not os.path.isfile(ldscore_file):
-        setup_ldsc_annotations(
-            ggr_master_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
-    with open(ldsc_table_file, "a") as fp:
-        fp.write("GGR_ALL\t{}/{}.\n".format(
-            ldsc_annot_dir, prefix))
-        
-    # get ATAC timepoints
-    timepoint_dir = "{}/results/atac/peaks.timepoints".format(GGR_DIR)
-    timepoint_bed_files = sorted(glob.glob("{}/*narrowPeak.gz".format(timepoint_dir)))
-    for timepoint_bed_file in timepoint_bed_files:
-        prefix = os.path.basename(timepoint_bed_file).split(".bed")[0]
-        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-            ldsc_annot_dir, prefix)
-        if not os.path.isfile(ldscore_file):
-            setup_ldsc_annotations(
-                timepoint_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
-        with open(ldsc_table_file, "a") as fp:
-            fp.write("{1}\t{0}/{1}.\n".format(
-                ldsc_annot_dir, prefix))
-
-    # get ATAC traj files
-    traj_dir = "{}/results/atac/timeseries/dp_gp/reproducible/hard/reordered/bed".format(GGR_DIR)
-    traj_bed_files = sorted(glob.glob("{}/*bed.gz".format(traj_dir)))
-    for traj_bed_file in traj_bed_files:
-        prefix = os.path.basename(traj_bed_file).split(".bed")[0]
-        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-            ldsc_annot_dir, prefix)
-        if not os.path.isfile(ldscore_file):
-            setup_ldsc_annotations(
-                traj_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
-        with open(ldsc_table_file, "a") as fp:
-            fp.write("{1}\t{0}/{1}.\n".format(
-                ldsc_annot_dir, prefix))
 
 
     # TODO adjust here to get other grammars
