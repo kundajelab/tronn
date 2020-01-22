@@ -4,6 +4,16 @@
 	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_baseline_ldscores.tgz",
 	"prefix": "baseline."
     },
+    "baseline_1.2": {
+	"dir": "baseline_v1.2",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/GRCh38/baseline_v1.2.tgz",
+	"prefix": "baseline."
+    },
+    "baselineLD_2.2": {
+	"dir": "1000G_EUR_Phase3_baselineLD_v2.2",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_baselineLD_v2.2_ldscores.tgz",
+	"prefix": "baselineLD."
+    },
     "weights": {
 	"dir": "weights_hm3_no_hla",
 	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/weights_hm3_no_hla.tgz",
