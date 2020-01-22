@@ -32,7 +32,7 @@ spec:
           - name: FOREGROUND_NAME
             value: "TRAJ_LABELS-0"
           - name: BATCH_SIZE
-            value: "6"
+            value: "8"
           - name: NUM_GPUS
             value: "1"
           command: ["bash", "-c"]
