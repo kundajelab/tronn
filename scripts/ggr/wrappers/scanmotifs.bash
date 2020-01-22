@@ -10,6 +10,7 @@ tronn scanmotifs \
       --filter_targets $3 \
       --fasta /datasets/annotations.hg19/hg19.genome.fa \
       --batch_size $4 \
+      --sample_size 50000 \
       --model ensemble quantile_norm models=${PREFIX}0${SUFFIX},${PREFIX}1${SUFFIX},${PREFIX}2${SUFFIX},${PREFIX}3${SUFFIX},${PREFIX}4${SUFFIX},${PREFIX}5${SUFFIX},${PREFIX}6${SUFFIX},${PREFIX}7${SUFFIX},${PREFIX}8${SUFFIX},${PREFIX}9${SUFFIX} \
       --num_gpus $5 \
       --inference_targets 0 1 2 3 4 5 6 9 10 12 \
