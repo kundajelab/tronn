@@ -16,11 +16,11 @@ spec:
           - name: MODEL
             value: "basset"
           - name: INFER_DIR
-            value: "/datasets/dskim89/inference.2019-10-08"
+            value: "/datasets/dskim89/analysis.2020-01-13/scanmotifs"
           - name: MOTIFS_DIR
-            value: "/datasets/dskim89/inference.2019-10-08"
+            value: "/datasets/dskim89/analysis.2019-03-12.freeze"
           - name: WORK_DIR
-            value: "/datasets/dskim89/inference.2019-10-08"
+            value: "/datasets/dskim89/analysis.2020-01-13/mutatemotifs"
           - name: SCRATCH_DIR
             value: "/lscratch"
           - name: MUTATE_TYPE
@@ -66,12 +66,12 @@ spec:
              mountSecret: ceph-fs-secret
         - name: lscratch
           emptyDir: {}
-        affinity:
-          nodeAffinity:
-            requiredDuringSchedulingIgnoredDuringExecution:
-              nodeSelectorTerms:
-              - matchExpressions:
-                - key: gpu-type
-                  operator: In # Use NotIn for other types
-                  values:
-                  - "1080Ti"
+        #affinity:
+        #  nodeAffinity:
+        #    requiredDuringSchedulingIgnoredDuringExecution:
+        #      nodeSelectorTerms:
+        #      - matchExpressions:
+        #        - key: gpu-type
+        #          operator: In # Use NotIn for other types
+        #          values:
+        #          - "1080Ti"
