@@ -36,7 +36,7 @@ spec:
           - name: NUM_GPUS
             value: "1"
           command: ["bash", "-c"]
-          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/mutatemotifs.$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $SCRATCH_DIR $OUT_DIR"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $SCRATCH_DIR $OUT_DIR"]
           resources:
             limits:
               nvidia.com/gpu: 1
