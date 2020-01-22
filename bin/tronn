@@ -90,6 +90,9 @@ def _add_output_args(parser, out_dir="./"):
         "--tmp_dir",
         help = "tmp directory (default: $out_dir/tmp) - where to put data/results that will be deleted after the run")
     parser.add_argument(
+        "--copy_data_to_tmp", action="store_true",
+        help="if needed (faster disk, reduce network time) copy data to tmp_dir")
+    parser.add_argument(
         '--prefix', required=True,
         help='prefix to attach onto file names')
 
@@ -238,9 +241,6 @@ def _add_dataset_args(parser):
     parser.add_argument(
         "--dataset_examples", nargs="+", default=[],
         help="H5 INPUT ONLY: option to throw in specific examples to run")
-    parser.add_argument(
-        "--copy_data_to_tmp", action="store_true",
-        help="if needed (faster disk, reduce network time) copy data to tmp_dir")
     
     # add input args if using BED file
     _add_dataset_bed_args(parser)

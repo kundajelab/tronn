@@ -191,7 +191,7 @@ def run_single_model_inference(
         out_prefix=None,
         positives_only=True,
         kfold=False,
-        yield_single_examples=True): # adjust here for single vs batch output
+        yield_single_examples=False): # adjust here for single vs batch output
     """wrapper for inference
     """
     # set up out_file
