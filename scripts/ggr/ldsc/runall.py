@@ -6,17 +6,19 @@ import os
 import sys
 import glob
 import json
+import gzip
 
 import networkx as nx
 import pandas as pd
 
 
-def get_bed_from_nx_graph(graph, bed_file, chromsizes, interval_key="active", merge=True, extend_len=500):
+def get_bed_from_nx_graph(graph, bed_file, interval_key="active", merge=True):
     """get BED file from nx examples
     """
+    assert bed_file.endswith("gz")
     examples = list(graph.graph["examples"])
 
-    with open(bed_file, "w") as fp:
+    with gzip.open(bed_file, "w") as fp:
         for region_metadata in examples:
             interval_types = region_metadata.split(";")
             interval_types = dict([
@@ -30,17 +32,14 @@ def get_bed_from_nx_graph(graph, bed_file, chromsizes, interval_key="active", me
             fp.write("{}\t{}\t{}\n".format(chrom, start, stop))
 
     if merge:
-        tmp_bed_file = "{}.tmp.bed".format(bed_file.split(".bed")[0])
+        tmp_bed_file = "{}.tmp.bed.gz".format(bed_file.split(".bed")[0])
         os.system("mv {} {}".format(bed_file, tmp_bed_file))
         merge_cmd = (
-            "cat {0} | "
+            "zcat {0} | "
             "sort -k1,1 -k2,2n | "
             "bedtools merge -i stdin | "
-            "bedtools slop -i stdin -g {1} -b {2} | "
-            "gzip -c > {3}").format(
+            "gzip -c > {1}").format(
                 tmp_bed_file,
-                chromsizes,
-                extend_len,
                 bed_file)
         os.system(merge_cmd)
         os.system("rm {}".format(tmp_bed_file))
@@ -73,13 +72,35 @@ def download_if_needed(annot_set, out_dir="."):
     return None
 
 
-def setup_ldsc_annotations(bed_file, bim_prefix, hapmap_prefix, out_dir):
+def setup_ldsc_annotations(bed_file, bim_prefix, hapmap_prefix, out_dir, chromsizes=None, extend_len=500):
     """set up annotations
     """
+    # setup
     chroms = range(1,23)
     os.system("mkdir -p {}".format(out_dir))
     prefix = os.path.basename(bed_file).split(".bed")[0]
+
+    # adjust bed file here as needed instead of before
+    # param from Finucane 2018 is 500 for bed regions
+    tmp_bed_file = "{}/{}.tmp_extend_500bp.bed.gz".format(
+        out_dir, os.path.basename(bed_file).split(".bed")[0])
+    if chromsizes is not None:
+        slop_line = "bedtools slop -i stdin -g {} -b {} | ".format(chromsizes, extend_len)
+    else:
+        slop_line = ""
+    merge_cmd = (
+        "zcat {0} | "
+        "sort -k1,1 -k2,2n | "
+        "bedtools merge -i stdin | "
+        "{1}"
+        "gzip -c > {2}").format(
+            bed_file,
+            slop_line,
+            tmp_bed_file)
+    print merge_cmd
+    os.system(merge_cmd)
     
+    # go through chroms
     for chrom in chroms:
         # make annot file
         make_annot = (
@@ -87,7 +108,7 @@ def setup_ldsc_annotations(bed_file, bim_prefix, hapmap_prefix, out_dir):
             "--bed-file {0} "
             "--bimfile {2}.{3}.bim "
             "--annot-file {4}/{1}.{3}.annot.gz").format(
-                bed_file, prefix, bim_prefix, chrom, out_dir)
+                tmp_bed_file, prefix, bim_prefix, chrom, out_dir)
         print make_annot
         os.system(make_annot)
         
@@ -103,6 +124,9 @@ def setup_ldsc_annotations(bed_file, bim_prefix, hapmap_prefix, out_dir):
                 prefix, bim_prefix, chrom, hapmap_prefix, out_dir)
         print compute_ld
         os.system(compute_ld)
+
+    # clean up
+    os.system("rm {}".format(tmp_bed_file))
     
     return
 
@@ -118,17 +142,17 @@ def setup_ggr_annotations(
         out_dir, ldsc_annot["plink"]["dir"], ldsc_annot["plink"]["prefix"])
     hapmap_prefix = "{}/{}/{}".format(
         out_dir, ldsc_annot["hapmap3_snps"]["dir"], ldsc_annot["hapmap3_snps"]["prefix"])
-
+    
     # add univ DHS regions
     REG2MAP_DIR = "/mnt/lab_data3/dskim89/ggr/annotations"
     univ_dhs_bed_file = "{}/reg2map_honeybadger2_dnase_all_p10_ucsc.bed.gz".format(REG2MAP_DIR)
     prefix = os.path.basename(univ_dhs_bed_file).split(".bed")[0]
     ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
         custom_annot_dir, prefix)
-    if False:
-    #if not os.path.isfile(ldscore_file):
+    if not os.path.isfile(ldscore_file):
         setup_ldsc_annotations(
-            univ_dhs_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+            univ_dhs_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+            chromsizes=chromsizes)
     with open(annot_table_file, "w") as fp:
         fp.write("Reg2Map\t{}/{}.\n".format(
             custom_annot_dir, prefix))
@@ -142,8 +166,9 @@ def setup_ggr_annotations(
         custom_annot_dir, prefix)
     if not os.path.isfile(ldscore_file):
         setup_ldsc_annotations(
-            hepg2_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
-    with open(annot_table_file, "w") as fp:
+            hepg2_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+            chromsizes=chromsizes)
+    with open(annot_table_file, "a") as fp:
         fp.write("HepG2\t{}/{}.\n".format(
             custom_annot_dir, prefix))
         
@@ -155,7 +180,8 @@ def setup_ggr_annotations(
         custom_annot_dir, prefix)
     if not os.path.isfile(ldscore_file):
         setup_ldsc_annotations(
-            ggr_master_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+            ggr_master_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+            chromsizes=chromsizes)
     with open(annot_table_file, "a") as fp:
         fp.write("GGR_ALL\t{}/{}.\n".format(
             custom_annot_dir, prefix))
@@ -169,8 +195,9 @@ def setup_ggr_annotations(
             custom_annot_dir, prefix)
         if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
-                timepoint_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
-        if False:
+                timepoint_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+                chromsizes=chromsizes)
+        if True:
             with open(annot_table_file, "a") as fp:
                 fp.write("{1}\t{0}/{1}.\n".format(
                     custom_annot_dir, prefix))
@@ -184,7 +211,8 @@ def setup_ggr_annotations(
             custom_annot_dir, prefix)
         if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
-                traj_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+                traj_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+                chromsizes=chromsizes)
         if True:
             with open(annot_table_file, "a") as fp:
                 fp.write("{1}\t{0}/{1}.\n".format(
@@ -196,7 +224,6 @@ def setup_ggr_annotations(
     os.system("mkdir -p {}".format(tmp_dir))
     
     # get BED files from grammar files
-    #grammar_summary_file = "{}/grammar_summary.filt.txt".format(grammar_dir)
     grammar_summary_file = "{}/grammars_summary.txt".format(grammar_dir)
     grammars = pd.read_csv(grammar_summary_file, sep="\t")
     for grammar_idx in range(grammars.shape[0]):
@@ -211,8 +238,7 @@ def setup_ggr_annotations(
         # make bed file
         bed_file = "{}/{}.bed.gz".format(tmp_dir, os.path.basename(grammar_file).split(".gml")[0])
         if not os.path.isfile(bed_file):
-            get_bed_from_nx_graph(grammar, bed_file, chromsizes, extend_len=0) # param from Finucane 2018 is 500 for bed regions
-            # TODO ^ redo this?
+            get_bed_from_nx_graph(grammar, bed_file) 
 
         # then make annotations
         prefix = os.path.basename(bed_file).split(".bed")[0]
@@ -220,15 +246,15 @@ def setup_ggr_annotations(
             custom_annot_dir, prefix)
         if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
-                bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
-        if False:
+                bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+                chromsizes=chromsizes)
+        if True:
             with open(annot_table_file, "a") as fp:
                 fp.write("{1}\t{0}/{1}.\n".format(
                     custom_annot_dir, prefix))
             
     # setup some joint annotations
     # early, mid, late
-    # make tmp files
     if True:
         early_bed_file = "{}/grouped.early.bed.gz".format(tmp_dir)
         if not os.path.isfile(early_bed_file):
@@ -244,7 +270,8 @@ def setup_ggr_annotations(
             custom_annot_dir, prefix)
         if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
-                early_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+                early_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+                chromsizes=chromsizes)
         with open(annot_table_file, "a") as fp:
             fp.write("{1}\t{0}/{1}.\n".format(
                 custom_annot_dir, prefix))
@@ -263,7 +290,8 @@ def setup_ggr_annotations(
             custom_annot_dir, prefix)
         if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
-                mid_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+                mid_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+                chromsizes=chromsizes)
         with open(annot_table_file, "a") as fp:
             fp.write("{1}\t{0}/{1}.\n".format(
                 custom_annot_dir, prefix))
@@ -282,7 +310,8 @@ def setup_ggr_annotations(
             custom_annot_dir, prefix)
         if not os.path.isfile(ldscore_file):
             setup_ldsc_annotations(
-                late_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir)
+                late_bed_file, plink_prefix, hapmap_prefix, custom_annot_dir,
+                chromsizes=chromsizes)
         with open(annot_table_file, "a") as fp:
             fp.write("{1}\t{0}/{1}.\n".format(
                 custom_annot_dir, prefix))
@@ -710,6 +739,9 @@ def run_ldsc(
             # remember enrichments are not corrected for baseline, no need to include baseline model in run
             annotations = pd.read_csv(annot_table_file, sep="\t", header=None)
 
+            # try run all together?
+
+            
             # for each line, run model
             for annot_i in range(annotations.shape[0]):
                 annot_name_prefix = annotations[0].iloc[annot_i]
@@ -719,8 +751,7 @@ def run_ldsc(
                     os.path.basename(sumstats_file).split(".ldsc")[0],
                     annot_name_prefix)
                 out_file = "{}.results".format(out_prefix)
-                if True:
-                #if not os.path.isfile(out_file):
+                if not os.path.isfile(out_file):
                     run_ldsc_cmd = (
                         "python ~/git/ldsc/ldsc.py "
                         "--h2 {} "
@@ -760,11 +791,10 @@ def main():
         download_if_needed(ldsc_annotations[annot_set_key], out_dir=out_dir)
     
     # generate annot files for custom region sets and save to table file
-    #custom_annot_dir = "{}/annot.custom".format(out_dir)
-    custom_annot_dir = "{}/annot.custom.NO_EXTEND".format(out_dir)
+    custom_annot_dir = "{}/annot.custom.extend_500bp".format(out_dir)
     os.system("mkdir -p {}".format(custom_annot_dir))
     #annot_table_file = "{}/annot.table.txt".format(out_dir)
-    annot_table_file = "{}/annot.table.tmp.txt".format(out_dir)
+    annot_table_file = "{}/annot.table.extend_500bp.txt".format(out_dir)
     setup_ggr_annotations(
         ldsc_annotations, out_dir, custom_annot_dir, annot_table_file,
         "{}/hg19.chrom.sizes".format(ANNOT_DIR))
@@ -778,23 +808,23 @@ def main():
         sumstats_dir, sumstats_orig_dir,
         "{}/{}".format(out_dir, ldsc_annotations["hapmap3_snp_list"]["file"]))
     sumstats_files = sorted(sumstats_files)
-    print "\n".join(sumstats_files)
 
-    # manual filter here for those that actually have enough heritability to partition (approx h2 > 0.07)
+    # manual filter here for those that actually have enough heritability to partition (approx h2 > 0.01)
     filter_substrings = [
         #"gwas.GCST003156.lupus",
-        "gwas.GCST003184.dermatitis",
         #"gwas.GCST005831.lupus",
-        "gwas.GCST006090.hyperhidrosis",
-        "gwas.GCST006095.hirsutism",
-        "gwas.GCST006640.acne",
+        "gwas.GCST003184.dermatitis",
+        #"gwas.GCST006090.hyperhidrosis",
+        #"gwas.GCST006095.hirsutism",
+        #"gwas.GCST006640.acne",
         "gwas.GCST006661.alopecia",
         "ukbb.20001_1061.basal_cell_carcinoma",
-        "ukbb.C3_SKIN.malignant_neoplasm_of_skin",
         "ukbb.LDSCORE.bmi",
-        "ukbb.LDSCORE.derm",
-        "ukbb.LDSCORE.eczema",
-        "ukbb.LDSCORE.height"
+        #"ukbb.LDSCORE.derm",
+        #"ukbb.LDSCORE.eczema",
+        "ukbb.LDSCORE.height",
+        #"ukbb.C3_OTHER_SKIN.other_malignant_neoplasms_of_skin", # all non melanoma lol
+        #"ukbb.C44.c44_other_malignant_neoplasms_of_skin"
     ]
     
     # go through sumstats files and get enrichments
@@ -803,7 +833,7 @@ def main():
     for sumstats_file in sumstats_files:
 
         if True:
-            # apply filter
+            # apply substrings filter
             stop_processing = True
             for filter_substring in filter_substrings:
                 if filter_substring in sumstats_file:
@@ -814,16 +844,26 @@ def main():
         print sumstats_file
         # NOTE: ldsc recommends 1.2 for cell types via pvalue, and LD 2.2 for estimating heritability enrichments
         # https://data.broadinstitute.org/alkesgroup/LDSCORE/readme_baseline_versions
-        baseline_key = "baseline_1.2"
-        #baseline_key = "baselineLD_2.2"
-        run_ldsc(
-            annot_table_file,
-            sumstats_file,
-            "{}/{}/{}".format(out_dir, ldsc_annotations[baseline_key]["dir"], ldsc_annotations[baseline_key]["prefix"]),
-            "{}/{}/{}".format(out_dir, ldsc_annotations["weights"]["dir"], ldsc_annotations["weights"]["prefix"]),
-            results_dir,
-            celltype_specific=True,
-            freq_prefix="{}/{}/{}".format(out_dir, ldsc_annotations["freqs"]["dir"], ldsc_annotations["freqs"]["prefix"]))
+        baseline_key = "baseline_1.2" # cell type specific pvals
+        #baseline_key = "baselineLD_2.2" # heritability vals
+        if False:
+            run_ldsc(
+                annot_table_file,
+                sumstats_file,
+                "{}/{}/{}".format(out_dir, ldsc_annotations[baseline_key]["dir"], ldsc_annotations[baseline_key]["prefix"]),
+                "{}/{}/{}".format(out_dir, ldsc_annotations["weights"]["dir"], ldsc_annotations["weights"]["prefix"]),
+                results_dir,
+                celltype_specific=True,
+                freq_prefix="{}/{}/{}".format(out_dir, ldsc_annotations["freqs"]["dir"], ldsc_annotations["freqs"]["prefix"]))
+
+        # and plot the results
+        results_prefix = "{}/{}".format(results_dir, os.path.basename(sumstats_file).split(".ldsc")[0])
+        results_file = "{}.cell_type_results.txt".format(results_prefix)
+        plot_file = "{}.pval_results.pdf".format(results_prefix)
+        #plot_cmd = "plot.ldsc.pval_results.R {} {}".format(results_file, plot_file)
+        plot_cmd = "Rscript ~/git/tronn/scripts/ggr/ldsc/plot.ldsc.pval_results.R {} {}".format(results_file, plot_file)
+        print plot_cmd
+        os.system(plot_cmd)
         
     return
 
