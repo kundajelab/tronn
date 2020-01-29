@@ -337,6 +337,12 @@ class ModelManager(object):
                     # prediction mode
                     outputs = self.build_prediction_dataflow(
                         inputs, regression=regression, logit_indices=logit_indices)
+                    
+                    # adjust outputs
+                    for key in outputs.keys():
+                        if key in params["skip_outputs"]:
+                            del outputs[key]
+                    
                     scaffold = self._build_scaffold_with_custom_init_fn(
                         ablate_filter_idx=params.get("ablate_filter_idx", None))
                     logging.info("WARNING USING CUSTOM SCAFFOLD - ONLY WORKS FOR ENSEMBLES")
@@ -841,7 +847,7 @@ class ModelManager(object):
             total_examples = batch_size
             try:
                 for i in xrange(batch_size, sample_size, batch_size):
-                    if total_examples % (100*batch_size) == 0:
+                    if total_examples % (10*h5_saver_batch_size) == 0:
                         logging.info("finished {}".format(total_examples))
 
                     example = generator.next()
