@@ -8,6 +8,8 @@ style maxnorm)
 import re
 import logging
 
+import numpy as np
+
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -107,7 +109,8 @@ def restore_variables_op(
         checkpoint,
         skip=[],
         include_scope="",
-        scope_change=None):
+        scope_change=None,
+        ablate_filter_idx=None):
     """Builds a function that can be run to restore from a checkpoint
     """
     logging.debug("setting up restore variables op, restoring from {}".format(checkpoint))
@@ -148,7 +151,23 @@ def restore_variables_op(
     init_assign_op, init_feed_dict = slim.assign_from_checkpoint(
         checkpoint,
         variables_to_restore)
-    
+
+    if ablate_filter_idx is not None:
+        print ablate_filter_idx
+        for key in init_feed_dict.keys():
+            if "Conv/weights" in key.name:
+                print "change:"
+                print init_feed_dict[key][:,:,:,ablate_filter_idx]
+                print "dont change:"
+                print init_feed_dict[key][:,:,:,ablate_filter_idx+1]
+                # leave one out filter (replace filter with mean of filter)
+                init_feed_dict[key][:,:,:,ablate_filter_idx] = np.mean(
+                    init_feed_dict[key][:,:,:,ablate_filter_idx])
+                print "changed"
+                print init_feed_dict[key][:,:,:,ablate_filter_idx]
+                print "dont change:"
+                print init_feed_dict[key][:,:,:,ablate_filter_idx+1]
+                
     return init_assign_op, init_feed_dict
 
 

@@ -645,6 +645,10 @@ def add_predict_parser(subparsers):
     group_model = cmd_argparser.add_argument_group(
         "Model arguments")
     _add_model_args(group_model)
+    # FOR AITAC
+    group_model.add_argument(
+        "--ablate_filter_idx", type=int, 
+        help="which filter to ablate if desired in FIRST conv layer")
 
     # group for parameters
     group_params = cmd_argparser.add_argument_group(

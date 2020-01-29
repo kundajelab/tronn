@@ -14,6 +14,11 @@ from tronn.interpretation.inference import run_inference
 def run(args):
     """cmd to run predictions
     """
+
+    # FOR AITAC
+    # setup args.inference_params
+    args.inference_params = {"ablate_filter_idx": args.ablate_filter_idx}
+    
     # setup
     logger = logging.getLogger(__name__)
     logger.info("Running predictions")
@@ -48,6 +53,7 @@ def run(args):
     predictor = model_manager.predict(
         input_fn,
         args.out_dir,
+        inference_params=args.inference_params,
         checkpoint=model_manager.model_checkpoint)
 
     # run predictions and save to h5

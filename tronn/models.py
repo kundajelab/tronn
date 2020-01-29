@@ -263,19 +263,19 @@ class ModelManager(object):
         return outputs, variables_to_restore
 
 
-    def _build_scaffold_with_custom_init_fn(self):
+    def _build_scaffold_with_custom_init_fn(self, ablate_filter_idx=None):
         """convenience wrapper to make it easier to generate custom initializations
         from saved models (ie ignoring certain variables, etc)
         """
         # always scope change for prediction/inference/eval, sometimes train
         # do it for train if creating an ensemble and continuing on in training
-
         
         # make init op with feed dict of saved variables
         init_op, init_feed_dict = restore_variables_op(
             self.model_checkpoint,
+            ablate_filter_idx=ablate_filter_idx,
             skip=["pwm"])
-
+        
         # create the init fn
         def init_fn(scaffold, sess):
             sess.run(init_op, init_feed_dict)
@@ -337,7 +337,8 @@ class ModelManager(object):
                     # prediction mode
                     outputs = self.build_prediction_dataflow(
                         inputs, regression=regression, logit_indices=logit_indices)
-                    scaffold = self._build_scaffold_with_custom_init_fn()
+                    scaffold = self._build_scaffold_with_custom_init_fn(
+                        ablate_filter_idx=params.get("ablate_filter_idx", None))
                     logging.info("WARNING USING CUSTOM SCAFFOLD - ONLY WORKS FOR ENSEMBLES")
                     return tf.estimator.EstimatorSpec(
                         mode, predictions=outputs, scaffold=scaffold)
@@ -449,6 +450,7 @@ class ModelManager(object):
             self,
             input_fn,
             out_dir,
+            inference_params={},
             config=None,
             predict_keys=None,
             checkpoint=None,
@@ -459,6 +461,7 @@ class ModelManager(object):
         """
         # build prediction estimator
         estimator = self.build_estimator(
+            params=inference_params,
             config=config,
             out_dir=out_dir,
             logit_indices=logit_indices)
