@@ -64,13 +64,19 @@ def _setup_input_skip_keys():
     return skip_keys
 
 
-def _setup_skip_output_keys():
+def _setup_skip_output_keys(ablate_filter_idx):
     """
     """
-    skip_keys = [
-        "features",
-        "final_hidden"]
-    
+    if ablate_filter_idx is None:
+        #save the features for regular prediction
+        skip_keys = [
+                "final_hidden"]
+    else:
+        # do not save the features/sequence for each filter
+        skip_keys = [
+                "features",
+                "final_hidden"]
+
     return skip_keys
 
 
@@ -82,7 +88,7 @@ def run(args):
     # setup args.inference_params
     args.inference_params = {
         "ablate_filter_idx": args.ablate_filter_idx,
-        "skip_outputs": _setup_skip_output_keys()}
+        "skip_outputs": _setup_skip_output_keys(args.ablate_filter_idx)}
     
     # setup
     logger = logging.getLogger(__name__)
