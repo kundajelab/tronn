@@ -9,7 +9,7 @@ import re
 import logging
 
 import numpy as np
-
+import pickle
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -153,21 +153,17 @@ def restore_variables_op(
         variables_to_restore)
 
     if ablate_filter_idx is not None:
-        print ablate_filter_idx
-        for key in init_feed_dict.keys():
-            if "Conv/weights" in key.name:
-                print "change:"
-                print init_feed_dict[key][:,:,:,ablate_filter_idx]
-                print "dont change:"
-                print init_feed_dict[key][:,:,:,ablate_filter_idx+1]
-                # leave one out filter (replace filter with mean of filter)
-                init_feed_dict[key][:,:,:,ablate_filter_idx] = np.mean(
-                    init_feed_dict[key][:,:,:,ablate_filter_idx])
-                print "changed"
-                print init_feed_dict[key][:,:,:,ablate_filter_idx]
-                print "dont change:"
-                print init_feed_dict[key][:,:,:,ablate_filter_idx+1]
-                
+        if ablate_filter_idx==-1:
+            weights = dict()
+            for key in init_feed_dict.keys():
+                weights[key.name.encode('ascii')] = init_feed_dict[key]
+            pickle.dump(weights, open("/mnt/lab_data2/msharmin/oc-atlas/DanSkinData/weights_0.p", "wb"))
+        else:
+            for key in init_feed_dict.keys():
+                if "Conv/weights" in key.name:
+                    init_feed_dict[key][:,:,:,ablate_filter_idx] = np.mean(
+                            init_feed_dict[key][:,:,:,ablate_filter_idx])
+
     return init_assign_op, init_feed_dict
 
 
