@@ -811,20 +811,33 @@ def main():
 
     # manual filter here for those that actually have enough heritability to partition (approx h2 > 0.01)
     filter_substrings = [
+        # do not use (not really derm)
         #"gwas.GCST003156.lupus",
         #"gwas.GCST005831.lupus",
-        "gwas.GCST003184.dermatitis",
         #"gwas.GCST006090.hyperhidrosis",
         #"gwas.GCST006095.hirsutism",
-        #"gwas.GCST006640.acne",
-        "gwas.GCST006661.alopecia",
-        "ukbb.20001_1061.basal_cell_carcinoma",
-        "ukbb.LDSCORE.bmi",
+        #"gwas.GCST006661.alopecia",
+
+        # do not use (derm)
         #"ukbb.LDSCORE.derm",
         #"ukbb.LDSCORE.eczema",
-        "ukbb.LDSCORE.height",
         #"ukbb.C3_OTHER_SKIN.other_malignant_neoplasms_of_skin", # all non melanoma lol
         #"ukbb.C44.c44_other_malignant_neoplasms_of_skin"
+        
+        "gwas.GCST006640.acne",
+        "ukbb.20001_1061.basal_cell_carcinoma",
+        "ukbb.LDSCORE.bmi",
+        "ukbb.LDSCORE.height",
+        
+        "ukbb.20002_1452.eczema_dermatitis",
+        "ukbb.20002_1453.psoriasis",
+        "ukbb.L12_ACTINKERA.actinic_keratosis",
+
+        "gwas.GCST003184.dermatitis",                
+        "ukbb.20001_1062.squamous_cell_carcinoma",
+        "ukbb.20002_1548.acne_acne_vulgaris",
+        "ukbb.L12_ROSACEA.rosacea",
+        "ukbb.L71.l71_rosacea",
     ]
     
     # go through sumstats files and get enrichments
@@ -860,8 +873,10 @@ def main():
         results_prefix = "{}/{}".format(results_dir, os.path.basename(sumstats_file).split(".ldsc")[0])
         results_file = "{}.cell_type_results.txt".format(results_prefix)
         plot_file = "{}.pval_results.pdf".format(results_prefix)
+        plot_file_2 = "{}.coef_results.pdf".format(results_prefix)
         #plot_cmd = "plot.ldsc.pval_results.R {} {}".format(results_file, plot_file)
-        plot_cmd = "Rscript ~/git/tronn/scripts/ggr/ldsc/plot.ldsc.pval_results.R {} {}".format(results_file, plot_file)
+        plot_cmd = "Rscript ~/git/tronn/scripts/ggr/ldsc/plot.ldsc.pval_results.R {} {} {}".format(
+            results_file, plot_file, plot_file_2)
         print plot_cmd
         os.system(plot_cmd)
         

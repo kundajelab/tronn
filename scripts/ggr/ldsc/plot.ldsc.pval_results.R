@@ -8,6 +8,7 @@ library(ggsci)
 args <- commandArgs(trailingOnly=TRUE)
 results_file <- args[1]
 plot_file <- args[2]
+plot_file2 <- args[3]
 
 fdr_thresh <- 0.10
 
@@ -37,7 +38,7 @@ data$category[grepl("grouped", data$Name)] <- "8 Grouped rules"
 if (grepl("dermatitis", phenotype)) {
     lambda <- seq(0, 0.95, 0.05)
 } else {
-    lambda <- seq(0, 0.9, 0.1)
+    lambda <- seq(0, 0.8, 0.2)
 }
 q_obj <- qvalue(data$Coefficient_P_value, lambda=lambda)
 cutoff_idx <- min(which(q_obj$qvalues >= fdr_thresh))
@@ -88,4 +89,38 @@ ggplot(data, aes(x=Name, y=log10pvals, colour=category)) +
         
 ggsave(plot_file, height=2, width=3, useDingbats=FALSE)
 
+# also plot out with conf intervals etc        
+#data <- data[order(data$category, -data$Coefficient),]
+#data$Name <- factor(data$Name, levels=data$Name, ordered=TRUE)
+data$ymax <- data$Coefficient + data$Coefficient_std_error
+data$ymin <- data$Coefficient - data$Coefficient_std_error
+data$sig <- 0
+data$sig[data$ymin > 0] <- 1
+data$sig <- factor(data$sig, levels=c(0, 1), ordered=TRUE)
+
+ggplot(data, aes(x=Name, y=Coefficient, colour=category)) +
+    geom_hline(size=0.115, yintercept=0, linetype="dashed") +
+    geom_point(aes(size=sig)) +
+    geom_errorbar(aes(ymax=ymax, ymin=ymin), width=0.01, size=0.115) +
+    labs(x="Annotation", y="LDSC Enrichment (h2/SNP)", title=phenotype) +
+    theme_bw() +
+    theme(
+        text=element_text(size=6, family="ArialMT"),
+        aspect.ratio=1,
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        axis.title=element_text(margin=margin(0,0,0,0)),
+        axis.line=element_line(size=0.115, color="black", lineend="square"),
+        axis.ticks.y=element_line(size=0.25),
+        axis.ticks.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_text(size=6),
+        legend.text=element_text(size=5),
+        legend.key.size=unit(0.01, "in")) +
+    scale_size_manual(values=c(0.03, 0.6), guide="none") +
+    #scale_y_continuous(limits=c(0,3), expand=c(0,0)) +
+    scale_color_d3("category20")
         
+ggsave(plot_file2, height=2, width=3, useDingbats=FALSE)
