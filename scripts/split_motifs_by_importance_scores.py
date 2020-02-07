@@ -60,8 +60,8 @@ def parse_args():
         "--weighted_pwm_pos_key", default=DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX,
         help="key of PWM scores with position info")
     parser.add_argument(
-        "--gc_key", default="ATAC_SIGNALS.NORM", #DataKeys.GC_CONTENT,
-        help="key with GC content info")
+        "--signal_matching_key", default="ATAC_SIGNALS.NORM", #DataKeys.GC_CONTENT,
+        help="key for matching signals (normally GC content matching)")
     parser.add_argument(
         "--out_dir", "-o", dest="out_dir", type=str,
         default="./",
@@ -116,7 +116,25 @@ def _get_data_from_h5_files(h5_files, key):
     for file_idx in range(len(h5_files)):
         h5_file = h5_files[file_idx]
         with h5py.File(h5_file, "r") as hf:
-            data.append(hf[key][:])
+
+            # check pwm_names
+            if "sequence.active.pwm-scores.thresh.sum" in key:
+                pwm_names = hf[key].attrs["pwm_names"]
+
+                if 2*len(pwm_names) == hf[key].shape[2]:
+                    # rc - double over
+                    data_tmp = np.reshape(
+                        hf[key][:],
+                        list(hf[key].shape)[:2] + [2,-1])
+                    data_tmp = np.sum(data_tmp, axis=-2)
+                else:
+                    data_tmp = hf[key][:]
+            else:
+                data_tmp = hf[key][:]
+                
+            # then append
+            data.append(data_tmp)
+            
     data = np.concatenate(data)
     
     return data
@@ -285,12 +303,12 @@ def main():
         args.data_files, args.weighted_pwm_pos_key)[:,args.pwm_idx,0].astype(int)
     weighted_max_positions -= 420
     
-    # get GC content
-    gc_content = _get_data_from_h5_files(
-        args.data_files, args.gc_key)
-    # here, instead try ATAC signal content
-    if True:
-        gc_content = np.max(gc_content, axis=-1)
+    # get signal for choosing matched background
+    match_signals = _get_data_from_h5_files(
+        args.data_files, args.signal_matching_key)
+    # just use max if using 2D array
+    if len(match_signals.shape) > 1:
+        match_signals = np.max(match_signals, axis=-1)
 
     # get metadata
     metadata = _get_data_from_h5_files(
@@ -305,7 +323,7 @@ def main():
         "signal_diff": signal_diff,
         "raw_offset": raw_max_positions,
         "weighted_offset": weighted_max_positions,
-        "gc": gc_content,
+        "gc": match_signals,
         "metadata": metadata})
 
     # filter for accessibility and also places where raw score exists

@@ -45,19 +45,26 @@ def parse_args():
         "--bam_files", nargs="+",
         help="bam files with reads")
     parser.add_argument(
+        "--signal_matching_key", default="ATAC_SIGNALS.NORM",
+        help="key for matching positives/negatives for footprint analysis")
+    parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
         help="out directory")
     parser.add_argument(
         "--prefix",
         help="prefix to attach to output files")
+    parser.add_argument(
+        "--filter_motifs", nargs="+", default=[],
+        help="only run these")
     
     args = parser.parse_args()
 
     return args
 
 
-def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indices=""):
+def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix,
+                     label_indices="", signal_matching_key="ATAC_SIGNALS.NORM"):
     """for a given motif, run footprinting and plots
     """
     if label_indices != "":
@@ -65,17 +72,20 @@ def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indic
     label_indices = ""
         
     # extract matched sets of positives and negatives
-    get_matched_motif_sites = (
-        "python ~/git/tronn/scripts/split_motifs_by_importance_scores.py "
-        "--data_files {} "
-        "--labels_key ATAC_LABELS " # TRAJ_LABELS
-        "{} "
-        "--pwm_idx {} "
-        "--out_dir {} "
-        "--prefix {}").format(
-            data_file, label_indices, pwm_idx, out_dir, prefix)
-    print get_matched_motif_sites
-    #os.system(get_matched_motif_sites)
+    match_file="{}/{}.impt_positive.HINT.bed".format(out_dir, prefix)
+    if not os.path.isfile(match_file):
+        get_matched_motif_sites = (
+            "python ~/git/tronn/scripts/split_motifs_by_importance_scores.py "
+            "--data_files {} "
+            "--labels_key ATAC_LABELS " # TRAJ_LABELS
+            "{} "
+            "--pwm_idx {} "
+            "--signal_matching_key {} "
+            "--out_dir {} "
+            "--prefix {}").format(
+                data_file, label_indices, pwm_idx, signal_matching_key, out_dir, prefix)
+        print get_matched_motif_sites
+        os.system(get_matched_motif_sites)
 
     # go through bam files
     for bam_file in bam_files:
@@ -85,63 +95,71 @@ def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indic
 
         # get bias corrected positive sites footprints
         match_file="{}/{}.impt_positive.HINT.bed".format(out_dir, prefix)
-        build_footprint = (
-            "rgt-hint differential "
-            "--organism hg19 "
-            "--bc "
-            "--nc 24 "
-            "--mpbs-file1={0} "
-            "--mpbs-file2={0} "
-            "--reads-file1={1} "
-            "--reads-file2={1} "
-            "--condition1=c1 "
-            "--condition2=c2 "
-            "--output-location={2}").format(
-                match_file, bam_file, bam_dir)
-        print build_footprint
-        #os.system(build_footprint)
+        pos_data_file = "{}/Lineplots/pos.txt".format(bam_dir)
+        if not os.path.isfile(pos_data_file):
+            build_footprint = (
+                "rgt-hint differential "
+                "--organism hg19 "
+                "--bc "
+                "--window-size 500 "
+                "--nc 24 "
+                "--mpbs-file1={0} "
+                "--mpbs-file2={0} "
+                "--reads-file1={1} "
+                "--reads-file2={1} "
+                "--condition1=c1 "
+                "--condition2=c2 "
+                "--output-location={2}").format(
+                    match_file, bam_file, bam_dir)
+            print build_footprint
+            os.system(build_footprint)
         
         # get bias corrected negative sites footprint
         match_file="{}/{}.impt_negative.HINT.bed".format(out_dir, prefix)
-        build_footprint = (
-            "rgt-hint differential "
-            "--organism hg19 "
-            "--bc "
-            "--nc 24 "
-            "--mpbs-file1={0} "
-            "--mpbs-file2={0} "
-            "--reads-file1={1} "
-            "--reads-file2={1} "
-            "--condition1=c1 "
-            "--condition2=c2 "
-            "--output-location={2}").format(
-                match_file, bam_file, bam_dir)
-        print build_footprint
-        #os.system(build_footprint)
+        neg_data_file = "{}/Lineplots/neg.txt".format(bam_dir)
+        if not os.path.isfile(neg_data_file):
+            build_footprint = (
+                "rgt-hint differential "
+                "--organism hg19 "
+                "--bc "
+                "--window-size 500 "
+                "--nc 24 "
+                "--mpbs-file1={0} "
+                "--mpbs-file2={0} "
+                "--reads-file1={1} "
+                "--reads-file2={1} "
+                "--condition1=c1 "
+                "--condition2=c2 "
+                "--output-location={2}").format(
+                    match_file, bam_file, bam_dir)
+            print build_footprint
+            os.system(build_footprint)
 
         # plot pair together
         paired_file = "{}/pos_w_neg.footprints.txt".format(bam_dir)
-        pos_data = pd.read_csv("{}/Lineplots/pos.txt".format(bam_dir), sep="\t")
-        neg_data = pd.read_csv("{}/Lineplots/neg.txt".format(bam_dir), sep="\t")
+        pos_data = pd.read_csv(pos_data_file, sep="\t")
+        neg_data = pd.read_csv(neg_data_file, sep="\t")
         joint_data = pd.DataFrame(
             {"pos": pos_data["c1"],
              "neg": neg_data["c1"]})
         joint_data.to_csv(paired_file, sep="\t")
-        plot_file = "{}/{}.{}.footprints.pdf".format(out_dir, prefix, bam_prefix)
-        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-e.0.plot.footprints.R {} {}".format(
+        plot_file = "{}/{}.{}.footprints".format(out_dir, prefix, bam_prefix)
+        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_2.modelling/fig_3-e.0.plot.footprints.R {} {}".format(
             paired_file, plot_file)
+        print plot_cmd
         os.system(plot_cmd)
 
         # and also do a diff
-        diff_file = "{}/{}.diff.footprints.txt".format(bam_dir, prefix)
-        diff = joint_data["pos"] / joint_data["neg"]
-        diff_data = pd.DataFrame({"pos": diff})
-        diff_data.to_csv(diff_file, sep="\t")
-        plot_file = "{}/{}.{}.footprints.diff.pdf".format(out_dir, prefix, bam_prefix)
-        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-e.0.plot.footprints.R {} {}".format(
-            diff_file, plot_file)
-        print plot_cmd
-        #os.system(plot_cmd)
+        if False:
+            diff_file = "{}/{}.diff.footprints.txt".format(bam_dir, prefix)
+            diff = joint_data["pos"] / joint_data["neg"]
+            diff_data = pd.DataFrame({"pos": diff})
+            diff_data.to_csv(diff_file, sep="\t")
+            plot_file = "{}/{}.{}.footprints.diff".format(out_dir, prefix, bam_prefix)
+            plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_2.modelling/fig_3-e.0.plot.footprints.R {} {}".format(
+                diff_file, plot_file)
+            #print plot_cmd
+            #os.system(plot_cmd)
         
     # pull together files
     all_pos_file = "{}/{}.footprints.timepoints.txt".format(out_dir, prefix)
@@ -158,8 +176,8 @@ def run_footprinting(data_file, pwm_idx, bam_files, out_dir, prefix, label_indic
         pos_data[prefix] = data["pos"] / norm_factor
     joint_data = pd.DataFrame(pos_data)
     joint_data.to_csv(all_pos_file, sep="\t")
-    plot_file = "{}.pdf".format(all_pos_file.split(".txt")[0])
-    plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-e.0.plot.footprints.R {} {}".format(
+    plot_file = "{}".format(all_pos_file.split(".txt")[0])
+    plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_2.modelling/fig_3-e.0.plot.footprints.R {} {}".format(
         all_pos_file, plot_file)
     print plot_cmd
     os.system(plot_cmd)
@@ -187,24 +205,41 @@ def main():
         pwm_idx = pwm_indices[i]
         pwm_dir = "{}/{}".format(args.out_dir, motif_name)
 
+        # filter as needed
+        run_motif = False
+        if len(args.filter_motifs) == 0:
+            run_motif = True
+        for filter_string in args.filter_motifs:
+            if filter_string in motif_name:
+                run_motif = True
+        if not run_motif:
+            continue
+        print motif_name
+        
         # only look at specific trajectories
         # NOTE CURRENTLY NOT USED
-        traj_indices = np.where(motifs.iloc[i].values!=0)[0]
-        trajectories = list(motifs.columns[traj_indices])
-        traj_indices = []
-        for traj in trajectories:
-            indices = traj.split("-")[1:]
-            traj_indices += traj.split("-")[1:]
-        traj_indices = " ".join(traj_indices)
+        if False:
+            traj_indices = np.where(motifs.iloc[i].values!=0)[0]
+            trajectories = list(motifs.columns[traj_indices])
+            traj_indices = []
+            for traj in trajectories:
+                indices = traj.split("-")[1:]
+                traj_indices += traj.split("-")[1:]
+            traj_indices = " ".join(traj_indices)
+        else:
+            traj_indices = ""    
             
-        print motif_name
         run_footprinting(
             args.data_file,
             pwm_idx,
             args.bam_files,
             pwm_dir,
-            "{}.{}".format(args.prefix, motif_name),
-            label_indices=traj_indices)
+            #"{}.{}".format(args.prefix, motif_name),
+            "{}.{}.match_{}".format(
+                args.prefix, motif_name,
+                args.signal_matching_key.replace(".", "_")),
+            label_indices=traj_indices,
+            signal_matching_key=args.signal_matching_key)
         
     return
 
