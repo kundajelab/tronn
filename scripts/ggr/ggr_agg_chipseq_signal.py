@@ -10,6 +10,8 @@ import argparse
 import pandas as pd
 import numpy as np
 
+from scipy.stats import sem
+
 from tronn.util.scripts import setup_run_logs
 
 
@@ -53,7 +55,8 @@ def get_signal_from_bigwig(
         out_file,
         extend_dist=1000,
         bin_size=20,
-        mapchain=None):
+        mapchain=None,
+        bed_name="pos"):
     """
     """
     # if liftover, first convert the bed file to correct coords
@@ -77,9 +80,6 @@ def get_signal_from_bigwig(
 
     # then go to deeptools
     mat_file = "{}.coverage.mat.tmp.txt.gz".format(new_bed.split(".bed")[0])
-    #bin_total = 100
-    #extend_dist = 1000
-    #bin_size = extend_dist * 2/ bin_total
     compute_matrix_cmd = (
         "computeMatrix reference-point "
         "--referencePoint {0} "
@@ -95,16 +95,24 @@ def get_signal_from_bigwig(
             mat_file)
     print compute_matrix_cmd
     os.system(compute_matrix_cmd)
-
-    # read in and aggregate
+    
+    # read in
     mat_data = pd.read_csv(mat_file, sep="\t", header=None, comment="@")
     mat_data = mat_data.iloc[:,6:]
-    agg = pd.DataFrame({"c1": np.mean(mat_data, axis=0)})
+    
+    # normalize to flanks
+    mean_data = np.mean(mat_data, axis=0)
+    flank_avg = (np.sum(mean_data[:10]) + np.sum(mean_data[-10:])) / 20.
+    mat_data = mat_data.divide(flank_avg)
+
+    # save out
+    agg = pd.DataFrame({"mean": np.mean(mat_data, axis=0),
+                        "sem": sem(mat_data, axis=0)})
+    agg["variable"] = bed_name
+    agg["position"] = np.arange(-extend_dist, extend_dist, bin_size) + (bin_size / 2)
     agg.to_csv(out_file, sep="\t")
     
     return 
-
-
 
 
 def run_chipseq_agg(
@@ -124,17 +132,19 @@ def run_chipseq_agg(
     label_indices = ""
         
     # extract matched sets of positives and negatives
-    get_matched_motif_sites = (
-        "python ~/git/tronn/scripts/split_motifs_by_importance_scores.py "
-        "--data_files {} "
-        "--labels_key ATAC_LABELS " # TRAJ_LABELS
-        "{} "
-        "--pwm_idx {} "
-        "--out_dir {} "
-        "--prefix {}").format(
-            data_file, label_indices, pwm_idx, out_dir, prefix)
-    print get_matched_motif_sites
-    os.system(get_matched_motif_sites)
+    match_file="{}/{}.impt_positive.HINT.bed".format(out_dir, prefix)
+    if not os.path.isfile(match_file):
+        get_matched_motif_sites = (
+            "python ~/git/tronn/scripts/split_motifs_by_importance_scores.py "
+            "--data_files {} "
+            "--labels_key ATAC_LABELS " # TRAJ_LABELS
+            "{} "
+            "--pwm_idx {} "
+            "--out_dir {} "
+            "--prefix {}").format(
+                data_file, label_indices, pwm_idx, out_dir, prefix)
+        print get_matched_motif_sites
+        os.system(get_matched_motif_sites)
 
     # go through bigwig files
     for bigwig_file in bigwig_files:
@@ -144,31 +154,31 @@ def run_chipseq_agg(
         match_file="{}/{}.impt_positive.HINT.bed".format(out_dir, prefix)
         pos_file = "{}/{}.positive_vals.txt".format(out_dir, prefix)
         get_signal_from_bigwig(match_file, bigwig_file, pos_file,
-                               extend_dist=extend_dist, bin_size=bin_size, mapchain=mapchain)
+                               extend_dist=extend_dist, bin_size=bin_size, mapchain=mapchain, bed_name="pos")
 
         # get negative sites
         match_file="{}/{}.impt_negative.HINT.bed".format(out_dir, prefix)
         neg_file = "{}/{}.negative_vals.txt".format(out_dir, prefix)
         get_signal_from_bigwig(match_file, bigwig_file, neg_file,
-                               extend_dist=extend_dist, bin_size=bin_size, mapchain=mapchain)
+                               extend_dist=extend_dist, bin_size=bin_size, mapchain=mapchain, bed_name="neg")
 
         # plot pair together
         paired_file = "{}/pos_w_neg.chipseq_agg.txt".format(out_dir)
-        pos_data = pd.read_csv(pos_file, sep="\t")
-        neg_data = pd.read_csv(neg_file, sep="\t")
-        joint_data = pd.DataFrame(
-            {"pos": pos_data["c1"],
-             "neg": neg_data["c1"]})
-        joint_data.index = np.arange(-extend_dist, extend_dist, bin_size) + (bin_size / 2)
+        pos_data = pd.read_csv(pos_file, sep="\t", index_col=0)
+        neg_data = pd.read_csv(neg_file, sep="\t", index_col=0)
+        joint_data = pd.concat([pos_data, neg_data], axis=0)
+        joint_data.index = range(joint_data.shape[0])
         joint_data.to_csv(paired_file, sep="\t")
         plot_file = "{}/{}.{}.agg_chipseq.pdf".format(out_dir, prefix, bigwig_prefix)
-        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-f.0.plot.agg_chipseq.R {} {}".format(
+        # TODO here's the plot fn to edit
+        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_2.modelling/fig_3-f.0.plot.agg_chipseq.R {} {}".format(
             paired_file, plot_file)
         print plot_cmd
         os.system(plot_cmd)
 
     # pull together files
     if False:
+        # would need timepoint chip-seq to do this
         all_pos_file = "{}/{}.agg_chipseq.timepoints.txt".format(out_dir, prefix)
         positive_files = sorted(glob.glob("{}/*/pos_w_neg.footprints.txt".format(out_dir)))
         pos_data = {}
@@ -183,7 +193,7 @@ def run_chipseq_agg(
         joint_data = pd.DataFrame(pos_data)
         joint_data.to_csv(all_pos_file, sep="\t")
         plot_file = "{}.pdf".format(all_pos_file.split(".txt")[0])
-        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_3.motifs_and_tfs/fig_3-e.0.plot.footprints.R {} {}".format(
+        plot_cmd = "/users/dskim89/git/ggr-project/figs/fig_2.modelling/fig_3-e.0.plot.footprints.R {} {}".format(
             all_pos_file, plot_file)
         print plot_cmd
         os.system(plot_cmd)
