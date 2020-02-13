@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.dev.cpu.3
+spec:
+    template:
+      spec:
+        containers:
+        - name: infer-container
+          image: dskim89/tensorflow-genomics
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && sleep infinity"]
+          resources:
+            limits:
+              cpu: 28
+              memory: 128Gi
+            requests:
+              cpu: 20
+              memory: 32Gi
+          volumeMounts:
+          - name: datasets
+            mountPath: /datasets
+          - name: lscratch
+            mountPath: /lscratch
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        - name: lscratch
+          emptyDir: {}
