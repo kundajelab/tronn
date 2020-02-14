@@ -48,7 +48,10 @@ def array_to_bed(data, bed_file, interval_key="active", name_key="region", merge
                 interval_type.split("=")[0:2]
                 for interval_type in interval_types])
             interval_string = interval_types[interval_key]
-            region_name = interval_types[name_key]
+            if name_key == "all":
+                region_name = str(region_metadata)
+            else:
+                region_name = interval_types[name_key]
             
             chrom = interval_string.split(":")[0]
             start = interval_string.split(":")[1].split("-")[0]

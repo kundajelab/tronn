@@ -221,6 +221,7 @@ def plot_weights_group(array, plot_file, sig_array=None):
     plt.tight_layout()
     plt.subplots_adjust(wspace=0, hspace=0)
     plt.savefig(plot_file, transparent=True)
+    plt.close("all")
     
     return plt
 
@@ -243,7 +244,7 @@ def scale_scores(orig_scores, match_scores, scale_axis=0):
     assumes that normalization was LINEAR, finds top position and uses
     that score to linearly match scores.
     """
-    assert np.all(orig_scores.shape == match_scores.shape)
+    assert np.all(orig_scores.shape == match_scores.shape), "{} and {}".format(orig_scores.shape, match_scores.shape)
 
     across_axes = range(len(orig_scores.shape))
     across_axes.remove(scale_axis)

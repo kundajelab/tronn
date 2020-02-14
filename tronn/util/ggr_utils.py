@@ -1048,6 +1048,7 @@ def plot_results(filt_summary_file, out_dir):
     plot_file = "{}/grammars.filt.summary.pdf".format(out_dir)
     plot_summary = "ggr_plot_grammar_summary.R {} {} {} {} {}".format(
         motifs_file, atac_file, rna_file, go_file, plot_file)
+    print plot_summary
     os.system(plot_summary)
     
     return
@@ -1078,7 +1079,11 @@ def compile_grammars(args):
             copy_file = "cp {} {}/".format(grammar_file, args.out_dir)
             print copy_file
             os.system(copy_file)
-            functional_file = re.sub(".annot-\d+.gml", "*gprofiler.txt", grammar_file)
+
+            if "_x_" in grammar_file:
+                functional_file = re.sub(".gml", "*gprofiler.txt", grammar_file)
+            else:
+                functional_file = re.sub(".annot-\d+.gml", "*gprofiler.txt", grammar_file)
             copy_file = "cp {} {}/".format(functional_file, args.out_dir)
             print copy_file
             os.system(copy_file)
