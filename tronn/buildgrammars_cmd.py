@@ -43,12 +43,25 @@ def run(args):
 
     # adjust the pwms by presence arg
     args.keep_grammars = [pwms.split(",") for pwms in args.keep_grammars]
+
+    # set up sig key
+    if args.scan_type == "muts":
+        sig_key = DataKeys.MUT_MOTIF_LOGITS_SIG
+    elif args.scan_type == "impts":
+        #sig_key = DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM #HITS_COUNT
+        sig_key = DataKeys.WEIGHTED_SEQ_PWM_HITS_COUNT
+    elif args.scan_type == "hits":
+        sig_key = DataKeys.ORIG_SEQ_PWM_HITS_COUNT
+    else:
+        raise ValueError, "scan type must be muts, impts, or hits!"
     
     # make graph
     graph = build_full_graph(
         args.scan_file,
         sig_pwms_indices,
         sig_pwms_names,
+        sig_mut_logits_key=sig_key,
+        rc_pwms=args.rc_pwms_present,
         min_region_num=min_support,
         keep_grammars=args.keep_grammars,
         ignore_pwms=args.ignore_pwms)

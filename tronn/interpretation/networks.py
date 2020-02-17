@@ -212,6 +212,7 @@ def build_full_graph(
         sig_pwms_indices,
         sig_pwm_names,
         sig_mut_logits_key=DataKeys.MUT_MOTIF_LOGITS_SIG,
+        rc_pwms=True,
         min_region_num=1000,
         keep_grammars=[],
         ignore_pwms=[]):
@@ -225,14 +226,22 @@ def build_full_graph(
         example_metadata = hf[DataKeys.SEQ_METADATA][:,0]
         sig_mut_outputs = hf[sig_mut_logits_key][:]
         
+    # if not logits (ie, motif based scores), then adjust axes and get sig
+    if "logits" not in sig_mut_logits_key:
+        sig_mut_outputs = np.swapaxes(sig_mut_outputs, 2, 1)
+
     # adjust sig outputs if RC
-    # know this if sig pwm names is half of axis
-    if 2*len(sig_pwms_indices) == sig_mut_outputs.shape[1]:
+    # also know this if sig pwm names is half of axis
+    if rc_pwms or (2*len(sig_pwms_indices) == sig_mut_outputs.shape[1]):
         sig_mut_outputs = np.reshape(
             sig_mut_outputs,
             [sig_mut_outputs.shape[0], -1, 2, sig_mut_outputs.shape[2]])
         sig_mut_outputs = np.any(sig_mut_outputs != 0, axis=-2)
 
+    # if not logits, alos adjust axes AFTER adjusting for RC
+    if "logits" not in sig_mut_logits_key:
+        sig_mut_outputs = sig_mut_outputs[:, sig_pwms_indices]
+        
     assert sig_mut_outputs.shape[1] == len(sig_pwms_indices)
     
     # build nodes

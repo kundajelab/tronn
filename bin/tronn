@@ -886,7 +886,7 @@ def add_buildgrammars_parser(subparsers):
         "Grammar build type")
     group_analysis.add_argument(
         "--scan_type", default="dmim",
-        help="type of results being used")
+        help="type of results being used (hits, impt, mut)")
     group_analysis.add_argument(
         "--min_positive_tasks", default=2, type=int,
         help="minimum cell states (tasks) in which effect exists to generate edge")
@@ -909,6 +909,9 @@ def add_buildgrammars_parser(subparsers):
     group_dataset.add_argument(
         "--foreground_targets", required=True,
         help="key to pvals")
+    group_dataset.add_argument(
+        "--rc_pwms_present", action="store_true",
+        help="whether RC pwms are in dataset")
     group_dataset.add_argument(
         "--keep_grammars", nargs="+", default=[],
         help="grammars to keep IF they exist. use pwm names separated by commas")
