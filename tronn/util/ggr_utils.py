@@ -169,6 +169,48 @@ def get_num_lines(file_name):
     return num_lines
 
 
+def _run_go_annotation(args, grammar_bed, linked_genes):
+    """run GO term enrichment and only keep "good" terms
+    """
+    from ggr.analyses.bioinformatics import run_gprofiler
+    
+    # run gprofiler
+    foreground_gene_file = "{}/{}.rna.foreground.txt.gz".format(
+        args.tmp_dir, os.path.basename(grammar_bed).split(".bed")[0])
+    results_file = "{}.go_gprofiler.txt".format(
+        foreground_gene_file.split(".txt")[0])
+    if not os.path.isfile(results_file):
+        linked_genes.reset_index().to_csv(
+            foreground_gene_file, columns=["gene_id"], index=False, compression="gzip")
+        run_gprofiler(
+            foreground_gene_file, args.background_rna,
+            args.tmp_dir, ordered=True, header=True)
+
+    # check for good GO terms and remove BAD go terms
+    functional_terms = pd.read_csv(results_file, sep="\t")
+    functional_terms = functional_terms[functional_terms["domain"] == "BP"]
+    functional_terms = functional_terms["term.name"].values.tolist()
+    keep_terms = []
+    for func_term in functional_terms:
+        keep = True
+        for bad_term_str in REMOVE_GO_TERMS:
+            if bad_term_str in func_term:
+                keep = False
+        if keep:
+            keep_terms.append(func_term)
+
+    # log results
+    enriched = 0
+    descriptions = "NA"
+    if check_substrings(GOOD_GO_TERMS, keep_terms):
+        logging.info("was functionally enriched: {}".format(",".join(functional_terms)))
+        enriched = 1
+        descriptions = ",".join(
+            get_substring_matches(GOOD_GO_TERMS, functional_terms)).replace(" ", "_")
+
+    return enriched, descriptions
+
+
 def annotate_one_grammar(
         args,
         grammar_file,
@@ -177,8 +219,6 @@ def annotate_one_grammar(
     """return a dict of results
     """
     from ggr.analyses.linking import regions_to_genes
-    from ggr.analyses.bioinformatics import run_gprofiler
-    
     # read in grammar
     grammar = nx.read_gml(grammar_file)
     results = {}
@@ -218,7 +258,7 @@ def annotate_one_grammar(
             filter_genes=args.filter_genes)
     linked_genes = pd.read_csv(tmp_out_file, sep="\t", header=0, index_col=0)
 
-    # filter vs atac signal pattern
+    # filter: correlation of average linked RNA pattern to average linked ATAC pattern
     grammar_rna_signal = args.rna_signal_mat.loc[linked_genes.index.values.tolist()]
     grammar_region_signal = args.region_signal_mat.loc[grammar_region_ids]
     corr, pval = pearsonr(grammar_rna_signal.mean(axis=0), grammar_region_signal.mean(axis=0))
@@ -227,7 +267,7 @@ def annotate_one_grammar(
         logging.info("does not pass correlation")
         return {}
 
-    # could filter genes vs pattern
+    # filter: each gene vs average ATAC pattern
     if True:
         keep_genes = pd.DataFrame(
             grammar_rna_signal.apply(
@@ -240,7 +280,8 @@ def annotate_one_grammar(
         grammar_rna_signal = grammar_rna_signal[grammar_rna_signal.index.isin(keep_genes.index)]
         linked_genes = linked_genes[linked_genes.index.isin(keep_genes.index)]
         linked_genes = linked_genes.sort_values("score", ascending=False)
-        
+
+    # log kept genes
     results["num_target_genes"] = grammar_rna_signal.shape[0]
     logging.info("proximal genes kept: {}".format(grammar_rna_signal.shape[0]))
 
@@ -272,44 +313,20 @@ def annotate_one_grammar(
     grammar.graph["RNASIGNALS"] = np.mean(weighted_rna_signal, axis=0).tolist()
 
     # run functional enrichment using these genes
-    foreground_gene_file = "{}/{}.rna.foreground.txt.gz".format(
-        args.tmp_dir, os.path.basename(grammar_bed).split(".bed")[0])
-    results_file = "{}.go_gprofiler.txt".format(
-        foreground_gene_file.split(".txt")[0])
-    if not os.path.isfile(results_file):
-        linked_genes.reset_index().to_csv(
-            foreground_gene_file, columns=["gene_id"], index=False, compression="gzip")
-        run_gprofiler(
-            foreground_gene_file, args.background_rna,
-            args.tmp_dir, ordered=True, header=True)
-
-    # check for good GO terms and remove BAD go terms
-    functional_terms = pd.read_csv(results_file, sep="\t")
-    functional_terms = functional_terms[functional_terms["domain"] == "BP"]
-    functional_terms = functional_terms["term.name"].values.tolist()
-    keep_terms = []
-    for func_term in functional_terms:
-        keep = True
-        for bad_term_str in REMOVE_GO_TERMS:
-            if bad_term_str in func_term:
-                keep = False
-        if keep:
-            keep_terms.append(func_term)
-    functional_terms = keep_terms
-    if check_substrings(GOOD_GO_TERMS, functional_terms):
-        logging.info("was functionally enriched: {}".format(",".join(functional_terms)))
-        results["GO_terms"] = 1
-        results["GO_descriptions"] = ",".join(
-            get_substring_matches(GOOD_GO_TERMS, functional_terms)).replace(" ", "_")
+    if not args.no_go_terms:
+        enriched, go_descriptions = _run_go_annotation(args, grammar_bed, linked_genes)
     else:
-        results["GO_terms"] = 0
-        results["GO_descriptions"] = "NA"
-
+        enriched = 0
+        go_descriptions = "NA"
+    results["GO_terms"] = enriched
+    results["GO_descriptions"] = go_descriptions
+            
     # check keep grammars
     for keep_grammar in KEEP_GRAMMARS:
         if len(set(clean_node_names.split(",")).difference(set(keep_grammar))) == 0:
             results["GO_terms"] = 1
 
+    # debug fn
     for key in sorted(results.keys()):
         print key, results[key]
             
@@ -708,7 +725,7 @@ def annotate_grammars(args, merge_grammars=True):
         pwm_metadata["expressed"].values.tolist(),
         pwm_metadata["expressed_hgnc"].values.tolist()))
     args.interesting_genes = genes_w_pwms
-    # TODO filter these for just the dynamic ones
+    # TODO filter these for just the dynamic ones?
     logging.info("Expressed genes with matching pwms: {}".format(len(genes_w_pwms)))
         
     # load grammars and adjust as needed
@@ -738,6 +755,8 @@ def annotate_grammars(args, merge_grammars=True):
     if True:
         total_kept = 0
         for grammar_idx in range(len(args.grammars)):
+            print grammar_idx
+            
             # load grammar
             grammar_file = args.grammars[grammar_idx]
             grammar = nx.read_gml(grammar_file)
@@ -758,7 +777,7 @@ def annotate_grammars(args, merge_grammars=True):
                 args,
                 grammar_file,
                 new_grammar_file)
-
+            
             # do not save out if no results
             if grammar_results.get("filename", None) is None:
                 logging.info("{} does not have proximal genes, not saving".format(grammar_file))

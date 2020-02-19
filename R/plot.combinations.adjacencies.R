@@ -15,14 +15,11 @@ my_hclust <- function(data) {
 
 # args
 args <- commandArgs(trailingOnly=TRUE)
-prefix <- "test"
+prefix <- args[1]
+go_filter <- args[2]
+summary_files <- args[3:length(args)]
 
-# tmp
-summary_files <- c(
-    "/mnt/lab_data3/dskim89/ggr/nn/2020-01-13/grammars.muts/grammars.annotated/grammar_summary.txt",
-    "/mnt/lab_data3/dskim89/ggr/nn/2020-01-13/grammars.impts/grammars.annotated/grammar_summary.txt",
-    "/mnt/lab_data3/dskim89/ggr/nn/2020-01-13/grammars.hits/grammars.annotated/grammar_summary.txt")
-
+# go through summary files
 for (summary_idx in 1:length(summary_files)) {
     summary_file <- summary_files[summary_idx]
     
@@ -31,6 +28,11 @@ for (summary_idx in 1:length(summary_files)) {
     summary_prefix <- summary_prefix[8]
     summary_data <- read.table(summary_file, sep="\t", row.names=1, header=TRUE)
 
+    # filter for GO terms
+    if (go_filter == "TRUE") {
+        summary_data <- summary_data[summary_data$GO_terms == 1,]
+    }
+    
     # simplify down
     summary_data <- summary_data[,c("nodes", "region_num")]
 
@@ -56,7 +58,6 @@ for (summary_idx in 1:length(summary_files)) {
     summary_data <- rbind(summary_data, symmetric_tmp)
     
     # and make non-redundant again
-    #summary_data$nodes <- paste(summary_data$pwm1, summary_data$pwm2, sep=",")
     summary_data <- aggregate(
         summary_data$region_num,
         by=list(pwm1=summary_data$pwm1, pwm2=summary_data$pwm2),
@@ -64,19 +65,16 @@ for (summary_idx in 1:length(summary_files)) {
     summary_data$region_num <- summary_data$x
     summary_data$x <- NULL
     
-    # set up ordering if first summary file
-    #if (summary_idx == 1) {
-    if (TRUE) {
-        summary_unmelted <- dcast(
-            summary_data, formula = pwm1 ~ pwm2, fun.aggregate=sum, value.var="region_num")
-        rownames(summary_unmelted) <- summary_unmelted$pwm1
-        summary_unmelted$pwm1 <- NULL
-        hc <- my_hclust(dist(summary_unmelted))
-        ordering <- hc$order
-        ordering <- colnames(summary_unmelted)[ordering]
-        summary_data$pwm1 <- factor(summary_data$pwm1, levels=ordering)
-        summary_data$pwm2 <- factor(summary_data$pwm2, levels=rev(ordering))
-    }
+    # set up ordering 
+    summary_unmelted <- dcast(
+        summary_data, formula = pwm1 ~ pwm2, fun.aggregate=sum, value.var="region_num")
+    rownames(summary_unmelted) <- summary_unmelted$pwm1
+    summary_unmelted$pwm1 <- NULL
+    hc <- my_hclust(dist(summary_unmelted))
+    ordering <- hc$order
+    ordering <- colnames(summary_unmelted)[ordering]
+    summary_data$pwm1 <- factor(summary_data$pwm1, levels=ordering)
+    summary_data$pwm2 <- factor(summary_data$pwm2, levels=rev(ordering))
 
     # plot
     plot_file <- paste(prefix, summary_prefix, "pdf", sep=".")
@@ -109,7 +107,6 @@ for (summary_idx in 1:length(summary_files)) {
             legend.box.spacing=unit(0.05, "in"),
             legend.title=element_blank(),
             legend.text=element_text(size=6)) +
-        #scale_fill_manual(values=endo_colors) +
         scale_size_continuous(range=c(0,2)) +
     
     ggsave(plot_file, height=3.25, width=3.25, units="in", useDingbats=FALSE)
