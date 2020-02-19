@@ -12,8 +12,10 @@ def main():
     """run synergy calculations <- separate bc need R and such
     """
     # inputs
-    out_dir = sys.argv[1]
-    grammar_summary_file = sys.argv[2]
+    #out_dir = sys.argv[1]
+    out_dir = "./synergy_calcs_test" #sys.argv[1]
+    grammar_summary_file = "/mnt/lab_data3/dskim89/ggr/nn/2019-03-12.freeze/dmim.shuffle.complete/grammars.annotated.manual_filt.merged.final/grammars_summary.txt" # sys.argv[2]
+    SYNERGY_MAIN_DIR = "./synergy"
     os.system("mkdir -p {}".format(out_dir))
     
     # get synergy files
@@ -24,10 +26,10 @@ def main():
         grammar_prefix = os.path.basename(grammar).split(".gml")[0]
         
         # get the synergy file
-        synergy_file = glob.glob("sims.synergy/{}/ggr.synergy.h5".format(grammar_prefix))
-        #synergy_file = glob.glob("synergy*/{}/ggr.synergy.h5".format(grammar_prefix))
+        #synergy_file = glob.glob("sims.synergy/{}/ggr.synergy.h5".format(grammar_prefix))
+        synergy_file = glob.glob("{}/{}/ggr.synergy.h5".format(SYNERGY_MAIN_DIR, grammar_prefix))
         if len(synergy_file) != 1:
-            print grammar
+            print "MORE THAN ONE FILE:", grammar
         else:
             synergy_file = synergy_file[0]
             synergy_files.append(synergy_file)
@@ -38,7 +40,8 @@ def main():
                 pwm_names = hf["logits.motif_mut"].attrs["pwm_names"]
         except:
             print "synergy file not readable/does not exist!"
-                
+
+    # debug
     print "total synergy files: {}".format(len(synergy_files))
 
     # other convenience set ups
@@ -55,33 +58,34 @@ def main():
     write_header = "echo '{}' > {}".format(header_str, group_summary_file)
     print write_header
     os.system(write_header)
+    num = 0
     for synergy_file in synergy_files:
-
-        # check whether 2 or 3
-        with h5py.File(synergy_file, "r") as hf:
-            num_motifs = int(np.log2(hf["sequence.motif_mut.string"].shape[1]))
             
         # set up dir/prefix
         out_dir = "{}/calc_synergy".format(os.path.dirname(synergy_file))
         prefix = os.path.dirname(synergy_file).split("/")[-1]
 
-        # set up calculations
+        # check whether 2 or 3 and setup calc string
+        with h5py.File(synergy_file, "r") as hf:
+            num_motifs = int(np.log2(hf["sequence.motif_mut.string"].shape[1]))
         if num_motifs == 2:
             calculations = "11"
         elif num_motifs == 3:
             calculations = "110 101 011"
             
         # calculate
-        #for calculation_idx in range(len(calculations)):
-        #    calculation = calculations[calculation_idx]
-        calc_synergy = "calculate_mutagenesis_effects.py --synergy_file {} --calculations {} -o {} --refine --prefix {}".format(
-            synergy_file,
-            calculations,
-            out_dir,
-            prefix)
+        calc_synergy = (
+            "calculate_mutagenesis_effects.py "
+            "--synergy_file {} "
+            "--calculations {} "
+            "--interpretation_indices 0 1 2 3 4 5 6 9 10 12 "
+            "-o {} --refine --prefix {}").format(
+                synergy_file,
+                calculations,
+                out_dir,
+                prefix)
         print calc_synergy
-        os.system(calc_synergy)
-        print ""
+        os.system(calc_synergy) # comment this out since file exists already...
 
         # extract the calculation results into a summary file
         if num_motifs == 2:
@@ -99,7 +103,11 @@ def main():
         copy_grammar = "cp {}/*gml {}".format(out_dir, grammars_dir)
         #os.system(copy_grammar)
 
-    # plot the expected vs observed results
+        quit()
+        num += 1
+        if num > 2:
+            quit()
+    # TODO plot the expected vs observed results
     
     
     return
