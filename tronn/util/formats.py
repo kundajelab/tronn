@@ -40,6 +40,9 @@ def array_to_bed(data, bed_file, interval_key="active", name_key="region", merge
     desired bed regions
     """
     assert bed_file.endswith(".gz")
+
+    # make sure data is clean
+    data = data[np.where(data != "")[0]]
     
     with gzip.open(bed_file, "w") as out:
         for region_metadata in data:
