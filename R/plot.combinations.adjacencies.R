@@ -66,22 +66,28 @@ for (summary_idx in 1:length(summary_files)) {
     summary_data$x <- NULL
     
     # set up ordering 
-    summary_unmelted <- dcast(
-        summary_data, formula = pwm1 ~ pwm2, fun.aggregate=sum, value.var="region_num")
-    rownames(summary_unmelted) <- summary_unmelted$pwm1
-    summary_unmelted$pwm1 <- NULL
-    hc <- my_hclust(dist(summary_unmelted))
-    ordering <- hc$order
-    ordering <- colnames(summary_unmelted)[ordering]
+    if (grepl("mut", summary_prefix) & grepl("unfilt", prefix)) {
+        ordering <- read.table("ordering.txt", header=FALSE)$V1
+        summary_data <- summary_data[summary_data$pwm1 %in% ordering,]
+        summary_data <- summary_data[summary_data$pwm2 %in% ordering,]
+    } else {
+        summary_unmelted <- dcast(
+            summary_data, formula = pwm1 ~ pwm2, fun.aggregate=sum, value.var="region_num")
+        rownames(summary_unmelted) <- summary_unmelted$pwm1
+        summary_unmelted$pwm1 <- NULL
+        hc <- my_hclust(dist(summary_unmelted))
+        ordering <- hc$order
+        ordering <- colnames(summary_unmelted)[ordering]
+    }
     summary_data$pwm1 <- factor(summary_data$pwm1, levels=ordering)
     summary_data$pwm2 <- factor(summary_data$pwm2, levels=rev(ordering))
-
+        
     # plot
     plot_file <- paste(prefix, summary_prefix, "pdf", sep=".")
     print(plot_file)
     ggplot(summary_data, aes(x=pwm1, y=pwm2)) +
-        geom_point(shape=21, stroke=0.115, aes(size=region_num)) +
-        labs(x="Motif", y="Motif", title="Significant overlaps") + 
+        geom_point(shape=21, stroke=0.230, fill="white", aes(size=region_num)) +
+        labs(x="Motif", y="Motif", title="Significant genomic overlaps") + 
         theme_bw() +
         theme(
             aspect.ratio=1,
@@ -90,15 +96,17 @@ for (summary_idx in 1:length(summary_files)) {
             plot.margin=margin(5,1,1,1),
             panel.background=element_blank(),
             panel.border=element_rect(size=0.115),
-            panel.grid=element_blank(),
+            #panel.grid=element_blank(),
+            panel.grid=element_line(size=0.115),
             axis.title=element_text(size=6),
             axis.title.x=element_text(margin=margin(0,0,0,0)),
             axis.title.y=element_text(margin=margin(0,0,0,0)),
-            axis.text.y=element_text(size=6),
-            axis.text.x=element_text(size=6, angle=90),
+            axis.text.y=element_text(size=5),
+            axis.text.x=element_text(size=5, angle=90, vjust=0.5),
             axis.line=element_line(color="black", size=0.115, lineend="square"),
             axis.ticks=element_line(size=0.115),
             axis.ticks.length=unit(0.01, "in"),
+            legend.position="bottom",
             legend.background=element_blank(),
             legend.box.background=element_blank(),
             legend.margin=margin(0,0,0,0),
@@ -106,7 +114,7 @@ for (summary_idx in 1:length(summary_files)) {
             legend.box.margin=margin(0,0,0,0),
             legend.box.spacing=unit(0.05, "in"),
             legend.title=element_blank(),
-            legend.text=element_text(size=6)) +
+            legend.text=element_text(size=5)) +
         scale_size_continuous(range=c(0,2)) +
     
     ggsave(plot_file, height=3.25, width=3.25, units="in", useDingbats=FALSE)

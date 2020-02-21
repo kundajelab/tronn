@@ -360,24 +360,20 @@ def main():
         diffs_filt = np.where(
             np.isclose(diffs_filt, 0),
             np.nan, diffs_filt) # nan to ignore in mean/std calcs
-        stdevs = np.nanstd(diffs_filt, axis=0, keepdims=True)
-        means = np.nanmean(diffs_filt, axis=0, keepdims=True)
-
-        print stdevs.shape
-        print means.shape
-        quit()
-        
-        # differential cutoff: one tailed
-        # TODO figure out how to adjust for label indices
-        if np.mean(diff) >= 0:
-            example_sigs[:,calc_i] = results[:,calc_i,2] > stdev_thresh * stdevs
-        else:
-            example_sigs[:,calc_i] = results[:,calc_i,2] < -stdev_thresh * stdevs
-            differential[np.abs(distances) < min_pwm_dist] = 0
-        example_sigs[:,]
+        stdevs = np.nanstd(diffs_filt, axis=0)
+        means = np.nanmean(diffs_filt, axis=0)
 
         
-
+        for task_i in range(len(label_indices)):
+            label_idx = label_indices[task_i]
+            if np.mean(diff) >= 0:
+                calc_sig = results[:, calc_i, label_idx, 2] > stdev_thresh * stdevs[task_i]
+            else:
+                calc_sig = results[:, calc_i, label_idx, 2] < -stdev_thresh * stdevs[task_i]
+            calc_sig = np.multiply(calc_sig, distances >= min_pwm_dist)
+            example_sigs[:, calc_i, label_idx] = calc_sig
+            
+            
     # after done with all calcs:
     # save results (actual/expected/diff)
     score_key = DataKeys.SYNERGY_SCORES
@@ -391,12 +387,12 @@ def main():
     # save out distances
     dist_key = DataKeys.SYNERGY_DIST
     with h5py.File(args.synergy_file, "a") as hf:
-        distances = np.zeros((results.shape[0], num_calcs))
+        saved_distances = np.zeros((results.shape[0], num_calcs))
         for i in range(num_calcs):
-            distances[:,i] = np.squeeze(distances)
+            saved_distances[:,i] = distances
         if hf.get(dist_key) is not None:
             del hf[dist_key]
-        hf.create_dataset(dist_key, data=distances)
+        hf.create_dataset(dist_key, data=saved_distances)
 
     # save out differentials
     synergy_sig_key = DataKeys.SYNERGY_DIFF_SIG
@@ -406,30 +402,36 @@ def main():
         hf.create_dataset(synergy_sig_key, data=example_sigs)
         #hf[synergy_sig_key].attrs[AttrKeys.PLOT_LABELS] = labels
 
-    quit()
-    # analyze max distance of synergistic interaction
-    diff_indices = np.greater_equal(np.sum(differential!=0, axis=1), 1)
+    # analyze and save max distance of synergistic interaction
+    diff_indices = np.greater_equal(np.sum(example_sigs != 0, axis=(1,2)), 1)
     diff_indices = np.where(diff_indices)[0]
-    diff_distances = distances[diff_indices] # {N}
+    diff_distances = distances[diff_indices]
     max_dist = np.percentile(diff_distances, 95)
+    print max_dist
     max_dist_key = DataKeys.SYNERGY_MAX_DIST
     with h5py.File(args.synergy_file, "a") as hf:
         if hf.get(max_dist_key) is not None:
             del hf[max_dist_key]
         hf.create_dataset(max_dist_key, data=max_dist)
 
-    # analyze pwm score strength
-    pwm_strength_key = "pwms.strength"
-    with h5py.File(args.synergy_file, "a") as hf:
-        if hf.get(pwm_strength_key) is not None:
-            del hf[pwm_strength_key]
-        pwm_scores = np.amin(
-            hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT][:,-1], axis=1)
-        hf.create_dataset(
-            pwm_strength_key,
-            data=pwm_scores)
+    # TODO recalculate difference with cutoff?
+        
+    quit()
+
+    if False:
+        # save pwm score strength?
+        pwm_strength_key = "pwms.strength"
+        with h5py.File(args.synergy_file, "a") as hf:
+            if hf.get(pwm_strength_key) is not None:
+                del hf[pwm_strength_key]
+            pwm_scores = np.amin(
+                hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT][:,-1], axis=1)
+            hf.create_dataset(
+                pwm_strength_key,
+                data=pwm_scores)
 
     # plot
+    # TODO just plot the best position
     min_dist = 12 # 12
     plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {} \"\" {}".format(
         args.synergy_file,
@@ -441,7 +443,7 @@ def main():
         out_prefix,
         min_dist)
     print plot_cmd
-    os.system(plot_cmd)
+    #os.system(plot_cmd)
 
     # refine:
     #if args.refine:

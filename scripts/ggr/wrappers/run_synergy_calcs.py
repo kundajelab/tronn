@@ -13,9 +13,10 @@ def main():
     """
     # inputs
     #out_dir = sys.argv[1]
-    out_dir = "./synergy_calcs_test" #sys.argv[1]
     grammar_summary_file = "/mnt/lab_data3/dskim89/ggr/nn/2019-03-12.freeze/dmim.shuffle.complete/grammars.annotated.manual_filt.merged.final/grammars_summary.txt" # sys.argv[2]
     SYNERGY_MAIN_DIR = "./synergy"
+    #SYNERGY_MAIN_DIR = "./sims.synergy"
+    out_dir = "./synergy_calcs.endog"
     os.system("mkdir -p {}".format(out_dir))
     
     # get synergy files
@@ -102,11 +103,7 @@ def main():
         # and copy grammars to separate folder for easy annotation
         copy_grammar = "cp {}/*gml {}".format(out_dir, grammars_dir)
         #os.system(copy_grammar)
-
-        quit()
-        num += 1
-        if num > 2:
-            quit()
+            
     # TODO plot the expected vs observed results
     
     
