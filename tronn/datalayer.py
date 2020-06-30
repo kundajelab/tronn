@@ -2378,6 +2378,129 @@ class SinglePWMSimsDataLoader(PWMSimsDataLoader):
                             
         return generator, dtypes_dict, shapes_dict
 
+class TableDataLoader(DataLoader):
+    """Load data from a table, where each line is an example"""
+
+    def __init__(
+            self,
+            data_files,
+            fasta,
+            bin_width=200,
+            stride=50,
+            final_length=1000,
+            preprocessed=False,
+            chromsizes=None,
+            ordered=True,
+            tmp_dir="."):
+        # in preprocessing files, important to set up the right fasta from
+        # which to grab the sequence
+        self.data_files = data_files
+        self.fasta = fasta
+        
+        # count num regions
+        self.num_regions = self.get_num_regions()
+        
+
+    def get_num_regions(self):
+        """count num examples (total rows across tables)
+        """
+        num_regions = 0
+        for data_file in self.data_files:
+            data = pd.read_csv(data_file, sep="\t", header=0)
+            num_regions += data.shape[0]
+            
+        return num_regions
+
+    
+    def build_generator(
+            self,
+            batch_size=256,
+            task_indices=[],
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            lock=threading.Lock(),
+            shuffle=True):
+        """build the generator function
+        """
+        # tensors: shape and type
+        test_data_file = self.data_files[0]
+        test_data = pd.read_csv(test_data_file, sep="\t", header=0)
+        dtypes_dict = {}
+        shapes_dict = {}
+        for col_name in test_data.columns:
+            # TODO for values comma separated, separate out now?
+            if test_data[col_name].dtype == np.float64:
+                dtypes_dict[col_name] = tf.float32
+            elif test_data[col_name].dtype == np.int64:
+                dtypes_dict[col_name] = tf.int64
+            else:
+                dtypes_dict[col_name] = tf.string
+
+            shapes_dict[col_name] = [1]
+        dtypes_dict[DataKeys.FEATURES]= tf.uint8
+        shapes_dict[DataKeys.FEATURES] = [seq_len]
+
+        class Generator(object):
+
+            def __init__(self, fasta, batch_size):
+                self.fasta = fasta
+                self.batch_size = batch_size
+
+
+            def __call__(self, data_file, coord_col="example_combo_id", yield_single_examples=True):
+                """run the generator"""
+                batch_size = 1
+                fasta = self.fasta
+
+                # set up interval to sequence converter
+                converter = GenomicIntervalConverter(lock, fasta, batch_size)
+                
+                # read in data file
+                data = pd.read_csv(data_file, sep="\t", header=0)
+                data_by_example = data.to_dict(orient="records")
+                try:
+                    for example_idx in range(len(data_by_example)):
+                        slice_array = data_by_example[example_idx]
+                        fasta_chrom = slice_array[coord_col]
+
+                        for key in slice_array.keys():
+                            if type(slice_array[key]) == float:
+                                slice_array[key] = np.expand_dims(
+                                    np.array(
+                                        [np.float32(slice_array[key])]), axis=-1)
+                            else:
+                                slice_array[key] = np.expand_dims(
+                                    np.array(
+                                        [slice_array[key]]), axis=-1)
+                        
+                        example_metadata = "features={}:0-1000".format(fasta_chrom)
+                        metadata = np.array(
+                            [example_metadata])
+                        metadata = np.expand_dims(metadata, axis=-1)
+                        features = converter.convert(metadata)
+                        slice_array[DataKeys.FEATURES] = features
+                        slice_array[DataKeys.SEQ_METADATA] = metadata
+                        
+                        yield (slice_array, 1.)
+                            
+                except ValueError as value_error:
+                    logging.debug(value_error)
+                    logging.info("Stopping {}".format(data_file))
+                    raise StopIteration
+
+                finally:
+                    converter.close()
+                    print("finished {}".format(data_file))
+
+        # instantiate
+        generator = Generator(self.fasta, batch_size)
+        
+        return generator, dtypes_dict, shapes_dict
+
     
     
 def setup_data_loader(args):
@@ -2443,6 +2566,10 @@ def setup_data_loader(args):
                 output_original_background=not args.embedded_only,
                 all_pwms=args.dataset_pwm_list,
                 fasta=args.fasta)
+    elif args.data_format == "table":
+        data_loader = TableDataLoader(
+            data_files=args.data_files,
+            fasta=args.fasta)
     else:
         raise ValueError("unrecognized data format!")
 
