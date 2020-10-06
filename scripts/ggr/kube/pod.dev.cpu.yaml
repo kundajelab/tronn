@@ -7,6 +7,13 @@ spec:
     - name: vol-container
       image: dskim89/tronn
       args: ["sleep", "infinity"]
+      resources:
+        limits:
+          cpu: 2
+          memory: 8Gi
+        requests:
+          cpu: 2
+          memory: 8Gi
       volumeMounts:
       - mountPath: /datasets
         name: datasets

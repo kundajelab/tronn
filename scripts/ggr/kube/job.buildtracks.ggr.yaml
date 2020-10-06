@@ -10,18 +10,18 @@ spec:
           image: dskim89/tensorflow-genomics
           env:
           - name: MODEL_DIR
-            value: "/datasets/models.2018-12-03"
+            value: "/datasets/dskim89/models.2018-12-03"
           - name: MODEL
             value: "basset"
           - name: OUT_DIR
-            value: "/datasets/inference.2019-06-10/tracks"
+            value: "/datasets/dskim89/inference.2020-10-05/tracks"
           - name: BED_FILE
-            value: "/datasets/ggr/test_data/ggr.master.100.bed.gz"
+            value: "/datasets/ggr/test_data/ggr.master.1k.bed.gz"
           command: ["bash", "-c"]
           args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/buildtracks.ggr.bash $MODEL_DIR $MODEL $BED_FILE $OUT_DIR"]
           resources:
             limits:
-              nvidia.com/gpu: 6
+              nvidia.com/gpu: 2
               cpu: 8
               memory: 32Gi
             requests:
