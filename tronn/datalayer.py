@@ -2435,14 +2435,19 @@ class TableDataLoader(DataLoader):
             # TODO for values comma separated, separate out now?
             if test_data[col_name].dtype == np.float64:
                 dtypes_dict[col_name] = tf.float32
+                shapes_dict[col_name] = [1]
             elif test_data[col_name].dtype == np.int64:
                 dtypes_dict[col_name] = tf.int64
+                shapes_dict[col_name] = [1]
             else:
-                dtypes_dict[col_name] = tf.string
+                dtypes_dict["{}.string".format(col_name)] = tf.string
+                shapes_dict["{}.string".format(col_name)] = [1]
 
-            shapes_dict[col_name] = [1]
         dtypes_dict[DataKeys.FEATURES]= tf.uint8
         shapes_dict[DataKeys.FEATURES] = [seq_len]
+        
+        dtypes_dict[DataKeys.SEQ_METADATA]= tf.string
+        shapes_dict[DataKeys.SEQ_METADATA] = [1]
 
         class Generator(object):
 
@@ -2468,10 +2473,17 @@ class TableDataLoader(DataLoader):
                         fasta_chrom = slice_array[coord_col]
 
                         for key in slice_array.keys():
+                            # NOTE assumes only float or string
                             if type(slice_array[key]) == float:
                                 slice_array[key] = np.expand_dims(
                                     np.array(
                                         [np.float32(slice_array[key])]), axis=-1)
+                            elif type(slice_array[key]) == str:
+                                data_string = slice_array[key]
+                                del slice_array[key]
+                                slice_array["{}.string".format(key)] = np.expand_dims(
+                                    np.array(
+                                        [data_string]), axis=-1)
                             else:
                                 slice_array[key] = np.expand_dims(
                                     np.array(

@@ -82,8 +82,15 @@ def plot_pwm(
         plot_file):
     """plot pwm
     """
-    # set up figure
-    figsize=(array.shape[0]/20., 10/20.)
+    # figure out widths and heights (matches plot weights below)
+    desired_width = 6 * (array.shape[0] / 160.)
+    desired_width = 6 * (array.shape[0] / 140.) # NOTE: manually chosen to match importance scores len 120bp
+    width_to_height_factor = 8 #6
+    width_height_ratio = array.shape[0] / float(array.shape[1])
+    desired_height = desired_width * width_to_height_factor / width_height_ratio / 10.
+
+    # set up fig
+    figsize=(desired_width, desired_height)
     f = plt.figure(figsize=figsize)
 
     # convert to entropy
@@ -118,17 +125,16 @@ def plot_pwm(
             if ii == 0 :
                 plot_letter(nt, j + 0.5, height_base, nt_prob * logo_height, logo_ax, color=None)
             else :
-                prev_prob = np.sum(array[j, sort_index[:ii]] * conservation[j]) * logo_height
+                prev_prob = np.sum(array[j, sort_index[:ii]] * conservation[j] + 0.001) * logo_height
                 plot_letter(nt, j + 0.5, height_base + prev_prob, nt_prob * logo_height, logo_ax, color=None)
-
+                
     plt.xlim((0, array.shape[0]))
     plt.ylim((0, 2))
     plt.xticks([], [])
     plt.yticks([], [])
     plt.axis('off')
-    logo_ax.axhline(y=0.01 + height_base, color='black', linestyle='-', linewidth=2/10.)
+    logo_ax.axhline(y=0.0 + height_base, color='black', linestyle='-', linewidth=2/10.)
 
-    plt.tight_layout()
     plt.savefig(plot_file, transparent=True)
     
     return
@@ -192,12 +198,16 @@ def plot_weights_group(array, plot_file, sig_array=None):
     # calculate ratio and adjust to fit in page width
     # assumes that 160 bps should be 6in wide
     # maintain same height
-    desired_height = 2.25
-    width_to_height_factor = 6
+    # NOTE: settings for fig 3 vignettes (dont delete, just comment out)
+    desired_width = 6 * (array.shape[1] / 160.)
+    width_to_height_factor = 8 #6
     width_height_ratio = array.shape[1] / float(array.shape[0])
-    #plot_height = height_to_width_factor * width_height_ratio * desired_width
-    #desired_width = 6.0
-    desired_width = desired_height * width_height_ratio / width_to_height_factor
+    desired_height = desired_width * width_to_height_factor / width_height_ratio
+    
+    #desired_height = 2.25
+    #width_to_height_factor = 6
+    #width_height_ratio = array.shape[1] / float(array.shape[0])
+    #desired_width = desired_height * width_height_ratio / width_to_height_factor
     
     # set up plot
     f, ax = plt.subplots(num_rows, 1, figsize=(desired_width, desired_height))

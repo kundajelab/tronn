@@ -86,13 +86,13 @@ for (summary_idx in 1:length(summary_files)) {
     plot_file <- paste(prefix, summary_prefix, "pdf", sep=".")
     print(plot_file)
     ggplot(summary_data, aes(x=pwm1, y=pwm2)) +
-        geom_point(shape=21, stroke=0.230, fill="white", aes(size=region_num)) +
-        labs(x="Motif", y="Motif", title="Significant genomic overlaps") + 
+        geom_point(shape=21, stroke=0.345, fill="white", aes(size=region_num)) + #230
+        labs(x="Motif", y="Motif", title="Co-occurrence of motif pairs in the epigenome") + 
         theme_bw() +
         theme(
             aspect.ratio=1,
             text=element_text(family="ArialMT"),
-            plot.title=element_text(size=8, margin=margin(b=0)),
+            plot.title=element_text(size=8, hjust=0.5, margin=margin(b=3)),
             plot.margin=margin(5,1,1,1),
             panel.background=element_blank(),
             panel.border=element_rect(size=0.115),
@@ -113,6 +113,7 @@ for (summary_idx in 1:length(summary_files)) {
             legend.key.size=unit(0.05, "in"),
             legend.box.margin=margin(0,0,0,0),
             legend.box.spacing=unit(0.05, "in"),
+            legend.spacing.x=unit(0.05, "in"),
             legend.title=element_blank(),
             legend.text=element_text(size=5)) +
         scale_size_continuous(range=c(0,2)) +

@@ -10,6 +10,7 @@ import pandas as pd
 
 from multiprocessing import Pool
 
+from tronn.util.formats import array_to_bed
 from tronn.util.h5_utils import load_data_from_multiple_h5_files
 from tronn.util.utils import DataKeys
 
@@ -127,9 +128,7 @@ def analyze_multiplicity(
         metadata_key=DataKeys.SEQ_METADATA,
         signal_keys={"ATAC_SIGNALS": [0,6,12], "H3K27ac_SIGNALS": [0,1,2]},
         reduce_method="max",
-        pool_window=20,
         max_count=6,
-        tol=1e-5,
         min_region_count=500,
         min_hit_region_count=50,
         solo_filter=False,
@@ -153,14 +152,11 @@ def analyze_multiplicity(
         h5_files, max_val_key, concat=False)
     example_indices = []
     for max_vals in max_vals_per_file:
-        #print max_vals.shape[0]
         file_examples = []
         for pwm_idx in pwm_indices:
             file_examples += get_syntax_matching_examples(
                 max_vals, [pwm_idx]).tolist()
-        #print len(file_examples)
         file_examples = np.array(sorted(list(set(file_examples))))
-        #print file_examples.shape[0]
         example_indices.append(file_examples)
         
     # do not continue if don't have enough regions
@@ -264,15 +260,33 @@ def analyze_multiplicity(
             task_hits[task_idx] = signals[key][:,task_idx]
             # aggregate
             task_results = task_hits.groupby("hits").median()
-            # don't consider results if not covered by enough regions
             task_results["present"] = task_hits.groupby("hits")["present"].sum()
             task_results = task_results[task_results["present"] > min_hit_region_count]
-            #task_results.loc[task_results["present"] < min_hit_region_count] = 0
 
             # save in
             for count in range(1,max_count+1):
                 if count in task_results.index:
                     results[key]["count"][i,count-1] = task_results.loc[count][task_idx]
+
+    # also get num regions per count level
+    results["num_regions_per_count"] = np.zeros(max_count)
+    for count in range(1,max_count+1):
+        regions_per_count = hits[hits["hits"] == count]
+        if regions_per_count.shape[0] > 0:
+            # convert to bed (active regions) and merge
+            # this is to make sure don't count duplicate instances (overlapping strides)
+            tmp_bed_file = "tronn.count_thresh.tmp.bed.gz"
+            array_to_bed(regions_per_count.index.values, tmp_bed_file, merge=True)
+            
+            # count hits
+            num_regions_per_count = pd.read_csv(tmp_bed_file, sep="\t", header=None).shape[0]
+            results["num_regions_per_count"][count-1] = num_regions_per_count
+            
+            # cleanup
+            os.system("rm {}".format(tmp_bed_file))
+
+    import ipdb
+    ipdb.set_trace()
                     
     return results
 

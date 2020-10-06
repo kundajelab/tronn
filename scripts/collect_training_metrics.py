@@ -26,13 +26,16 @@ def aggregate_positives_negatives_per_task(
             with h5py.File(h5_file, "r") as hf:
 
                 # labels summed is positives
-                data = np.sum(hf[label_key][:], axis=0)
+                data = np.sum(hf[label_key][:] != 0, axis=0)
 
                 # total examples gives you negatives
                 total_examples += hf[label_key].shape[0]
 
                 # also get file names
-                data_files = hf[label_key].attrs["filenames"]
+                try:
+                    data_files = hf[label_key].attrs["filenames"]
+                except:
+                    data_files = range(data.shape[0])
                 
             # append on
             if h5_i == 0:
@@ -73,7 +76,7 @@ def main():
 
 
     # for encode/roadmap
-    label_keys = [
+    label_keys_SKIP = [
         "DNASE_LABELS",
         "TF_CHIP_LABELS"]
         
@@ -93,6 +96,12 @@ def main():
         "DYNAMIC_STATE_LABELS",
         "STABLE_MARK_LABELS",
         "STABLE_STATE_LABELS"]
+
+    # GGR regression
+    label_keys = [
+        "ATAC_SIGNALS.NORM",
+        "H3K27ac_SIGNALS.NORM",
+        "H3K4me1_SIGNALS.NORM"]
 
     all_results = None
     
@@ -132,7 +141,7 @@ def main():
     all_results["class_imbalance"] = all_results["positives"].astype(float) / (all_results["positives"] + all_results["negatives"])
     
     # save out
-    all_results.to_csv("encode_roadmap.class_imbalances.txt", sep="\t", index=False)
+    all_results.to_csv("ggr.regr.class_imbalances.txt", sep="\t", index=False)
     
     return
 
