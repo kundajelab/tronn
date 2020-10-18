@@ -1,6 +1,13 @@
 # TRONN
 Transcriptional Regulation (Optimized) Neural Nets (TRONN) - neural network tools for building integrative gene regulation models
 
+Models and datasets can be found at the following Zenodo accessions:
+
+- [Classification dataset for ENCODE-Roadmap DNase-seq peaks and Transcription Factor ChIP-seq peaks](https://doi.org/10.5281/zenodo.4059038)
+- [Convolutional Neural Net (CNN) models for ENCODE-Roadmap DNase-seq peaks and Transcription Factor ChIP-seq peaks - Basset architecture](https://doi.org/10.5281/zenodo.4059060)
+- [Machine learning datasets for epigenomic landscapes in epidermal differentiation](https://doi.org/10.5281/zenodo.4062509)
+- [Convolutional Neural Net (CNN) models for epigenomic landscapes in epidermal differentiation - Basset architecture, classification and regression](https://doi.org/10.5281/zenodo.4062726)
+
 ---
 ### Installation
 
