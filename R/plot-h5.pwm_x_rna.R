@@ -147,7 +147,8 @@ for (group_i in 1:length(groups)) {
         # extract relevant data
         group_data <- h5read(h5_file, group, read.attributes=TRUE)
         #print(group_data)
-        
+
+    
         # ===================
         # 1) correlation plot
         # ===================
@@ -180,6 +181,10 @@ for (group_i in 1:length(groups)) {
         # ===================
         pwm_scores <- aperm(group_data$pwm_patterns)
 
+    if (dim(pwm_scores)[1] < 2) {
+        next
+    }
+    
         # adjust pwm names and put as rownames
         pwm_names <- attr(group_data, "pwm_names")
         pwm_names <- gsub("HCLUST-\\d+_", "", pwm_names)
@@ -187,7 +192,7 @@ for (group_i in 1:length(groups)) {
         pwm_names <- paste(pwm_names, "MOTIF", sep=" ")
         rownames(pwm_scores) <- pwm_names
         colnames(pwm_scores) <- col_labels
-
+    
         # min/max norm
         pwm_scores_max <- apply(pwm_scores, 1, max)
         pwm_scores_min <- apply(pwm_scores, 1, min)

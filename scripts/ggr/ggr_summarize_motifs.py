@@ -69,7 +69,7 @@ def main():
     for i in range(len(foregrounds_keys)):
         key = foregrounds_keys[i]
         #key = "TRAJ_LABELS-{}".format(index)
-    
+        
         with h5py.File(args.data_file, "r") as hf:
             sig = hf["pvals"][key]["sig"][:]
             rna_patterns = hf["pvals"][key]["rna_patterns"][:]
@@ -92,10 +92,12 @@ def main():
             np.arcsinh(np.max(pwm_patterns, axis=1)),
             index=pwm_names)
         pwm_present.columns = [key]
-
+        
         # pwm pattern
         pwm_data = pd.DataFrame(pwm_patterns, index=pwm_names)
+        pwm_data["pwm_names"] = pwm_data.index.values
         pwm_data = pwm_data.drop_duplicates()
+        pwm_data = pwm_data.drop("pwm_names", axis=1)
         
         if i == 0:
             traj_tfs = tf_present
