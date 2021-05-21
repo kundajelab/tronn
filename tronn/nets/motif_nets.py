@@ -388,7 +388,11 @@ def get_pwm_scores(inputs, params):
         out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
         out_thresholds_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESHOLDS)
     outputs, params = scanner.scan(inputs, params)
-    
+
+    # run weighted sequence INVERTED
+    inputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = -inputs[DataKeys.WEIGHTED_SEQ_ACTIVE]
+    inputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF] = -inputs[DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF]    
+
     # run weighted sequence
     # if onesided (default), then will only return positive scores
     scanner = MotifScannerWithThresholds(
