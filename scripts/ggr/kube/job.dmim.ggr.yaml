@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.ggr.dmim.basset.traj-14
+spec:
+    template:
+      spec:
+        containers:
+        - name: train-container
+          image: dskim89/tensorflow-genomics
+          env:
+          - name: MODEL_DIR
+            value: "/datasets/models.2018-12-03"
+          - name: INFER_DIR
+            value: "/datasets/inference.2019-02-05"
+          - name: WORK_DIR
+            value: "/datasets/inference.2019-03-12"
+          - name: DMIM_DIR
+            value: "dmim.point"
+          - name: MODEL
+            value: "basset"
+          - name: PATTERN
+            value: "mid"
+          - name: FOREGROUND
+            value: "TRAJ_LABELS=14"
+          - name: FOREGROUND_NAME
+            value: "TRAJ_LABELS-14"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/$DMIM_DIR/$FOREGROUND_NAME && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/dmim.ggr.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $FOREGROUND $OUT_DIR $WORK_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 6
+          #    cpu: 16
+              memory: 128Gi
+          #requests:
+          #    cpu: 8
+          #    memory: 8Gi
+          volumeMounts:
+          - mountPath: /datasets
+            name: datasets
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"

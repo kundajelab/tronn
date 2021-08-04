@@ -16,6 +16,7 @@ from tronn.util.initializers import pwm_simple_initializer
 from tronn.util.tf_utils import get_fan_in
 
 from tronn.nets.util_nets import pad_inputs
+from tronn.nets.util_nets import unpad_inputs
 from tronn.nets.util_nets import rebatch
 
 from tronn.util.utils import DataKeys
@@ -34,7 +35,6 @@ class MotifScanner(object):
         """Convolve with PWMs and normalize with vector projection:
           projection = a dot b / | b |
         """
-        # TODO options for running (1) FWD, (2) REV, (3) COMB
         assert inputs.get(DataKeys.FEATURES) is not None
         assert params.get("pwms") is not None
         assert params.get("filter_width") is not None
@@ -46,9 +46,14 @@ class MotifScanner(object):
         # params
         pwm_list = params["pwms"]
         max_size = params["filter_width"]
+        add_rc_pwms = params["add_rc_pwms"]
         num_filters = len(pwm_list)
         reuse = params.get("reuse_pwm_layer", False)
 
+        # adjust if rc pwms
+        if add_rc_pwms:
+            num_filters *= 2
+        
         # make the convolution net for dot product, normal filters
         # here, the pwms are already normalized to unit vectors for vector projection
         kernel_size = [1, max_size]
@@ -60,11 +65,7 @@ class MotifScanner(object):
                 padding="valid",
                 activation=None,
                 kernel_initializer=pwm_simple_initializer(
-                    kernel_size,
-                    pwm_list,
-                    get_fan_in(features),
-                    unit_vector=True,
-                    length_norm=True),
+                    kernel_size, pwm_list, reverse_complement=add_rc_pwms),
                 use_bias=False,
                 bias_initializer=None,
                 trainable=False,
@@ -155,14 +156,10 @@ class MotifScanner(object):
     def scan(self, inputs, params):
         """put all the pieces together
         """
-        # run preprocess
         inputs, params = self.preprocess(inputs, params)
-        # convolve: NOTE this returns pos and neg scores!
         outputs, params = self.convolve_motifs(inputs, params)
-        # postprocess
         outputs, params = self.postprocess(outputs, params)
 
-        # returns {N, task, pos, M}
         return outputs, params
 
 
@@ -206,6 +203,7 @@ class MotifScannerWithThresholds(MotifScanner):
             out_scores_key=DataKeys.ORIG_SEQ_PWM_SCORES,
             out_hits_key=DataKeys.ORIG_SEQ_PWM_HITS,
             out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+            out_thresholds_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESHOLDS,
             pval=0.05,
             two_sided_thresh=False,
             **kwargs):
@@ -217,6 +215,7 @@ class MotifScannerWithThresholds(MotifScanner):
         self.out_scores_key = out_scores_key
         self.out_hits_key = out_hits_key
         self.out_scores_thresh_key = out_scores_thresh_key
+        self.out_thresholds_key = out_thresholds_key
         self.pval = pval
         self.two_sided_thresh = two_sided_thresh
 
@@ -242,7 +241,7 @@ class MotifScannerWithThresholds(MotifScanner):
         # adjust features
         features = tf.transpose(features, perm=[0,3,1,2]) # {N, M, task, pos}
         features_shape = features.get_shape().as_list()
-        
+
         # adjust shuffles and features for thresholding
         perm = [0,4,1,2,3]
         shuffles = tf.transpose(shuffles, perm=perm) # becomes {N, M, task, shuf, pos}
@@ -289,7 +288,9 @@ class MotifScannerWithThresholds(MotifScanner):
               outputs[DataKeys.ACTIVE_SHUFFLES] = shuffle_results[DataKeys.FEATURES]
               
         # get thresholds
-        params.update({"pval": self.pval})
+        params.update({
+            "pval": self.pval,
+            "thresholds_key": self.out_thresholds_key})
         outputs[self.out_hits_key] = MotifScannerWithThresholds.threshold(
             outputs, params)[0][DataKeys.FEATURES]
         outputs[self.out_scores_thresh_key] = tf.multiply(
@@ -312,74 +313,71 @@ class DeltaMotifImportanceMapper(MotifScanner):
         """assertions, and blank the motif site
         """
         assert inputs.get(DataKeys.FEATURES) is not None # {N, mutM, task, pos, 4}
-        assert inputs.get(DataKeys.MUT_MOTIF_POS) is not None # {N, mut_M, 1, pos, 1}
+        assert inputs.get(DataKeys.MUT_MOTIF_MASK) is not None # {N, mut_M, 1, pos, 1}
 
         # features - these are dfim scores
         features = inputs[DataKeys.FEATURES]
-        mask = tf.cast(tf.equal(inputs[DataKeys.MUT_MOTIF_POS], 0), tf.float32)
+        mask = tf.cast(tf.equal(inputs[DataKeys.MUT_MOTIF_MASK], 0), tf.float32)
         outputs = dict(inputs)
         
-        # blank out motif sites
-        # TODO extend the blanking, if using single?
+        # blank out motif sites using pre-prepped mask
         features = tf.multiply(features, mask) # {N, mutM, task, pos, 4}
         
-        # join dims for scanning
+        # reshape for scanning
         features_shape = features.get_shape().as_list()
         params["batch_size"] = features_shape[0]
         features = tf.reshape(features, [-1]+features_shape[2:]) # {N*mutM, task, pos, 4}
-        new_batch_size = features.get_shape().as_list()[0]
+        params["batch_size_adj"] = features.get_shape().as_list()[0]
         outputs[DataKeys.FEATURES] = features
-        
-        # and pad
+
+        # pad inputs
         params.update({"num_aux_examples": features_shape[1]-1})
         params.update({"ignore_keys": [DataKeys.FEATURES]})
         outputs, _ = pad_inputs(outputs, params)
-
-        # rebatch to mut size
-        # TODO rebatch multiple mutants
-        outputs, _ = rebatch(outputs, {"name": "rebatch_dfim", "batch_size": features_shape[1]})
-
-        outputs, params = super(DeltaMotifImportanceMapper, self).preprocess(outputs, params)
         
+        # preprocess
+        outputs, params = super(DeltaMotifImportanceMapper, self).preprocess(
+            outputs, params)
+
         return outputs, params
 
     
     def postprocess(self, inputs, params):
         """make sure you only keep the hits and reduce sum?
         """
+        outputs = dict(inputs)
+        
         # utilizing existing pwm hits, mask the scores
         features = tf.multiply(
             inputs[DataKeys.FEATURES],
             inputs[DataKeys.ORIG_SEQ_PWM_HITS]) # {N*mutM, task, pos, M}
-            
-        # adjust shape
-        features_shape = features.get_shape().as_list()
-        features = tf.reshape(features, [1, -1] + features_shape[1:])
 
-        # sum across positions
-        features = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
+        # reshape back
+        original_batch_size = params["batch_size"]
+        features_shape = features.get_shape().as_list()
+        features = tf.reshape(
+            features, [original_batch_size, -1] + features_shape[1:]) # {N, mutM, task, pos, M}
+
+        # and sum across positions
+        outputs[DataKeys.FEATURES] = tf.reduce_sum(features, axis=3) # {N, mutM, task, M}
+        
+        # unpad inputs, making sure to save NO auxiliary
+        params.update({"ignore_keys": [DataKeys.FEATURES]})
+        params.update({"save_aux": {}})
+        outputs, _ = unpad_inputs(outputs, params)
 
         # save out to appropriate tensors
-        inputs[DataKeys.FEATURES] = features
-        inputs[DataKeys.DMIM_SCORES] = features
+        outputs[DataKeys.DMIM_SCORES] = tf.identity(outputs[DataKeys.FEATURES])
 
-        # gather correctly
-        outputs = {}
-        for key in inputs.keys():
-            outputs[key] = tf.gather(inputs[key], [0])
-
-        # rebatch
-        params.update({"name": "rebatch_after_dmim"})
-        outputs, _ = rebatch(outputs, params)
-        
         return outputs, params
-    
 
+    
+    
 def get_pwm_scores(inputs, params):
     """scan raw and weighted sequence with shuffles, and threshold
     using shuffles as null distribution
     """
-    # note: need to get (1) raw scores, (2) raw hits, (3) thresholded scores
+    # note: need to get (1) raw scores, (2) raw hits, (3) thresholded scores, (4) count of hits per pwm
     
     # run original sequence
     scanner = MotifScannerWithThresholds(
@@ -387,7 +385,8 @@ def get_pwm_scores(inputs, params):
         shuffles_key=DataKeys.ORIG_SEQ_ACTIVE_SHUF,
         out_scores_key=DataKeys.ORIG_SEQ_PWM_SCORES,
         out_hits_key=DataKeys.ORIG_SEQ_PWM_HITS,
-        out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH)
+        out_scores_thresh_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+        out_thresholds_key=DataKeys.ORIG_SEQ_PWM_SCORES_THRESHOLDS)
     outputs, params = scanner.scan(inputs, params)
     
     # run weighted sequence
@@ -397,7 +396,8 @@ def get_pwm_scores(inputs, params):
         shuffles_key=DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
         out_scores_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES,
         out_hits_key=DataKeys.WEIGHTED_SEQ_PWM_HITS,
-        out_scores_thresh_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH)
+        out_scores_thresh_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+        out_thresholds_key=DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESHOLDS)
     outputs.update(scanner.scan(inputs, params)[0]) 
     
     debug = False
@@ -423,9 +423,6 @@ def get_pwm_scores(inputs, params):
     outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.multiply(
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH],
         outputs[DataKeys.ORIG_SEQ_PWM_HITS])
-
-    # TODO mask raw scores with weighted hits?
-    
     
     # squeeze the raw and weighted to get summed motif score for the example
     # this happens here because you need to filter the scores
@@ -433,13 +430,6 @@ def get_pwm_scores(inputs, params):
     # TODO can try max instead of sum?
     outputs[DataKeys.ORIG_SEQ_PWM_SCORES_SUM] = tf.reduce_sum(
         outputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH], axis=2) # {N, 1, M}
-
-    # relu on the weighted scores for now
-    # TODO remove this?
-    if False:
-        outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH] = tf.nn.relu(
-            outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH]) # {N, task, pos, M}
-
     outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_SUM] = tf.reduce_sum(
         outputs[DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH], axis=2) # {N, task, M}
     
@@ -448,10 +438,18 @@ def get_pwm_scores(inputs, params):
 
     # get max positions and values (for downstream analyses), also null positions
     outputs, _ = get_pwm_max_vals_and_positions(outputs, params)
+    outputs, _ = get_raw_pwm_max_vals_and_positions(outputs, params)
     outputs, _ = get_pwm_null_positions(outputs, params)
+
+    # get the hit counts per pwm (for downstream analysis)
+    outputs[DataKeys.ORIG_SEQ_PWM_HITS_COUNT] = tf.reduce_sum(
+        outputs[DataKeys.ORIG_SEQ_PWM_HITS], axis=2) # {N, 1, M}
+    outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS_COUNT] = tf.reduce_sum(
+        outputs[DataKeys.WEIGHTED_SEQ_PWM_HITS], axis=2) # {N, task, M}
     
     # filter for just those with a motif present
-    outputs, _ = filter_by_any_motif_present(outputs, params)
+    if params.get("use_filtering", True):
+        outputs, _ = filter_by_any_motif_present(outputs, params)
     
     return outputs, params
 
@@ -481,6 +479,35 @@ def get_pwm_max_vals_and_positions(inputs, params):
     
     outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, M, 1}
     outputs[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, M, 1}
+
+    return outputs, params
+
+
+def get_raw_pwm_max_vals_and_positions(inputs, params):
+    """read off the max positions (and vals, comes for free)
+    for downstream analyses
+    """
+    assert inputs.get(DataKeys.ORIG_SEQ_PWM_SCORES_THRESH) is not None
+    
+    # get features
+    features = inputs[DataKeys.ORIG_SEQ_PWM_SCORES_THRESH] # {N, 1, pos, M}    
+    outputs = dict(inputs)
+
+    # reduce and transpose so position is last
+    features = tf.reduce_max(features, axis=1) # {N, pos, M}
+    features = tf.transpose(features, perm=[0,2,1]) # {N, M, pos}
+    
+    # get the max positions ON THE ACTIVE REGION
+    # NOTE that these are indices for the short region!!
+    vals, indices = tf.nn.top_k(features, k=1, sorted=True)
+    indices = tf.add(indices, int(params["filter_width"] / 2.))
+    
+    # adjust for clipping
+    if params.get("left_clip") is not None:
+        indices = tf.add(indices, params["left_clip"])
+    
+    outputs[DataKeys.ORIG_PWM_SCORES_POSITION_MAX_VAL] = vals # {N, M, 1}
+    outputs[DataKeys.ORIG_PWM_SCORES_POSITION_MAX_IDX] = indices # {N, M, 1}
 
     return outputs, params
 
@@ -657,7 +684,7 @@ def cleanup_null_muts(inputs, params):
     return
 
 
-def get_motif_densities(inputs, params):
+def get_motif_densities_OLD(inputs, params):
     """use an avg pool to get density within window
     and also save out the max motif density val
     for now only do on original sequence

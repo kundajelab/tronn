@@ -13,7 +13,7 @@ from tronn.util.utils import DataKeys
 def _setup_input_skip_keys(args):
     """reduce tensors pulled from data files to save time/space
     """
-    if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy"):
+    if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy") or (args.subcommand_name == "mutatemotifs"):
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,
             DataKeys.ORIG_SEQ_ACTIVE_SHUF,
@@ -46,6 +46,11 @@ def _setup_input_skip_keys(args):
             DataKeys.DMIM_SCORES_SIG,
             DataKeys.FEATURES]
         for key in skip_keys:
+            prevent_null_skip = [
+                "{}.string".format(DataKeys.MUT_MOTIF_ORIG_SEQ),
+                DataKeys.MUT_MOTIF_POS]
+            if key in prevent_null_skip:
+                continue
             if "motif_mut" in key:
                 skip_keys.append(key.replace("motif_mut", "null_mut"))
     elif (args.subcommand_name == "scanmotifs"):
@@ -61,7 +66,16 @@ def _setup_output_skip_keys(args):
     """
     if (args.subcommand_name == "dmim") or (args.subcommand_name == "synergy"):
         skip_keys = []
-    elif (args.subcommand_name == "scanmotifs"):
+    elif (args.subcommand_name == "mutatemotifs"):
+        skip_keys = [
+            DataKeys.ORIG_SEQ_PWM_HITS,
+            DataKeys.MUT_MOTIF_ORIG_SEQ,
+            DataKeys.MUT_MOTIF_POS,
+            DataKeys.MUT_MOTIF_MASK]
+        for key in skip_keys:
+            if "motif_mut" in key:
+                skip_keys.append(key.replace("motif_mut", "null_mut"))
+    elif args.subcommand_name == "scanmotifs":
         skip_keys = [
             DataKeys.ORIG_SEQ_SHUF,
             DataKeys.ORIG_SEQ_ACTIVE_SHUF,
@@ -72,6 +86,67 @@ def _setup_output_skip_keys(args):
             DataKeys.WEIGHTED_SEQ_PWM_HITS,
             DataKeys.FEATURES,
             DataKeys.LOGITS_SHUF]
+        if args.lite:
+            # add other tensors to skip
+            lite_keys = [
+                DataKeys.IMPORTANCE_GRADIENTS,
+                DataKeys.WEIGHTED_SEQ,
+                DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+                DataKeys.ORIG_SEQ_PWM_HITS,
+                DataKeys.ORIG_SEQ_PWM_DENSITIES,
+                DataKeys.ORIG_SEQ_PWM_MAX_DENSITIES,
+                DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+                DataKeys.WEIGHTED_SEQ_PWM_HITS]
+            skip_keys += lite_keys
+    elif args.subcommand_name == "simulategrammar":
+        skip_keys = [
+            DataKeys.ORIG_SEQ_SHUF,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            DataKeys.ORIG_SEQ_PWM_SCORES,
+            DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+            DataKeys.ORIG_SEQ_PWM_HITS,
+            DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+            DataKeys.WEIGHTED_SEQ_PWM_HITS,
+            DataKeys.FEATURES,
+            DataKeys.LOGITS_SHUF,
+            DataKeys.ORIG_SEQ_PWM_DENSITIES,
+            DataKeys.ORIG_SEQ_PWM_MAX_DENSITIES]
+    elif args.subcommand_name == "analyzevariants":
+        skip_keys = [
+            DataKeys.ORIG_SEQ_SHUF,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            DataKeys.ORIG_SEQ_PWM_SCORES,
+            DataKeys.ORIG_SEQ_PWM_SCORES_THRESH,
+            DataKeys.WEIGHTED_SEQ_SHUF,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES,
+            DataKeys.WEIGHTED_SEQ_PWM_SCORES_THRESH,
+            DataKeys.WEIGHTED_SEQ_PWM_HITS,
+            DataKeys.FEATURES,
+            DataKeys.LOGITS_SHUF,
+            DataKeys.ORIG_SEQ_PWM_DENSITIES,
+            DataKeys.ORIG_SEQ_PWM_MAX_DENSITIES]
+    elif args.subcommand_name == "buildtracks":
+        skip_keys = [
+            DataKeys.ORIG_SEQ,
+            DataKeys.ORIG_SEQ_ACTIVE,
+            DataKeys.PROBABILITIES,
+            DataKeys.LOGITS_CI,
+            DataKeys.LOGITS_CI_THRESH,
+            DataKeys.LOGITS_SHUF,
+            DataKeys.LOGITS_MULTIMODEL,
+            DataKeys.LOGITS_MULTIMODEL_NORM,
+            DataKeys.IMPORTANCE_GRADIENTS,
+            #DataKeys.WEIGHTED_SEQ,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_CI,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_CI_THRESH,
+            DataKeys.WEIGHTED_SEQ_ACTIVE_SHUF,
+            DataKeys.WEIGHTED_SEQ_THRESHOLDS,
+            DataKeys.ORIG_SEQ_ACTIVE_SHUF,
+            DataKeys.FEATURES]
     else:
         skip_keys = []
         
@@ -115,7 +190,8 @@ def run_single_model_inference(
         args,
         out_prefix=None,
         positives_only=True,
-        kfold=False):
+        kfold=False,
+        yield_single_examples=False): # adjust here for single vs batch output
     """wrapper for inference
     """
     # set up out_file
@@ -145,10 +221,10 @@ def run_single_model_inference(
     # data file adjustments done, set up input fn
     input_fn = data_loader.build_input_fn(
         args.batch_size,
+        shuffle=not args.fifo if args.fifo is not None else True,
         targets=args.targets,
         target_indices=args.target_indices,
         filter_targets=args.filter_targets,
-        singleton_filter_targets=args.singleton_filter_targets,
         examples_subset=args.dataset_examples,
         use_queues=True,
         skip_keys=_setup_input_skip_keys(args))
@@ -160,7 +236,7 @@ def run_single_model_inference(
     # also check if processed inputs, if processed then remove model
     # and replace with empty net (just send tensors through)
     if args.processed_inputs:
-        args.model[""] = "empty_net"
+        args.model["name"] = "empty_net"
         args.inference_params.update({"model_reuse": False})
         model_manager = setup_model_manager(args)
     else:
@@ -172,15 +248,17 @@ def run_single_model_inference(
         args.out_dir,
         args.inference_params,
         checkpoint=model_manager.model_checkpoint,
-        yield_single_examples=True)
+        yield_single_examples=yield_single_examples)
 
     # run inference and save out
-    #os.system("rm {}".format(out_file)) # TODO for nautilus remove this later
     if not os.path.isfile(out_file):
         model_manager.infer_and_save_to_h5(
             inference_generator,
             out_file,
             args.sample_size,
+            batch_size=args.batch_size,
+            h5_saver_batch_size=args.h5_saver_batch_size,
+            yield_single_examples=yield_single_examples,
             debug=args.debug)
 
         # get chrom tags and transfer in

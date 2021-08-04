@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.ggr.resbasset.clf.random-init.9
+spec:
+    template:
+      spec:
+        containers:
+        - name: train-container
+          image: dskim89/tensorflow-genomics
+          env:
+          - name: WORK_DIR
+            value: "/datasets/models.2018-12-03"
+          - name: MODEL
+            value: "resbasset"
+          - name: VALID
+            value: "8"
+          - name: TEST
+            value: "9"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/ggr.${MODEL}.clf.random_init.testfold-${TEST} && mkdir -p $OUT_DIR && /datasets/software/train.ggr.clf.random_init.folds.bash $OUT_DIR $MODEL $VALID $TEST $WORK_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          #    cpu: 16
+              memory: 24Gi
+          #requests:
+          #    cpu: 8
+          #    memory: 8Gi
+          volumeMounts:
+          - mountPath: /datasets
+            name: datasets
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"

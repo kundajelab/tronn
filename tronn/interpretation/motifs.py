@@ -15,8 +15,6 @@ from tronn.stats.nonparametric import select_features_by_permutation_test
 from tronn.stats.nonparametric import threshold_by_qvalues
 from tronn.stats.parametric import run_hypergeometric_test
 
-#from tronn.interpretation.clustering import get_clusters_from_h5
-
 from tronn.util.pwms import MotifSetManager
 from tronn.util.utils import DataKeys
 from tronn.util.h5_utils import AttrKeys
@@ -213,8 +211,19 @@ def copy_sig_pwm_vectors_to_h5(
     return None
 
 
+
+
+
+
+
+
+
+
+# OLD BELOW
+
+
 # TODO deprecate
-def select_pwms_by_permutation_test_and_reduce(
+def select_pwms_by_permutation_test_and_reduce_OLD(
         array,
         pwm_list,
         hclust,
@@ -375,19 +384,3 @@ def extract_significant_pwms(
     
     return None
 
-
-def visualize_significant_pwms_R(
-        h5_file,
-        pwm_scores_agg_clusters_key=DataKeys.PWM_SCORES_AGG_CLUST,
-        pwm_names_attr_key=AttrKeys.PWM_NAMES):
-    """plot out the pwm maps
-    """
-    r_cmd = (
-        "plot-h5.sig_pwms.R {} {} {}").format(
-            h5_file,
-            pwm_scores_agg_clusters_key,
-            pwm_names_attr_key)
-    logging.info(r_cmd)
-    os.system(r_cmd)
-    
-    return None

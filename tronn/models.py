@@ -5,6 +5,7 @@ import os
 import json
 import logging
 import h5py
+#import h5py_cache
 
 import six
 
@@ -16,7 +17,6 @@ from tensorflow.python.estimator import model_fn as model_fn_lib
 from tensorflow.python.estimator.keras import _clone_and_build_model as build_keras_model
 
 from tensorflow.python.keras import models
-#from tensorflow.python.keras import backend as K
 
 from tensorflow.python.training import monitored_session
 
@@ -43,13 +43,9 @@ from tronn.nets.nets import net_fns
 from tronn.nets.normalization_nets import interpolate_logits_to_labels
 
 
-#from tronn.contrib.pytorch.nets import net_fns as pytorch_net_fns
-
-from tronn.interpretation.interpret import visualize_region
-from tronn.interpretation.dreaming import dream_one_sequence
-
 from tronn.visualization import visualize_debug
 
+from tronn.util.h5_utils import compress_h5_file
 from tronn.util.utils import DataKeys
 from tronn.util.formats import write_to_json
 
@@ -293,7 +289,7 @@ class ModelManager(object):
     
     def build_estimator(
             self,
-            params=None,
+            params=None, # TODO use params to load in premodel? key: premodel_params
             config=None,
             warm_start=None,
             regression=False,
@@ -327,7 +323,13 @@ class ModelManager(object):
             # set up the input dict for model fn
             # note that all input goes through features (including labels)
             inputs = features
-            
+
+            # set up premodel fn (preprocessing) as needed
+            if params is not None:
+                premodel_fn = params.get("premodel_fn", None)
+                if premodel_fn is not None:
+                    inputs, _ = premodel_fn(inputs, params)
+                    
             # attach necessary things and return EstimatorSpec
             if mode == tf.estimator.ModeKeys.PREDICT:
                 inference_mode = params.get("inference_mode", False)
@@ -335,7 +337,10 @@ class ModelManager(object):
                     # prediction mode
                     outputs = self.build_prediction_dataflow(
                         inputs, regression=regression, logit_indices=logit_indices)
-                    return tf.estimator.EstimatorSpec(mode, predictions=outputs)
+                    scaffold = self._build_scaffold_with_custom_init_fn()
+                    logging.info("WARNING USING CUSTOM SCAFFOLD - ONLY WORKS FOR ENSEMBLES")
+                    return tf.estimator.EstimatorSpec(
+                        mode, predictions=outputs, scaffold=scaffold)
                 else:
                     # inference mode
                     outputs, variables_to_restore = self.build_inference_dataflow(
@@ -459,10 +464,11 @@ class ModelManager(object):
             logit_indices=logit_indices)
 
         # return prediction generator
-        return estimator.predict(
+        return estimator.infer( # NOTE: THIS IS BECAUSE WE ADJUSTED FOR ENSEMBLES
             input_fn=input_fn,
             checkpoint_path=checkpoint,
-            hooks=hooks)
+            hooks=hooks,
+            yield_single_examples=yield_single_examples)
 
     
     def infer(
@@ -495,7 +501,8 @@ class ModelManager(object):
         return estimator.infer(
             input_fn=input_fn,
             checkpoint_path=checkpoint,
-            hooks=hooks)
+            hooks=hooks,
+            yield_single_examples=yield_single_examples)
 
     
     def dream(
@@ -797,7 +804,10 @@ class ModelManager(object):
 
     
     @staticmethod
-    def infer_and_save_to_h5(generator, h5_file, sample_size, debug=False):
+    def infer_and_save_to_h5(
+            generator, h5_file, sample_size, batch_size=1,
+            h5_saver_batch_size=2048, compress=False,
+            yield_single_examples=True, debug=False):
         """wrapper routine to run inference and save the results out
         """
         if debug:
@@ -809,6 +819,7 @@ class ModelManager(object):
         first_example = generator.next()
         
         # set up the saver
+        #with h5py_cache.File(h5_file, "w", chunk_cache_mem_size=(1024**2)*4000) as hf:
         with h5py.File(h5_file, "w") as hf:
 
             h5_handler = H5Handler(
@@ -816,22 +827,23 @@ class ModelManager(object):
                 first_example,
                 sample_size,
                 resizable=True,
-                batch_size=min(4096, sample_size),
+                batch_size=min(h5_saver_batch_size, sample_size),
+                saving_single_examples=yield_single_examples,
                 is_tensor_input=False)
 
             # and store first outputs
             h5_handler.store_example(first_example)
 
             # now run
-            total_examples = 1
+            total_examples = batch_size
             try:
-                for i in xrange(1, sample_size):
-                    if total_examples % 1000 == 0:
+                for i in xrange(batch_size, sample_size, batch_size):
+                    if total_examples % (100*batch_size) == 0:
                         logging.info("finished {}".format(total_examples))
 
                     example = generator.next()
                     h5_handler.store_example(example)
-                    total_examples += 1
+                    total_examples += batch_size
                     
                     if debug:
                         # here, generate useful graphs
@@ -850,11 +862,15 @@ class ModelManager(object):
                 h5_handler.flush()
                 h5_handler.chomp_datasets()
 
+        # and compress if requested
+        if compress:
+            compress_h5_file(h5_file)
+        
         return sample_size - total_examples
 
     
     @staticmethod
-    def dream_and_save_to_h5(generator, h5_handle, group, sample_size=100000):
+    def dream_and_save_to_h5(generator, h5_handle, group, sample_size=100000, h5_saver_batch_size=4096):
         """wrapper routine to run dreaming and save results out
         """
         logging.info("starting dream")
@@ -867,7 +883,7 @@ class ModelManager(object):
             sample_size,
             group=group,
             resizable=True,
-            batch_size=4096,
+            batch_size=h5_saver_batch_size,
             is_tensor_input=False)
 
         # and score first output

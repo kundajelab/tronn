@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.ggr.buildtracks.basset
+spec:
+    template:
+      spec:
+        containers:
+        - name: train-container
+          image: dskim89/tensorflow-genomics
+          env:
+          - name: MODEL_DIR
+            value: "/datasets/dskim89/models.2018-12-03"
+          - name: MODEL
+            value: "basset"
+          - name: OUT_DIR
+            value: "/datasets/dskim89/inference.2020-10-05/tracks"
+          - name: BED_FILE
+            value: "/datasets/ggr/test_data/ggr.master.1k.bed.gz"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && mkdir -p $OUT_DIR && /datasets/software/git/tronn/scripts/ggr/kube/buildtracks.ggr.bash $MODEL_DIR $MODEL $BED_FILE $OUT_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 2
+              cpu: 8
+              memory: 32Gi
+            requests:
+              cpu: 4
+              memory: 20Gi
+          volumeMounts:
+          - mountPath: /datasets
+            name: datasets
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: gpu-type
+                  operator: In # Use NotIn for other types
+                  values:
+                  - "1080Ti"

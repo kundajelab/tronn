@@ -59,16 +59,17 @@ def main():
     prefix = "{}/{}".format(args.out_dir, args.prefix)
     
     # GGR ordered trajectory indices
-    indices = [0,7,8,9,10,11,12,13,14,1,2,3,4,5]
-    labels = ["TRAJ-{}".format(val) for val in range(1,15)]
+    with h5py.File(args.data_file, "r") as hf:
+        foregrounds_keys = hf["pvals"].attrs["foregrounds.keys"]
+    labels = [val.replace("_LABELS", "") for val in foregrounds_keys]
     days  = ["day {0:.1f}".format(float(val))
              for val in [0,1,1.5,2,2.5,3,4.5,5,6]]
 
     # go through each index to collect
-    for i in range(len(indices)):
-        index = indices[i]
-        key = "TRAJ_LABELS-{}".format(index)
-    
+    for i in range(len(foregrounds_keys)):
+        key = foregrounds_keys[i]
+        #key = "TRAJ_LABELS-{}".format(index)
+        
         with h5py.File(args.data_file, "r") as hf:
             sig = hf["pvals"][key]["sig"][:]
             rna_patterns = hf["pvals"][key]["rna_patterns"][:]
@@ -81,7 +82,7 @@ def main():
         tf_present = pd.DataFrame(
             correlations,
             index=hgnc_ids)
-        tf_present.columns = [index]
+        tf_present.columns = [key]
         
         # rna pattern
         tf_data = pd.DataFrame(rna_patterns, index=hgnc_ids)
@@ -90,11 +91,13 @@ def main():
         pwm_present = pd.DataFrame(
             np.arcsinh(np.max(pwm_patterns, axis=1)),
             index=pwm_names)
-        pwm_present.columns = [index]
-
+        pwm_present.columns = [key]
+        
         # pwm pattern
         pwm_data = pd.DataFrame(pwm_patterns, index=pwm_names)
+        pwm_data["pwm_names"] = pwm_data.index.values
         pwm_data = pwm_data.drop_duplicates()
+        pwm_data = pwm_data.drop("pwm_names", axis=1)
         
         if i == 0:
             traj_tfs = tf_present
@@ -111,8 +114,9 @@ def main():
 
     # remove nans/duplicates
     traj_tfs = traj_tfs.fillna(0)
-    traj_pwms = traj_pwms.fillna(0).drop_duplicates()
-
+    traj_pwms = traj_pwms.fillna(0).reset_index().drop_duplicates()
+    traj_pwms = traj_pwms.set_index("index")
+    
     # reindex
     tf_patterns = tf_patterns.reindex(traj_tfs.index)
     motif_patterns = motif_patterns.groupby(motif_patterns.index).mean() # right now, just average across trajectories (though not great)

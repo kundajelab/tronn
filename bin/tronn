@@ -37,6 +37,9 @@ def parse_args():
     # command for motif scan
     add_scanmotifs_parser(subparsers)
 
+    # command for mutate motifs
+    add_mutatemotifs_parser(subparsers)
+
     # command for dmim scan
     add_dmim_parser(subparsers)
     
@@ -45,6 +48,9 @@ def parse_args():
 
     # command for synergy scan
     add_synergy_parser(subparsers)
+
+    # command for grammar characterization
+    add_simulategrammar_parser(subparsers)
     
     # command for activation maximization
     add_dream_parser(subparsers)
@@ -59,7 +65,7 @@ def parse_args():
     add_baseline_parser(subparsers)
 
     # visualize importance scores parser
-    add_plotregions_parser(subparsers)
+    add_buildtracks_parser(subparsers)
     
     # command for extracting model variables
     add_export_model_parser(subparsers)
@@ -77,6 +83,15 @@ def _add_output_args(parser, out_dir="./"):
         "-o", "--out_dir", dest="out_dir", type=str,
         default=out_dir,
         help = "Output directory (default: current)")
+    parser.add_argument(
+        "--scratch_dir",
+        help = "scratch directory (default: current) - scratch space for faster I/O")
+    parser.add_argument(
+        "--tmp_dir",
+        help = "tmp directory (default: $out_dir/tmp) - where to put data/results that will be deleted after the run")
+    parser.add_argument(
+        "--copy_data_to_tmp", action="store_true",
+        help="if needed (faster disk, reduce network time) copy data to tmp_dir")
     parser.add_argument(
         '--prefix', required=True,
         help='prefix to attach onto file names')
@@ -186,8 +201,6 @@ def add_preprocess_parser(subparsers):
     group_output = argparser_preprocess.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="./datasets/dataset")
-    group_output.add_argument(
-        "--tmp_dir", help="directory for tmp files")
 
     return
 
@@ -197,35 +210,60 @@ def _add_dataset_args(parser):
     """
     parser.add_argument(
         "--data_format", default="hdf5",
-        help="dataset storage format (hdf5, bed, custom)")
+        help="dataset format (hdf5, bed, pwm_sims)")
     parser.add_argument(
         "--data_dir",
-        help="h5 file directory")
+        help="dataset directory")
     parser.add_argument(
         "--data_files", nargs="+", default=[],
         help="dataset files")
     parser.add_argument(
-        "--fasta",
-        help="fasta file")
-    parser.add_argument(
         "--dataset_json",
         help="use a json as input instead. other data args will supersede this json if requested")
     parser.add_argument(
+        "--fasta",
+        help="fasta file")
+    parser.add_argument(
+        "--fifo", action="store_true",
+        help="don't shuffle data")
+    parser.add_argument(
         "--targets", nargs="+", default=[],
-        help="which datasets to load as targets (ordered). Expected format: data_key=indices_list_with_commas")
-    parser.add_argument(
-        "--filter_targets", nargs="+", default=[],
-        help="at least 1 of these targets must be POSITIVE. Format: data_key=indices_list_with_commas")
-    parser.add_argument(
-        "--singleton_filter_targets", nargs="+", default=[],
-        help="2 or more of these targets must be POSITIVE. Format: data_key=indices_list_with_commas")
+        help="H5 INPUT ONLY: which datasets to load as targets (ordered). Format: whitespace separated list of data_key=indices_list_with_commas::other_params")
     parser.add_argument(
         "--target_indices", nargs="+", default=[], type=int,
-        help="after collection of labels, which of those to finally select. Format: indices_list_with_commas")
+        help="H5 INPUT ONLY: after collection of (ordered) targets, which of those to keep. Format: whitespace separated list of data_key=indices_list_with_commas::other_params")
+    parser.add_argument(
+        "--filter_targets", nargs="+", default=[],
+        help="H5 INPUT ONLY: targets to filter on. Format: whitespace separated list of data_key=indices_list_with_commas::other_params")
+    parser.add_argument( 
+        "--processed_inputs", action="store_true",
+        help="H5 INPUT ONLY: inputs are already preprocessed through some inference stack")
     parser.add_argument(
         "--dataset_examples", nargs="+", default=[],
-        help="option to throw in specific examples to run")
+        help="H5 INPUT ONLY: option to throw in specific examples to run")
+    
+    # add input args if using BED file
+    _add_dataset_bed_args(parser)
 
+    return None
+
+
+def _add_dataset_bed_args(parser):
+    """add args specific to BED file input
+    """
+    parser.add_argument(
+        "--bin_width", type=int, default=200,
+        help="BED INPUT ONLY: center active region length")
+    parser.add_argument(
+        "--stride", type=int, default=50,
+        help="BED INPUT ONLY: stride (how many bp to skip when going to next interval)")
+    parser.add_argument(
+        "--final_length", type=int, default=1000,
+        help="BED INPUT ONLY: final feature input length")
+    parser.add_argument(
+        "--num_flanks", type=int, default=3,
+        help="BED INPUT ONLY: how many flanks to process on either side")
+    
     return None
 
 
@@ -239,14 +277,29 @@ def _setup_dataset_args(args):
     else:
         args.dataset_json = {}
 
-    # load targets from json if not given
+    # load data dir from json if not given (args.data_dir supersedes json)
+    if args.data_dir is None:
+        args.data_dir = args.dataset_json.get("data_dir")
+        
+    # load data files from json. setting args.data_files supersedes json.
+    if len(args.data_files) == 0:
+        args.data_files = args.dataset_json.get("data_files", [])
+        
+    # load targets from json. setting args.targets supersedes json
     if len(args.targets) == 0:
         args.targets = args.dataset_json.get("targets", [])
     else:
         args.targets = parse_multi_target_selection_strings(
             args.targets)
 
-    # load filter targets from json if not given
+    # load target indices from json. setting args.target_indices supersedes json
+    if len(args.target_indices) == 0:
+        args.target_indices = args.dataset_json.get("target_indices", [])
+    else:
+        args.target_indices = parse_multi_target_selection_strings(
+            args.target_indices)
+    
+    # load filter targets from json. setting args.filter_targets supersedes json
     if len(args.filter_targets) == 0:
         args.filter_targets = args.dataset_json.get("filter_targets", [])
     else:
@@ -256,6 +309,80 @@ def _setup_dataset_args(args):
     # if fasta is not given, check dataset json
     if args.fasta is None:
         args.fasta = args.dataset_json.get("fasta")
+    
+    return None
+
+
+def _add_dataset_pwmsims_args(parser):
+    """dataset args specifically for simulations with PWMs
+    """
+    parser.add_argument(
+        "--dataset_pwm_file",
+        help="PWMSIMS INPUT ONLY: pwm_file")
+    parser.add_argument(
+        "--sample_range", default=[420, 580], nargs="+", # 420 to 580
+        help="PWMSIMS INPUT ONLY: range for embedding in sequence")
+    parser.add_argument(
+        "--grammar_range", default=[0, 70], nargs="+", # 0 to 120
+        help="PWMSIMS INPUT ONLY: range of distances to consider")
+    parser.add_argument(
+        "--pwm_stride", default=1, type=int,
+        help="PWMSIMS INPUT ONLY: bp resolution of tests")
+    parser.add_argument(
+        "--min_spacing", default=5, type=int,
+        help="PWMSIMS INPUT ONLY: bp resolution of tests")
+    parser.add_argument(
+        "--num_samples", default=30, type=int,
+        help="PWMSIMS INPUT ONLY: number of samples for each grammar setup")
+    parser.add_argument(
+        "--gc_range", default=[0.20, 0.80], nargs="+",
+        help="PWMSIMS INPUT ONLY: GC range for random background sequence")
+    parser.add_argument(
+        "--background_regions",
+        help="PWMSIMS INPUT ONLY: bed file from which to select background sequence content")
+    parser.add_argument(
+        "--embedded_only", action="store_true",
+        help="PWMSIMS INPUT ONLY: don't output the original background sequence")
+
+    # args if doing single pwm analyses (homotypic clustering)
+    parser.add_argument(
+        "--single_pwm", action="store_true",
+        help="PWMSIMS INPUT ONLY: pwm sims for single pwm analyses. REQURES data_files is a text file with a single pwm name")
+    parser.add_argument(
+        "--count_range", default=[1, 6], nargs="+",
+        help="PWMSIMS INPUT ONLY: number of PWMs to embed")
+    
+    return None
+
+
+def _setup_dataset_pwmsims_args(args):
+    """set up simulate grammar args
+    """
+    # make sure data files is a list of length 1
+    assert len(args.data_files) == 1
+    
+    # load pwm file
+    if args.dataset_pwm_file is not None:
+        args.dataset_pwm_list = MotifSetManager.read_pwm_file(args.dataset_pwm_file)
+        args.dataset_pwm_names = [pwm.name for pwm in args.dataset_pwm_list]
+        args.dataset_pwm_dict = MotifSetManager.read_pwm_file(args.dataset_pwm_file, as_dict=True)
+    else:
+        args.dataset_pwm_list = None
+        args.dataset_pwm_names = None
+        args.dataset_pwm_dict = None
+
+    # make sure dtypes are right
+    args.sample_range = [int(val) for val in args.sample_range]
+    args.grammar_range = [int(val) for val in args.grammar_range]
+    args.gc_range = [float(val) for val in args.gc_range]
+
+    assert len(args.sample_range) == 2
+    assert len(args.grammar_range) == 2
+    assert len(args.gc_range) == 2
+    
+    # only used for single pwm analyses
+    args.count_range = [int(val) for val in args.count_range]
+    assert len(args.count_range) == 2
     
     return None
 
@@ -322,7 +449,7 @@ def _setup_model_args(args):
         args.model["checkpoint"] = args.model_checkpoint
 
     # and update for model json dir
-    if args.model_json is not None:
+    if (args.model_json is not None) and (args.model_framework != "keras"):
         args.model["checkpoint"] = "{}/train/{}".format(
             os.path.dirname(args.model_json),
             os.path.basename(args.model["checkpoint"]))
@@ -485,6 +612,22 @@ def add_evaluate_parser(subparsers):
     return
 
 
+def _add_outlayer_args(parser):
+    """adjustments at the output layer args
+    """
+    parser.add_argument(
+        "--prediction_sample", default=None,
+        help="file of predictions for quantile norm")
+    parser.add_argument(
+        "--h5_saver_batch_size", default=2048, type=int,
+        help="chunking before saving to h5 (improve I/O)")
+    parser.add_argument(
+        "--sample_size", default=10000000, type=int,
+        help="total regions (post filtering) to return")
+    
+    return
+
+
 def add_predict_parser(subparsers):
     """Add argument parser for predicting with trained models
     """
@@ -496,6 +639,7 @@ def add_predict_parser(subparsers):
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
     _add_dataset_args(group_dataset)
+    _add_dataset_pwmsims_args(group_dataset)
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -512,13 +656,56 @@ def add_predict_parser(subparsers):
     	"--regression", action="store_true",
     	help="evaluate regression")
     group_params.add_argument(
-    	"--num_evals", default=1000, type=int,
+    	"--num_evals", default=10000000, type=int,
     	help="Number of steps to run for prediction")
-
+    _add_outlayer_args(group_params)
+    
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir='prediction')
+    
+    return
+
+
+def _add_backprop_args(parser):
+    """backprop interpretation args
+    """
+    parser.add_argument(
+        "--inference_targets", nargs="+", type=int,
+        help="tasks to extract importance scores - must be global indices") 
+    parser.add_argument(
+        "--backprop", default="input_x_grad",
+        help="what method to use for interpretation")
+    
+    return
+
+
+def _add_pwm_conv_args(parser):
+    """args pertaining specifically to pwm conv layer
+    """
+    parser.add_argument(
+        "--pwm_file", default=None,
+        help="pwm file")
+    parser.add_argument(
+        "--add_rc_pwms", action="store_true",
+        help="also load the pwms in the reverse complement orientation")
+    
+    return
+
+
+def _setup_pwm_conv_args(args):
+    """args pertaining specifically to pwm conv layer
+    """
+    # read in pwm file
+    if args.pwm_file is not None:
+        args.pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
+        args.pwm_names = [pwm.name for pwm in args.pwm_list]
+        args.pwm_dict = MotifSetManager.read_pwm_file(args.pwm_file, as_dict=True)
+    else:
+        args.pwm_list = None
+        args.pwm_names = None
+        args.pwm_dict = None
     
     return
 
@@ -529,12 +716,7 @@ def _add_interpretation_args(parser, inference_fn="sequence_to_motif_scores"):
     parser.add_argument(
         "--infer_json",
         help="inference json file to continue from last run")
-    parser.add_argument(
-        "--inference_targets", nargs="+", type=int,
-        help="tasks to extract importance scores - must be global indices") 
-    parser.add_argument(
-        "--backprop", default="input_x_grad",
-        help="what method to use for interpretation")
+    _add_backprop_args(parser)
     parser.add_argument(
         "--inference_fn", default=inference_fn,
         help="inference stack")
@@ -544,18 +726,16 @@ def _add_interpretation_args(parser, inference_fn="sequence_to_motif_scores"):
     parser.add_argument(
         "--right_clip", default=580, type=int,
         help="how much to clip off the right sequence flank")
+    _add_outlayer_args(parser)
     parser.add_argument(
-        "--pwm_file", default=None,
-        help="pwm file")
-    parser.add_argument(
-        "--sample_size", default=100000, type=int,
-        help="total regions (post filtering) to return")
-    parser.add_argument(
-        "--prediction_sample", default=None,
-        help="file of predictions for quantile norm")
+        "--use_filtering", action="store_true",
+        help="filter out examples with no importance scores and/or no motif hits") # todo split out motif/impt filters
     parser.add_argument(
         "--debug", action="store_true",
         help="visualize outputs to help debug. NOTE: use small sample size!")
+
+    # pwm conv layer
+    _add_pwm_conv_args(parser)
     
     return
 
@@ -580,10 +760,8 @@ def _setup_interpretation_args(args):
         args.pwm_file = args.infer_json.get("pwm_file")
             
     # pwm file
-    args.pwm_list = MotifSetManager.read_pwm_file(args.pwm_file)
-    args.pwm_names = [pwm.name for pwm in args.pwm_list]
-    args.pwm_dict = MotifSetManager.read_pwm_file(args.pwm_file, as_dict=True)
-
+    _setup_pwm_conv_args(args)
+    
     # set up inference dict
     args.inference_params = {
         "cmd_name": args.subcommand_name,
@@ -594,9 +772,11 @@ def _setup_interpretation_args(args):
         "backprop": args.backprop,
         "left_clip": args.left_clip,
         "right_clip": args.right_clip,
+        "use_filtering": args.use_filtering,
         "prediction_sample": args.prediction_sample,
-        "pwms": args.pwm_list}
-    
+        "pwms": args.pwm_list,
+        "add_rc_pwms": True if args.add_rc_pwms else False}
+
     return
 
 
@@ -666,11 +846,6 @@ def add_scanmotifs_parser(subparsers):
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
     _add_dataset_args(group_dataset)
-    # placeholder right now (to make downstream processing in interp equal)
-    # figure out how to remove?
-    group_dataset.add_argument( 
-        "--processed_inputs", action="store_true",
-        help="inputs are already preprocessed through some inference stack")
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -693,8 +868,8 @@ def add_scanmotifs_parser(subparsers):
         "Output files and folders")
     _add_output_args(group_output, out_dir="motifs")
     group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory as needed')
+        "--lite", action="store_true",
+        help="store only most essential tensors (lite output)")
 
     return
 
@@ -711,12 +886,12 @@ def add_buildgrammars_parser(subparsers):
         "Grammar build type")
     group_analysis.add_argument(
         "--scan_type", default="dmim",
-        help="type of results being used")
+        help="type of results being used (hits, impt, mut)")
     group_analysis.add_argument(
         "--min_positive_tasks", default=2, type=int,
         help="minimum cell states (tasks) in which effect exists to generate edge")
     group_analysis.add_argument(
-        "--subgraph_max_k", default=3, type=int,
+        "--subgraph_max_k", default=2, type=int,
         help="when searching graph, max nodes to include in a subgraph")
     group_analysis.add_argument(
         "--min_support_fract", default=0.10, type=float,
@@ -724,13 +899,6 @@ def add_buildgrammars_parser(subparsers):
     group_analysis.add_argument(
         "--min_support", default=200, type=int,
         help="min number of examples needed to support a grammar")
-    #group_analysis.add_argument(
-    #    "--max_overlap_fraction", default=0.3, type=float,
-    #    help="max fraction of regions that can overlap between two subgraphs")
-    #group_analysis.add_argument(
-    #    "--return_top_k", type=int,
-    #    help="if requested return just the top k subgraphs, ranked by output strength")
-
     
     # group for dataset
     group_dataset = cmd_argparser.add_argument_group(
@@ -742,17 +910,69 @@ def add_buildgrammars_parser(subparsers):
         "--foreground_targets", required=True,
         help="key to pvals")
     group_dataset.add_argument(
+        "--rc_pwms_present", action="store_true",
+        help="whether RC pwms are in dataset")
+    group_dataset.add_argument(
+        "--keep_grammars", nargs="+", default=[],
+        help="grammars to keep IF they exist. use pwm names separated by commas")
+    group_dataset.add_argument(
+        "--ignore_pwms", nargs="+", default=[],
+        help="motifs to ignore in grammar building")
+    group_dataset.add_argument(
         "--aux_data_keys", nargs="+", default=[],
         help="extra dataset summaries to add")
-    #group_dataset.add_argument(
-    #    "--scan_key",
-    #    help="dataset key with scores") # either motifs {N, task, M} or dmim {N, mutM, task, M}, with dmim need to consider outputs logits {N, mutM, logits}
     _add_sig_pwms_args(group_dataset)
     
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="grammars")
+    
+    return
+
+
+def add_mutatemotifs_parser(subparsers):
+    """scan grammars from a grammar file
+    """
+    cmd_argparser = subparsers.add_parser(
+        "mutatemotifs",
+        help="Mutate motifs and predict results")
+
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    _add_sig_pwms_args(group_dataset)
+    group_dataset.add_argument(
+        "--batch_size", default=4, type=int,
+        help="batch size")
+    
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
+        
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    group_interpret.add_argument(
+        "--infer_json",
+        help="load in infer json from scanmotifs (get pwm file)")
+    _add_mutate_args(
+        group_interpret)
+    _add_outlayer_args(group_interpret)
+
+    # group for cmd specific functions
+    group_other = cmd_argparser.add_argument_group(
+        "Misc params")
+    group_other.add_argument(
+        "--foreground_targets", nargs="+",
+        help="must match label in sig pwms file!")
+    
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    _add_output_args(group_output, out_dir="mutatemotifs")
     
     return
 
@@ -768,9 +988,6 @@ def add_dmim_parser(subparsers):
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
     _add_dataset_args(group_dataset)
-    group_dataset.add_argument(
-        "--processed_inputs", action="store_true",
-        help="inputs are already preprocessed through some inference stack") # deprecate, assume this is true
     _add_sig_pwms_args(group_dataset)
 
     # group for model
@@ -794,8 +1011,6 @@ def add_dmim_parser(subparsers):
     # group for cmd specific functions
     group_other = cmd_argparser.add_argument_group(
         "Misc params")
-    #group_other.add_argument(
-    #    "--manifold_file", help="manifold h5 file")
     group_other.add_argument(
         "--foreground_targets", nargs="+",
         help="which targets to use as foreground for calling motif enrichment")
@@ -804,9 +1019,6 @@ def add_dmim_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="dmim")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory')
     
     return
 
@@ -822,9 +1034,7 @@ def add_synergy_parser(subparsers):
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
     _add_dataset_args(group_dataset)
-    group_dataset.add_argument(
-        "--processed_inputs", action="store_true",
-        help="inputs are already preprocessed through some inference stack")
+    _add_dataset_pwmsims_args(group_dataset)
     
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -854,12 +1064,45 @@ def add_synergy_parser(subparsers):
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="dmim")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory')
     
     return
 
+
+def add_simulategrammar_parser(subparsers):
+    """build synthetic sequences to simulate grammar
+    """
+    cmd_argparser = subparsers.add_parser(
+        "simulategrammar",
+        help="Build synthetic sequences with grammar embedded")
+
+    # group for dataset
+    group_dataset = cmd_argparser.add_argument_group(
+        "Dataset arguments")
+    _add_dataset_args(group_dataset)
+    _add_dataset_pwmsims_args(group_dataset)
+
+    # group for model
+    group_model = cmd_argparser.add_argument_group(
+        "Model arguments")
+    _add_model_args(group_model)
+    
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    group_interpret.add_argument(
+        "--batch_size", default=8, type=int,
+        help="internal batch size")
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="sequence_to_motif_scores")
+        
+    # group for output files
+    group_output = cmd_argparser.add_argument_group(
+        "Output files and folders")
+    _add_output_args(group_output, out_dir="simulategrammar")
+    
+    return
+        
 
 def add_dream_parser(subparsers):
     """activation maximization
@@ -904,15 +1147,20 @@ def add_analyzevariants_parser(subparsers):
     """
     cmd_argparser = subparsers.add_parser(
         "analyzevariants",
-        help="Scan sequence with motifs from a PWM file")
+        help="Analyze variants from a VCF file")
 
     # group for dataset
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
-    _add_dataset_args(group_dataset)
     group_dataset.add_argument(
-        "--processed_inputs", action="store_true",
-        help="inputs are already preprocessed through some inference stack")
+        "--data_format", default="vcf",
+        help="format for dataloader")
+    group_dataset.add_argument(
+        "--vcf_file",
+        help="VCF formatted input file of variants")
+    group_dataset.add_argument(
+        "--fasta",
+        help="fasta file")
 
     # group for model
     group_model = cmd_argparser.add_argument_group(
@@ -922,15 +1170,18 @@ def add_analyzevariants_parser(subparsers):
     # group for interpretation params
     group_interpret = cmd_argparser.add_argument_group(
         "Interpretation params")
-    _add_interpretation_args(group_interpret)
-
+    group_interpret.add_argument(
+        "--batch_size", default=32, type=int,
+        help="batch size")
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="variants_to_scores")
+    _add_visualization_args(group_interpret)
+    
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="motifs")
-    group_output.add_argument(
-        '--tmp_dir',
-        help='temporary scratch directory as needed')
     
     return
 
@@ -979,52 +1230,41 @@ def add_baseline_parser(subparsers):
     return
 
 
-def add_plotregions_parser(subparsers):
+def add_buildtracks_parser(subparsers):
     """plot a region, either command line region ID or BED file of regions
     """
     cmd_argparser = subparsers.add_parser(
-        "plotregions",
+        "buildtracks",
         help="plot importance scores for a region")
-
-    # inputs
+    
+    # group for dataset
     group_dataset = cmd_argparser.add_argument_group(
         "Dataset arguments")
+    _add_dataset_args(group_dataset)
     group_dataset.add_argument(
-        "--fasta",
-        help="fasta file")
-    group_dataset.add_argument(
-        "--region_id",
-        help="single region to plot, in the form chrom:start-stop (ex chr1:100-200)")
-    group_dataset.add_argument(
-        "--bed_input",
-        help="bed file of regions to plot")
-
-    # params
-    group_params = cmd_argparser.add_argument_group(
-        "Param arguments")
-    group_params.add_argument(
-        "--stride", default=1, type=int,
-        help="stride to get importance scores")
+        "--chromsizes",
+        help="chromsizes file")
     
     # group for model
     group_model = cmd_argparser.add_argument_group(
         "Model arguments")
     _add_model_args(group_model)
+
+    # group for interpretation params
+    group_interpret = cmd_argparser.add_argument_group(
+        "Interpretation params")
+    group_interpret.add_argument(
+        "--batch_size", default=32, type=int,
+        help="batch size")
+    _add_interpretation_args(
+        group_interpret,
+        inference_fn="sequence_to_importances")
     
     # group for output files
     group_output = cmd_argparser.add_argument_group(
         "Output files and folders")
     _add_output_args(group_output, out_dir="grammars")
     
-    return
-
-
-def add_makebigwig_parser(subparsers):
-    """go through genome and make a bigwig
-    """
-    
-    
-
     return
 
 
@@ -1069,12 +1309,33 @@ def _is_integer(val):
 def main():
     """Main function for running TRoNN functions
     """
-    # parse args and set up
+    # parse args 
     args = parse_args()
+
+    # set up scratch dir as needed
+    if args.scratch_dir is not None:
+        os.system("mkdir -p {}".format(args.scratch_dir))
+        out_dir_final = str(args.out_dir)
+        args.out_dir = args.scratch_dir
+    else:
+        out_dir_final = args.out_dir
+
+    # set up tmp dir
+    if args.tmp_dir is None:
+        args.tmp_dir = "{}/tmp".format(args.out_dir)
+    os.system("mkdir -p {}".format(args.tmp_dir))
+
+    # if user wants to copy data over to tmp set up args.tmp_data_dir
+    if args.copy_data_to_tmp:
+        args.tmp_data_dir = args.tmp_dir
+    else:
+        args.tmp_data_dir = None
+        
+    # set up logs
     args.out_dir = os.path.abspath(args.out_dir)
     os.system("mkdir -p {}".format(args.out_dir))
     setup_run_logs(args, args.subcommand_name)
-
+    
     # get subcommand run function and run
     subcommand = args.subcommand_name
 
@@ -1082,11 +1343,6 @@ def main():
         _setup_annotations(args)
         _setup_preprocess(args)
         from tronn.preprocess_cmd import run
-        run(args)
-    elif subcommand == "preprocess_variants":
-        _setup_annotations(args)
-        _setup_preprocess(args)
-        from tronn.preprocess_variants_cmd import run
         run(args)
     elif subcommand == 'train':
         _setup_dataset_args(args)
@@ -1101,6 +1357,7 @@ def main():
         run(args)
     elif subcommand == "predict":
         _setup_dataset_args(args)
+        _setup_dataset_pwmsims_args(args)
         _setup_model_args(args)
         from tronn.predict_cmd import run
         run(args)
@@ -1110,6 +1367,11 @@ def main():
         _setup_model_args(args)
         _setup_visualization_args(args)
         from tronn.scanmotifs_cmd import run
+        run(args)
+    elif subcommand == "mutatemotifs":
+        _setup_dataset_args(args)
+        _setup_model_args(args)
+        from tronn.mutatemotifs_cmd import run
         run(args)
     elif subcommand == "dmim":
         _setup_interpretation_args(args)
@@ -1126,9 +1388,19 @@ def main():
         _setup_interpretation_args(args)
         _setup_mutate_args(args)
         _setup_dataset_args(args)
+        _setup_dataset_pwmsims_args(args)
         _setup_model_args(args)
         _setup_visualization_args(args)
         from tronn.synergy_cmd import run
+        run(args)
+    elif subcommand == "simulategrammar":
+        _setup_interpretation_args(args)
+        _setup_dataset_pwmsims_args(args)
+        _setup_model_args(args)
+        # force dataset args (do this in cmd??)
+        args.data_format = "pwm_sims"
+        args.fifo = True
+        from tronn.simulategrammars_cmd import run
         run(args)
     elif subcommand == "dream":
         _setup_dataset_args(args)
@@ -1137,25 +1409,36 @@ def main():
         from tronn.dream_cmd import run
         run(args)
     elif subcommand == "analyzevariants":
-        _setup_dataset_args(args)
-        _setup_model(args)
+        _setup_interpretation_args(args)
+        _setup_model_args(args)
         from tronn.analyzevariants_cmd import run
         run(args)
     elif subcommand == "baseline":
         _setup_dataset_args(args)
         from tronn.run_tensorforest import run
         run(args)
-    elif subcommand == "plotregions":
+    elif subcommand == "buildtracks":
+        _setup_interpretation_args(args)
         _setup_model_args(args)
-        from tronn.plotregions_cmd import run
+        from tronn.buildtracks_cmd import run
         run(args)
     elif subcommand == "exportmodel":
         _setup_dataset_args(args)
         _setup_model_args(args)
         from tronn.export_cmd import run
         run(args)
-    # add new commands here
-        
+    else:
+        raise ValueError, "command not implemented!"
+
+    # clear the tmp dir
+    os.system("rm -r {}".format(args.tmp_dir))
+    
+    # if used scratch_dir, copy back
+    if out_dir_final != args.out_dir:
+        copy_cmd = "rsync -avz --progress {}/ {}/".format(args.out_dir, out_dir_final)
+        logging.info(copy_cmd)
+        os.system(copy_cmd)
+    
     return None
 
 

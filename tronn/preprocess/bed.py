@@ -121,14 +121,14 @@ def split_bed_to_chrom_bed_parallel(
 
 
 def _get_adjusted_start_and_stop(
-        start, stop, method, num_flanks=3):
+        start, stop, method, stride=50, num_flanks=3):
     """adjust the start and stop of a region based on whether
     flanks should be present
     """
     if method == 'naive':
         # Just go from start of region to end of region
         mark = start
-        adjusted_stop = stop
+        adjusted_stop = stop - 100 # stop earlier, since naive method is half active area (200)
     elif method == 'plus_flank_negs':
         # Add 3 flanks to either side
         mark = max(start - num_flanks * stride, 0)
@@ -181,7 +181,7 @@ def bin_regions_sharded(
 
             # adjust start/stop as needed
             adjusted_start, adjusted_stop = _get_adjusted_start_and_stop(
-                start, stop, method, num_flanks=num_flanks)
+                start, stop, method, stride=stride, num_flanks=num_flanks)
 
             # bin and save out
             while adjusted_start < adjusted_stop:

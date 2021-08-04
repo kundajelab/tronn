@@ -54,8 +54,10 @@ class DataKeys(object):
     PWM_SCORES_ROOT = "pwm-scores"
 
     ORIG_SEQ_PWM_HITS = "{}.pwm-hits".format(ORIG_SEQ_ACTIVE)
+    ORIG_SEQ_PWM_HITS_COUNT = "{}.count".format(ORIG_SEQ_PWM_HITS)
     ORIG_SEQ_PWM_SCORES = "{}.{}".format(ORIG_SEQ_ACTIVE, PWM_SCORES_ROOT)
     ORIG_SEQ_PWM_SCORES_THRESH = "{}.thresh".format(ORIG_SEQ_PWM_SCORES)
+    ORIG_SEQ_PWM_SCORES_THRESHOLDS = "{}.thresholds".format(ORIG_SEQ_PWM_SCORES)
     ORIG_SEQ_PWM_SCORES_SUM = "{}.sum".format(ORIG_SEQ_PWM_SCORES_THRESH)
     ORIG_SEQ_SHUF_PWM_SCORES = "{}.{}".format(ORIG_SEQ_ACTIVE_SHUF, PWM_SCORES_ROOT)
     
@@ -63,12 +65,16 @@ class DataKeys(object):
     ORIG_SEQ_PWM_MAX_DENSITIES = "{}.max".format(ORIG_SEQ_PWM_DENSITIES)
     
     WEIGHTED_SEQ_PWM_HITS = "{}.pwm-hits".format(WEIGHTED_SEQ_ACTIVE)    
+    WEIGHTED_SEQ_PWM_HITS_COUNT = "{}.count".format(WEIGHTED_SEQ_PWM_HITS)
     WEIGHTED_SEQ_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE, PWM_SCORES_ROOT)
     WEIGHTED_SEQ_PWM_SCORES_THRESH = "{}.thresh".format(WEIGHTED_SEQ_PWM_SCORES)
+    WEIGHTED_SEQ_PWM_SCORES_THRESHOLDS = "{}.thresholds".format(WEIGHTED_SEQ_PWM_SCORES)
     WEIGHTED_SEQ_PWM_SCORES_SUM = "{}.sum".format(WEIGHTED_SEQ_PWM_SCORES_THRESH) # CHECK some downstream change here
     WEIGHTED_SEQ_SHUF_PWM_SCORES = "{}.{}".format(WEIGHTED_SEQ_ACTIVE_SHUF, PWM_SCORES_ROOT)
 
     # pwm positions
+    ORIG_PWM_SCORES_POSITION_MAX_VAL = "{}.max.val".format(ORIG_SEQ_PWM_SCORES_THRESH)
+    ORIG_PWM_SCORES_POSITION_MAX_IDX = "{}.max.idx".format(ORIG_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_PWM_SCORES_POSITION_MAX_VAL = "{}.max.val".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_PWM_SCORES_POSITION_MAX_IDX = "{}.max.idx".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
     WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT = "{}.max.val.motif_mut".format(WEIGHTED_SEQ_PWM_SCORES_THRESH)
@@ -135,6 +141,19 @@ class DataKeys(object):
     # synergy keys
     SYNERGY_ROOT = "synergy"
     SYNERGY_SCORES = "{}.scores".format(SYNERGY_ROOT)
+    SYNERGY_DIFF = "{}.diff".format(SYNERGY_SCORES)
+    SYNERGY_DIFF_SIG = "{}.sig".format(SYNERGY_DIFF)
+    SYNERGY_DIST = "{}.dist".format(SYNERGY_ROOT)
+    SYNERGY_MAX_DIST = "{}.max".format(SYNERGY_DIST)
+
+    # variant keys
+    VARIANT_ROOT = "variants"
+    VARIANT_ID = "{}.id.string".format(VARIANT_ROOT)
+    VARIANT_INFO = "{}.info.string".format(VARIANT_ROOT)
+    VARIANT_IDX = "{}.idx".format(VARIANT_ROOT)
+    VARIANT_DMIM = "{}.dmim".format(VARIANT_ROOT)
+    VARIANT_SIG = "{}.sig".format(VARIANT_ROOT)
+    VARIANT_IMPORTANCE = "{}.impt_score".format(VARIANT_ROOT)
     
     # split
     TASK_IDX_ROOT = "taskidx"

@@ -13,7 +13,6 @@ from tronn.nets.filter_nets import filter_and_rebatch
 
 from tronn.nets.normalization_nets import interpolate_logits_to_labels
 from tronn.nets.normalization_nets import normalize_to_importance_logits
-from tronn.nets.normalization_nets import normalize_to_absolute_one
 
 from tronn.nets.qc_nets import get_multimodel_score_relationships
 
@@ -474,7 +473,7 @@ class FeatureImportanceExtractor(object):
                 (DataKeys.ORIG_SEQ_SHUF, DataKeys.ORIG_SEQ_ACTIVE_SHUF)]})
             outputs, params = self.clip_sequences(outputs, params)
 
-            # TODO - replace weighted seq active with features?
+            # replace weighted seq active with features
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = outputs[DataKeys.FEATURES]
             
         return outputs, params
@@ -934,8 +933,6 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         outputs = dict(inputs)
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ] = tf.transpose(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
-        outputs[DataKeys.MUT_MOTIF_POS] = tf.transpose(
-            outputs[DataKeys.MUT_MOTIF_POS], perm=[0,2,1,3,4])
         outputs[DataKeys.MUT_MOTIF_LOGITS] = tf.transpose(
             outputs[DataKeys.MUT_MOTIF_LOGITS], perm=[0,2,1])
         
@@ -950,14 +947,10 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
         outputs[DataKeys.FEATURES] = tf.transpose(
             outputs[DataKeys.FEATURES], perm=[0,2,1,3,4]) # {N, task, aux, pos, 4}
-        outputs[DataKeys.MUT_MOTIF_POS] = tf.transpose(
-            outputs[DataKeys.MUT_MOTIF_POS], perm=[0,2,1,3,4])
         outputs[DataKeys.DFIM_SCORES] = tf.transpose(
             outputs[DataKeys.DFIM_SCORES], perm=[0,2,1,3,4])
         outputs[DataKeys.MUT_MOTIF_LOGITS] = tf.transpose(
             outputs[DataKeys.MUT_MOTIF_LOGITS], perm=[0,2,1])
-        outputs[DataKeys.DFIM_SCORES_DX] = tf.transpose(
-            outputs[DataKeys.DFIM_SCORES_DX], perm=[0,2,1])
         
         return outputs, params
     
@@ -966,31 +959,12 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         """calculate dy and dx
         """
         logging.info(">>> CALCULATE DELTAS")
-        # (1) features divide by total, multiply by logits - this gives you features normalized to logits
-        # (2) 1ST OUTPUT - dy/dx, where you get dy by subtracting orig from mut response, and
-        #     dx is subtracting orig from mut at the mut position(s). this is used for permute test
-        # (3) 2ND OUTPUT - just the subtraction, which is used for ranking/vis
         outputs = dict(inputs)
         
-        # calculate deltas scores (DFIM). leave as aux (to attach later)
-        # this is dy
+        # calculate deltas scores (DFIM)
         outputs[DataKeys.DFIM_SCORES] = tf.subtract(
             inputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
             inputs[DataKeys.FEATURES])
-
-        # dx
-        #  {N, mut, pos, 4}
-        orig_x = tf.reduce_sum(tf.multiply(
-            outputs[DataKeys.FEATURES],
-            outputs[DataKeys.MUT_MOTIF_POS]), axis=[3,4])
-
-        mut_x = tf.reduce_sum(tf.multiply(
-            outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ],
-            outputs[DataKeys.MUT_MOTIF_POS]), axis=[3,4])
-
-        # can keep this separate for now
-        outputs[DataKeys.DFIM_SCORES_DX] = tf.subtract(mut_x, orig_x)
-        logging.debug("")
         
         return outputs, params
 
@@ -1056,6 +1030,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
             params.update({"to_clip_aux": [
                 (DataKeys.FEATURES, DataKeys.FEATURES),                
                 (DataKeys.MUT_MOTIF_WEIGHTED_SEQ, DataKeys.MUT_MOTIF_WEIGHTED_SEQ),
+                (DataKeys.MUT_MOTIF_MASK, DataKeys.MUT_MOTIF_MASK),
                 (DataKeys.MUT_MOTIF_POS, DataKeys.MUT_MOTIF_POS)]})
             outputs, params = self.clip_sequences(outputs, params)
 
@@ -1075,15 +1050,11 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # put in features tensor
         outputs[DataKeys.FEATURES] = outputs[DataKeys.DFIM_SCORES]
 
-
+        # final adjust axes
         outputs, _ = self.adjust_aux_axes_final(outputs, params) # {N, mutM, task, seqlen, 4}
-        # calculate the delta logits later, in post analysis
         
         # Q: is there a way to get the significance of a delta score even here?
         # ie, what is the probability of a delta score by chance?
-
-        # at what point do I use the nulls? <- for motifs
-        
         
         return outputs, params
     
@@ -1092,6 +1063,11 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         """build confidence intervals when multimodel
         """
         outputs = dict(inputs)
+
+        # use super to threshold weighted seq
+        outputs = super(
+            DeltaFeatureImportanceMapper, self).build_confidence_intervals(
+                outputs)
         
         # get confidence interval
         outputs["multimodel.importances.tmp"] = tf.reduce_sum(
@@ -1128,7 +1104,7 @@ class DeltaFeatureImportanceMapper(InputxGrad):
         # after using, flip axes for the CI to keep when extracting null muts
         outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI] = tf.transpose(
             outputs[DataKeys.MUT_MOTIF_WEIGHTED_SEQ_CI], perm=[0,2,1,3,4])
-        
+
         # also filter the weighted seq again
         outputs[DataKeys.WEIGHTED_SEQ_ACTIVE] = tf.multiply(
             outputs[DataKeys.WEIGHTED_SEQ_ACTIVE],
@@ -1176,6 +1152,9 @@ def get_task_importances(inputs, params):
              "positive_only": True})
         logging.info("OUT: {}".format(outputs[DataKeys.FEATURES].get_shape()))
 
+    # if variants loaded, isolate importance score on variant
+    outputs, params = isolate_variant_importance(outputs, params)
+    
     return outputs, params
 
 
@@ -1217,5 +1196,34 @@ def filter_by_importance(inputs, params):
     inputs["condition_mask"] = tf.greater(feature_sums, cutoff)
     params.update({"name": "importances_filter"})
     outputs, _ = filter_and_rebatch(inputs, params)
+    
+    return outputs, params
+
+
+def isolate_variant_importance(inputs, params):
+    """only apply this if you have variant position (from dataloader)
+    """
+    outputs = dict(inputs)
+
+    if inputs.get(DataKeys.VARIANT_IDX) is not None:
+        seq_len = 1000 # TODO fix this
+        variant_pos = inputs[DataKeys.VARIANT_IDX] - 1 # offshift 1
+        mask = tf.one_hot(variant_pos, seq_len)
+        # clip TODO check this
+        mask = mask[:,params["left_clip"]:params["right_clip"]] # {N, 160} 
+
+        # extend dims
+        mask = tf.expand_dims(mask, axis=1)
+        mask = tf.expand_dims(mask, axis=-1) # {N, 1, 160, 1}
+
+        # multiply with importances
+        importances = inputs[DataKeys.WEIGHTED_SEQ_ACTIVE]
+        variant_importance = tf.multiply(
+            importances,
+            mask) # {N, task, 160, 4}
+
+        # and reduce sum
+        variant_importance = tf.reduce_sum(variant_importance, axis=(2,3)) # {N, task}
+        outputs[DataKeys.VARIANT_IMPORTANCE] = variant_importance
     
     return outputs, params

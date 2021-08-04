@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: dk.job.mutatemotifs.traj-0
+spec:
+    template:
+      spec:
+        containers:
+        - name: infer-container
+          image: dskim89/tensorflow-genomics
+          env:
+          - name: SCRIPT_DIR
+            value: "/datasets/software/git/tronn/scripts/ggr/wrappers"
+          - name: MODEL_DIR
+            value: "/datasets/dskim89/models.2018-12-03"
+          - name: MODEL
+            value: "basset"
+          - name: INFER_DIR
+            value: "/datasets/dskim89/analysis.2020-01-13/scanmotifs"
+          - name: MOTIFS_DIR
+            value: "/datasets/dskim89/analysis.2019-03-12.freeze"
+          - name: WORK_DIR
+            value: "/datasets/dskim89/analysis.2020-01-13/mutatemotifs"
+          - name: SCRATCH_DIR
+            value: "/lscratch"
+          - name: MUTATE_TYPE
+            value: "shuffle"
+          - name: PATTERN
+            value: "early"
+          - name: FOREGROUND
+            value: "TRAJ_LABELS=0"
+          - name: FOREGROUND_NAME
+            value: "TRAJ_LABELS-0"
+          - name: BATCH_SIZE
+            value: "8"
+          - name: NUM_GPUS
+            value: "1"
+          command: ["bash", "-c"]
+          args: ["source ~/.bash_profile && export OUT_DIR=$WORK_DIR/$MUTATE_TYPE/$FOREGROUND_NAME && mkdir -p $OUT_DIR && $SCRIPT_DIR/mutatemotifs.bash $MODEL_DIR $MODEL $INFER_DIR $PATTERN $MOTIFS_DIR $FOREGROUND $BATCH_SIZE $NUM_GPUS $MUTATE_TYPE $SCRATCH_DIR $OUT_DIR"]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              cpu: 8
+              memory: 128Gi
+              ephemeral-storage: 100Gi
+            requests:
+              cpu: 4
+              memory: 24Gi
+              ephemeral-storage: 100Gi
+          volumeMounts:
+          - name: datasets
+            mountPath: /datasets
+          - name: lscratch
+            mountPath: /lscratch
+        restartPolicy: Never
+        volumes:
+        - name: datasets
+          flexVolume:
+            driver: ceph.rook.io/rook
+            fsType: ceph
+            options:
+             fsName: nautilusfs
+             clusterNamespace: rook
+             path: /kundajelab
+             mountUser: kundajelab
+             mountSecret: ceph-fs-secret
+        - name: lscratch
+          emptyDir: {}
+        #affinity:
+        #  nodeAffinity:
+        #    requiredDuringSchedulingIgnoredDuringExecution:
+        #      nodeSelectorTerms:
+        #      - matchExpressions:
+        #        - key: gpu-type
+        #          operator: In # Use NotIn for other types
+        #          values:
+        #          - "1080Ti"

@@ -6,6 +6,7 @@ import math
 import numpy as np
 
 from multiprocessing import Pool
+from numpy.random import RandomState
 
 from scipy.stats import pearsonr
 from scipy.signal import correlate2d
@@ -13,6 +14,18 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform
 
 
+class PWMParams(object):
+
+    BLACKLIST_SUBSTRINGS = [
+        "NANOG",
+        "SMARC",
+        "ZFP82",
+        "ZNF667",
+        "ZNF547",
+        "ZNF317",
+        "ZNF322"]
+
+    
 class PWM(object):
     """PWM class for PWM operations
     """
@@ -21,8 +34,18 @@ class PWM(object):
         self.weights = weights
         self.name = name
         self.threshold = threshold
+        self.idx_to_string = {
+            0: "A", 1: "C", 2: "G", 3: "T"}
 
         
+    def copy(self, new_name=None):
+        """make a new PWM instance
+        """
+        new_pwm = PWM(self.weights, name=new_name, threshold=self.threshold)
+        
+        return new_pwm
+
+    
     def normalize(self, style="gaussian", in_place=True):
         """Normalize pwm
         """
@@ -145,6 +168,30 @@ class PWM(object):
         
         return ic
 
+    
+    def get_consensus_string(self):
+        """get argmax consensus string
+        """
+        sequence = []
+        for idx in range(self.weights.shape[1]):
+            sampled_idx = np.argmax(self.weights[:,idx])
+            sequence.append(self.idx_to_string[sampled_idx])
+            
+        return "".join(sequence)
+
+    
+    def get_sampled_string(self, rand_seed=1):
+        """get a sampled string from weights
+        """
+        sequence = []
+        probs = self.get_probs()
+        rand_state = RandomState(rand_seed)
+        for idx in range(self.weights.shape[1]):
+            sampled_idx = rand_state.choice([0,1,2,3], p=probs[:,idx])
+            sequence.append(self.idx_to_string[sampled_idx])
+            
+        return "".join(sequence)
+    
     
     def reverse_complement(self, new_name=None):
         """Produce a new PWM that is the reverse complement
@@ -344,7 +391,6 @@ class PWM(object):
         return None
 
 
-    
 def _pool_correlate_pwm_pair(input_list):
     """get cor and ncor for pwm1 and pwm2
     Set up this way because multiprocessing pool only takes 1

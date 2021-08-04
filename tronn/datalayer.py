@@ -2,6 +2,7 @@
 """
 
 import os
+import re
 import six
 import abc
 import gzip
@@ -16,10 +17,18 @@ import threading
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import networkx as nx
+
+from itertools import permutations
+from itertools import combinations
+
+from numpy.random import RandomState
 
 from tronn.learn.cross_validation import setup_train_valid_test
+from tronn.preprocess.bed import bin_regions_sharded
 from tronn.preprocess.fasta import GenomicIntervalConverter
 from tronn.nets.util_nets import rebatch
+from tronn.util.mpra import is_fragment_compatible
 from tronn.util.utils import DataKeys
 
 
@@ -34,6 +43,18 @@ class DataLoader(object):
         and body of this function collects the files.
         """
         raise NotImplementedError("required method, implement in child class!")
+
+                                  
+    def setup_positives_only_dataloader(self):
+        """placeholder, adjust in child class as needed
+        """
+        return self
+
+                                  
+    def get_chromosomes(self):
+        """placeholder, adjust in child class as needed
+        """
+        return ["NA"]
 
     
     @abc.abstractmethod
@@ -115,7 +136,6 @@ class DataLoader(object):
             batch_size,
             shuffle=True,
             filter_targets=[],
-            singleton_filter_targets=[],
             target_indices=[],
             encode_onehot_features=True,
             num_threads=16,
@@ -130,7 +150,6 @@ class DataLoader(object):
           batch_size: batch size for batch going into the graph
           shuffle: whether to shuffle examples
           filter_targets: dict of keys with indices for filtering
-          singleton_filter_targets: list of keys for removing singletons
           num_threads: number of threads to use for data loading
           encode_onehot_features: if tensor with key "features" is a string
             of values that are not yet one-hot, then encode the features.
@@ -223,7 +242,7 @@ class DataLoader(object):
         ordered_keys = list(dtypes_dict.keys())
         ordered_dtypes = [dtypes_dict[key] for key in ordered_keys]
         h5_to_generator = generator(h5_file, yield_single_examples=False)
-            
+
         # wrapper function to get generator into py func
         def h5_to_tensors(batch_id):
             slice_array, _ = next(h5_to_generator)
@@ -286,7 +305,6 @@ class DataLoader(object):
             batch_size,
             shuffle=True,
             filter_targets=[],
-            singleton_filter_targets=[],
             target_indices=[],
             encode_onehot_features=True,
             num_threads=16,
@@ -316,15 +334,23 @@ class DataLoader(object):
         capacity = min_after_dequeue + (len(example_slices_list)+10) * batch_size
 
         # shuffle batch join
-        inputs = tf.train.shuffle_batch_join(
-            example_slices_list,
-            batch_size,
-            capacity=capacity,
-            min_after_dequeue=min_after_dequeue,
-            seed=42,
-            enqueue_many=True,
-            name='batcher')
-
+        if shuffle:
+            inputs = tf.train.shuffle_batch_join(
+                example_slices_list,
+                batch_size,
+                capacity=capacity,
+                min_after_dequeue=min_after_dequeue,
+                seed=42,
+                enqueue_many=True,
+                name='batcher')
+        else:
+            inputs = tf.train.batch_join(
+                example_slices_list,
+                batch_size,
+                capacity=capacity,
+                enqueue_many=True,
+                name='batcher')
+            
         # filter on specific keys and indices
         if len(filter_targets) != 0:
             filter_idx = 0
@@ -444,7 +470,7 @@ class H5DataLoader(DataLoader):
             data_dir=None,
             data_files=[],
             fasta=None,
-            dataset_json={},
+            tmp_dir=None,
             **kwargs):
         """initialize with data files
         
@@ -453,30 +479,32 @@ class H5DataLoader(DataLoader):
           data_files: a list of h5 filenames
           fasta: fasta file for getting sequence from BED intervals on the fly
         """
-        # assertions
-        assert (len(data_files) == 0) or (len(dataset_json) == 0)
+        # save dir and files
+        self.data_dir = data_dir
+        self.h5_files = data_files
         
-        # set up
-        if len(dataset_json) != 0:
-            # use json and adjust data as needed
-            self.data_dir = dataset_json["data_dir"]
-            self.h5_files = dataset_json.get("data_files")
-            self.fasta = dataset_json["fasta"]
-            
-            # override/update as needed
-            if data_dir is not None:
-                self.data_dir = data_dir
+        # resolve files and dir
+        self.h5_files = self._resolve_dir_and_files(
+            self.data_dir, data_files)
+                    
+        # set up fasta
+        self.fasta = fasta
+        
+        # if using a scratch directory (faster I/O dir), copy over
+        # to tmp dir (in scratch), and resolve again
+        if tmp_dir is not None:
+            # copy over data files
+            for filename in self.h5_files:
+                os.system("rsync -avz --progress {} {}/".format(filename, tmp_dir))
+            self.data_dir = tmp_dir
             self.h5_files = self._resolve_dir_and_files(
-                self.data_dir, self.h5_files)
-            if fasta is not None:
-                self.fasta = fasta
-        else:
-            # set up de novo
-            self.data_dir = data_dir
-            self.h5_files = self._resolve_dir_and_files(
-                self.data_dir, data_files)
-            self.fasta = fasta
+                tmp_dir, self.h5_files)
 
+            # copy fasta if present
+            if self.fasta is not None:
+                os.system("rsync -avz --progress {} {}/".format(self.fasta, tmp_dir))
+                self.fasta = "{}/{}".format(tmp_dir, os.path.basename(self.fasta))
+            
         # calculate basic stats
         self.num_examples = self.get_num_examples(self.h5_files)
         self.num_examples_per_file = self.get_num_examples_per_file(self.h5_files)
@@ -694,7 +722,7 @@ class H5DataLoader(DataLoader):
             
         # if end is within the file, extract out slice. otherwise, pad and pass out full batch
         slices = {}
-        if end_idx < h5_handle[keys_to_load[0]].shape[0]:
+        if end_idx <= h5_handle[keys_to_load[0]].shape[0]:
             for key in keys_to_load:
                 if h5_handle[key][0].dtype.char == "S":
                     # reshape if len(dims) is 1
@@ -704,7 +732,9 @@ class H5DataLoader(DataLoader):
                     else:
                         slices[key] = h5_handle[key][start_idx:end_idx]
                 else:
-                    slices[key] = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
+                    dataset_handle = h5_handle[key]
+                    with dataset_handle.astype(np.float32):
+                        slices[key] = dataset_handle[start_idx:end_idx]
         else:
             # TODO - don't pad anymore?
             end_idx = h5_handle[keys_to_load[0]].shape[0]
@@ -725,7 +755,8 @@ class H5DataLoader(DataLoader):
                     else:
                         slice_tmp = h5_handle[key][start_idx:end_idx]
                         slice_pad = np.array(
-                            ["N" for i in range(batch_padding_num)])
+                            ["N" for i in range(batch_padding_num)]).reshape(
+                                [batch_padding_num] + list(slice_tmp.shape[1:]))
                 else:
                     slice_tmp = h5_handle[key][start_idx:end_idx][:].astype(np.float32)
                     slice_pad_shape = [batch_padding_num] + list(slice_tmp.shape[1:])
@@ -931,6 +962,7 @@ class H5DataLoader(DataLoader):
                 converter = GenomicIntervalConverter(lock, fasta, batch_size)
                 
                 # open h5 file
+                #with h5py_cache.File(h5_file, "r", chunk_cache_mem_size=(1024**2)*1000) as h5_handle:
                 with h5py.File(h5_file, "r") as h5_handle:
                     test_key = list(h5_handle.keys())[0]
 
@@ -986,6 +1018,7 @@ class H5DataLoader(DataLoader):
                             
                     except ValueError as value_error:
                         logging.debug(value_error)
+                        logging.info(batch_id)
                         logging.info("Stopping {}".format(h5_file))
                         raise StopIteration
 
@@ -1292,24 +1325,237 @@ class ArrayDataLoader(DataLoader):
 class VariantDataLoader(DataLoader):
     """build a dataloader that starts from a vcf file"""
 
-    def __init__(self, vcf_file, fasta_file):
+    def __init__(self, vcf_file, ref_fasta, alt_fasta):
         self.vcf_file = vcf_file
-        self.fasta_file = fasta_file
+        self.data_files = [vcf_file]
+        self.ref_fasta = ref_fasta
+        self.alt_fasta = alt_fasta
 
-    def load_raw_data(self, batch_size):
+        
+    @staticmethod
+    def setup_strided_positions(
+            chrom,
+            pos,
+            snp_id,
+            snp_info,
+            num_positions,
+            active_sequence_length=120,
+            full_sequence_length=1000):
+        """
+        """
+        # start from the middle and adjust left and right
+        seq_metadata = []
+        ids = []
+        snp_metadata = []
+        active_extend_len = int(active_sequence_length / 2.)
+        full_extend_len = int(full_sequence_length / 2.)
+        
+        # calculate stride and determine offsets
+        stride = int(active_sequence_length / float(num_positions))
+        center_point = int(full_sequence_length / 2.)
+        #offset = center_point - (num_positions / 2) * stride
+        strided_positions = np.arange(0, stride*num_positions, stride)
 
-        return None
+        # example positions are distributed around the center point
+        example_positions = (strided_positions - np.median(strided_positions) + center_point).astype(int)
+
+        # genomic positions need to add the position and remove center point
+        genomic_positions = example_positions - center_point + pos
+        
+        for position_idx in range(len(example_positions)):
+            genomic_position = genomic_positions[position_idx]
+            # VCF is 1 based and bedtools is 0 based for start!
+            region = "{}:{}-{}".format(chrom, pos-1, pos)
+            active = "{}:{}-{}".format(
+                chrom, genomic_position-active_extend_len, genomic_position+active_extend_len)
+            features = "{}:{}-{}".format(
+                chrom, genomic_position-full_extend_len, genomic_position+full_extend_len)
+            metadata = "region={};active={};features={}".format(
+                region, active, features)
+            seq_metadata.append(metadata)
+            ids.append(snp_id)
+            snp_metadata.append(snp_info)
+
+        # adjust dims/make array
+        seq_metadata = np.expand_dims(np.array(seq_metadata), axis=-1)
+        ids = np.array(ids)
+        snp_metadata = np.array(snp_metadata)
+        
+        return seq_metadata, example_positions, ids, snp_metadata
     
+        
+    def build_generator(
+            self,
+            batch_size=16,
+            task_indices=[],
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            strided_reps=10,
+            lock=threading.Lock(),
+            shuffle=True):
+        """build generator function
+        """
+        # tensors: example_metadata, features
+        dtypes_dict = {
+            DataKeys.SEQ_METADATA: tf.string,
+            DataKeys.VARIANT_IDX: tf.int64,
+            DataKeys.VARIANT_ID: tf.string,
+            DataKeys.VARIANT_INFO: tf.string,
+            DataKeys.FEATURES: tf.uint8}
+        shapes_dict = {
+            DataKeys.SEQ_METADATA: [1],
+            DataKeys.VARIANT_IDX: [],
+            DataKeys.VARIANT_ID: [],
+            DataKeys.VARIANT_INFO: [],
+            DataKeys.FEATURES: [seq_len]}
+        
+        class Generator(object):
 
+            def __init__(self, ref_fasta, alt_fasta, batch_size):
+                self.ref_fasta = ref_fasta
+                self.alt_fasta = alt_fasta
+                self.batch_size = batch_size
+            
+            def __call__(self, vcf_file, yield_single_examples=True):
+                """call generator
+                """
+                # build converters
+                ref_converter = GenomicIntervalConverter(lock, self.ref_fasta, strided_reps)
+                alt_converter = GenomicIntervalConverter(lock, self.alt_fasta, strided_reps)
+
+                # determine padding amount at end of file
+                num_variants = 0
+                with open(vcf_file, "r") as fp:
+                    for line in fp:
+                        if line.startswith("#"):
+                            continue
+                        num_variants += 1
+                padding_num = batch_size - (num_variants % batch_size)
+                logging.info("will pad variants with {}".format(padding_num))
+                total_generator_calls = num_variants + padding_num
+                    
+                # and then go through each
+                generator_calls = 0
+                fake_data = False
+                with open(vcf_file, "r") as fp:
+                    while generator_calls < total_generator_calls:
+                        line = fp.readline()
+                        
+                        if line.startswith("#"):
+                            continue
+
+                        if len(line) == 0:
+                            # empty, end of file - use previous line
+                            fake_data = True
+                            line = prev_line
+                            
+                        fields = line.strip().split("\t")
+                        chrom = "chr{}".format(fields[0])
+                        pos = int(fields[1])
+                        snp_id = fields[2]
+                        snp_info = fields[7]
+
+                        # set up strided reps
+                        seq_metadata, positions, ids, snp_metadata = VariantDataLoader.setup_strided_positions(
+                            chrom, pos, snp_id, snp_info, strided_reps,
+                            full_sequence_length=seq_len) # {strided_rep*N}
+
+                        # adjust if fake data
+                        if fake_data:
+                            seq_metadata = ["features=chr1:0-1000"
+                                            for i in range(seq_metadata.shape[0])]
+                            seq_metadata = np.expand_dims(np.array(seq_metadata), axis=1)
+                        
+                        # get sequence
+                        ref_features = ref_converter.convert(seq_metadata)
+                        alt_features = alt_converter.convert(seq_metadata)
+                        
+                        # combine them
+                        features = np.stack([ref_features, alt_features], axis=1) # {strided_rep*N, 2}
+
+                        # put into array
+                        slice_array = {
+                            DataKeys.SEQ_METADATA: seq_metadata,
+                            DataKeys.VARIANT_IDX: positions,
+                            DataKeys.VARIANT_ID: ids,
+                            DataKeys.VARIANT_INFO: snp_metadata,
+                            DataKeys.FEATURES: features}
+
+                        # and adjust to interleave - {strided_rep*N*2}
+                        for key in slice_array.keys():
+                            if key != DataKeys.FEATURES:
+                                # adjust for interleaving
+                                slice_array[key] = np.stack([slice_array[key]]*2, axis=1)
+                            # interleave
+                            slice_array[key] = np.reshape(
+                                slice_array[key],
+                                [-1] + list(slice_array[key].shape[2:]))
+                            
+                        # yield
+                        generator_calls += 1
+                        prev_line = line
+                        yield (slice_array, 1.)
+                
+        # instantiate
+        generator = Generator(self.ref_fasta, self.alt_fasta, batch_size)
+        
+        return generator, dtypes_dict, shapes_dict
+        
     
 class BedDataLoader(DataLoader):
     """build a dataloader starting from a bed file"""
 
-    def __init__(self, bed_file, fasta_file):
-        self.bed_file = bed_file
-        self.fasta_file = fasta_file
-        # TODO set up option to bin or not?
-        assert self.bed_file.endswith(".gz")
+    def __init__(
+            self,
+            data_files,
+            fasta,
+            bin_width=200,
+            stride=50,
+            final_length=1000,
+            preprocessed=False,
+            chromsizes=None,
+            ordered=True,
+            tmp_dir="."):
+        self.data_files = data_files
+        self.fasta = fasta
+
+        # check
+        for data_file in self.data_files:
+            assert data_file.endswith(".bed.gz")
+
+        # preprocess
+        data_dir = os.path.dirname(self.data_files[0])
+        if not preprocessed:
+            if not os.path.isdir(tmp_dir):
+                os.system("mkdir -p {}".format(tmp_dir))
+                for data_file in self.data_files:
+                    bin_regions_sharded(
+                        data_file,
+                        "{}/{}".format(tmp_dir, os.path.basename(data_file).split(".bed")[0]),
+                        bin_width,
+                        stride,
+                        final_length,
+                        chromsizes,
+                        method="plus_flank_negs",
+                        num_flanks=3)
+            self.data_files = sorted(glob.glob("{}/*filt.bed.gz".format(
+                tmp_dir)))
+
+        # if ordered, need to remerge the files
+        if ordered:
+            merged_data_file = "{}/{}.merged.bed.gz".format(
+                tmp_dir,
+                os.path.basename(self.data_files[0]).split(".bed")[0])
+            remerge = "cat {} > {}".format(
+                " ".join(self.data_files), merged_data_file)
+            os.system(remerge)
+            self.data_files = [merged_data_file]
+            
+        # count num regions
         self.num_regions = self.get_num_regions()
 
         
@@ -1317,12 +1563,13 @@ class BedDataLoader(DataLoader):
         """count up how many regions there are
         """
         num_regions = 0
-        with gzip.open(bed_file, "r") as fp:
-            for line in fp:
-                num_regions += 1
+        for data_file in self.data_files:
+            with gzip.open(data_file, "r") as fp:
+                for line in fp:
+                    num_regions += 1
         
         return num_regions
-        
+    
         
     def build_generator(
             self,
@@ -1338,158 +1585,933 @@ class BedDataLoader(DataLoader):
             shuffle=True):
         """build generator function
         """
-        
+        # tensors: example_metadata, features
+        dtypes_dict = {
+            DataKeys.SEQ_METADATA: tf.string,
+            DataKeys.FEATURES: tf.uint8}
+        shapes_dict = {
+            DataKeys.SEQ_METADATA: [1],
+            DataKeys.FEATURES: [seq_len]}
+
         class Generator(object):
 
             def __init__(self, fasta, batch_size):
                 self.fasta = fasta
                 self.batch_size = batch_size
-
                 
             def __call__(self, bed_file, yield_single_examples=True):
                 """run the generator"""
-
-                batch_size = self.batch_size
+                batch_size = 1 #self.batch_size
                 fasta = self.fasta
-                
-                if len(examples_subset) != 0:
-                    batch_size = 1
 
                 # set up interval to sequence converter
                 converter = GenomicIntervalConverter(lock, fasta, batch_size)
                 
                 # open bed file
                 with gzip.open(bed_file, "r") as fp:
-                    
-                    # set up batch id total and get batches
-                    max_batches = int(math.ceil(h5_handle[test_key].shape[0]/float(batch_size)))
-                    batch_ids = list(range(max_batches))
 
-                    # shuffle batches as needed
-                    if shuffle:
-                        random.Random(42).shuffle(batch_ids)
-                            
-                    # logging
-                    logging.debug("loading {0} with batch size {1} to get batches {2}".format(
-                        os.path.basename(h5_file), batch_size, max_batches))
-                    
-                    # and go through batches
                     try:
-                        assert len(clean_keys_to_load) != 0
-                        
-                        for batch_id in batch_ids:
-                            batch_start = batch_id*batch_size
-                            slice_array = H5DataLoader.h5_to_slices(
-                                h5_handle,
-                                batch_start,
-                                batch_size,
-                                keys_to_load=clean_keys_to_load,
-                                targets=targets,
-                                target_indices=target_indices)
+                        for line in fp:
+                            print line
+                            fields = line.strip().split("\t")
+                            metadata = np.array(
+                                [fields[3]])
+                            #metadata = np.array(
+                            #    ["features={}:{}-{}".format(fields[0], fields[1], fields[2])])
+                            metadata = np.expand_dims(metadata, axis=-1)
+                            features = converter.convert(metadata)
+                            slice_array = {
+                                DataKeys.SEQ_METADATA: metadata,
+                                DataKeys.FEATURES: features}
 
-                            # onehot encode on the fly
-                            # TODO keep the string sequence
-                            slice_array[DataKeys.FEATURES] = converter.convert(
-                                slice_array["example_metadata"])
-                            
-                            # yield
-                            if yield_single_examples: # NOTE: this is the most limiting step
-                                for i in range(batch_size):
-                                    yield ({
-                                        key: value[i]
-                                        for key, value in six.iteritems(slice_array)
-                                    }, 1.)
-                            else:
-                                yield (slice_array, 1.)
+                            yield (slice_array, 1.)
                             
                     except ValueError as value_error:
                         logging.debug(value_error)
-                        logging.info("Stopping {}".format(h5_file))
+                        logging.info("Stopping {}".format(bed_file))
                         raise StopIteration
 
                     finally:
                         converter.close()
-                        print("finished {}".format(h5_file))
+                        print("finished {}".format(bed_file))
                             
         # instantiate
         generator = Generator(self.fasta, batch_size)
         
         return generator, dtypes_dict, shapes_dict
+
+    
+class PWMSimsDataLoader(DataLoader):
+    """build a dataloader that generates synthetic sequences with desired params"""
+
+    def __init__(
+            self,
+            data_files,
+            pwms,
+            seq_len=1000,
+            sample_range=(420, 580), # note - use this to anchor, and then to shift the other around that
+            grammar_range=(0, 100),
+            stride=1,
+            gc_range=(0.20, 0.80),
+            num_samples=100,
+            min_spacing=5,
+            background_regions=None,
+            output_original_background=True,
+            all_pwms=None,
+            fasta=None,
+            check_orderings=True,
+            check_orientations=True):
+        """Initialize pwm sims dataloader, which generates examples for a variety
+        of spacings, orders, and orientations (and labels each pattern)
+        """
+        # data
+        self.data_files = data_files
+        self.pwms = pwms
+        self.all_pwms = all_pwms
+        
+        # params for setting up background sequence
+        self.num_samples = num_samples
+        self.background_regions = background_regions
+        self.fasta = fasta
+        self.gc_range = gc_range
+        self.seq_len = seq_len
+        self.output_original_background = output_original_background
+
+        # set up all possible orders
+        self.syntaxes = [self.pwms]
+        if check_orderings:
+            self.syntaxes = PWMSimsDataLoader.setup_orderings(self.syntaxes)
+
+        # set up all orientations
+        if check_orientations:
+            self.syntaxes = PWMSimsDataLoader.setup_orientations(self.syntaxes)
+            
+        # debug string
+        pattern_string = "\n".join([PWMSimsDataLoader.get_syntax(syntax) for syntax in self.syntaxes])
+        logging.info("Syntaxes:\n{}".format(pattern_string))
+
+        # adjust min spacing based on pwm lengths
+        #min_spacing = np.mean(
+        #    np.array(
+        #        [pwm.weights.shape[1] / 2. for pwm in self.pwms]
+        #    )).astype(int) + min_spacing
+        
+        # set up all possible spacings
+        self.anchor_positions = range(
+            sample_range[0],
+            sample_range[1] - grammar_range[1])
+        other_positions = range(
+            max(grammar_range[0], min_spacing),
+            grammar_range[1])
+        self.other_positions = PWMSimsDataLoader.get_clean_position_combinations(
+            other_positions, len(self.pwms) - 1, min_spacing=min_spacing)
+
+        # get num regions
+        self.num_regions = self.get_num_regions()
+
+        
+    @staticmethod
+    def get_syntax(syntax):
+        """get string of syntax
+        """
+        return ",".join([pwm.name for pwm in syntax])
+
+        
+    @staticmethod
+    def setup_orderings(syntaxes):
+        """set up orderings
+        """
+        new_syntaxes = []
+        for syntax in syntaxes:
+            for permuted_pwm_indices in permutations(range(len(syntax))):
+                permuted_pwm_indices = list(permuted_pwm_indices)
+                new_syntaxes.append([syntax[i] for i in permuted_pwm_indices])
+        
+        return new_syntaxes
+
+    @staticmethod
+    def setup_orientations(syntaxes):
+        """set up orderings
+        """
+        new_syntaxes = []
+        for syntax in syntaxes:
+            orientations = [[]]
+            for pwm_idx in range(len(syntax)):
+                pwm = syntax[pwm_idx] # pull out pwm
+                orientations_new = [] # start a new list to save new orientations
+                for pwm_list in orientations:
+                    pwm_list = [
+                        list(pwm_list) + [pwm.copy(new_name="{}+".format(pwm.name))],
+                        list(pwm_list) + [pwm.reverse_complement(new_name="{}-".format(pwm.name))]]
+                    orientations_new += pwm_list
+                orientations = orientations_new
+            new_syntaxes += orientations
+        
+        return new_syntaxes
+    
+        
+    def get_num_regions(self):
+        """count up how many sims will be done
+        """
+        return self.num_samples * len(self.syntaxes) * len(self.other_positions)
+
+    
+    @staticmethod
+    def select_background_region(background_regions, seq_len, rand_seed):
+        """use the pandas df to get an interval of appropriate size
+        """
+        while True:
+            rand_state = RandomState(rand_seed)
+            rand_seed += 1 # always increment
+            row_idx = rand_state.choice(range(background_regions.shape[0]))
+            row_range = range(
+                background_regions["start"].iloc[row_idx],
+                background_regions["stop"].iloc[row_idx] - seq_len)
+            if len(row_range) == 0:
+                continue
+            if row_range[0] >= row_range[-1]:
+                continue
+            start = rand_state.choice(row_range)
+            region = "features={}:{}-{}".format(
+                background_regions["chrom"].iloc[row_idx],
+                start,
+                start+seq_len)
+            return region, rand_seed
     
 
-    def build_raw_dataflow(
+    @staticmethod
+    def spacing_is_valid(positions, min_spacing=5):
+        """assumes ORDERED
+        """
+        for i in range(len(positions)-1):
+            assert positions[i] < positions[i+1]
+            if positions[i+1] - positions[i] < min_spacing:
+                return False
+            
+        return True
+
+
+    @staticmethod
+    def get_clean_position_combinations(positions, r, min_spacing=5):
+        """helper generator function that checks for min spacing 
+        before outputting combination
+        """
+        combos = []
+        for pos_set in combinations(positions, r):
+            pos_set = tuple([0] + list(pos_set))
+            if PWMSimsDataLoader.spacing_is_valid(pos_set, min_spacing=min_spacing):
+                combos.append(pos_set)
+                
+        return combos
+
+    
+    @staticmethod
+    def is_gc_compatible(sequence, min_gc=0.20, max_gc=0.80):
+        """check GC fraction
+        """
+        gc_count = sequence.count("G") + sequence.count("C")
+        gc_fract = gc_count / float(len(sequence))
+        if gc_fract < min_gc:
+            return False
+        if gc_fract > max_gc:
+            return False
+    
+        return True
+
+
+    @staticmethod
+    def get_background_sequence(
+            converter, background_regions, seq_len, rand_seed,
+            min_gc=0.2,
+            max_gc=0.8):
+        """wrapper function
+        """
+        index_to_bp = {0: "A", 1: "C", 2: "G", 3: "T", 4: "N"}
+        
+        while True:
+            # select an interval
+            metadata, rand_seed = PWMSimsDataLoader.select_background_region(
+                background_regions, seq_len, rand_seed)
+            
+            # get sequence
+            metadata = np.expand_dims(
+                np.array([metadata]), axis=-1)
+            sequence = converter.convert(metadata)[0]
+            sequence = "".join(
+                [index_to_bp[val] for val in sequence])
+            if sequence.count("N") > 0:
+                continue
+
+            # readjust metadata
+            metadata = np.squeeze(metadata, axis=-1)
+            
+            # check GC
+            if not PWMSimsDataLoader.is_gc_compatible(
+                    sequence, min_gc, max_gc):
+                continue
+            break
+
+        return metadata, sequence, rand_seed
+
+    
+    def build_generator(
             self,
-            batch_size,
+            batch_size=256,
             task_indices=[],
-            features_key="features",
-            label_keys=["labels"],
-            metadata_key="example_metadata",
-            shuffle=True,
-            shuffle_seed=1337,
-            num_epochs=1):
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            lock=threading.Lock(),
+            shuffle=True):
+        """generate all possibilities of grammars
         """
+        # tensors: example_metadata, features
+        dtypes_dict = {
+            DataKeys.SEQ_METADATA: tf.string,
+            "simul.pwm.indices": tf.int64, # {N, M} - the order, links back to pwm file
+            "simul.pwm.pos": tf.int64, # {N, M} - the positions
+            "simul.pwm.orientation": tf.int64, # {N, M} - the orientations
+            "simul.pwm.sample_idx": tf.int64, # {N}
+            "grammar.string": tf.string, # {N} - labels for plotting
+            "simul.pwm.dist": tf.int64, # {N} - the max spanning dist
+            DataKeys.FEATURES: tf.uint8,
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: tf.int64,
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: tf.float32}
+        shapes_dict = {
+            DataKeys.SEQ_METADATA: [1],
+            "simul.pwm.indices": [len(self.pwms)],
+            "simul.pwm.pos": [len(self.pwms)],
+            "simul.pwm.orientation": [len(self.pwms)],
+            "simul.pwm.sample_idx": [],
+            "grammar.string": [1],
+            "simul.pwm.dist": [],
+            DataKeys.FEATURES: [seq_len],
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX: [len(self.all_pwms), 1],
+            DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL: [len(self.all_pwms), 1]}
+
+        
+        class Generator(object):
+
+            def __init__(
+                    self,
+                    syntaxes,
+                    anchor_positions,
+                    other_positions,
+                    num_samples,
+                    output_shapes,
+                    seq_len=1000,
+                    min_gc=0.20,
+                    max_gc=0.80,
+                    fasta=None,
+                    background_regions=None,
+                    output_original_background=True,
+                    all_pwms=None,
+                    check_reporter_compatibility=True):
+                self.syntaxes = syntaxes
+                self.anchor_positions = anchor_positions
+                self.other_positions = other_positions
+                self.num_samples = num_samples
+                self.output_shapes = output_shapes
+                self.seq_len = seq_len
+                self.min_gc = min_gc
+                self.max_gc = max_gc
+                self.fasta = fasta
+                self.background_regions = background_regions
+                self.output_original_background = output_original_background
+                self.all_pwms = all_pwms
+                self.check_reporter_compatibility = check_reporter_compatibility
+
+                
+            def __call__(self, grammar_file, yield_single_examples=True):
+                
+                # inits
+                rand_seed = 0
+                
+                # letters
+                BASES = ["A", "C", "G", "T"]
+
+                # set up converter if using background regions
+                if self.background_regions is not None:
+                    converter = GenomicIntervalConverter(lock, self.fasta, 1)
+                    background_regions = pd.read_table(
+                        self.background_regions, header=None)
+                    colnames = list(background_regions.columns)
+                    colnames[0:3] = ["chrom", "start", "stop"]
+                    background_regions.columns = colnames
+
+                # get global pwm indices, as needed
+                #pwm_names = [pwm.name for pwm in self.syntaxes[0]]
+                #pwm_mask = np.array([1 if pwm.name in pwm_names else 0 for pwm in self.all_pwms])
+                #global_pwm_indices = np.where(pwm_mask!=0)[0]
+
+                # generate spacings
+                for sample_idx in range(self.num_samples):
+                    logging.info("generating sample {}".format(sample_idx))
+
+                    while True:
+
+                        # set up output results dict
+                        results = {}
+                        for key in self.output_shapes.keys():
+                            results[key] = []
+                        
+                        # reset whether sequences are compatible - use if trying to match all backgrounds
+                        sequences_are_compatible = True
+                        #background_seed = 0
+                        
+                        # get a background sequence and anchor position
+                        # NOTE can fix background sequence by fixing rand seed
+                        metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
+                            converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
+                        
+                        # go through syntaxes
+                        anchor_seed = 0
+                        for syntax in self.syntaxes:
+                            if not sequences_are_compatible:
+                                continue
+                            
+                            # generate syntax string
+                            syntax_string = PWMSimsDataLoader.get_syntax(syntax)
+                            syntax_string = np.array([syntax_string])
+                            
+                            # generate ordered global indices and orientations
+                            syntax_pwm_indices = []
+                            syntax_orientations = []
+                            for grammar_pwm in syntax:
+                                pwm_mask = np.array(
+                                    [1 if pwm.name in grammar_pwm.name else 0
+                                     for pwm in self.all_pwms])
+                                syntax_pwm_indices.append(np.where(pwm_mask != 0)[0][0])
+                                if re.search("\+$", grammar_pwm.name):
+                                    syntax_orientations.append(1)
+                                elif re.search("-$", grammar_pwm.name):
+                                    syntax_orientations.append(-1)
+                                else:
+                                    syntax_orientations.append(0)
+
+                            # and iterate through positions and pwms
+                            for remaining_positions in self.other_positions:
+                                if not sequences_are_compatible:
+                                    continue
+                                
+                                # insert first pwm at anchor position
+                                rand_state = RandomState(anchor_seed)
+                                #rand_seed += 1
+                                anchor_position = rand_state.choice(self.anchor_positions)
+                                sampled_pwm = syntax[0].get_consensus_string() # TODO adjust this?
+                                sequence = "".join([
+                                    background_sequence[:int(anchor_position)],
+                                    sampled_pwm,
+                                    background_sequence[int(anchor_position+len(sampled_pwm)):]])
+                                simul_indices = [anchor_position]
+
+                                # embed other pwms
+                                valid_positions = list(remaining_positions)[1:] + anchor_position
+                                for i in range(len(syntax[1:])):
+                                    pwm = syntax[i]
+                                    position = valid_positions[i]
+                                    sampled_pwm = pwm.get_consensus_string()
+                                    sequence = "".join([
+                                        sequence[:int(position)],
+                                        sampled_pwm,
+                                        sequence[int(position+len(sampled_pwm)):]])
+                                    simul_indices.append(position)
+
+                                # check sequence
+                                if self.check_reporter_compatibility:
+                                    if not is_fragment_compatible(sequence):
+                                        sequences_are_compatible = False
+                                        continue
+                                
+                                # convert to nums (for onehot conversion later)
+                                sequence = [str(BASES.index(bp)) for bp in sequence]
+                                sequence = ",".join(sequence)
+                                sequence = np.fromstring(sequence, dtype=np.uint8, sep=",")
+                                
+                                # other calculations
+                                dist = np.max(remaining_positions)
+                                max_idx = np.zeros((len(self.all_pwms), 1))
+                                max_vals = np.zeros((len(self.all_pwms), 1))
+                                for i in range(len(syntax_pwm_indices)):
+                                    pwm_idx = syntax_pwm_indices[i]
+                                    pos_idx = simul_indices[i]
+                                    max_idx[pwm_idx,0] = pos_idx
+                                    max_vals[pwm_idx,0] = 1
+                                max_idx = max_idx.astype(np.int64)
+                                max_vals = max_vals.astype(np.float32)
+                                    
+                                # save out to results
+                                results[DataKeys.FEATURES].append(sequence)
+                                results[DataKeys.SEQ_METADATA].append(metadata)
+                                results["simul.pwm.indices"].append(syntax_pwm_indices)
+                                results["simul.pwm.pos"].append(simul_indices)
+                                results["simul.pwm.orientation"].append(syntax_orientations)
+                                results["simul.pwm.sample_idx"].append(sample_idx)
+                                results["grammar.string"].append(syntax_string)
+                                results["simul.pwm.dist"].append(dist)
+                                results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
+                                results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
+
+                            # increment anchor seed after done with syntax
+                            anchor_seed += 1
+                            
+                        if sequences_are_compatible:
+                            break
+
+                    # add in background sequence if requested
+                    if self.output_original_background:
+                        # convert sequence
+                        background_sequence_out = [str(BASES.index(bp))
+                                               for bp in background_sequence]
+                        background_sequence_out = ",".join(background_sequence_out)
+                        background_sequence_out = np.fromstring(
+                            background_sequence_out, dtype=np.uint8, sep=",")
+
+                        # add to results
+                        results[DataKeys.SEQ_METADATA].append(metadata)
+                        results["simul.pwm.indices"].append(syntax_pwm_indices)
+                        results["simul.pwm.pos"].append(simul_indices)
+                        results["simul.pwm.orientation"].append(syntax_orientations)
+                        results["simul.pwm.sample_idx"].append(sample_idx)
+                        results["grammar.string"].append(np.array(["BACKGROUND"]))
+                        results["simul.pwm.dist"].append(dist)
+                        results[DataKeys.FEATURES].append(background_sequence_out)
+                        results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX].append(max_idx)
+                        results[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL].append(max_vals)
+                    
+                    # convert everything to numpy array
+                    for key in sorted(results.keys()):
+                        results[key] = np.stack(results[key], axis=0)
+                    
+                    yield (results, 1.)
+
+                logging.info("finished {}".format(grammar_file))
+
+        # instantiate
+        generator = Generator(
+            self.syntaxes,
+            self.anchor_positions,
+            self.other_positions,
+            self.num_samples,
+            shapes_dict,
+            background_regions=self.background_regions,
+            output_original_background=self.output_original_background,
+            all_pwms=self.all_pwms,
+            fasta=self.fasta)
+                            
+        return generator, dtypes_dict, shapes_dict
+
+    
+class SinglePWMSimsDataLoader(PWMSimsDataLoader):
+    """build a dataloader that generates synthetic sequences with desired params"""
+
+    def __init__(
+            self,
+            data_files,
+            count_range=(1,6),
+            sample_range=(420, 580),
+            gc_range=(0.2, 0.8),
+            background_regions=None,
+            num_samples=100,
+            min_spacing=5,
+            count_by=1,
+            output_original_background=False,
+            all_pwms=None,
+            fasta=None):
+        """embed pwms into background sequence. does NOT handle spacing
         """
-        # set up batch id producer (the value itself is unused - drives queue)
+        # extract pwm name and match to pwm file
+        self.all_pwms = all_pwms
+        self.data_files = data_files
+        pwm_name = pd.read_csv(self.data_files[0], header=None).iloc[0,0]
+        sim_pwms = [pwm for pwm in self.all_pwms if pwm_name in pwm.name]
+        assert len(sim_pwms) == 1, "PWM string is not unique or missing!"
+        self.pwm = sim_pwms[0]
+
+        # params
+        self.count_range = range(count_range[0], count_range[1]+1, count_by) # note count range is inclusive at tail
+        self.sample_range = range(sample_range[0], sample_range[1])
+        self.gc_range = gc_range
+        self.num_samples = num_samples
+        self.min_spacing = min_spacing
+        self.background_regions = background_regions
+        self.output_original_background = output_original_background
+        self.fasta = fasta
+        self.num_regions = self.get_num_regions()
+        
+        
+    def get_num_regions(self):
+        """count up how many sims will be done
+        """
+        return self.num_samples * len(self.count_range)
+
+    
+    def build_generator(
+            self,
+            batch_size=256,
+            task_indices=[],
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            lock=threading.Lock(),
+            shuffle=True):
+        """generate all possibilities of grammars
+        """
+        # define which tensors will come out of generator
+        dtypes_dict = {
+            DataKeys.SEQ_METADATA: tf.string,
+            "simul.pwm.pos": tf.int64, # {N, M} - the positions
+            "simul.pwm.sample_idx": tf.int64, # {N}
+            "grammar.string": tf.string, # {N} - labels for plotting
+            "simul.pwm.count": tf.int64, # {N} - the total pwms embedded
+            DataKeys.FEATURES: tf.uint8}
+        shapes_dict = {
+            DataKeys.SEQ_METADATA: [1],
+            "simul.pwm.pos": [len(self.count_range)],
+            "simul.pwm.sample_idx": [],
+            "grammar.string": [1],
+            "simul.pwm.count": [],
+            DataKeys.FEATURES: [seq_len]}
+
+        class Generator(object):
+
+            def __init__(
+                    self,
+                    pwm,
+                    count_range,
+                    sample_range,
+                    num_samples,
+                    shapes_dict,
+                    background_regions=None,
+                    seq_len=1000,
+                    min_gc=0.20,
+                    max_gc=0.80,
+                    fasta=None,
+                    output_original_background=True,
+                    check_reporter_compatibility=True,
+                    all_pwms=None):
+                self.pwm = pwm
+                self.count_range = count_range
+                self.sample_range = sample_range
+                self.num_samples = num_samples
+                self.output_shapes = shapes_dict
+                self.seq_len = seq_len
+                self.min_gc = min_gc
+                self.max_gc = max_gc
+                self.fasta = fasta
+                self.background_regions = background_regions
+                self.output_original_background = output_original_background
+                self.all_pwms = all_pwms
+                self.check_reporter_compatibility = check_reporter_compatibility
+
+                
+            def __call__(self, grammar_file, yield_single_examples=True):
+                
+                # init
+                rand_seed = 0
+                BASES = ["A", "C", "G", "T"]
+
+                # set up converter if using background regions
+                if self.background_regions is not None:
+                    converter = GenomicIntervalConverter(lock, self.fasta, 1)
+                    background_regions = pd.read_table(
+                        self.background_regions, header=None)
+                    colnames = list(background_regions.columns)
+                    colnames[0:3] = ["chrom", "start", "stop"]
+                    background_regions.columns = colnames
+
+                # for each sample
+                for sample_idx in range(self.num_samples):
+                    sample_string = "sample-{}".format(sample_idx)
+                    
+                    while True:
+                        
+                        # set up output results dict
+                        results = {}
+                        for key in self.output_shapes.keys():
+                            results[key] = []
+                        
+                        # for each sample, get a background sequence
+                        metadata, background_sequence, rand_seed = PWMSimsDataLoader.get_background_sequence(
+                            converter, background_regions, seq_len, rand_seed, min_gc=self.min_gc, max_gc=self.max_gc)
+                        embed_sequence = str(background_sequence)
+                        
+                        # check that the background sequence is ok
+                        if self.check_reporter_compatibility:
+                            if not is_fragment_compatible(embed_sequence):
+                                continue
+                        
+                        # embed pwms
+                        valid_indices = list(self.sample_range) # track which indices can be modified
+                        valid_starts = list(self.sample_range) # track possible starts
+                        simul_indices = np.zeros(len(self.count_range)) # track where the pwm was embedded
+                        embed_total = 0
+                        for embed_idx in self.count_range:
+                            
+                            # use a while loop to keep looking for embed positions
+                            # until you find a spot or run out of valid indices
+                            while True:
+                                # check valid starts
+                                if len(valid_starts) == 0:
+                                    break
+
+                                # get current sequence, sample pwm
+                                curr_sequence = str(embed_sequence)
+                                sampled_pwm = self.pwm.get_consensus_string()
+                                
+                                # select a position
+                                rand_state = RandomState(rand_seed)
+                                rand_seed += 1
+                                position = rand_state.choice(valid_starts)
+                                
+                                # check if position will fit in valid indices
+                                min_spacing = 12
+                                stop_position = position + int(len(sampled_pwm) / 2.) + min_spacing
+                                if stop_position not in valid_indices:
+                                    # the start is not valid, remove
+                                    valid_starts.remove(position)
+                                    continue
+                                
+                                # try put pwm into position
+                                curr_sequence = "".join([
+                                    curr_sequence[:int(position)],
+                                    sampled_pwm,
+                                    curr_sequence[int(position+len(sampled_pwm)):]])
+
+                                # check compatibility
+                                if self.check_reporter_compatibility:
+                                    if is_fragment_compatible(curr_sequence):
+                                        embed_sequence = str(curr_sequence)
+                                        # change sequence to the new one and adjust valid indices/starts
+                                        for i in range(position, stop_position):
+                                            valid_indices.remove(i)
+                                            try:
+                                                valid_starts.remove(i)
+                                            except ValueError:
+                                                pass
+                                        break
+                                    else:
+                                        # not valid, so need to remove this start position and DON'T break
+                                        valid_starts.remove(position)
+                                else:
+                                    # change sequence to the new one and adjust valid indices/starts
+                                    embed_sequence = str(curr_sequence)
+                                    for i in range(position, stop_position):
+                                        valid_indices.remove(i)
+                                        try:
+                                            valid_starts.remove(i)
+                                        except ValueError:
+                                            pass
+                                    break
+
+                            if len(valid_starts) == 0:
+                                continue
+                            
+                            # other calcs
+                            grammar_string = "{}.embed-{}".format(sample_string, embed_idx+1)
+                            simul_indices[embed_idx-1] = position # save into 0-indexed positions
+                            embed_total += 1
+                                
+                            # convert to nums (for onehot conversion later)
+                            sequence = str(embed_sequence)
+                            sequence = [str(BASES.index(bp)) for bp in sequence]
+                            sequence = ",".join(sequence)
+                            sequence = np.fromstring(sequence, dtype=np.uint8, sep=",")
+
+                            # add to results
+                            results[DataKeys.FEATURES].append(sequence)
+                            results[DataKeys.SEQ_METADATA].append(metadata)
+                            results["simul.pwm.pos"].append(simul_indices.copy())
+                            results["simul.pwm.sample_idx"].append(sample_idx)
+                            results["simul.pwm.count"].append(embed_total)
+                            results["grammar.string"].append([grammar_string])
+
+                        # this covers the while loop above (non-functional
+                        # but will be used if doing any checks like for MPRA compatibility)
+                        break
+                    
+                    # also keep background sequence
+                    if self.output_original_background:
+                        background_sequence_out = [str(BASES.index(bp))
+                                               for bp in background_sequence]
+                        background_sequence_out = ",".join(background_sequence_out)
+                        background_sequence_out = np.fromstring(
+                            background_sequence_out, dtype=np.uint8, sep=",")
+                        results[DataKeys.FEATURES].append(background_sequence_out)
+                        results[DataKeys.SEQ_METADATA].append(metadata)
+                        results["simul.pwm.pos"].append(np.zeros_like(simul_indices))
+                        results["simul.pwm.sample_idx"].append(sample_idx)
+                        results["simul.pwm.count"].append(0)
+                        results["grammar.string"].append(["{}.BACKGROUND".format(sample_string)])
+                        
+                    # stack to numpy array
+                    for key in sorted(results.keys()):
+                        results[key] = np.stack(results[key], axis=0)
+
+                    # dtypes
+                    results["simul.pwm.pos"] = results["simul.pwm.pos"].astype(np.int64)
+                    results["simul.pwm.sample_idx"] = results["simul.pwm.sample_idx"].astype(np.int64)
+                    results["simul.pwm.count"] = results["simul.pwm.count"].astype(np.int64)
+                        
+                    # pass out as singles?
+                    yield (results, 1.)
+
+                logging.info("finished {}".format(grammar_file))
+
+        # instantiate
+        generator = Generator(
+            self.pwm,
+            self.count_range,
+            self.sample_range,
+            self.num_samples,
+            shapes_dict,
+            background_regions=self.background_regions,
+            output_original_background=self.output_original_background,
+            fasta=self.fasta,
+            all_pwms=self.all_pwms)
+                            
+        return generator, dtypes_dict, shapes_dict
+
+class TableDataLoader(DataLoader):
+    """Load data from a table, where each line is an example"""
+
+    def __init__(
+            self,
+            data_files,
+            fasta,
+            bin_width=200,
+            stride=50,
+            final_length=1000,
+            preprocessed=False,
+            chromsizes=None,
+            ordered=True,
+            tmp_dir="."):
+        # in preprocessing files, important to set up the right fasta from
+        # which to grab the sequence
+        self.data_files = data_files
+        self.fasta = fasta
+        
+        # count num regions
+        self.num_regions = self.get_num_regions()
+        
+
+    def get_num_regions(self):
+        """count num examples (total rows across tables)
+        """
         num_regions = 0
-        with gzip.open(self.bed_file, "r") as fp:
-            for line in fp:
-                num_regions += 1
-        batch_id_queue = tf.train.range_input_producer(
-            num_regions, shuffle=False, seed=0, num_epochs=num_epochs)
-        batch_id = batch_id_queue.dequeue()
-        logging.info("num_regions: {}".format(num_regions))
+        for data_file in self.data_files:
+            data = pd.read_csv(data_file, sep="\t", header=0)
+            num_regions += data.shape[0]
+            
+        return num_regions
 
-        # iterator: produces sequence and example metadata
-        iterator = bed_to_sequence_iterator(
-            self.bed_file,
-            self.fasta_file,
-            batch_size=batch_size)
-        def example_generator(batch_id):
-            return next(iterator)
-        tensor_dtypes = [tf.string, tf.uint8]
-        keys = ["example_metadata", "features"]
-        
-        # py_func
-        inputs = tf.py_func(
-            func=example_generator,
-            inp=[batch_id],
-            Tout=tensor_dtypes,
-            stateful=False, name='py_func_batch_id_to_examples')
-
-        # set shapes
-        for i in range(len(inputs)):
-            if "metadata" in keys[i]:
-                inputs[i].set_shape([1, 1])
+    
+    def build_generator(
+            self,
+            batch_size=256,
+            task_indices=[],
+            keys=[],
+            skip_keys=[],
+            targets=[([(DataKeys.LABELS, [])], {"reduce_type": "none"})],
+            target_indices=[],
+            examples_subset=[],
+            seq_len=1000,
+            lock=threading.Lock(),
+            shuffle=True):
+        """build the generator function
+        """
+        # tensors: shape and type
+        test_data_file = self.data_files[0]
+        test_data = pd.read_csv(test_data_file, sep="\t", header=0)
+        dtypes_dict = {}
+        shapes_dict = {}
+        for col_name in test_data.columns:
+            # TODO for values comma separated, separate out now?
+            if test_data[col_name].dtype == np.float64:
+                dtypes_dict[col_name] = tf.float32
+                shapes_dict[col_name] = [1]
+            elif test_data[col_name].dtype == np.int64:
+                dtypes_dict[col_name] = tf.int64
+                shapes_dict[col_name] = [1]
             else:
-                inputs[i].set_shape([1, 1000])
+                dtypes_dict["{}.string".format(col_name)] = tf.string
+                shapes_dict["{}.string".format(col_name)] = [1]
 
-        # set as dict
-        inputs = dict(list(zip(keys, inputs)))
+        dtypes_dict[DataKeys.FEATURES]= tf.uint8
+        shapes_dict[DataKeys.FEATURES] = [seq_len]
         
-        # batch
-        inputs = tf.train.batch(
-            inputs,
-            batch_size,
-            capacity=1000,
-            enqueue_many=True,
-            name='batcher')
+        dtypes_dict[DataKeys.SEQ_METADATA]= tf.string
+        shapes_dict[DataKeys.SEQ_METADATA] = [1]
 
-        # convert to onehot
-        inputs["features"] = tf.map_fn(
-            DataLoader.encode_onehot_sequence,
-            inputs["features"],
-            dtype=tf.float32)
-        print(inputs["features"])
+        class Generator(object):
+
+            def __init__(self, fasta, batch_size):
+                self.fasta = fasta
+                self.batch_size = batch_size
+
+
+            def __call__(self, data_file, coord_col="example_combo_id", yield_single_examples=True):
+                """run the generator"""
+                batch_size = 1
+                fasta = self.fasta
+
+                # set up interval to sequence converter
+                converter = GenomicIntervalConverter(lock, fasta, batch_size)
+                
+                # read in data file
+                data = pd.read_csv(data_file, sep="\t", header=0)
+                data_by_example = data.to_dict(orient="records")
+                try:
+                    for example_idx in range(len(data_by_example)):
+                        slice_array = data_by_example[example_idx]
+                        fasta_chrom = slice_array[coord_col]
+
+                        for key in slice_array.keys():
+                            # NOTE assumes only float or string
+                            if type(slice_array[key]) == float:
+                                slice_array[key] = np.expand_dims(
+                                    np.array(
+                                        [np.float32(slice_array[key])]), axis=-1)
+                            elif type(slice_array[key]) == str:
+                                data_string = slice_array[key]
+                                del slice_array[key]
+                                slice_array["{}.string".format(key)] = np.expand_dims(
+                                    np.array(
+                                        [data_string]), axis=-1)
+                            else:
+                                slice_array[key] = np.expand_dims(
+                                    np.array(
+                                        [slice_array[key]]), axis=-1)
+                        
+                        example_metadata = "features={}:0-1000".format(fasta_chrom)
+                        metadata = np.array(
+                            [example_metadata])
+                        metadata = np.expand_dims(metadata, axis=-1)
+                        features = converter.convert(metadata)
+                        slice_array[DataKeys.FEATURES] = features
+                        slice_array[DataKeys.SEQ_METADATA] = metadata
+                        
+                        yield (slice_array, 1.)
+                            
+                except ValueError as value_error:
+                    logging.debug(value_error)
+                    logging.info("Stopping {}".format(data_file))
+                    raise StopIteration
+
+                finally:
+                    converter.close()
+                    print("finished {}".format(data_file))
+
+        # instantiate
+        generator = Generator(self.fasta, batch_size)
         
-        return inputs
-
-
-class VcfDataLoader(DataLoader):
-    """Loads data from VCF file to run variants"""
-
-    def build_generator():
-        pass
-
+        return generator, dtypes_dict, shapes_dict
 
     
     
@@ -1501,16 +2523,65 @@ def setup_data_loader(args):
     data must come in through either:
       args.data_dir
       args.data_files
-      args.dataset_json
     """
     if args.data_format == "hdf5":
         data_loader = H5DataLoader(
             data_dir=args.data_dir,
             data_files=args.data_files,
-            dataset_json=args.dataset_json,
-            fasta=args.fasta)
+            fasta=args.fasta,
+            tmp_dir=args.tmp_data_dir)
+    elif args.data_format == "vcf":
+        data_loader = VariantDataLoader(
+            vcf_file=args.vcf_file,
+            ref_fasta=args.ref_fasta,
+            alt_fasta=args.alt_fasta)
     elif args.data_format == "bed":
-        raise ValueError("implement!")
+        data_loader = BedDataLoader(
+            data_files=args.data_files,
+            fasta=args.fasta,
+            bin_width=args.bin_width,
+            stride=args.stride,
+            final_length=args.final_length,
+            chromsizes=args.chromsizes,
+            tmp_dir="{}/tmp_data".format(args.tmp_dir))
+    elif args.data_format == "pwm_sims":
+        if not args.single_pwm:
+            grammar = nx.read_gml(args.data_files[0])
+            pwm_indices = sorted([
+                val[1]
+                for val in list(grammar.nodes(data="pwmidx"))])
+            sim_pwms = [args.dataset_pwm_list[i]
+                        for i in pwm_indices]
+            
+            data_loader = PWMSimsDataLoader(
+                args.data_files,
+                sim_pwms,
+                sample_range=args.sample_range,
+                grammar_range=args.grammar_range,
+                stride=args.pwm_stride,
+                gc_range=args.gc_range,
+                num_samples=args.num_samples,
+                min_spacing=args.min_spacing,
+                background_regions=args.background_regions,
+                output_original_background=not args.embedded_only,
+                all_pwms=args.dataset_pwm_list,
+                fasta=args.fasta)
+        else:
+            data_loader = SinglePWMSimsDataLoader(
+                args.data_files,
+                sample_range=args.sample_range,
+                count_range=args.count_range,
+                gc_range=args.gc_range,
+                num_samples=args.num_samples,
+                min_spacing=args.min_spacing,
+                background_regions=args.background_regions,
+                output_original_background=not args.embedded_only,
+                all_pwms=args.dataset_pwm_list,
+                fasta=args.fasta)
+    elif args.data_format == "table":
+        data_loader = TableDataLoader(
+            data_files=args.data_files,
+            fasta=args.fasta)
     else:
         raise ValueError("unrecognized data format!")
 

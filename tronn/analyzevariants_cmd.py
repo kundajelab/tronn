@@ -2,29 +2,14 @@
 
 import os
 import h5py
-import glob
 import logging
 
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-
-from collections import Counter
-
-from tronn.models import ModelManager
-
-from tronn.datalayer import H5DataLoader
-from tronn.nets.nets import net_fns
-
-from tronn.interpretation.motifs import PWM
-from tronn.interpretation.motifs import read_pwm_file
-
-from tronn.interpretation.clustering import generate_simple_metaclusters
-from tronn.interpretation.clustering import refine_clusters
-from tronn.interpretation.clustering import visualize_clusters
-
-from tronn.interpretation.clustering import aggregate_pwm_results
-from tronn.interpretation.clustering import get_manifold_centers
+from tronn.interpretation.inference import run_inference
+from tronn.interpretation.variants import get_differential_variants
+from tronn.interpretation.variants import annotate_variants
+from tronn.preprocess.variants import generate_new_fasta
+from tronn.util.h5_utils import add_pwm_names_to_h5
+from tronn.util.utils import DataKeys
 
 
 def run(args):
@@ -37,64 +22,59 @@ def run(args):
         os.system('mkdir -p {}'.format(args.tmp_dir))
     else:
         args.tmp_dir = args.out_dir
+
+    # adjust for ataloader
+    args.targets = []
+    args.target_indices = []
+    args.filter_targets = []
+    args.singleton_filter_targets = []
+    args.dataset_examples = None
+    args.processed_inputs = False
+    args.fifo = True
+        
+    # set up ref fasta
+    args.ref_fasta = "{}/{}.ref.fasta".format(
+        args.tmp_dir,
+        os.path.basename(args.fasta.split(".fa")[0]))
+    if not os.path.isfile(args.ref_fasta):
+        generate_new_fasta(args.vcf_file, args.fasta, args.ref_fasta)
+
+    # set up alt fasta
+    args.alt_fasta = "{}/{}.alt.fasta".format(
+        args.tmp_dir,
+        os.path.basename(args.fasta.split(".fa")[0]))
+    if not os.path.isfile(args.alt_fasta):
+        generate_new_fasta(args.vcf_file, args.fasta, args.alt_fasta, ref=False)
+
+    # collect a prediction sample if ensemble (for cross model quantile norm)
+    # always need to do this if you're repeating backprop
+    if args.model["name"] == "ensemble":
+        true_sample_size = args.sample_size
+        args.sample_size = 1000
+        run_inference(args, warm_start=True)
+        args.sample_size = true_sample_size
     
-    # data files
-    data_files = glob.glob('{}/*.h5'.format(args.data_dir))
-    logger.info("Found {} chrom files".format(len(data_files)))
+    # run inference
+    inference_files = run_inference(args)
+
+    # add in PWM names to the datasets
+    for inference_file in inference_files:
+        add_pwm_names_to_h5(
+            inference_file,
+            [pwm.name for pwm in args.pwm_list],
+            other_keys=[DataKeys.FEATURES])
+
+    # and mark which ones are differential
+    get_differential_variants(inference_files[0])
+
+    # and plot out with R
+    plot_cmd = "Rscript ~/git/tronn/R/plot-h5.variants.R {} {}/{}".format(
+        inference_files[0], args.out_dir, args.prefix)
+    print plot_cmd
+    #os.system(plot_cmd)
+
+    # and annotate the differential
+    #annotate_variants(inference_files[0], args.pwm_list)
     
-    # motif annotations
-    pwm_list = read_pwm_file(args.pwm_file)
-    pwm_names = [pwm.name for pwm in pwm_list]
-    pwm_dict = read_pwm_file(args.pwm_file, as_dict=True)
-    logger.info("{} motifs used".format(len(pwm_list)))
-
-    # set up dataloader
-    dataloader = H5DataLoader(data_files)
-    input_fn = dataloader.build_variant_input_fn(
-        args.batch_size,
-        label_keys=args.label_keys,
-        shuffle=False)
-
-    # set up model
-    model_manager = ModelManager(
-        net_fns[args.model["name"]],
-        args.model)
-
-    # set up inference generator
-    inference_generator = model_manager.infer(
-        input_fn,
-        args.out_dir,
-        net_fns[args.inference_fn],
-        inference_params={
-            "use_filtering": False,
-            "backprop": args.backprop,
-            "importance_task_indices": args.inference_tasks,
-            "pwms": pwm_list},
-        checkpoint=args.model_checkpoints[0],
-        yield_single_examples=True)
-
-    # run inference and save out
-    results_h5_file = "{0}/{1}.inference.h5".format(
-        args.tmp_dir, args.prefix)
-    if not os.path.isfile(results_h5_file):
-        model_manager.infer_and_save_to_h5(
-            inference_generator,
-            results_h5_file,
-            args.sample_size)
-
-        # add in PWM names to the datasets
-        with h5py.File(results_h5_file, "a") as hf:
-            for dataset_key in hf.keys():
-                if "pwm-scores" in dataset_key:
-                    hf[dataset_key].attrs["pwm_names"] = [
-                        pwm.name for pwm in pwm_list]
-                    
-    # here, downstream processing?
-    # TODO look at ref vs alt in the output predictions
-    # use label tags?
-    # maybe just some simple clustering here?
-    
-    
-
     return None
 

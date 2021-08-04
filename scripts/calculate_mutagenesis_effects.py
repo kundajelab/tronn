@@ -10,8 +10,15 @@ import logging
 import argparse
 
 import numpy as np
+import networkx as nx
+
+from scipy.stats import wilcoxon
+from scipy.stats import describe
 
 from tronn.interpretation.combinatorial import setup_combinations
+from tronn.interpretation.networks import attach_mut_logits
+from tronn.interpretation.networks import attach_data_summary
+from tronn.interpretation.networks import stringize_nx_graph
 from tronn.stats.nonparametric import run_delta_permutation_test
 from tronn.util.h5_utils import AttrKeys
 from tronn.util.utils import DataKeys
@@ -31,13 +38,22 @@ def parse_args():
         help="h5 file with synergy results")
     parser.add_argument(
         "--calculations", nargs="+", default=[],
-        help="calculations to perform, in the format {FOREGROUND}/{BACKGROUND} - ex 110/100")
-
+        help="pairwise calculations to perform, in the format of indices to look at (ex 110 to look at first two)")
+    parser.add_argument(
+        "--interpretation_indices", nargs="+", default=[],
+        help="use to reduce tasks being considered")
+    parser.add_argument(
+        "--refine", action="store_true",
+        help="get regions with sig synergy and save out new gml")
+    
     # out
     parser.add_argument(
         "-o", "--out_dir", dest="out_dir", type=str,
         default="./",
         help="out directory")
+    parser.add_argument(
+        "--prefix",
+        help="prefix for files")
     
     # parse args
     args = parser.parse_args()
@@ -45,7 +61,7 @@ def parse_args():
     return args
 
 
-def parse_calculation_strings(args):
+def parse_calculation_strings_OLD(args):
     """form the strings into arrays
     """
     calculations = []
@@ -56,6 +72,18 @@ def parse_calculation_strings(args):
         background = np.fromstring(
             ",".join(calculation[1].replace("x", "0")), sep=",")
         calculations.append((foreground, background))
+    args.calculations = calculations
+    
+    return None
+
+def parse_calculation_strings(args):
+    """form the strings into arrays
+    """
+    calculations = []
+    for calculation in args.calculations:
+        calc_array = np.fromstring(
+            ",".join(calculation.replace("x", "0")), sep=",")
+        calculations.append(calc_array)
     args.calculations = calculations
     
     return None
@@ -96,6 +124,94 @@ def _make_conditional_string(foreground_strings, background_strings):
     return new_string
 
 
+def build_graph(
+        h5_file,
+        differential,
+        sig_pwms_names_full,
+        sig_pwms_names,
+        min_sig=3):
+    """build nx graph
+    """
+    # get examples
+    differential = np.greater_equal(np.sum(differential != 0, axis=1), min_sig)
+    with h5py.File(h5_file, "r") as hf:
+        example_metadata = hf[DataKeys.SEQ_METADATA][:,0]
+    examples = example_metadata[np.where(differential)[0]]
+    num_examples = len(examples)
+
+    # set up graph
+    graph = nx.MultiDiGraph()
+    graph.graph["examples"] = examples
+    graph.graph["numexamples"] = num_examples
+    
+    # add nodes
+    nodes = []
+    for node_idx in range(len(sig_pwms_names_full)):
+        node = [
+            sig_pwms_names_full[node_idx],
+            {"examples": examples,
+             "numexamples": num_examples,
+             "mutidx": node_idx+1}]
+        nodes.append(node)
+    graph.add_nodes_from(nodes)
+        
+    # add edges
+    edges = []
+    for node_idx in range(1, len(sig_pwms_names_full)):
+        edge_attrs = {
+            "examples": examples,
+            "numexamples": num_examples,
+            "edgetype": "directed"}
+        edge = (
+            sig_pwms_names_full[node_idx-1],
+            sig_pwms_names_full[node_idx],
+            edge_attrs)
+        edges.append(edge)
+    graph.add_edges_from(edges)
+
+    return graph
+
+
+def _calculate_expected_v_actual(calculation, indices, combinations, outputs):
+    """calculate expected and actual
+    """
+    # 11
+    one_one_combo = calculation
+    one_one_idx = np.where(
+        (np.transpose(combinations) == one_one_combo).all(axis=1))[0][0]
+    one_one_vals = outputs[:,one_one_idx]
+
+    # 01
+    zero_one_combo = np.array(calculation)
+    zero_one_combo[indices[0]] = 0
+    zero_one_idx = np.where(
+        (np.transpose(combinations) == zero_one_combo).all(axis=1))[0][0]
+    zero_one_vals = outputs[:,zero_one_idx]
+
+    # 10
+    one_zero_combo = np.array(calculation)
+    one_zero_combo[indices[1]] = 0
+    one_zero_idx = np.where(
+        (np.transpose(combinations) == one_zero_combo).all(axis=1))[0][0]
+    one_zero_vals = outputs[:,one_zero_idx]
+
+    # 00
+    zero_zero_combo = np.array(zero_one_combo)
+    zero_zero_combo[indices[1]] = 0
+    zero_zero_idx = np.where(
+        (np.transpose(combinations) == zero_zero_combo).all(axis=1))[0][0]
+    zero_zero_vals = outputs[:,zero_zero_idx]
+
+    # get expected: (01 - 00) + (10 - 00)
+    expected = (zero_one_vals - zero_zero_vals) + (one_zero_vals - zero_zero_vals)
+
+    # get actual: 11- 00
+    actual = one_one_vals - zero_zero_vals
+    
+    return expected, actual
+
+
+
 def main():
     """run calculations
     """
@@ -103,16 +219,31 @@ def main():
     args = parse_args()
     os.system("mkdir -p {}".format(args.out_dir))
     setup_run_logs(args, os.path.basename(sys.argv[0]).split(".py")[0])
+    out_prefix = "{}/{}".format(args.out_dir, args.prefix)
 
-    # now set up the indices
+    # TMP: clean up out dir
+    #os.system("rm {}/*".format(args.out_dir))
+
+    # params set up
+    min_pwm_dist = 12 # ignore PWMs that overlap (likely same importance scores contributing)
+    stdev_thresh = 2.0
+    interpretation_indices = [int(val) for val in args.interpretation_indices]
     parse_calculation_strings(args)
 
     # read in data
     with h5py.File(args.synergy_file, "r") as hf:
-        outputs = hf[DataKeys.MUT_MOTIF_LOGITS][:] # {N, mutM_combos, logit}
+        outputs = hf[DataKeys.MUT_MOTIF_LOGITS][:] # {N, mutM_combos, logit} NOTE: 0 is endogenous, 3 is double mut
         sig_pwms_names = hf[DataKeys.MUT_MOTIF_LOGITS].attrs[AttrKeys.PWM_NAMES]
+        positions = hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_IDX_MUT][:] # {N, 4, 2}
+        distances = np.max(positions[:,-1,:], axis=-1) - np.min(positions[:,-1,:], axis=-1) # -1 is where positions are marked (because they were marked for double mut)
+    distance_filt_indices = np.where(distances >= min_pwm_dist)[0]
+    
+    # adjust interpretation indices if needed
+    if len(interpretation_indices) == 0:
+        interpretation_indices = range(outputs.shape[2])
 
     # clean up names
+    sig_pwms_names_full = sig_pwms_names
     sig_pwms_names = [
         re.sub(r"HCLUST-\d+_", "", pwm_name)
         for pwm_name in sig_pwms_names]
@@ -124,65 +255,222 @@ def main():
     num_mut_motifs = len(sig_pwms_names)
     combinations = setup_combinations(num_mut_motifs)
     combinations = 1 - combinations
+
+    # set up results arrays
+    num_calcs = len(args.calculations)
+    results = np.zeros((
+        outputs.shape[0],
+        num_calcs,
+        outputs.shape[2], 3)) # {N, calc, task, 3} where 3 is actual, exp, diff
+    example_sigs = np.zeros((outputs.shape[0], num_calcs, outputs.shape[2])) # {N, calc, task}
     
-    # go through calculations
-    results = np.zeros((outputs.shape[0], len(args.calculations), outputs.shape[2]))
-    labels = []
-    for i in xrange(len(args.calculations)):
+    # set up calculation index sets
+    index_sets = []
+    for i in range(num_calcs):
+        indices = np.where(args.calculations[i]==1)[0]
+        assert len(indices) == 2
+        index_sets.append(indices)
 
-        # extract foreground idx
-        foreground = args.calculations[i][0]
-        foreground_idx = np.where(
-            (np.transpose(combinations) == foreground).all(axis=1))[0][0]
+    # set up summary file log
+    summary_file = "{}/{}.interactions.txt".format(args.out_dir, args.prefix)
+    header_str = "pwm1\tpwm2\tnum_examples\tsig\tbest_task_index\tactual\texpected\tdiff\tpval\tcategory\n"
+    with open(summary_file, "w") as fp:
+        fp.write(header_str)
 
-        # for logging
-        foreground_strings = _setup_output_string(sig_pwms_names, foreground)
-        #print "foreground:", " ".join(foreground_strings)
+    # calculate interaction scores
+    for calc_i in range(num_calcs):
+        indices = index_sets[calc_i]
+
+        # calculate
+        expected, actual = _calculate_expected_v_actual(
+            args.calculations[i], indices, combinations, outputs)
+        diff = actual - expected
+
+        # put results into array
+        results[:,calc_i,:,0] = actual
+        results[:,calc_i,:,1] = expected
+        results[:,calc_i,:,2] = diff
+        
+        # run statistical test ONLY on those that pass distance filter
+        actual = actual[distance_filt_indices]
+        expected = expected[distance_filt_indices]
+        diff = diff[distance_filt_indices]
+        pvals = np.apply_along_axis(wilcoxon, 0, diff)[1]
             
-        # extract background idx
-        background = args.calculations[i][1]
-        background_idx = np.where(
-            (np.transpose(combinations) == background).all(axis=1))[0][0]
+        # determine if any are sig and adjust label indices accordingly
+        # if non sig, look at all label indices
+        label_mask = np.array(
+            [1 if val in interpretation_indices else 0
+             for val in range(diff.shape[1])])
+        label_indices = np.arange(diff.shape[1])
+        sig_tasks = (pvals < 0.05) * label_mask
+        sig_task_indices = np.where(sig_tasks)[0]
+        if sig_task_indices.shape[0] != 0:
+            label_indices = label_indices[sig_task_indices]
+            sig = 1
+        else:
+            label_indices = label_indices[interpretation_indices]
+            sig = 0
 
-        # for logging
-        background_strings = _setup_output_string(sig_pwms_names, background)
-        #print "background:", " ".join(background_strings)
+        # filter for just label indices now
+        actual = actual[:, label_indices]
+        expected = expected[:, label_indices]
+        diff = diff[:, label_indices]
+        pvals_selected = pvals[label_indices]
+        
+        # determine best idx (highest scoring endogenous among label indices)
+        actual_mean = np.mean(actual, axis=0) # {tasks}
+        expected_mean = np.mean(expected, axis=0)
+        diff_mean = np.mean(diff, axis=0)
+        
+        best_idx = np.argmax(actual_mean)
+        label_idx = label_indices[best_idx]
 
-        # and adjust to conditional string
-        conditional_string = _make_conditional_string(foreground_strings, background_strings)
-        labels.append(conditional_string)
-        
-        # log scale, so subtract
-        results[:,i] = outputs[:,foreground_idx] - outputs[:,background_idx]
-        
-        # convert out of log?
-        #results[:,i] = np.power(2, outputs[:,foreground_idx] - outputs[:,background_idx])
-        
-        # print mean result?
-        print np.mean(np.power(2, results[:,i]), axis=0)
+        # determine whether synergy/additive/buffer
+        category = "additive"
+        if sig == 1:
+            if diff_mean[best_idx] > 0:
+                category = "synergy"
+            else:
+                category = "buffer"
 
-    # TODO calculate all sig levels?
-    for i in xrange(results.shape[1]):
-        for j in xrange(results.shape[1]):
-            if i >= j:
-                continue
+        # generate results string
+        results_str = "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(
+            "\t".join(sig_pwms_names),
+            actual.shape[0],
+            sig,
+            label_indices[best_idx],
+            actual_mean[best_idx],
+            expected_mean[best_idx],
+            diff_mean[best_idx],
+            pvals_selected[best_idx],
+            category)
+        print results_str
+        
+        # save out results str with header
+        with open(summary_file, "a") as fp:
+            fp.write(results_str)
+
+        # get sig examples
+        outlier_thresholds = np.percentile(
+            np.abs(diff), 75, axis=0, keepdims=True) # outlier filter (stabilize)
+        diffs_filt = np.where(
+            np.greater(np.abs(diff), outlier_thresholds),
+            0, diff) # zero out beyond outliers
+        diffs_filt = np.where(
+            np.isclose(diffs_filt, 0),
+            np.nan, diffs_filt) # nan to ignore in mean/std calcs
+        stdevs = np.nanstd(diffs_filt, axis=0)
+        means = np.nanmean(diffs_filt, axis=0)
+
+        
+        for task_i in range(len(label_indices)):
+            label_idx = label_indices[task_i]
+            if np.mean(diff) >= 0:
+                calc_sig = results[:, calc_i, label_idx, 2] > stdev_thresh * stdevs[task_i]
+            else:
+                calc_sig = results[:, calc_i, label_idx, 2] < -stdev_thresh * stdevs[task_i]
+            calc_sig = np.multiply(calc_sig, distances >= min_pwm_dist)
+            example_sigs[:, calc_i, label_idx] = calc_sig
             
-            # calculate sig
-            print "{} vs {}".format(labels[i], labels[j])
-            delta_results = results[:,i] - results[:,j]
-            pvals = run_delta_permutation_test(delta_results)
-            print pvals
-    
-    # save out into h5 file
-    # TODO consider saving out under new keys each time
+            
+    # after done with all calcs:
+    # save results (actual/expected/diff)
+    score_key = DataKeys.SYNERGY_SCORES
     with h5py.File(args.synergy_file, "a") as hf:
-        if hf.get(DataKeys.SYNERGY_SCORES) is not None:
-            del hf[DataKeys.SYNERGY_SCORES]
-        hf.create_dataset(DataKeys.SYNERGY_SCORES, data=results)
-        hf[DataKeys.SYNERGY_SCORES].attrs[AttrKeys.PLOT_LABELS] = labels
+        if hf.get(score_key) is not None:
+            del hf[score_key]
+        hf.create_dataset(score_key, data=results)
+        # TODO save out plot labels?
+        #hf[score_key].attrs[AttrKeys.PLOT_LABELS] = labels
 
-    # and plot
-    
+    # save out distances
+    dist_key = DataKeys.SYNERGY_DIST
+    with h5py.File(args.synergy_file, "a") as hf:
+        saved_distances = np.zeros((results.shape[0], num_calcs))
+        for i in range(num_calcs):
+            saved_distances[:,i] = distances
+        if hf.get(dist_key) is not None:
+            del hf[dist_key]
+        hf.create_dataset(dist_key, data=saved_distances)
+
+    # save out differentials
+    synergy_sig_key = DataKeys.SYNERGY_DIFF_SIG
+    with h5py.File(args.synergy_file, "a") as hf:
+        if hf.get(synergy_sig_key) is not None:
+            del hf[synergy_sig_key]
+        hf.create_dataset(synergy_sig_key, data=example_sigs)
+        #hf[synergy_sig_key].attrs[AttrKeys.PLOT_LABELS] = labels
+
+    # analyze and save max distance of synergistic interaction
+    diff_indices = np.greater_equal(np.sum(example_sigs != 0, axis=(1,2)), 1)
+    diff_indices = np.where(diff_indices)[0]
+    diff_distances = distances[diff_indices]
+    max_dist = np.percentile(diff_distances, 95)
+    print max_dist
+    max_dist_key = DataKeys.SYNERGY_MAX_DIST
+    with h5py.File(args.synergy_file, "a") as hf:
+        if hf.get(max_dist_key) is not None:
+            del hf[max_dist_key]
+        hf.create_dataset(max_dist_key, data=max_dist)
+
+    # TODO recalculate difference with cutoff?
+        
+    quit()
+
+    if False:
+        # save pwm score strength?
+        pwm_strength_key = "pwms.strength"
+        with h5py.File(args.synergy_file, "a") as hf:
+            if hf.get(pwm_strength_key) is not None:
+                del hf[pwm_strength_key]
+            pwm_scores = np.amin(
+                hf[DataKeys.WEIGHTED_PWM_SCORES_POSITION_MAX_VAL_MUT][:,-1], axis=1)
+            hf.create_dataset(
+                pwm_strength_key,
+                data=pwm_scores)
+
+    # plot
+    # TODO just plot the best position
+    min_dist = 12 # 12
+    plot_cmd = "plot-h5.synergy_results.2.R {} {} {} {} {} {} {} \"\" {}".format(
+        args.synergy_file,
+        score_key,
+        synergy_diffs_key,
+        synergy_sig_key,
+        dist_key,
+        max_dist_key,
+        out_prefix,
+        min_dist)
+    print plot_cmd
+    #os.system(plot_cmd)
+
+    # refine:
+    #if args.refine:
+    if False:   
+        
+        # do for each calculation set
+        
+        # take these new regions and save out gml
+        # get logits, atac signals, delta logits, etc
+        graph = build_graph(
+            args.synergy_file,
+            differential,
+            sig_pwms_names_full,
+            sig_pwms_names)
+
+        # attach delta logits
+        [graph] = attach_mut_logits([graph], args.synergy_file)
+
+        # attach other keys
+        other_keys = ["logits.norm", "ATAC_SIGNALS.NORM"]
+        for key in other_keys:
+            [graph] = attach_data_summary([graph], args.synergy_file, key)
+
+        # write out gml (to run downstream with annotate)
+        gml_file = "{}.grammar.gml".format(out_prefix) # TODO have a better name!
+        nx.write_gml(stringize_nx_graph(graph), gml_file)
+
     
     
     return None

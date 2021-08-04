@@ -88,42 +88,6 @@ def filter_by_labels(inputs, params):
     return outputs, params
 
 
-# TODO deprecate this
-def filter_singleton_labels_OLD(inputs, params):
-    """Remove examples that are positive only in a single case in the subset
-    """
-    # assertions
-    assert params.get("labels_key") is not None
-    assert params.get("filter_tasks") is not None
-
-    # params
-    labels_key = params.get("labels_key", "labels")
-    labels = inputs[labels_key]
-    filter_tasks = params.get("filter_tasks")
-    batch_size = params["batch_size"]
-    outputs = dict(inputs)
-
-    # set up task subset
-    labels = [tf.expand_dims(tensor, axis=1)
-              for tensor in tf.unstack(labels, axis=1)]
-    label_subset = tf.concat(
-        [labels[i] for i in filter_tasks],
-        axis=1)
-    
-    # condition mask
-    outputs["condition_mask"] = tf.greater(
-        tf.reduce_sum(label_subset, axis=1), [1])
-
-    # run through queue
-    params.update({"num_queue_threads": 4})
-    outputs, params = filter_and_rebatch(outputs, params)
-    params.update({"num_queue_threads": 1})
-    
-    return outputs, params
-
-
-
-
 def filter_by_accuracy(inputs, params):
     """Filter by accuracy
     """

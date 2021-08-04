@@ -33,6 +33,8 @@ def run(args):
         args.sig_pwms_key,
         args.foreground_targets,
         reduce_type="any")
+    args.inference_params.update({"sig_pwms": sig_pwms})
+    logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
 
     # adjust filter targets based on foreground
     filter_targets = parse_multi_target_selection_strings(
@@ -41,10 +43,6 @@ def run(args):
     for keys_and_indices, params in filter_targets:
         new_filter_targets += keys_and_indices
     args.filter_targets = [(new_filter_targets, {"reduce_type": "any"})]
-
-    # TODO add option to ignore long PWMs (later)
-    args.inference_params.update({"sig_pwms": sig_pwms})
-    logging.info("Loaded {} pwms to perturb".format(np.sum(sig_pwms)))
 
     # collect a prediction sample if ensemble (for cross model quantile norm)
     # always need to do this if you're repeating backprop

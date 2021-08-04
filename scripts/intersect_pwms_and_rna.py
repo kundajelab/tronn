@@ -226,7 +226,7 @@ def main():
     corr_pvals_file = "{}/pvals.rna_filt.corr_filt.h5".format(args.out_dir)
     
     # read in RNA matrix
-    rna_patterns = pd.read_table(args.rna_expression_file)
+    rna_patterns = pd.read_table(args.rna_expression_file, sep="\t", index_col=0)
     rna_patterns["ensembl_ids"] = rna_patterns.index
     
     # get foregrounds
@@ -240,7 +240,26 @@ def main():
     for target, target_indices in args.other_targets:
         other_targets[target] = data_loader.load_dataset(target)[:,target_indices]
     pwm_scores = data_loader.load_dataset(args.pwm_scores_key)
-        
+
+    # TODO: somewhere here, need to use ATAC_SIGNALS.NORM vs pwm scores key
+    # and then fix dimension issues below
+    if "pwm" in args.pwm_scores_key:
+        print "NOTE REDUCING FOR RC PWMS"
+        # adjust pwm scores IF rc pwms included
+        # this is indicated by the len of pwm names relative to background (2x scores)
+        print pwm_scores.shape
+        print args.pwm_scores_key
+        scores_tmp = np.reshape(
+            pwm_scores, list(pwm_scores.shape)[:2] + [2, -1])
+        pwm_scores = np.sum(scores_tmp, axis=-2) 
+    elif "ATAC" in args.pwm_scores_key:
+        # GGR specific
+        keep_cols = [0, 1, 2, 3, 4, 5, 6, 9, 10, 12]
+        pwm_scores = pwm_scores[:, keep_cols]
+    else:
+        raise ValueError, "unrecognized score key!"
+
+    # go through each foreground
     for foreground_idx in xrange(len(foreground_keys)):
         foreground_key = foreground_keys[foreground_idx]
         
@@ -261,7 +280,12 @@ def main():
 
         # set up pwm score patterns
         example_scores = pwm_scores[foreground_indices]
-        pwm_patterns = np.sum(example_scores, axis=0).transpose()
+        pwm_patterns = np.sum(example_scores, axis=0).transpose() # {M, timepoint}
+        
+        # if using ATAC, then duplicate M times to fit into downstream pattern
+        if "ATAC" in args.pwm_scores_key:
+            pwm_patterns = np.array([pwm_patterns for i in range(len(pwm_names))])
+        
         # REMOVE LATER
         logging.info("WARNING GGR SPECIFIC ADJUSTMENT HERE")
         pwm_patterns = pwm_patterns[:,[0,2,3,4,5,6,7,8,9]]
@@ -294,20 +318,23 @@ def main():
         # calculate the row-wise correlations
         pwm_rna_correlations = np.zeros((pwm_patterns.shape[0]))
         for i in xrange(pwm_rna_correlations.shape[0]):
-            corr_coef, pval = pearsonr(
+            #corr_coef, pval = pearsonr(
+            corr_coef, pval = spearmanr(
                 pwm_patterns_vals.values[i], rna_patterns_matched.values[i])
             pwm_rna_correlations[i] = corr_coef
 
         # filter for correlation
         if args.cor_thresh is not None:
-            good_cor = pwm_rna_correlations >= args.cor_thresh
+            #good_cor = pwm_rna_correlations >= args.cor_thresh
+            # EDITED HERE
+            good_cor = pwm_rna_correlations < -0.75 #>= args.cor_thresh
             pwm_patterns = pwm_patterns.iloc[good_cor]
             pwm_patterns_vals = pwm_patterns_vals.iloc[good_cor]
             rna_patterns_matched = rna_patterns_matched.iloc[good_cor]
             pwm_rna_correlations = pwm_rna_correlations[good_cor]
-
+            
         # set up new sig pwms
-        new_sig_pwms = np.zeros((pwm_scores.shape[2])).astype(int)
+        new_sig_pwms = np.zeros((len(pwm_names))).astype(int)
         new_sig_pwms[pwm_patterns["original_indices"].values] = 1
 
         # extract other keys

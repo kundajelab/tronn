@@ -1,0 +1,41 @@
+{
+    "baseline_model": {
+	"dir": "1000G_EUR_Phase3_baseline",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_baseline_ldscores.tgz",
+	"prefix": "baseline."
+    },
+    "baseline_1.2": {
+	"dir": "baseline_v1.2",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/GRCh38/baseline_v1.2.tgz",
+	"prefix": "baseline."
+    },
+    "baselineLD_2.2": {
+	"dir": "1000G_EUR_Phase3_baselineLD_v2.2",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_baselineLD_v2.2_ldscores.tgz",
+	"prefix": "baselineLD."
+    },
+    "weights": {
+	"dir": "weights_hm3_no_hla",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/weights_hm3_no_hla.tgz",
+	"prefix": "weights."
+    },
+    "freqs": {
+	"dir": "1000G_Phase3_frq",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_frq.tgz",
+	"prefix": "1000G.EUR.QC."
+    },
+    "plink": {
+	"dir": "1000G_EUR_Phase3_plink",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/1000G_Phase3_plinkfiles.tgz",
+	"prefix": "1000G.EUR.QC"
+    },
+    "hapmap3_snps": {
+	"dir": "hapmap3_snps",
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/hapmap3_snps.tgz",
+	"prefix": "hm"
+    },
+    "hapmap3_snp_list": {
+	"url": "https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2",
+	"file": "w_hm3.snplist"
+    }
+}

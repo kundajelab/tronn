@@ -18,7 +18,7 @@ from tronn.util.utils import DataKeys
 def empty_net(inputs, params):
     """Placeholder model to pass through features without modifying them
     """
-    if inputs.get(DataKeys.LOGITS) is None:
+    if (inputs.get(DataKeys.LOGITS) is None) and (inputs.get(DataKeys.LABELS) is not None):
         # for all outputs, return 0 as logit - average prediction
         inputs[DataKeys.LOGITS] = tf.zeros(inputs[DataKeys.LABELS].get_shape())
     # otherwise, keep logits

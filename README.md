@@ -1,5 +1,7 @@
-# TRONN
-Transcriptional Regulation (Optimized) Neural Nets (TRONN) - neural network tools for building integrative gene regulation models
+## tronn
+Transcriptional Regulation optimized Neural Nets
+
+tronn is a toolkit for building neural network models around genomic data types and integrative analyses of the model.
 
 Models and datasets can be found at the following Zenodo accessions:
 
@@ -11,15 +13,9 @@ Models and datasets can be found at the following Zenodo accessions:
 ---
 ### Installation
 
-Easiest way is to first install anaconda, and set up an environment.
+We recommend first installing [anaconda](https://docs.anaconda.com/anaconda/install/) and using a conda environment (e.g. `conda create -n tronn python=2 anaconda`) to manage packages and ensure functionality. A docker [container](https://hub.docker.com/r/dskim89/tronn) is also available (tensorflow 1.10.1).
 
-```
-conda create -n tronn python=2 anaconda
-```
-
-Within the environment, install tensorflow according to tensorflow instructions for installing in Anaconda. Please use tensorflow 1.9 or 1.10.
-
-Use the `pip install` way to install tensorflow, NOT the conda install. (use `which pip` to make sure it's the pip associated with your conda environment)
+Install [tensorflow](https://www.tensorflow.org/install/pip) with `pip install`. tronn currently requires tensorflow 1.9 or 1.10.
 
 ```
 # example install command, adjust tensorflow version as needed

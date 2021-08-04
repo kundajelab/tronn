@@ -31,6 +31,7 @@ from tronn.datalayer import H5DataLoader
 from tronn.interpretation.motifs import test_differential_motifs
 from tronn.stats.nonparametric import threshold_by_qvalues
 from tronn.util.h5_utils import AttrKeys
+from tronn.util.pwms import PWMParams
 from tronn.util.scripts import setup_run_logs
 from tronn.util.scripts import parse_multi_target_selection_strings
 from tronn.util.scripts import load_selected_targets
@@ -167,18 +168,27 @@ def main():
     with h5py.File(background_data_loader.data_files[0], "r") as hf:
         background_pwm_names = hf[args.scores_key].attrs["pwm_names"]
 
+    # adjust background pwm scores IF rc pwms included
+    # this is indicated by the len of pwm names relative to background (2x scores)
+    if 2*len(background_pwm_names) == background_data[args.scores_key].shape[2]:
+        scores_tmp = np.reshape(
+            background_data[args.scores_key],
+            list(background_data[args.scores_key].shape)[:2] + [2, -1])
+        background_data[args.scores_key] = np.sum(scores_tmp, axis=-2)
+    
     # load background inference targets (that were used in scanmotifs)
     if args.targets is not None:
         inference_targets = parse_multi_target_selection_strings(args.targets)
     else:
-        inference_targets = [(target, {}) for target in args.inference["targets"]]
+        inference_targets = args.inference["targets"]
     selected_targets = []
     for targets, params in inference_targets:
         found_targets = load_selected_targets(
             background_data_loader, targets, {"reduce_type": "none"})
         selected_targets.append(found_targets)
     inference_targets = np.concatenate(selected_targets, axis=1)
-    # TODO need to bring in target_indices to be completely consistent
+    if len(args.inference["target_indices"]) > 0:
+        inference_targets = inference_targets[:, args.inference["target_indices"]]
     inference_target_indices = args.inference["inference_targets"]
     if len(inference_target_indices) > 0:
         inference_targets = inference_targets[:,inference_target_indices]
@@ -210,18 +220,32 @@ def main():
         for key in foreground_data.keys():
             foreground_data[key] = foreground_data[key][foreground_indices] # scores {N, task, ...}
 
+        # TODO adjust foreground pwm scores IF rc pwms included
+        if 2*len(foreground_pwm_names) == foreground_data[args.scores_key].shape[2]:
+            scores_tmp = np.reshape(
+                foreground_data[args.scores_key],
+                list(foreground_data[args.scores_key].shape)[:2] + [2, -1])
+            foreground_data[args.scores_key] = np.sum(scores_tmp, axis=-2)
+            
         # set up args to run for each task
         run_args_list = [
             (foreground_data, background_data, inference_targets, task_idx, args.scores_key, args.gc_key)
             for task_idx in range(foreground_data[args.scores_key].shape[1])]
 
         # set up pool and run
-        pool = Pool(args.num_threads)
-        pvals = pool.map(_run_differential_test_parallel, run_args_list)
+        pvals = []
+        for run_args in run_args_list:
+            pvals.append(
+                _run_differential_test_parallel(run_args))
+        
+        if False:
+            pool = Pool(args.num_threads)
+            pvals = pool.map(_run_differential_test_parallel, run_args_list)
+            pool.close()
+            pool.join()
+        
         pvals = np.stack(pvals, axis=0)
-        pool.close()
-        pool.join()
-
+        
         # save out
         hits_pvals[foreground_idx] = pvals
 
@@ -239,7 +263,15 @@ def main():
         overall_thresholded = num_sig >= eval(args.reduce_type[1])
     else:
         raise ValueError, "reduce type not recognized!"
-        
+
+    # if removing blacklisted, do so here
+    logging.info("Removed blacklisted pwms with substrings {}".format(
+        ",".join(PWMParams.BLACKLIST_SUBSTRINGS)))
+    for pwm_i in range(len(background_pwm_names)):
+        for substr in PWMParams.BLACKLIST_SUBSTRINGS:
+            if substr in background_pwm_names[pwm_i]:
+                overall_thresholded[:,pwm_i] = 0
+    
     logging.info("Significant motifs per foreground: {}".format(
         " ".join([str(i) for i in np.sum(overall_thresholded, axis=1).tolist()])))
     

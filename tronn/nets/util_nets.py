@@ -158,6 +158,56 @@ def pad_inputs(inputs, params):
     return outputs, params
 
 
+def unpad_inputs(inputs, params):
+    """when features are adjusted, adjust other tensors accordingly
+    """
+    assert params.get("num_aux_examples") is not None
+
+    # params
+    num_aux_examples = params["num_aux_examples"]
+    ignore_keys = params["ignore_keys"]
+    current_batch_size = params["batch_size_adj"]
+    final_batch_size = params["batch_size"]
+    save_aux = params.get("save_aux", {})
+    
+    # get indices
+    indices = range(current_batch_size)
+    main_indices = np.where(np.mod(indices, [num_aux_examples+1]) == 0)[0]
+    aux_indices = np.where(np.mod(indices, [num_aux_examples+1]) != 0)[0]
+    new_batch_size = len(main_indices)
+    
+    # gather examples
+    outputs = {}
+    seen_keys = []
+    for key in sorted(inputs.keys()):
+        if key in ignore_keys:
+            outputs[key] = inputs[key]
+            continue
+
+        if key in seen_keys:
+            continue
+
+        # gather
+        outputs[key] = tf.gather(inputs[key], main_indices)
+
+        # gather auxiliary examples if desired
+        if key in save_aux.keys():
+            aux_batch = tf.gather(inputs[key], aux_indices)
+            aux_batch = tf.reshape(
+                aux_batch,
+                [new_batch_size, -1] + inputs[key].get_shape().as_list()[1:])
+            outputs[save_aux[key]] = aux_batch
+            seen_keys.append(save_aux[key])
+
+    # backcheck work
+    final_batch_size = inputs[params["ignore_keys"][0]].get_shape().as_list()[0]
+    for key in outputs.keys():
+        assert outputs[key].get_shape().as_list()[0] == final_batch_size, key
+
+    return outputs, params
+
+
+
 def detach_auxiliary_tensors(inputs, params):
     """remove auxiliary tensors from the main key
     this is useful for pulling out features like
@@ -222,6 +272,7 @@ def clear_auxiliary_tensors(inputs, params):
 def rebatch(inputs, params):
     """Re-batch after "breaking" a batch
     """
+    logging.info("WARNING: do NOT run queues in parallel!! only in series.")
     # assertions
     assert params.get("name") is not None
     assert params.get("batch_size") is not None
@@ -241,225 +292,8 @@ def rebatch(inputs, params):
             enqueue_many=True,
             name="rebatch_queue")
 
+    print name
     # delete name to make sure queues stay
-    # in separate scopes
-    del params["name"]
-
-    return outputs, params
-
-
-def rebatch_TEST(inputs, params):
-    """Re-batch after "breaking" a batch
-    """
-    # assertions
-    assert params.get("name") is not None
-    assert params.get("batch_size") is not None
-
-    # params
-    name = params["name"]
-    batch_size = params["batch_size"]
-
-    # sorted params
-    sorted_keys = sorted(inputs.keys())
-    sorted_dtypes = [inputs[key].dtype for key in sorted_keys]
-    sorted_shapes = [inputs[key].get_shape().as_list()[1:]
-                    for key in sorted_keys]
-
-    # dtypes 
-    dtype_dict = {}
-    for key in inputs.keys():
-        dtype_dict[key] = inputs[key].dtype
-
-    # put into dataset
-    dataset = tf.data.Dataset.from_tensor_slices(inputs)
-
-    # get 1 element at a time?
-    dataset = dataset.apply(
-        tf.contrib.data.batch_and_drop_remainder(1))
-
-    # iterator
-    iterator = dataset.make_initializable_iterator()
-    outputs = iterator.get_next()
-    tf.get_collection("DATASETUP")
-    tf.add_to_collection("DATASETUP", iterator.initializer)
-    print tf.get_collection("DATASETUP")
-
-    # get rid of first dim
-    for key in outputs.keys():
-        outputs[key] = tf.squeeze(outputs[key], axis=0)
-    
-    # staging area
-    with tf.variable_scope(name):
-        # set up a staging area
-        area = tf.contrib.staging.StagingArea(
-            dtypes=sorted_dtypes,
-            names=sorted_keys,
-            shapes=sorted_shapes) # shapes are crucial
-
-        tf.get_collection("STAGING_OPS")
-        tf.add_to_collection("STAGING_OPS", area.put(outputs))
-        
-        area.put(outputs)
-
-        # make get_fn to get a batch back
-        def get_fn(val):
-            return area.get()
-                
-        # get results
-        outputs = tf.map_fn(
-            get_fn,
-            tf.range(batch_size),
-            dtype=dtype_dict)
-
-    # delete name to make sure staging areas stay
-    # in separate scopes
-    del params["name"]
-    
-    return outputs, params
-    
-        
-
-def fake2():
-    #print inputs
-    
-    # dtypes 
-    dtype_dict = {}
-    for key in inputs.keys():
-        dtype_dict[key] = inputs[key].dtype
-    
-    # trying dataset
-    #with tf.device('/gpu:0'):
-    if True:
-        dataset = tf.data.Dataset.from_tensor_slices(inputs)
-        #print dataset
-
-        dataset = dataset.prefetch(batch_size*8)
-        
-        #dataset = dataset.batch(batch_size)
-        dataset = dataset.apply(
-                tf.contrib.data.batch_and_drop_remainder(batch_size))
-        #dataset = dataset.prefetch(batch_size)
-        #outputs =  tf.contrib.data.get_single_element(dataset)
-        #quit()
-
-        # use this to block while waiting
-        null_dataset = tf.data.Dataset.from_tensor_slices([1])
-        dataset = null_dataset.apply(
-            tf.contrib.data.parallel_interleave(
-                lambda x: dataset,
-                cycle_length=1,
-                sloppy=True)) # sloppy=True crucial for blocking!
-
-        print dataset
-        
-        if True:
-            #print dataset
-            
-            #quit()
-            iterator = dataset.make_initializable_iterator()
-            #iterator = dataset.make_one_shot_iterator()
-            outputs = iterator.get_next()
-            tf.get_collection("DATASETUP")
-            tf.add_to_collection("DATASETUP", iterator.initializer)
-            print tf.get_collection("DATASETUP")
-        
-    # set batch size
-    #for key in outputs.keys():
-    #    outputs[key].set_shape(
-    #        [batch_size] + outputs[key].get_shape().as_list()[1:])
-    
-    return outputs, params
-
-
-def fake():
-        
-    with tf.variable_scope(name):
-        # set up a staging area
-        area = tf.contrib.staging.StagingArea(
-            dtypes=sorted_dtypes,
-            names=sorted_keys,
-            shapes=sorted_shapes) # shapes are crucial
-
-        for i in xrange(inputs[sorted_keys[0]].get_shape().as_list()[0]):
-            print i
-
-            def extract_and_put(i):
-                # extract an example
-                example = {}
-                for key in inputs.keys():
-                    example[key] = inputs[key][i]
-                return area.put(example)
-                    
-            put_op = tf.cond(
-                tf.equal(condition_mask[i], 1),
-                lambda: extract_and_put(i),
-                tf.no_op)
-            tf.get_collection("STAGING_OPS")
-            tf.add_to_collection("STAGING_OPS", put_op)
-
-        quit()
-
-        def split_fn(inputs):
-            return dict(inputs)
-
-        # use map fn to split and put
-        inputs = tf.map_fn(
-            split_fn,
-            inputs)
-        print inputs
-        quit()
-        
-        
-        # now place examples individually
-        put_op = tf.where(
-            tf.equal(condition_mask, 1),
-            area.put(inputs),
-            tf.no_op())
-        tf.get_collection("STAGING_OPS")
-        tf.add_to_collection("STAGING_OPS", put_op)
-
-        quit()
-
-        
-
-        if False:
-            # extract an example
-            example = {}
-            for key in inputs.keys():
-                example[key] = inputs[key][i]
-
-            # set up conditional and save out staging ops
-            put_op = tf.cond(
-                tf.equal(condition_mask[i], 1),
-                lambda: area.put(example),
-                tf.no_op)
-            tf.get_collection("STAGING_OPS")
-            tf.add_to_collection("STAGING_OPS", put_op)
-            
-        quit()
-        # make put_fn to load individual examples to area
-        def put_fn(inputs):
-            put_op = area.put(inputs)
-            tf.get_collection("STAGING_OPS")
-            tf.add_to_collection("STAGING_OPS", put_op)
-            return inputs
-        
-        # use map fn to split and put
-        tf.map_fn(
-            put_fn,
-            inputs)
-
-        # make get_fn to get a batch back
-        def get_fn(val):
-            return area.get()
-                
-        # get results
-        outputs = tf.map_fn(
-            get_fn,
-            tf.range(batch_size),
-            dtype=dtype_dict)
-
-    # delete name to make sure staging areas stay
     # in separate scopes
     del params["name"]
 
