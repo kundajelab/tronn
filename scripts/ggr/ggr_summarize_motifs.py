@@ -114,8 +114,9 @@ def main():
 
     # remove nans/duplicates
     traj_tfs = traj_tfs.fillna(0)
-    traj_pwms = traj_pwms.fillna(0).drop_duplicates()
-
+    traj_pwms = traj_pwms.fillna(0).reset_index().drop_duplicates()
+    traj_pwms = traj_pwms.set_index("index")
+    
     # reindex
     tf_patterns = tf_patterns.reindex(traj_tfs.index)
     motif_patterns = motif_patterns.groupby(motif_patterns.index).mean() # right now, just average across trajectories (though not great)

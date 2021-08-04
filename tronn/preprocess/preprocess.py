@@ -50,7 +50,7 @@ def setup_h5_dataset(
     
     # set up prefix
     prefix = os.path.basename(bin_file).split(
-        ".narrrowPeak")[0].split(".bed")[0]
+        ".narrowPeak")[0].split(".bed")[0]
 
     # save in the metadata
     save_metadata(bin_file, h5_file)

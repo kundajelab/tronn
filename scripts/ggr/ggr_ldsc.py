@@ -2,6 +2,7 @@
 
 import os
 import glob
+import gzip
 
 import networkx as nx
 import pandas as pd
@@ -88,6 +89,60 @@ def setup_sumstats_file(sumstats_file, merge_alleles_file, out_file, other_param
     return None
 
 
+def get_sig_snps(sumstats_file, variants_file, out_file):
+    """get genome-wide sig snps, backtracking from log
+    """
+    # prefix
+    phenotype = os.path.basename(sumstats_file).split(".sumstats")[0]
+    
+    # read sumstats log file to get num sig snps
+    sumstats_log = "{}.log".format(sumstats_file.split(".sumstats")[0])
+    with open(sumstats_log, "r") as fp:
+        for line in fp:
+            if "Genome-wide significant SNPs" in line:
+                num_sig = int(line.strip().split()[0])
+
+    if num_sig != 0:
+        # access sumstats file and sort, only keep top k (to match num sig)
+        sumstats = pd.read_csv(sumstats_file, sep="\t")
+        sumstats = sumstats.dropna()
+        sumstats = sumstats[sumstats["Z"] != 0]
+        sumstats["Z_abs"] = sumstats["Z"].abs()
+        sumstats = sumstats.sort_values("Z_abs", ascending=False)
+        sumstats = sumstats.iloc[:num_sig,:]
+        sumstats = sumstats.set_index("SNP")
+        
+        # now access variants file to associate snps properly
+        seen_rsids = []
+        sumstats["chr"] = 1
+        sumstats["start"] = 1
+        line_num = 0
+        with gzip.open(variants_file, "r") as fp:
+            for line in fp:
+                fields = line.strip().split()
+                if fields[5] in sumstats.index.values:
+                    sumstats.loc[fields[5], "chr"] = "chr{}".format(fields[1])
+                    sumstats.loc[fields[5], "start"] = int(fields[2])
+                    seen_rsids.append(fields[5])
+                    if len(seen_rsids) == sumstats.shape[0]:
+                        break
+
+                # reassurance we're progressing
+                line_num += 1
+                if line_num % 1000000 == 0:
+                    print line_num
+
+        sumstats = sumstats.reset_index()
+        sumstats["stop"] = sumstats["start"] + 1
+
+        # build the BED file
+        bed_data = sumstats[["chr", "start", "stop", "SNP"]]
+        bed_data["SNP"] = bed_data["SNP"].astype(str) + ";{}".format(phenotype)
+        bed_data.to_csv(out_file, sep="\t", header=False, index=False, compression="gzip")
+        
+    return num_sig
+
+
 def main():
     """run all analyses for GGR GWAS variants
     """
@@ -132,17 +187,18 @@ def main():
         os.system(setup_snps)
     
     # ldsc annot dir
-    ldsc_annot_dir = "./ldsc.annot"
+    ldsc_annot_dir = "./annot.custom"
     os.system("mkdir -p {}".format(ldsc_annot_dir))
 
     # ldsc file table
-    ldsc_table_file = "./annot.table.v2.ldsc"
+    ldsc_table_file = "./annot.table.TMP"
 
     # get an unrelated cell type - Liver
     HEPG2_DIR = "/mnt/data/integrative/dnase/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq/out_50m/peak/idr/pseudo_reps/rep1"
     hepg2_bed_file = "{}/ENCSR000ENP.HepG2_Hepatocellular_Carcinoma_Cell_Line.UW_Stam.DNase-seq_rep1-pr.IDR0.1.filt.narrowPeak.gz".format(
         HEPG2_DIR)
-    prefix = "HepG2"
+    #prefix = "HepG2"
+    prefix = os.path.basename(hepg2_bed_file)
     ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
         ldsc_annot_dir, prefix)
     if not os.path.isfile(ldscore_file):
@@ -151,7 +207,7 @@ def main():
     with open(ldsc_table_file, "w") as fp:
         fp.write("HepG2\t{}/{}.\n".format(
             ldsc_annot_dir, prefix))
-    
+        
     # get ATAC all
     GGR_DIR = "/mnt/lab_data/kundaje/users/dskim89/ggr/integrative/v1.0.0a"
     ggr_master_bed_file = "{}/data/ggr.atac.idr.master.bed.gz".format(GGR_DIR)
@@ -161,7 +217,7 @@ def main():
     if not os.path.isfile(ldscore_file):
         setup_ldsc_annotations(
             ggr_master_bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
-    with open(ldsc_table_file, "w") as fp:
+    with open(ldsc_table_file, "a") as fp:
         fp.write("GGR_ALL\t{}/{}.\n".format(
             ldsc_annot_dir, prefix))
         
@@ -194,45 +250,46 @@ def main():
                 ldsc_annot_dir, prefix))
 
     # grammar dir
-    grammar_dir = "./grammars"
-    
-    # download
-    kube_dir = "kundajelab/dk.dev:/datasets/inference.2019-03-12/dmim.shuffle/grammars.annotated.manual_filt.merged.final"
+    grammar_dir = "./rules"
     if not os.path.isdir(grammar_dir):
         os.system("mkdir -p {}".format(grammar_dir))
-        download_cmd = "kubectl cp {}/ {}/".format(
-            kube_dir, grammar_dir)
-        print download_cmd
-        os.system(download_cmd)
 
-    # get BED files from grammar files
-    grammar_summary_file = "{}/grammars_summary.txt".format(grammar_dir)
-    grammars = pd.read_csv(grammar_summary_file, sep="\t")
-    for grammar_idx in range(grammars.shape[0]):
-        print grammar_idx
+    if False:
+        
+        # validated rules
+        rule_summary_file = "/mnt/lab_data/kundaje/users/dskim89/ggr/validation/mpra.2019-10-22.results/results/combinatorial_rules/summary.txt.gz"
+        rules_summary = pd.read_csv(rule_summary_file, sep="\t")
 
-        # read in grammar
-        grammar_file = grammars.iloc[grammar_idx]["filename"]
-        grammar_file = "{}/{}".format(
-            grammar_dir, os.path.basename(grammar_file))
-        grammar = nx.read_gml(grammar_file)
-        grammar.graph["examples"] = grammar.graph["examples"].split(",")
+        # get BED files from validated rules and make annotations
+        rule_dir = "/mnt/lab_data3/dskim89/ggr/nn/2019-03-12.freeze/dmim.shuffle/grammars.annotated.manual_filt.merged.final"
+        for rule_idx in range(rules_summary.shape[0]):
+            print rule_idx
 
-        # make bed file
-        bed_file = "{}.bed.gz".format(grammar_file.split(".gml")[0])
-        if not os.path.isfile(bed_file):
-            get_bed_from_nx_graph(grammar, bed_file)
+            # get rule examples
+            rule_name = rules_summary.iloc[rule_idx]["grammar"]
+            rule_file = "{}/{}.gml".format(
+                rule_dir, rule_name)
+            rule = nx.read_gml(rule_file)
+            rule.graph["examples"] = rule.graph["examples"].split(",")
 
-        # then make annotations
-        prefix = os.path.basename(bed_file).split(".bed")[0]
-        ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
-            ldsc_annot_dir, prefix)
-        if not os.path.isfile(ldscore_file):
-            setup_ldsc_annotations(
-                bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
-        with open(ldsc_table_file, "a") as fp:
-            fp.write("{1}\t{0}/{1}.\n".format(
-                ldsc_annot_dir, prefix))
+            # make bed file
+            bed_file = "{}/{}.bed.gz".format(
+                grammar_dir,
+                os.path.basename(rule_file).split(".gml")[0])
+            if not os.path.isfile(bed_file):
+                get_bed_from_nx_graph(rule, bed_file)
+
+            # then make annotations
+            prefix = os.path.basename(bed_file).split(".bed")[0]
+            ldscore_file = "{}/{}.22.l2.ldscore.gz".format(
+                ldsc_annot_dir, prefix)
+            if not os.path.isfile(ldscore_file):
+                setup_ldsc_annotations(
+                    bed_file, bim_prefix, hapmap_prefix, ldsc_annot_dir)
+            with open(ldsc_table_file, "a") as fp:
+                fp.write("{1}\t{0}/{1}.\n".format(
+                    ldsc_annot_dir, prefix))
+
     
     # pull relevant GWAS summary stats (plus UKBB), configure, and run
     sumstats_dir = "./sumstats"
@@ -241,19 +298,8 @@ def main():
     os.system("mkdir -p {}".format(sumstats_orig_dir))
 
     # also set up results dir
-    results_dir = "./results.v2"
+    results_dir = "./results.TMP"
     os.system("mkdir -p {}".format(results_dir))
-    
-    # get UKBB derm stats (from LDSC repo)
-    ukbb_derm_sumstats = "{}/ukbb.none.derm.ldsc.sumstats.gz".format(sumstats_dir)
-    if not os.path.isfile(ukbb_derm_sumstats):
-        file_url = "https://data.broadinstitute.org/alkesgroup/UKBB/disease_DERMATOLOGY.sumstats.gz"
-        save_file = "{}/ukbb.ldsc_pheno.dermatology.sumstats.gz".format(sumstats_orig_dir)
-        get_ukbb = "wget {} -O {}".format(
-            file_url,
-            save_file)
-        os.system(get_ukbb)
-        setup_sumstats_file(save_file, hapmap_snps_file, ukbb_derm_sumstats)
         
     # ukbb standardized, can do all in one go
     ukbb_manifest_file = "./ukbb/ukbb.gwas_imputed_3.release_20180731.tsv"
@@ -268,16 +314,16 @@ def main():
 
     # GGR relevant codes
     ukbb_codes = [
-        "20001_1003", # skin cancer
-        "20001_1060", # skin cancer
+        #"20001_1003", # skin cancer
+        #"20001_1060", # skin cancer
         "20001_1061", # BCC
         "20001_1062", # SCC
-        "20002_1371", # sarcoidosis (self report)
-        "22133", # sarcoidosis (doctor dx)
-        "D86", # sarcoidosis ICD
-        "20002_1381", # lupus
-        "20002_1382", # sjogrens
-        "20002_1384", # scleroderma
+        #"20002_1371", # sarcoidosis (self report)
+        #"22133", # sarcoidosis (doctor dx)
+        #"D86", # sarcoidosis ICD
+        #"20002_1381", # lupus
+        ##"20002_1382", # sjogrens
+        #"20002_1384", # scleroderma
         "20002_1452", # eczema/dermatitis
         "20002_1453", # psoriasis (self report)
         "L12_PSORI_NAS", # psoriasis
@@ -285,15 +331,15 @@ def main():
         "L40", # psoriasis ICD
         "20002_1454", # blistering
         "20002_1455", # skin ulcers
-        "20002_1625", # cellulitis
+        #"20002_1625", # cellulitis
         "20002_1660", # rosacea
         "L12_ROSACEA", # rosacea
         "L71", # rosacea
-        "20002_1661", # vitiligo
+        #"20002_1661", # vitiligo
         "B07", # viral warts
-        "C_SKIN",
+        #"C_SKIN",
         "C_OTHER_SKIN", # neoplasm of skin
-        "C3_SKIN",
+        #"C3_SKIN",
         "C3_OTHER_SKIN", # neoplasm of skin
         "C44", # cancer ICD
         "D04", # carcinoma in situ of skin
@@ -305,9 +351,9 @@ def main():
         "L12_EPIDERMALTHICKOTH", # epidermal thickening
         "L12_EPIDERMTHICKNAS", # epidermal thickening
         "L85", # epidermal thickening
-        "L12_GRANULOMASKINNAS", # granulomatous
-        "L12_GRANULOMATOUSSKIN", # granulomatous
-        "L92", # granulomatous
+        #"L12_GRANULOMASKINNAS", # granulomatous
+        #"L12_GRANULOMATOUSSKIN", # granulomatous
+        #"L92", # granulomatous
         "L91", # hypertrophic disorders
         "L12_HYPERTROPHICNAS",
         "L12_HYPERTROPHICSKIN",
@@ -317,16 +363,29 @@ def main():
         "L12_SCARCONDITIONS", # scarring
         "L12_SKINSUBCUTISNAS", # other
         "20002_1548", # acne
-        "20002_1549", # lichen planus
-        "20002_1550", # lichen sclerosis
-        "L12_NONIONRADISKIN", # skin changes from nonionizing radiation
-        "L57", # skin changes from nonionizing radiation ICD
+        #"20002_1549", # lichen planus
+        #"20002_1550", # lichen sclerosis
+        #"L12_NONIONRADISKIN", # skin changes from nonionizing radiation
+        #"L57", # skin changes from nonionizing radiation ICD
         "L12_OTHERDISSKINANDSUBCUTIS", # other
         "L98", # other
         
     ]
 
+    # reduced set of interest
+    ukbb_codes_REDUCED = [
+        "20002_1452", # eczema/dermatitis
+        "20002_1453", # psoriasis (self report)
+        "20002_1660", # rosacea
+        "L12_ROSACEA", # rosacea
+        "L12_ACTINKERA", # actinic keratosis
+        "L82", # seborrhoeic keratosis
+        "20002_1548", # acne
+    ]
+    
+
     # for each, download and process
+    num_sig_total = 0
     for ukbb_code in ukbb_codes:
         id_metadata = ukbb_manifest[ukbb_manifest["Phenotype Code"] == ukbb_code]
         if id_metadata.shape[0] > 1:
@@ -369,6 +428,15 @@ def main():
                 final_sumstats_file,
                 other_params="--N-col n_complete_samples --a1 ref --a2 alt --frq AF")
 
+        # TODO get sig snps in a BED file to compare to rules
+        sig_snps_file = "{}.sig.bed.gz".format(final_sumstats_file.split(".sumstats")[0])
+        if not os.path.isfile(sig_snps_file):
+            num_sig = get_sig_snps(final_sumstats_file, ukbb_annot_file, sig_snps_file)
+            num_sig_total += num_sig
+            if num_sig != 0:
+                print sig_snps_file
+                print num_sig
+        
         # run tests
         out_prefix = "{}/{}".format(results_dir, os.path.basename(final_sumstats_file).split(".ldsc")[0])
         run_ldsc = (
@@ -383,10 +451,32 @@ def main():
                 out_prefix,
                 ldsc_table_file,
                 weights_prefix)
-        print run_ldsc
-        os.system(run_ldsc)
-            
-    quit()
+        #print run_ldsc
+        #os.system(run_ldsc)
+
+        
+    # dermatitis - genome-wide genotyping array, illumina
+    gwas_dermatitis_sumstats = "{}/gwas.GCST003184.dermatitis.ldsc.sumstats.gz".format(sumstats_dir)
+    if not os.path.isfile(gwas_dermatitis_sumstats):
+        file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/PaternosterL_26482879_GCST003184/EAGLE_AD_no23andme_results_29072015.txt"
+        save_file = "{}/gwas.GCST003184.dermatitis.sumstats.gz".format(sumstats_orig_dir)
+        get_file = "wget -O - {} | gzip -c > {}".format(file_url, save_file)
+        os.system(get_file)
+        setup_sumstats_file(
+            save_file,
+            hapmap_snps_file,
+            gwas_dermatitis_sumstats,
+            other_params="--N-col AllEthnicities_N")
+        
+    # get sig snps in a BED file to compare to rules
+    sig_snps_file = "{}.sig.bed.gz".format(gwas_dermatitis_sumstats.split(".sumstats")[0])
+    if not os.path.isfile(sig_snps_file):
+        num_sig = get_sig_snps(gwas_dermatitis_sumstats, ukbb_annot_file, sig_snps_file)
+        num_sig_total += num_sig
+        if num_sig != 0:
+            print sig_snps_file
+            print num_sig
+
             
     # acne - confirmed genome-wide genotyping array, Affy
     gwas_acne_sumstats = "{}/gwas.GCST006640.acne.ldsc.sumstats.gz".format(sumstats_dir)
@@ -401,6 +491,61 @@ def main():
             gwas_acne_sumstats,
             other_params="--N-cas 1115 --N-con 4619 --ignore regional.analysis")
         
+    # get sig snps in a BED file to compare to rules
+    sig_snps_file = "{}.sig.bed.gz".format(gwas_acne_sumstats.split(".sumstats")[0])
+    if not os.path.isfile(sig_snps_file):
+        num_sig = get_sig_snps(gwas_acne_sumstats, ukbb_annot_file, sig_snps_file)
+        num_sig_total += num_sig
+        if num_sig != 0:
+            print sig_snps_file
+            print num_sig
+
+            
+    # get UKBB bmistats (from LDSC repo)
+    ukbb_bmi_sumstats = "{}/ukbb.alkesgroup.BMI.ldsc.sumstats.gz".format(sumstats_dir)
+    if not os.path.isfile(ukbb_bmi_sumstats):
+        file_url = "https://data.broadinstitute.org/alkesgroup/UKBB/body_BMIz.sumstats.gz"
+        #save_file = "{}/ukbb.ldsc_pheno.BMI.sumstats.gz".format(sumstats_orig_dir)
+        get_ukbb = "wget {} -O {}".format(
+            file_url,
+            ukbb_bmi_sumstats)
+        os.system(get_ukbb)
+        #setup_sumstats_file(save_file, hapmap_snps_file, ukbb_derm_sumstats)
+
+
+    # ==================================
+    # GLOBAL ANALYSIS WITH SIG SNPS
+    # ==================================
+
+    # first, look at sig SNPs within ATAC regions
+    
+    
+    # take all the sig BED files and merge
+
+    # then for each grammar bed file, run overlaps and collect results
+    
+
+    
+
+        
+
+    quit()
+
+    # ========================
+    # NOT USED
+    # ========================
+            
+    # get UKBB derm stats (from LDSC repo)
+    ukbb_derm_sumstats = "{}/ukbb.none.derm.ldsc.sumstats.gz".format(sumstats_dir)
+    if not os.path.isfile(ukbb_derm_sumstats):
+        file_url = "https://data.broadinstitute.org/alkesgroup/UKBB/disease_DERMATOLOGY.sumstats.gz"
+        save_file = "{}/ukbb.ldsc_pheno.dermatology.sumstats.gz".format(sumstats_orig_dir)
+        get_ukbb = "wget {} -O {}".format(
+            file_url,
+            save_file)
+        os.system(get_ukbb)
+        setup_sumstats_file(save_file, hapmap_snps_file, ukbb_derm_sumstats)
+    
     # alopecia - genome-wide genotyping array
     gwas_alopecia_sumstats = "{}/gwas.GCST006661.alopecia.ldsc.sumstats.gz".format(sumstats_dir)
     if not os.path.isfile(gwas_alopecia_sumstats):
@@ -415,19 +560,6 @@ def main():
             hapmap_snps_file,
             gwas_alopecia_sumstats,
             other_params="--N 52874 --snp Markername")
-        
-    # dermatitis - genome-wide genotyping array, illumina
-    gwas_dermatitis_sumstats = "{}/gwas.GCST003184.dermatitis.ldsc.sumstats.gz".format(sumstats_dir)
-    if not os.path.isfile(gwas_dermatitis_sumstats):
-        file_url = "ftp://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/PaternosterL_26482879_GCST003184/EAGLE_AD_no23andme_results_29072015.txt"
-        save_file = "{}/gwas.GCST003184.dermatitis.sumstats.gz".format(sumstats_orig_dir)
-        get_file = "wget -O - {} | gzip -c > {}".format(file_url, save_file)
-        os.system(get_file)
-        setup_sumstats_file(
-            save_file,
-            hapmap_snps_file,
-            gwas_dermatitis_sumstats,
-            other_params="--N-col AllEthnicities_N")
         
     # lupus - genome-wide genotyping array, illumina
     gwas_lupus_sumstats = "{}/gwas.GCST005831.lupus.ldsc.sumstats.gz".format(sumstats_dir)
@@ -523,39 +655,20 @@ def main():
     
     # vitiligo (4) GCST007112, GCST007111, GCST004785, GCST001509
     gwas_vitiligo_sumstats = "{}/gwas.GCST007112.vitiligo.ldsc.sumstats.gz"
-    
     gwas_vitiligo_sumstats = "{}/gwas.GCST007111.vitiligo.ldsc.sumstats.gz"
-
-
     gwas_vitiligo_sumstats = "{}/gwas.GCST004785.vitiligo.ldsc.sumstats.gz".format(sumstats_dir)
-
-    
     gwas_vitiligo_sumstats = "{}/gwas.GCST001509.vitiligo.ldsc.sumstats.gz".format(sumstats_dir)
     
-    
-    quit()
-    
-
-    sumstats_files = glob.glob("{}/*ldsc.sumstats.gz".format(sumstats_dir))
-    
-    if False:
-        run_ldsc = (
-            "python ~/git/ldsc/ldsc.py "
-            "--h2-cts {} "
-            "--ref-ld-chr {} "
-            "--out {} "
-            "--ref-ld-chr-cts {} "
-            "--w-ld-chr {}").format(
-                sum_stats_file,
-                baseline_model_prefix,
-                out_prefix,
-                condition_table_file,
-                weights_prefix)
-    
-
-    # make plots
-    
-    
+    # get UKBB derm stats (from LDSC repo)
+    ukbb_derm_sumstats = "{}/ukbb.none.derm.ldsc.sumstats.gz".format(sumstats_dir)
+    if not os.path.isfile(ukbb_derm_sumstats):
+        file_url = "https://data.broadinstitute.org/alkesgroup/UKBB/disease_DERMATOLOGY.sumstats.gz"
+        save_file = "{}/ukbb.ldsc_pheno.dermatology.sumstats.gz".format(sumstats_orig_dir)
+        get_ukbb = "wget {} -O {}".format(
+            file_url,
+            save_file)
+        os.system(get_ukbb)
+        setup_sumstats_file(save_file, hapmap_snps_file, ukbb_derm_sumstats)
 
     return
 

@@ -243,10 +243,12 @@ def main():
 
     # TODO: somewhere here, need to use ATAC_SIGNALS.NORM vs pwm scores key
     # and then fix dimension issues below
-    if "PWM" in args.pwm_scores_key:
+    if "pwm" in args.pwm_scores_key:
         print "NOTE REDUCING FOR RC PWMS"
         # adjust pwm scores IF rc pwms included
         # this is indicated by the len of pwm names relative to background (2x scores)
+        print pwm_scores.shape
+        print args.pwm_scores_key
         scores_tmp = np.reshape(
             pwm_scores, list(pwm_scores.shape)[:2] + [2, -1])
         pwm_scores = np.sum(scores_tmp, axis=-2) 
@@ -316,13 +318,16 @@ def main():
         # calculate the row-wise correlations
         pwm_rna_correlations = np.zeros((pwm_patterns.shape[0]))
         for i in xrange(pwm_rna_correlations.shape[0]):
-            corr_coef, pval = pearsonr(
+            #corr_coef, pval = pearsonr(
+            corr_coef, pval = spearmanr(
                 pwm_patterns_vals.values[i], rna_patterns_matched.values[i])
             pwm_rna_correlations[i] = corr_coef
 
         # filter for correlation
         if args.cor_thresh is not None:
-            good_cor = pwm_rna_correlations >= args.cor_thresh
+            #good_cor = pwm_rna_correlations >= args.cor_thresh
+            # EDITED HERE
+            good_cor = pwm_rna_correlations < -0.75 #>= args.cor_thresh
             pwm_patterns = pwm_patterns.iloc[good_cor]
             pwm_patterns_vals = pwm_patterns_vals.iloc[good_cor]
             rna_patterns_matched = rna_patterns_matched.iloc[good_cor]

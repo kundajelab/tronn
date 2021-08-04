@@ -128,7 +128,7 @@ def _get_adjusted_start_and_stop(
     if method == 'naive':
         # Just go from start of region to end of region
         mark = start
-        adjusted_stop = stop
+        adjusted_stop = stop - 100 # stop earlier, since naive method is half active area (200)
     elif method == 'plus_flank_negs':
         # Add 3 flanks to either side
         mark = max(start - num_flanks * stride, 0)
